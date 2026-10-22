@@ -25,13 +25,13 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The executable ends up in `build/src/app/`:
+The executable ends up in `build/src/app/` (on Windows in `build/`, next to the DLLs):
 
 | Platform | Output |
 |---|---|
 | Linux | `build/src/app/artilody-watts-trainer` |
 | macOS | `build/src/app/Artilody Watts Trainer.app` |
-| Windows | `build/src/app/Artilody Watts Trainer.exe` |
+| Windows | `build/Artilody Watts Trainer.exe` |
 
 The sample music in [`music/`](../music) is copied next to the executable (or into the macOS bundle) during the build.
 
@@ -143,7 +143,7 @@ Ubuntu 22.04 and older ship Qt 6.2, which is too old.
    ```
 4. Deploy the Qt runtime next to the executable:
    ```powershell
-   windeployqt --release --qmldir qml "build\src\app\Artilody Watts Trainer.exe"
+   windeployqt --release --qmldir qml "build\Artilody Watts Trainer.exe"
    ```
 
 The release installer is built with Inno Setup from [`packaging/windows/installer.iss`](../packaging/windows/installer.iss). Bluetooth LE requires Windows 10 or newer.

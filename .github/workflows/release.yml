@@ -207,8 +207,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $stage = 'dist/windows/Artilody Watts Trainer'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item -LiteralPath 'build/src/app/Artilody Watts Trainer.exe' -Destination $stage
-          Copy-Item -LiteralPath 'build/src/app/music' -Destination "$stage/music" -Recurse
+          # qt_standard_project_setup() puts executables in the build root on Windows
+          # (CMAKE_RUNTIME_OUTPUT_DIRECTORY); locate the app wherever it ended up.
+          $exe = Get-ChildItem -Path build -Recurse -File -Filter 'Artilody Watts Trainer.exe' | Select-Object -First 1
+          if (-not $exe) { throw "Artilody Watts Trainer.exe not found in build/" }
+          Write-Output "Found $($exe.FullName)"
+          Copy-Item -LiteralPath $exe.FullName -Destination $stage
+          Copy-Item -LiteralPath (Join-Path $exe.DirectoryName 'music') -Destination "$stage/music" -Recurse
           windeployqt --release --qmldir qml --no-compiler-runtime --no-translations --no-opengl-sw "$stage/Artilody Watts Trainer.exe"
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed ($LASTEXITCODE)" }
           # App-local MSVC runtime so the zip also runs without the VC++ redistributable.
