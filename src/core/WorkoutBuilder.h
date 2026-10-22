@@ -1,0 +1,137 @@
+#pragma once
+
+#include "Workout.h"
+
+#include <QAbstractListModel>
+#include <QVariantMap>
+#include <functional>
+
+namespace watt {
+
+class Database;
+class ProfileManager;
+
+// List model of the blocks of the workout being edited.
+class IntervalModel : public QAbstractListModel
+{
+    Q_OBJECT
+public:
+    enum Roles {
+        NameRole = Qt::UserRole + 1, TypeRole, TypeNameRole, DurationRole, DurationTextRole, WattsRole,
+        EndWattsRole, PercentRole, EndPercentRole, CadenceRole, RpeRole, ZoneRole, RampRole
+    };
+
+    explicit IntervalModel(ProfileManager *profiles, QObject *parent = nullptr);
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    const QVector<Interval> &intervals() const { return m_items; }
+    void setIntervals(const QVector<Interval> &items);
+    void update(int row, const Interval &interval);
+    void insert(int row, const Interval &interval);
+    void remove(int row);
+    void move(int from, int to);
+    void refreshAll();
+
+private:
+    ProfileManager *m_profiles;
+    QVector<Interval> m_items;
+};
+
+// Visual workout editor backend. Exposed to QML as "Builder".
+class WorkoutBuilder : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(qint64 workoutId READ workoutId NOTIFY workoutChanged)
+    Q_PROPERTY(QString name READ name WRITE setName NOTIFY workoutChanged)
+    Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY workoutChanged)
+    Q_PROPERTY(QString focus READ focus WRITE setFocus NOTIFY workoutChanged)
+    Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY workoutChanged)
+    Q_PROPERTY(IntervalModel *intervals READ intervals CONSTANT)
+    Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedChanged)
+    Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
+    Q_PROPERTY(int totalDurationSec READ totalDurationSec NOTIFY contentChanged)
+    Q_PROPERTY(int blockCount READ blockCount NOTIFY contentChanged)
+    Q_PROPERTY(QVariantList segments READ segments NOTIFY contentChanged)
+    Q_PROPERTY(int intensity READ intensity NOTIFY contentChanged)
+    Q_PROPERTY(int tss READ tss NOTIFY contentChanged)
+    Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
+    Q_PROPERTY(QStringList rpeOptions READ rpeOptions CONSTANT)
+    Q_PROPERTY(QStringList categories READ categories CONSTANT)
+    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+
+public:
+    WorkoutBuilder(Database *db, ProfileManager *profiles, QObject *parent = nullptr);
+
+    qint64 workoutId() const { return m_workout.id; }
+    QString name() const { return m_workout.name; }
+    void setName(const QString &name);
+    QString category() const { return m_workout.category; }
+    void setCategory(const QString &c);
+    QString focus() const { return m_workout.focus; }
+    void setFocus(const QString &f);
+    QString description() const { return m_workout.description; }
+    void setDescription(const QString &d);
+    IntervalModel *intervals() { return &m_model; }
+    int selectedIndex() const { return m_selected; }
+    void setSelectedIndex(int index);
+    QVariantMap selected() const;
+    int totalDurationSec() const;
+    int blockCount() const { return m_model.rowCount(); }
+    QVariantList segments() const;
+    int intensity() const;
+    int tss() const;
+    bool dirty() const { return m_dirty; }
+    QStringList rpeOptions() const;
+    QStringList categories() const;
+    QString lastError() const { return m_lastError; }
+
+    Workout currentWorkout() const;
+
+    Q_INVOKABLE void newWorkout();
+    Q_INVOKABLE bool loadWorkout(qint64 id);
+    Q_INVOKABLE qint64 save();     // returns id or -1
+
+    // Block editing (index = block row)
+    Q_INVOKABLE void addBlock(const QString &type);     // warmup, steady, intervals, recovery, cooldown, ramp
+    Q_INVOKABLE void addInterval();                     // steady block after the selection
+    Q_INVOKABLE void duplicateBlock(int index);
+    Q_INVOKABLE void removeBlock(int index);
+    Q_INVOKABLE void moveBlock(int from, int to);
+    Q_INVOKABLE void setBlockName(int index, const QString &name);
+    Q_INVOKABLE void setDuration(int index, int seconds);
+    Q_INVOKABLE bool setDurationText(int index, const QString &text);
+    Q_INVOKABLE void setWatts(int index, int watts);          // start power (and end for non-ramps)
+    Q_INVOKABLE void setEndWatts(int index, int watts);       // makes the block a ramp
+    Q_INVOKABLE void setPercent(int index, int percent);      // % FTP
+    Q_INVOKABLE void setCadence(int index, int rpm);
+    Q_INVOKABLE void setRpe(int index, int zone);             // -1 = auto
+    Q_INVOKABLE int blockAtSecond(int second) const;
+    // second argument only creates a QML binding dependency on the content
+    Q_INVOKABLE int blockStartSec(int index, int contentRevision = 0) const;
+
+signals:
+    void workoutChanged();
+    void selectedChanged();
+    void contentChanged();
+    void dirtyChanged();
+    void lastErrorChanged();
+    void saved(qint64 id);
+
+private:
+    void modify(int index, const std::function<void(Interval &)> &fn);
+    void markDirty();
+    void setError(const QString &e);
+
+    Database *m_db;
+    ProfileManager *m_profiles;
+    IntervalModel m_model;
+    Workout m_workout;
+    int m_selected = -1;
+    bool m_dirty = false;
+    QString m_lastError;
+};
+
+} // namespace watt

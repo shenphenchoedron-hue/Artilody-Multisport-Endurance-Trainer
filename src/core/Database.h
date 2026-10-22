@@ -1,0 +1,87 @@
+#pragma once
+
+#include "Profile.h"
+#include "Ride.h"
+#include "Track.h"
+#include "Workout.h"
+
+#include <QDateTime>
+#include <QObject>
+#include <QSqlDatabase>
+#include <QVariant>
+#include <optional>
+
+namespace watt {
+
+// Local SQLite storage. Everything the app needs is stored here, so the app
+// works fully offline. Each Database instance uses its own connection name,
+// which makes it easy to use in-memory databases in unit tests.
+class Database : public QObject
+{
+    Q_OBJECT
+public:
+    static constexpr int kSchemaVersion = 1;
+
+    explicit Database(QObject *parent = nullptr);
+    ~Database() override;
+
+    // Opens (and creates/migrates) the database. Use ":memory:" for tests.
+    bool open(const QString &path);
+    void close();
+    bool isOpen() const;
+    QString lastError() const { return m_lastError; }
+    static QString defaultPath();
+
+    // Seeds built-in workouts and a default profile when the DB is empty, and
+    // restores the built-in FTP test if it is missing.
+    void seedDefaults();
+    bool hasBuiltInFtpTest() const;
+
+    // Settings (key/value)
+    QVariant setting(const QString &key, const QVariant &defaultValue = {}) const;
+    void setSetting(const QString &key, const QVariant &value);
+
+    // Profiles
+    QVector<Profile> profiles() const;
+    std::optional<Profile> profile(qint64 id) const;
+    qint64 saveProfile(const Profile &profile);    // insert when id < 0, returns id or -1
+    bool deleteProfile(qint64 id);
+
+    // Workouts
+    QVector<Workout> workouts() const;
+    std::optional<Workout> workout(qint64 id) const;
+    qint64 saveWorkout(const Workout &workout);    // insert when id < 0
+    bool deleteWorkout(qint64 id);                 // refuses protected (built-in FTP test) workouts
+    bool setWorkoutFavorite(qint64 id, bool favorite);
+    bool incrementWorkoutUsage(qint64 id);
+
+    // Rides
+    qint64 saveRide(const RideRecord &ride, const QVector<Sample> &samples);
+    QVector<RideRecord> rides(qint64 profileId, const QDateTime &from = {}, int limit = -1) const;
+    std::optional<RideRecord> ride(qint64 id) const;
+    QVector<Sample> rideSamples(qint64 rideId) const;
+    bool deleteRide(qint64 id);
+
+    // Music
+    QVector<Playlist> playlists() const;
+    qint64 createPlaylist(const QString &name);
+    bool renamePlaylist(qint64 id, const QString &name);
+    bool deletePlaylist(qint64 id);
+    QVector<Track> playlistTracks(qint64 playlistId) const;
+    qint64 addTrack(qint64 playlistId, const Track &track);
+    bool removeTrack(qint64 trackId);
+    bool reorderTracks(qint64 playlistId, const QVector<qint64> &trackIdsInOrder);
+    bool updateTrackInfo(qint64 trackId, const QString &title, const QString &artist, qint64 durationMs);
+
+private:
+    bool exec(const QString &sql);
+    bool migrate();
+    void ensureBuiltInFtpTest();
+    QSqlDatabase db() const;
+    void setError(const QString &context, const QString &error) const;
+
+    QString m_connection;
+    mutable QString m_lastError;
+};
+
+} // namespace watt

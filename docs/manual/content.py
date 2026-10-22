@@ -1,0 +1,967 @@
+"""Text of the Artilody Watts Trainer user manual.
+
+Written against the v1.0.0 source code (qml/, src/core, src/ble, src/media,
+src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
+markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
+"""
+
+
+def K(key):
+    """Keyboard key."""
+    return f'<font name="Courier-Bold" backColor="#e3e8f5" color="#14204f">&nbsp;{key}&nbsp;</font>'
+
+
+def UI(label):
+    """A label as shown in the user interface."""
+    return f'<b>{label}</b>'
+
+
+def C(text):
+    """Inline code / file name."""
+    return f'<font name="Courier" color="#14204f">{text}</font>'
+
+
+def L(url, text=None):
+    return f'<link href="{url}" color="#2178ff"><u>{text or url}</u></link>'
+
+
+def build(s, env):
+    SHOTS, MOCKUPS, REPO = env["SHOTS"], env["MOCKUPS"], env["REPO"]
+    Z = s.zone_hex
+    RELEASES = REPO + "/releases/latest"
+
+    # =====================================================================
+    s.chapter("Introduction", new_page=True, lead=
+              "Artilody Watts Trainer is a free, open-source desktop app for structured, power-based indoor "
+              "cycling. It connects to your Bluetooth smart trainer and heart-rate sensor, controls the "
+              "trainer's resistance in ERG mode and records every ride locally on your computer.")
+
+    s.section("What the app does")
+    s.bullets([
+        f"{UI('Rides structured workouts')} – eight built-in workouts plus any number of your own, created in "
+        "the visual Workout Builder.",
+        f"{UI('Controls your smart trainer')} – in ERG mode the app sends the target power of every interval to "
+        "the trainer, which sets the resistance so that you produce exactly that power.",
+        f"{UI('Shows live data')} – power, cadence, heart rate, elapsed time, the workout profile and a "
+        "timeline of all intervals.",
+        f"{UI('Records and analyses')} – every second of every ride is stored. History shows totals, charts, "
+        "time in zones, Normalized Power, Intensity Factor and Training Stress Score, and can export CSV files.",
+        f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test calculates your Functional Threshold Power "
+        "and can update your profile and all training zones in one click.",
+        f"{UI('Plays music')} – a built-in player for your own audio files with playlists and favourites.",
+        f"{UI('Works offline')} – no account, no cloud, no tracking. All data is kept in a local SQLite "
+        "database.",
+    ])
+
+    s.section("Key concepts")
+    s.sub("Watts and FTP")
+    s.p("Power, measured in <b>watts (W)</b>, is the most direct measure of how hard you are working on the "
+        "bike. Unlike heart rate it responds instantly and is not affected by heat, fatigue or caffeine. "
+        "<b>FTP (Functional Threshold Power)</b> is the highest power you can sustain for roughly one hour. "
+        "All workouts in Artilody Watts Trainer are stored as a percentage of FTP, so when your FTP changes, "
+        "every workout target and every training zone is scaled automatically.")
+    s.sub("ERG mode and Free Ride")
+    s.p(f"In {UI('ERG mode')} the app tells the trainer which power to hold. If you pedal faster, the trainer "
+        "lowers the resistance; if you pedal slower, it increases the resistance – your power stays on target. "
+        f"In {UI('Free Ride')} the trainer does not follow the targets: it simulates riding on a flat road, "
+        "and you control the effort with your gears and cadence. Targets are still shown, so you can follow "
+        "them by feel. A ride without any workout is also called a Free Ride.")
+    s.sub("Power zones and RPE")
+    s.p("Training intensity is divided into six power zones, each with a colour that is used consistently in "
+        "charts, the timeline and the dashboard. Each zone also corresponds to a range on the RPE scale "
+        "(Rating of Perceived Exertion, 1–10), which tells you how hard an effort should feel:")
+    s.table(["Zone", "Name", "Default range", "RPE", "Feels"], [
+        ["Z1", "Recovery", "below 55 % FTP", "1", "Very easy"],
+        ["Z2", "Endurance", "55 – 75 % FTP", "2 – 3", "Easy"],
+        ["Z3", "Tempo", "75 – 87 % FTP", "4 – 6", "Moderate"],
+        ["Z4", "Sweet Spot", "87 – 94 % FTP", "7 – 8", "Vigorous"],
+        ["Z5", "Threshold", "94 – 105 % FTP", "9", "Very hard"],
+        ["Z6", "VO<sub>2</sub> Max", "above 105 % FTP", "10", "Max effort"],
+    ], [0.7, 1.4, 1.6, 0.8, 1.2], swatches=list(Z), keep=True)
+    s.p("The zone boundaries can be adjusted per profile (see chapter 4). Heart-rate zones are calculated "
+        "separately with the Karvonen method.")
+
+    s.section("System requirements")
+    s.table(["Platform", "Requirement"], [
+        ["Windows", "Windows 10 or 11, 64-bit (x64). Bluetooth LE requires Windows 10 or newer."],
+        ["macOS", "macOS 12 Monterey or newer, Apple Silicon or Intel (universal app)."],
+        ["Linux", "Ubuntu 24.04 LTS (amd64) or Debian 12 Bookworm (amd64). The app requires Qt 6.4 or newer, "
+                  "so Ubuntu 22.04 and older are not supported. Bluetooth requires the BlueZ service."],
+        ["Raspberry Pi", "Raspberry Pi OS (64-bit) Bookworm on a Raspberry Pi 3, 4, 5 or 400. The 32-bit "
+                         "edition is not supported. A Pi 4 or 5 is recommended for a smooth UI."],
+        ["Display", "Designed for 1584 × 992 pixels; the whole interface scales down uniformly on smaller "
+                    "windows. Minimum window size 800 × 480 (e.g. the official 7\" Raspberry Pi display)."],
+        ["Bluetooth", "A Bluetooth Low Energy (BLE, Bluetooth 4.0 or newer) adapter – built-in or USB."],
+    ], [1.1, 4.6])
+    s.sub("Supported devices")
+    s.bullets([
+        f"{UI('Smart trainers')} that implement the standard Bluetooth <b>Fitness Machine Service (FTMS)</b>. "
+        "Most current trainers do, for example Tacx NEO, Wahoo KICKR, Saris H3, Elite (Suito, Direto, …) and "
+        "Zwift Hub. ERG control requires a trainer that supports the FTMS <i>Set Target Power</i> command.",
+        f"{UI('Heart-rate sensors')} that use the standard Bluetooth <b>Heart Rate Service (HRS)</b>, for "
+        "example Polar H10, Garmin HRM-Dual/HRM-Pro or Wahoo TICKR straps and armbands.",
+    ])
+    s.warning("<b>ANT+ is not supported</b> – only Bluetooth LE. Older trainers that offer only a proprietary "
+              "Bluetooth protocol (no FTMS) cannot be controlled.")
+
+    # =====================================================================
+    s.chapter("Installation",
+              f"Download the file for your platform from the releases page: {L(RELEASES)}. "
+              "All packages contain the same version 1.0.0.")
+    s.table(["Platform", "File"], [
+        ["Windows 10/11 (64-bit), installer", C("ArtilodyWattsTrainer-1.0.0-windows-x64-setup.exe")],
+        ["Windows 10/11 (64-bit), portable ZIP", C("ArtilodyWattsTrainer-1.0.0-windows-x64.zip")],
+        ["macOS 12 or newer (Apple Silicon and Intel)", C("ArtilodyWattsTrainer-1.0.0-macOS-universal.dmg")],
+        ["Ubuntu 24.04 LTS (amd64)", C("artilody-watts-trainer_1.0.0_ubuntu24.04_amd64.deb")],
+        ["Debian 12 Bookworm (amd64)", C("artilody-watts-trainer_1.0.0_debian12_amd64.deb")],
+        ["Raspberry Pi OS 64-bit Bookworm (Pi 3/4/5/400)",
+         C("artilody-watts-trainer_1.0.0_raspberrypi-os-bookworm_arm64.deb")],
+    ], [2.3, 3.4])
+
+    s.section("Windows")
+    s.steps([
+        f"Download {C('ArtilodyWattsTrainer-1.0.0-windows-x64-setup.exe')} and run it. The installer creates a "
+        "Start menu entry and, if you choose, a desktop shortcut.",
+        f"Prefer not to install anything? Extract the ZIP file instead and start "
+        f"{C('Artilody Watts Trainer.exe')} from the extracted folder.",
+        f"<b>SmartScreen:</b> the app is not code-signed yet, so Windows may show <i>“Windows protected your "
+        f"PC”</i>. Click {UI('More info')} → {UI('Run anyway')}.",
+        f"Turn on Bluetooth under {UI('Settings → Bluetooth &amp; devices')}.",
+    ])
+
+    s.section("macOS")
+    s.steps([
+        f"Open the DMG and drag {UI('Artilody Watts Trainer')} onto the {UI('Applications')} folder.",
+        f"<b>Gatekeeper:</b> the app is ad-hoc signed but not notarized by Apple. The first time you open it, "
+        f"right-click (or Control-click) the app and choose {UI('Open')}, then confirm with {UI('Open')}.",
+        "If macOS reports that the app is “damaged” or still refuses to open it, run this command once in "
+        "Terminal:",
+    ])
+    s.code('xattr -cr "/Applications/Artilody Watts Trainer.app"')
+    s.p(f"<b>Bluetooth permission:</b> when macOS asks whether the app may use Bluetooth, click "
+        f"{UI('Allow')}. If you denied access by mistake, enable it again under "
+        f"{UI('System Settings → Privacy &amp; Security → Bluetooth')}. Without this permission the app can "
+        "only use the virtual devices; the connection log shows <i>“Bluetooth permission denied”</i>.")
+
+    s.section("Ubuntu 24.04 and Debian 12")
+    s.p("Download the matching .deb package and install it with apt, which also installs all required Qt 6 "
+        "libraries:")
+    s.code("sudo apt install ./artilody-watts-trainer_1.0.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04\n"
+           "sudo apt install ./artilody-watts-trainer_1.0.0_debian12_amd64.deb      # Debian 12")
+    s.p(f"Start {UI('Artilody Watts Trainer')} from the application menu or run {C('artilody-watts-trainer')} "
+        "in a terminal. Bluetooth needs the BlueZ service to be running:")
+    s.code("sudo systemctl enable --now bluetooth")
+
+    s.section("Raspberry Pi OS")
+    s.p("You need <b>Raspberry Pi OS (64-bit) Bookworm</b> on a Raspberry Pi 3, 4, 5 or 400. Install the arm64 "
+        "package:")
+    s.code("sudo apt update\n"
+           "sudo apt install ./artilody-watts-trainer_1.0.0_raspberrypi-os-bookworm_arm64.deb")
+    s.p("The built-in Bluetooth of the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure "
+        "Bluetooth is switched on in the desktop panel.")
+    s.tip("On small displays such as the official 7\" touch screen (800 × 480), maximise the window. The "
+          "interface is laid out for 1584 × 992 pixels and scales down uniformly, so every element stays in "
+          "place – only smaller. A Pi 4 or 5 gives the smoothest charts and animations.")
+
+    s.section("Uninstalling")
+    s.bullets([
+        f"Windows: {UI('Settings → Apps → Artilody Watts Trainer → Uninstall')}.",
+        "macOS: move the app from Applications to the Trash.",
+        f"Linux and Raspberry Pi: {C('sudo apt remove artilody-watts-trainer')}.",
+    ])
+    s.note("Your rides, profiles, workouts and settings are stored separately in your user folder (see "
+           "section 11.2) and are kept when you uninstall the app.")
+
+    s.section("First start")
+    s.p("On the very first start the app creates its database and fills it with:")
+    s.bullets([
+        "one rider profile (weight 68 kg, FTP 250 W, max HR 175 BPM, resting HR 58 BPM, preferred cadence "
+        "85 RPM, default mode ERG) – open the profile and enter your own name and values;",
+        "the eight built-in workouts (see Appendix A);",
+        "a music playlist called <i>Workout Mix</i> with the sample tracks shipped with the app;",
+        "a virtual trainer and a virtual heart-rate sensor, so you can try everything without hardware.",
+    ])
+    s.p("A good order for getting started:")
+    s.steps([
+        f"{UI('Connect your devices')} under {UI('Devices → Scan for Devices')} (chapter 5). Without hardware, "
+        f"connect {UI('Virtual Trainer')} and {UI('Virtual HR Sensor')}.",
+        f"{UI('Set up your profile')} – weight, FTP and heart-rate values (chapter 4). If you don't know your "
+        "FTP, ride the Ramp FTP Test first (chapter 8).",
+        f"{UI('Choose a workout')} under {UI('Workouts')}, or build your own in {UI('Builder')}.",
+        f"Choose {UI('ERG Mode')} or {UI('Free Ride')} and press {UI('Start Workout')}. Start pedaling – "
+        "the clock starts automatically.",
+        f"When you are done, press {UI('Stop')} and save the ride. Open {UI('History')} for the analysis.",
+    ])
+
+    # =====================================================================
+    s.chapter("The main window",
+              "The window consists of a navigation sidebar on the left, the current page in the middle and a "
+              "small top bar in the upper-right corner.")
+    s.figure(SHOTS / "dashboard.png",
+             "The main window with the Dashboard during a ride: sidebar (left), live metrics and charts "
+             "(centre), devices, ERG switch, controls and music player (right).")
+    s.section("Sidebar")
+    s.table(["Item", "Purpose"], [
+        [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
+        [UI("Workouts"), "The workout library: browse, search, preview and start workouts."],
+        [UI("Builder"), "The Workout Builder for creating and editing workouts."],
+        [UI("History"), "Recorded rides, analysis, time in zones and CSV export."],
+        [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
+        [UI("Profile"), "Opens the User Profile dialog for the current rider."],
+    ], [1.2, 4.5])
+    s.p("While a workout is armed or running, a status box appears at the bottom of the sidebar. It shows "
+        "<i>Waiting… / Start pedaling</i>, <i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
+        "current power. Click it to jump back to the Dashboard from any page.")
+    s.section("Top bar")
+    s.bullets([
+        f"{UI('Sun/moon icon')} – switches between the dark and the light theme. The app always starts in the "
+        "dark theme; the choice applies until you close the app.",
+        f"{UI('Gear icon')} – opens the Settings dialog (section 11.1).",
+        f"{UI('Avatar and name')} – opens the profile menu: a list of all profiles (name and FTP) to switch "
+        f"between, {UI('Edit profile…')} and {UI('New profile…')}. Switching and creating profiles is disabled "
+        "while a ride is running or paused.",
+    ])
+    s.section("Window size and scaling")
+    s.p("The interface is designed for 1584 × 992 pixels. The window opens at that size (or the available "
+        "screen size, whichever is smaller). If you make it smaller, the entire interface is scaled down "
+        "uniformly so the layout is always preserved; it is never scaled above 100 %. The minimum window "
+        "size is 800 × 480 pixels.")
+    s.p("Short messages (for example <i>“Ride saved – see History for the analysis”</i>) appear briefly as a "
+        "notification at the bottom of the window.")
+
+    # =====================================================================
+    s.chapter("Setting up your profile",
+              "Your profile tells the app how strong you are. FTP drives all power targets and power zones; "
+              "maximum and resting heart rate drive the heart-rate zones.")
+    s.section("Opening the profile")
+    s.p(f"Click {UI('Profile')} in the sidebar, or click your avatar in the top bar and choose "
+        f"{UI('Edit profile…')}. The {UI('User Profile')} dialog opens.")
+    s.figure(MOCKUPS / "muckup brugerprofil.png",
+             "The User Profile dialog (design mockup – the dialog in the app looks very similar). "
+             "In the app, a “Training zones ›” link below the fields expands the zone editor.",
+             width_frac=0.5, crop=(509, 227, 1030, 806))
+    s.section("Profile fields")
+    s.table(["Field", "Range in the dialog", "Notes"], [
+        ["Name", "–", "Must not be empty."],
+        ["Weight", "30 – 200 kg, steps of 0.5", "Used for W/kg (shown under the FTP field)."],
+        ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all workout targets."],
+        ["Max heart rate", "100 – 230 BPM", "Must be more than 20 BPM above the resting heart rate."],
+        ["Resting heart rate", "30 – 110 BPM", "Used together with max HR for the Karvonen zones."],
+        ["Preferred cadence", "50 – 130 RPM",
+         "Default cadence target on the dashboard when an interval has no cadence of its own."],
+        ["Default mode", "ERG or Free Ride", "Pre-selected ride mode in the workout preview."],
+    ], [1.4, 1.8, 3.0])
+    s.p(f"Click {UI('Save Profile')} to store the changes. If a value is invalid, the dialog stays open and "
+        "shows the reason in red (for example <i>“Max heart rate must be above resting heart rate”</i>). "
+        f"{UI('Cancel')} closes the dialog without saving.")
+    s.p("Changes to FTP and zones take effect immediately for the workout library, the Builder and the "
+        "Dashboard. A ride that is already running keeps the profile values it started with.")
+    s.sub("Avatar")
+    s.p("Click the round picture (camera icon) to choose a profile picture (PNG, JPG, JPEG, BMP or WebP). "
+        "Without a picture the first letter of your name is shown. The app remembers the location of the "
+        "image file rather than copying it, so keep the file where it is.")
+
+    s.section("Training zones")
+    s.p(f"Click {UI('Training zones ›')} to expand the zone editor on the right side of the dialog.")
+    s.sub("Power zones")
+    s.p("Each of the zones Z1–Z5 has an editable upper boundary in percent of FTP (20–200 %); the next zone "
+        "starts where the previous one ends, and Z6 covers everything above the Z5 boundary. Next to each zone "
+        "the resulting watt range for the FTP in the dialog is shown. The boundaries must increase from zone "
+        "to zone. "
+        f"{UI('Reset')} restores the default boundaries 55 / 75 / 87 / 94 / 105 %.")
+    s.table(["Zone", "% of FTP (default)", "Watts at FTP 250 W", "RPE"], [
+        ["Z1 Recovery", "0 – 55 %", "0 – 137 W", "1 Very Easy"],
+        ["Z2 Endurance", "55 – 75 %", "138 – 187 W", "2 – 3 Easy"],
+        ["Z3 Tempo", "75 – 87 %", "188 – 217 W", "4 – 6 Moderate"],
+        ["Z4 Sweet Spot", "87 – 94 %", "218 – 234 W", "7 – 8 Vigorous"],
+        ["Z5 Threshold", "94 – 105 %", "235 – 262 W", "9 Very Hard"],
+        ["Z6 VO<sub>2</sub> Max", "above 105 %", "263 W and more", "10 Max Effort"],
+    ], [1.5, 1.4, 1.5, 1.4], swatches=list(Z), keep=True)
+    s.sub("Heart-rate zones (Karvonen)")
+    s.p("Heart-rate zones are calculated from your heart-rate reserve (max HR − resting HR) with the Karvonen "
+        "formula: <i>zone limit = resting HR + percentage × (max HR − resting HR)</i>. They update live while you "
+        "edit the heart-rate fields and cannot be edited directly.")
+    s.table(["Zone", "% of heart-rate reserve", "Example (max 175, rest 58)"], [
+        ["Z1 Very Light", "50 – 60 %", "117 – 128 BPM"],
+        ["Z2 Light", "60 – 70 %", "128 – 140 BPM"],
+        ["Z3 Moderate", "70 – 80 %", "140 – 152 BPM"],
+        ["Z4 Hard", "80 – 90 %", "152 – 163 BPM"],
+        ["Z5 Maximum", "90 – 100 %", "163 – 175 BPM"],
+    ], [1.6, 1.9, 2.2], swatches=["#3d86fb", "#45d659", "#ffd21f", "#ff8a26", "#ff3b30"], keep=True)
+    s.p("A heart rate below 50 % of the reserve is shown as <i>“Below zone 1”</i> on the Dashboard.")
+
+    s.section("Multiple profiles")
+    s.p("Several riders can share one installation. Every profile has its own values, zones and ride history; "
+        "History always shows the rides of the current profile only.")
+    s.bullets([
+        f"<b>Create</b> – avatar menu → {UI('New profile…')}. The dialog starts with an empty name and the "
+        f"values of the current profile; click {UI('Create Profile')}. The new profile becomes the current one.",
+        "<b>Switch</b> – avatar menu → click a profile name.",
+        "<b>Delete</b> – open the profile and click the trash button next to Save Profile. It is only shown when "
+        "there is more than one profile and no ride is active. Deleting a profile also deletes all of its rides.",
+    ])
+    s.note("You cannot switch, create or delete profiles while a ride is running or paused. Stop the ride "
+           "first. Rides are always stored for the profile that was active when the ride started.")
+
+    # =====================================================================
+    s.chapter("Connecting devices",
+              "The Devices page finds and connects Bluetooth LE smart trainers and heart-rate sensors, and "
+              "helps you diagnose connection problems.")
+    s.figure(SHOTS / "devices.png",
+             "The Devices page with the virtual trainer and virtual heart-rate sensor connected.")
+    s.section("Scanning")
+    s.p(f"Press {UI('Scan for Devices')}. The app searches for Bluetooth LE devices for up to 12 seconds; press "
+        f"the button again ({UI('Scanning…')}) to stop early. The round arrow button next to it "
+        f"({UI('Refresh adapter')}) and {UI('Rescan')} start a new scan. The two status cards at the top show "
+        "the Bluetooth state (<i>Ready</i>, <i>Off</i> or <i>Unavailable</i>) and how many devices are connected.")
+    s.p("Only relevant devices are listed. A device is shown as a <b>smart trainer</b> if it advertises the "
+        "FTMS service, and as a <b>heart-rate sensor</b> if it advertises the Heart Rate Service. Devices that "
+        "do not advertise these services are recognised by typical names (for example KICKR, NEO, Tacx, Saris, "
+        "Elite, Direto, Suito, Zwift, Wahoo, Magene – or HRM, Polar, H10, TICKR, Coospo, Verity).")
+    s.tip("Wake your devices before scanning: pedal the trainer for a few turns and moisten/put on the "
+          "heart-rate strap. Most sensors stop advertising when idle.")
+
+    s.section("Available devices and connecting")
+    s.p(f"Found devices appear under {UI('Smart Trainers')} and {UI('Heart Rate Sensors')} (both sections can "
+        "be collapsed). Each row shows the name, connection state and protocol. Click "
+        f"{UI('Connect')} to connect; while connecting the button reads {UI('Cancel')}, and once connected "
+        f"{UI('Disconnect')}. Connected devices show live values: power and cadence for a trainer, heart rate "
+        "for a sensor.")
+    s.p("The gear button opens the device info: identifier (Bluetooth address), protocol, signal strength "
+        "(<i>Strong</i> ≥ −60 dBm, <i>Good</i> ≥ −75 dBm, otherwise <i>Weak</i>), status and type.")
+    s.bullets([
+        "A connected device is remembered as your <b>known</b> trainer or heart-rate sensor, so it can be "
+        "connected automatically next time.",
+        f"Pressing {UI('Disconnect')} forgets the device again, so it will not auto-connect until you connect "
+        "it manually.",
+        "Only one trainer and one heart-rate sensor can be connected at a time. Connecting another trainer "
+        "replaces the current one.",
+        "If no heart-rate sensor is connected but your trainer reports heart rate (some trainers pass on a "
+        "paired strap), the trainer's heart rate is used.",
+    ])
+    s.p("The Dashboard's <b>Devices</b> card summarises both connections (<i>Connected</i>, <i>Connecting</i>, "
+        "<i>Offline</i> or <i>Not paired</i>); click it to open the Devices page.")
+
+    s.section("Selected trainer and capabilities")
+    s.p(f"The {UI('Selected Trainer')} card shows the connected trainer, its state, protocol, signal strength "
+        "and the capabilities detected over FTMS: <i>Power</i>, <i>Cadence</i>, <i>ERG Control</i>, "
+        "<i>Free Ride</i> and <i>Heart Rate</i>. If <i>ERG Control</i> is missing, the trainer only reports data "
+        "and cannot be controlled by the app.")
+
+    s.section("Virtual devices")
+    s.p(f"{UI('Virtual Trainer')} (Simulated FTMS) and {UI('Virtual HR Sensor')} (Simulated HRS) are built-in "
+        "simulators marked with a <i>VIRTUAL</i> badge. They let you try every feature – workouts, ERG, "
+        "History, the FTP dialog – without any hardware. The virtual heart rate reacts to the simulated load "
+        "and uses the resting and maximum heart rate of your profile. Hide them with "
+        f"{UI('Show virtual devices')} (Connection Preferences or Settings). Rides with virtual devices are "
+        "recorded like any other ride.")
+
+    s.section("Connection preferences")
+    s.table(["Option (default: on)", "Effect"], [
+        [UI("Auto-connect known devices"),
+         "At start-up the app connects the remembered trainer and heart-rate sensor. For real devices it "
+         "starts a scan automatically and connects them as soon as they are found."],
+        [UI("Reconnect when signal is lost"),
+         "If a connection drops, the app retries automatically – after 2 s, then 4 s, 6 s … up to every 30 s. "
+         "After reconnecting, the last ERG target is sent again."],
+        [UI("Allow multiple sensors"),
+         "Trainer and heart-rate sensor can be connected at the same time. When switched off, only one device "
+         "can be connected; connecting another device disconnects the first."],
+        [UI("Show virtual devices"), "Lists the virtual trainer and heart-rate sensor."],
+        [UI("Bluetooth Adapter"),
+         "Chooses the adapter used for scanning and connecting: <i>Built-in</i> (system default) or a specific "
+         "adapter if your computer has several (for example a USB dongle)."],
+    ], [1.9, 4.0])
+    s.p("All preferences are saved in the database and kept between sessions.")
+
+    s.section("Bluetooth diagnostics and connection log")
+    s.p(f"{UI('Bluetooth Diagnostics')} shows the adapter name, the connection mode (Bluetooth Low Energy), the "
+        "trainer signal (<i>Stable</i> at −75 dBm or better, otherwise <i>Weak</i>) and the time of the last "
+        f"scan. {UI('Refresh')} starts a new scan.")
+    s.p(f"The {UI('Connection Log')} lists time-stamped events with a green (OK) or red (problem) dot – for "
+        "example <i>Bluetooth ready</i>, <i>Found …</i>, <i>FTMS capabilities detected</i>, <i>Trainer control "
+        "granted</i>, <i>Reconnecting to … in 4 s</i> or <i>Bluetooth permission denied</i>. "
+        f"{UI('Clear')} empties the log. The log is the first place to look when something does not work.")
+
+    s.section("Trainer control (ERG) test")
+    s.p(f"Use {UI('Trainer Control Test')} to check that the app can control your trainer before you start a "
+        f"workout. Set an {UI('ERG Target')} with − / + (steps of 10 W, 25–1500 W, default 150 W) and press "
+        f"{UI('Test ERG')}. While pedaling you should feel the resistance change; the button shows the measured "
+        f"power. Changing the target during the test sends the new value immediately. {UI('Stop Test')} ends the "
+        "test and returns the trainer to the current workout target, or to free ride if nothing is riding.")
+    s.note("The test is only available when a trainer is connected and supports control. If the log shows "
+           "<i>Trainer control refused</i>, another app (Zwift, a phone app, a watch) is probably connected "
+           "to the trainer – close it and try again.")
+
+    s.section("Connection troubleshooting")
+    s.bullets([
+        "Trainer or sensor not listed: wake it up, move it closer, make sure it is not connected to another app "
+        "or device (most BLE devices accept only one controlling connection), then scan again.",
+        "Check that Bluetooth is turned on and, on macOS, that the app has Bluetooth permission.",
+        "On Linux and Raspberry Pi check that BlueZ is running: " + C("systemctl status bluetooth") + ".",
+        "Values drop to 0 or “–”: power and cadence are reset after 3 seconds without new data, heart rate "
+        "after 6 seconds. This usually means a weak signal – reduce the distance or use a USB adapter with an "
+        "extension cable.",
+        "See chapter 12 for more solutions.",
+    ])
+
+    # =====================================================================
+    s.chapter("Choosing and riding a workout",
+              "Pick a workout in the library, choose ERG or Free Ride, and start pedaling – the Dashboard "
+              "guides you through every interval.")
+    s.figure(SHOTS / "workouts.png", "The Workouts library with the preview panel on the right.")
+    s.section("The workout library")
+    s.bullets([
+        f"{UI('Search')} – filters by name, focus and category as you type.",
+        f"{UI('Category')} – <i>All</i>, <i>Endurance</i>, <i>Intervals</i>, <i>Recovery</i>, <i>FTP Tests</i> or "
+        "<i>Custom</i>. Custom shows all your own workouts, whatever their category.",
+        f"{UI('Sort')} – <i>Most Popular</i> (most often started first; default), <i>Name A–Z</i>, "
+        "<i>Shortest</i>, <i>Longest</i>, <i>Favorites</i> (favourites first) or <i>Newest</i>.",
+        f"{UI('New Workout')} – opens an empty workout in the Builder.",
+    ])
+    s.p("Each card shows the category (your own workouts are marked <i>CUSTOM</i>), name, duration, a mini "
+        "profile chart and a summary such as <i>3 × 12 min @ 225 W • Intervals</i>. Watt values are always "
+        "calculated from your current FTP. Click the heart to mark a favourite. Click a card to select it, "
+        "double-click to open it in the Builder.")
+    s.p("Selecting a workout while nothing is riding also loads it on the Dashboard, so you can look at it "
+        "there before starting.")
+    s.sub("Workout preview")
+    s.p("The preview panel shows the name, category, duration and focus, a larger profile chart, and the "
+        f"tiles {UI('Duration')}, {UI('Intensity')} (average % of FTP) and {UI('Intervals')} (e.g. 3 × 12 min), "
+        f"followed by the description. The {UI('•••')} (more) menu offers:")
+    s.bullets([
+        f"{UI('Duplicate')} – creates your own copy named “… (copy)” that you can edit freely.",
+        f"{UI('Delete')} – removes one of your own workouts after confirmation. Rides already recorded with it "
+        "stay in History. Built-in workouts cannot be deleted; for the Ramp FTP Test the menu reads "
+        "<i>Delete (required for FTP tests)</i>.",
+    ])
+
+    s.section("Ride mode: ERG or Free Ride")
+    s.p(f"Under {UI('Ride Mode')} choose {UI('ERG Mode')} (<i>automatically match target power</i>) or "
+        f"{UI('Free Ride')} (<i>follow the workout at your own pace</i>). The default comes from your profile. "
+        "You can also switch ERG on or off during the ride on the Dashboard.")
+
+    s.section("Starting: the app waits for you to pedal")
+    s.steps([
+        f"Press {UI('Start Workout')}. The app switches to the Dashboard and the workout is <b>armed</b>: "
+        f"a blinking <i>“Start pedaling to begin”</i> label appears, the Elapsed Time card reads "
+        f"<i>“Waiting for pedaling”</i> and the button changes to {UI('Waiting for pedaling…')}.",
+        "While armed, the trainer is left in free-ride mode so you can spin up easily, and readings left over "
+        "from an earlier ride are cleared.",
+        "The workout starts automatically as soon as your <b>cadence reaches 20 RPM</b> – or, for trainers "
+        "that do not report cadence, as soon as your <b>power reaches 30 W</b>. If you are already pedaling "
+        "when you press Start Workout, it starts immediately.",
+        f"To start without waiting, press {UI('Start now')} in the Dashboard's Controls card.",
+    ])
+    s.p(f"While a workout is armed you can still choose a different workout and press {UI('Start Workout')} "
+        f"again – it replaces the armed one. {UI('Stop')} cancels the waiting; nothing is saved.")
+    s.p(f"{UI('Ride without workout ›')} (below the Start button) arms a Free Ride without any intervals in "
+        "the same way.")
+
+    s.section("The Dashboard in detail")
+    s.sub("Header")
+    s.p("The header shows a breadcrumb (<i>Indoor Cycling › focus of the workout</i>), the workout name and a "
+        "summary line such as <i>3 × 12 min @ 225 W • Sweet Spot • 56 min total</i>.")
+    s.sub("Metric cards")
+    s.table(["Card", "Shows"], [
+        [UI("Power"), "Current power in watts. The bar is coloured by your current power zone. Footer: the "
+                      "target power and your deviation from it (e.g. <i>+2 W</i>)."],
+        [UI("Cadence"), "Current cadence in RPM. Footer: the target range ±5 RPM around the interval's cadence, "
+                        "or around your preferred cadence if the interval has none."],
+        [UI("Heart Rate"), "Current heart rate in BPM, or “–” without data. The bar is coloured by heart-rate "
+                           "zone; the footer shows the zone and its range, <i>Below zone 1</i> or <i>No sensor "
+                           "data</i>."],
+        [UI("Elapsed Time"), "Workout time and the total duration (<i>of 56:00</i>)."],
+    ], [1.2, 4.6])
+    s.sub("Workout Profile chart")
+    s.p("The chart shows the target power of every interval as bars coloured by RPE zone (legend: "
+        "<i>RPE zones 1, 2–3, 4–6, 7–8, 9, 10</i>), your actual power as it is recorded, and your heart-rate "
+        "curve in magenta on the right-hand axis. A vertical cursor marks your position, with a label showing "
+        "your current power. In a Free Ride the time axis grows in 10-minute steps.")
+    s.sub("Workout Timeline")
+    s.p("Below the chart, every interval is shown as a coloured block with its duration, name and target "
+        "watts (a range for ramps); the current interval is highlighted. The header of the card contains:")
+    s.bullets([
+        f"{UI('− 100 % +')} – the <b>intensity</b> control. Each click makes all targets 5 % easier or harder, "
+        "from 50 % to 150 %. The adjustment applies immediately (also to the trainer in ERG mode), is recorded "
+        "in the ride's target power and is reset when you start a new ride.",
+        f"{UI('Skip')} – jumps to the start of the next interval (only during a ride). The skipped time is not "
+        "recorded. Skipping the last interval finishes and saves the workout.",
+        f"{UI('Edit Workout')} – opens the workout in the Builder.",
+        f"{UI('Add Interval')} – opens the Builder to add blocks (disabled during a ride).",
+    ])
+    s.p("A progress bar with elapsed and total time is shown at the bottom.")
+    s.sub("Right column")
+    s.bullets([
+        f"{UI('Workout Details')} – opens a dialog with the description and a list of all intervals with their "
+        "start time, duration and target.",
+        f"{UI('Devices')} – connection status of trainer and heart-rate sensor.",
+        f"{UI('ERG Mode')} switch – turns trainer control on or off at any time during a workout (disabled in a "
+        "Free Ride). The text below explains the current mode.",
+        f"{UI('Controls')} – {UI('Start')} / {UI('Start now')} / {UI('Pause')} / {UI('Resume')} and "
+        f"{UI('Stop')}.",
+        f"{UI('Music Player')} – see chapter 10.",
+    ])
+
+    s.section("Pause, resume and stop")
+    s.p(f"{UI('Pause')} stops the clock and the recording. <b>While paused, ERG is released</b> – the trainer "
+        "returns to free ride so that it does not hold a high resistance while you stand still. "
+        f"{UI('Resume')} continues the workout and sends the current target to the trainer again.")
+    s.p(f"{UI('Stop')} opens the <i>Finish workout?</i> dialog:")
+    s.bullets([
+        f"{UI('Save &amp; Finish')} – ends the ride and saves it to History.",
+        f"{UI('Discard')} – ends the ride without saving.",
+        f"{UI('Cancel')} – continue riding.",
+    ])
+    s.p("When you reach the end of a workout it is finished and <b>saved automatically</b> (<i>“Workout "
+        "complete – ride saved to History”</i>). After a ride, the trainer is always returned to free ride.")
+    s.warning("Rides shorter than <b>30 seconds</b> of recorded time are not saved (<i>“Ride too short to "
+              "save”</i>).")
+    s.sub("Keyboard shortcut")
+    s.p(f"On the Dashboard, {K('Space')} pauses and resumes the ride. While a workout is waiting for pedaling, "
+        f"{K('Space')} starts it immediately (like Start now); when nothing is armed, it starts the loaded "
+        "workout immediately. The shortcut is inactive on other pages and while the profile dialog or the "
+        "FTP result dialog is open.")
+
+    s.section("Free ride without a workout")
+    s.p(f"Choose {UI('Ride without workout ›')} on the Workouts page. The Dashboard shows <i>Free Ride – ride at "
+        "your own pace without structured intervals</i>; there are no targets, ERG is unavailable and the "
+        "trainer simulates a flat road. Power, cadence and heart rate are still recorded, and the ride is saved "
+        "under the name <i>Free Ride</i>. A free ride runs until you press Stop.")
+
+    s.section("What is recorded")
+    s.p("Once per second the app records your <b>power</b>, <b>cadence</b>, <b>heart rate</b> and the <b>target "
+        "power</b> actually requested (including any intensity adjustment; 0 in a free ride). With the ride "
+        "it stores the profile, workout name, start time, number of blocks, mode (ERG or Free Ride, as set "
+        "at the end of the ride) and the FTP at the start. Statistics are calculated with the FTP and zones "
+        "your profile had when the ride started.")
+
+    # =====================================================================
+    s.chapter("Workout Builder",
+              "Create your own workouts from blocks, or adapt an existing one. Targets are stored as a "
+              "percentage of FTP, so your workouts grow with you.")
+    s.figure(SHOTS / "builder.png",
+             "The Workout Builder: timeline chart and block list (left), interval settings and summary (right).")
+    s.section("Creating and opening workouts")
+    s.bullets([
+        f"<b>New workout:</b> {UI('Workouts → New Workout')}. It starts as <i>New Workout</i> (category "
+        "Intervals) with three blocks: a 10-minute warm-up, a 12-minute sweet-spot interval and a 5-minute "
+        "cool-down.",
+        f"<b>Edit a workout:</b> double-click it in the library, choose {UI('Edit')} in the preview, or "
+        f"{UI('Edit Workout')} on the Dashboard.",
+    ])
+    s.p("At the top of the page you enter the <b>workout name</b> and choose the <b>category</b> (Endurance, "
+        "Intervals, Recovery or FTP Tests).")
+    s.note("A workout in the <i>FTP Tests</i> category is treated as an FTP test: when you finish it, the app "
+           "estimates your FTP (chapter 8).")
+
+    s.section("Adding blocks")
+    s.p(f"The {UI('Add Block')} panel offers six presets. {UI('Add Interval')} below the block list adds a "
+        "Steady block.")
+    s.table(["Preset", "Inserted", "Default"], [
+        ["Warm Up", "always at the start", "10:00, ramp 40 → 60 % FTP"],
+        ["Steady", "after the selected block", "10:00 at 70 % FTP, cadence = your preferred cadence"],
+        ["Intervals", "after the selected block",
+         "a set of 3 × (5:00 <i>Interval</i> at 105 % FTP, cadence 95 + 3:00 <i>Recovery</i> at 55 %)"],
+        ["Recovery", "after the selected block", "5:00 at 55 % FTP"],
+        ["Cool Down", "always at the end", "5:00, ramp 55 → 35 % FTP"],
+        ["Ramp", "after the selected block", "10:00, ramp 50 → 100 % FTP"],
+    ], [1.0, 1.6, 3.2], swatches=[Z[0], Z[1], Z[3], Z[2], Z[0], Z[5]])
+    s.p("If no block is selected, new blocks are added at the end.")
+
+    s.section("Interval settings")
+    s.p(f"Select a block in the list or click it in the timeline chart. {UI('Interval Settings')} shows its "
+        "name (click to rename) and these fields, each with − / + buttons and direct input:")
+    s.table(["Field", "Description"], [
+        [UI("Duration"), "Type <i>mm:ss</i> (e.g. 12:00) or <i>h:mm:ss</i>; a plain number means minutes. "
+                         "− / + change it by 15 s (up to 2 minutes) or 30 s. Range 5 seconds to 6 hours."],
+        [UI("Target Power (W)"), "Target in watts (steps of 5 W). It is converted to % of your current FTP."],
+        [UI("Start / End Power (W)"),
+         "For ramps, warm-ups and cool-downs: the power at the start and at the end of the block. The target "
+         "changes linearly between the two."],
+        [UI("% FTP"), "The same target as a percentage of FTP (steps of 1 %, up to 400 %). Watts and % FTP are "
+                      "two views of one value."],
+        [UI("Cadence (RPM)"), "Optional cadence target for the block (“–” = none; the Dashboard then uses your "
+                              "preferred cadence)."],
+        [UI("RPE"), "<i>Auto (from power)</i> colours the block by the power zone of its target. Choose a "
+                    "fixed RPE (1 Very Easy … 10 Max Effort) to override the colour and zone shown."],
+    ], [1.5, 4.3])
+    s.tip("A Steady, Recovery or Interval block becomes a ramp only if it is created as one. To build a "
+          "progressive block, add a Ramp preset and set its start and end power.")
+
+    s.section("Timeline chart and block list")
+    s.p(f"The {UI('Workout Timeline')} chart shows the whole workout with total duration and number of blocks. "
+        f"Use {UI('View:')} to switch the vertical axis between {UI('Power (Watts)')} and {UI('% FTP')}. Click "
+        "anywhere in the chart to select the block at that time.")
+    s.p("In the block list, drag a block by its grip handle to a new position; a marker shows where it will be "
+        "dropped. The copy button duplicates a block (inserted right after it) and the trash button deletes it.")
+
+    s.section("Summary, preview and saving")
+    s.p(f"{UI('Workout Summary')} shows the average intensity (% FTP), the estimated TSS, the total duration "
+        f"and the number of blocks. {UI('Preview')} opens a large chart of the workout with a "
+        f"{UI('Save Workout')} button.")
+    s.p(f"Click {UI('Save Workout')} to store the workout (a dot – <i>Save Workout •</i> – indicates unsaved "
+        "changes). A workout needs a name and at least one block. After saving, the workout is selected in "
+        "the library.")
+    s.note("Built-in workouts are never overwritten. When you save changes to a built-in workout, the app "
+           "saves them as a <b>new personal copy</b> and leaves the original untouched.")
+
+    # =====================================================================
+    s.chapter("FTP test",
+              "The built-in Ramp FTP Test estimates your FTP in about 15–25 minutes. Repeat it every 4–8 "
+              "weeks to keep your zones accurate.")
+    s.section("The Ramp FTP Test protocol")
+    s.table(["Block", "Duration", "Target"], [
+        ["Warm Up", "5:00", "40 → 45 % FTP"],
+        ["Ramp", "20:00", "50 → 150 % FTP, rising continuously by 5 % of FTP per minute"],
+    ], [1.2, 1.0, 3.6])
+    s.p("With an FTP of 250 W, the ramp starts at 125 W and would end at 375 W. Almost nobody reaches the end – "
+        "the test is over when you can no longer hold the target.")
+
+    s.section("How to perform the test")
+    s.steps([
+        "Be rested. Set up a fan, have water ready and make sure the trainer is calibrated if it requires it.",
+        f"Select {UI('Ramp FTP Test')} (category <i>FTP Tests</i>). <b>ERG mode</b> is recommended: the trainer "
+        "then raises the power for you.",
+        f"Press {UI('Start Workout')} and start pedaling.",
+        "Ride the warm-up easily, then follow the ramp. Keep a steady cadence.",
+        f"When you cannot keep the cadence or the target any longer, press {UI('Stop')} and choose "
+        f"{UI('Save &amp; Finish')}. If you ride to the end, the ride is saved automatically.",
+    ])
+    s.warning("An FTP test is a maximal effort. Do not perform it if you are ill or have health concerns, and "
+              "consult a doctor if in doubt.")
+
+    s.section("How the FTP is estimated")
+    s.p("The app finds your <b>best 1-minute average power</b> during the ride (rolling 60-second window) and "
+        "calculates:")
+    s.p('<para alignment="center"><font size="12"><b>FTP = 0.75 × best 1-minute power</b></font>'
+        '<br/><font color="#5b6485">rounded to whole watts</font></para>')
+    s.p("The result is only offered when it is plausible:")
+    s.bullets([
+        "the ride was saved (at least 30 seconds) and contains at least <b>5 minutes</b> of recorded data;",
+        "the estimate lies within the valid FTP range of <b>50–600 W</b>;",
+        "the ride belongs to a workout in the <i>FTP Tests</i> category;",
+        "the current profile is still the one that rode the test.",
+    ])
+
+    s.section("The “FTP Test Complete” dialog")
+    s.p("After a successful test the <i>FTP Test Complete</i> dialog opens. It shows the <b>Estimated FTP</b> "
+        "(“Based on 75 % of your best 1-minute power (… W)”) and three tiles: <b>Current FTP</b>, "
+        "<b>Change</b> (in watts and percent) and <b>New W/kg</b>.")
+    s.bullets([
+        f"{UI('Update FTP')} – saves the new FTP to your profile. Power zones and all workout targets are "
+        "recalculated immediately (<i>“FTP updated to … W – zones and workouts adjusted”</i>).",
+        f"{UI('Keep current')} – closes the dialog without changes.",
+    ])
+    s.p("Because zones are stored as percentages of FTP, you do not need to edit them after an update.")
+
+    s.section("Using an earlier test from History")
+    s.p(f"In {UI('History')}, select an FTP-test ride and click {UI('View Details')}. For FTP tests the "
+        f"details additionally show {UI('Best 1 min')} and {UI('Estimated FTP')}. Click {UI('Use as FTP')} to "
+        "open the same dialog and apply that result to your profile.")
+
+    # =====================================================================
+    s.chapter("History & Analysis",
+              "Every saved ride appears in History with a full analysis. Only rides of the current profile "
+              "are shown.")
+    s.figure(SHOTS / "history.png", "The History &amp; Analysis page.")
+    s.section("Period and totals")
+    s.p("Choose the period in the selector at the top: <i>Last 7 days</i>, <i>Last 30 days</i> (default), "
+        "<i>Last 90 days</i>, <i>Last 12 months</i> or <i>All time</i>. Periods count whole days including today. "
+        f"The tiles show {UI('Total Rides')}, {UI('Training Time')}, {UI('Avg Power')} and "
+        f"{UI('Total Energy')} (kJ) for that period.")
+    s.section("Selected ride, ride list and charts")
+    s.bullets([
+        f"{UI('Selected Workout')} – a chart of the selected ride with <i>Target Power</i>, <i>Actual Power</i> and "
+        "<i>Heart Rate</i>, and a line with date, duration, number of blocks and mode. After a ride, the new "
+        "ride is selected automatically.",
+        f"{UI('Recent Workouts')} – date, workout, duration and average power. Click a row to select the ride; "
+        f"{UI('View All')} / {UI('Show Less')} toggles between recent and all rides in the period.",
+        f"{UI('Weekly Training Time')} – hours ridden per weekday (Monday–Sunday) within the period.",
+        f"{UI('Power Zones')} – time and share of time spent in each power zone during the period.",
+        f"{UI('Selected Workout Details')} – average and maximum heart rate, Normalized Power and average "
+        "cadence of the selected ride.",
+    ])
+    s.section("Ride details")
+    s.p(f"{UI('View Details')} opens a dialog with date, start time and duration, and these values:")
+    s.table(["Value", "Meaning"], [
+        ["Avg Power / Max Power", "Mean and highest one-second power. Seconds without pedaling count as 0 W."],
+        ["Normalized (NP)", "Normalized Power – see below."],
+        ["Energy", "Mechanical work in kilojoules (sum of watts per second ÷ 1000). Roughly equal to the food "
+                   "energy burned in kcal."],
+        ["Intensity (IF)", "Intensity Factor = NP ÷ FTP."],
+        ["TSS", "Training Stress Score – see below."],
+        ["Avg / Max HR", "Mean and highest heart rate (seconds without data are ignored)."],
+        ["Avg Cadence", "Mean cadence while pedaling (zero cadence is ignored)."],
+        ["Best 1 min, Estimated FTP", "Only for FTP-test rides (chapter 8)."],
+    ], [1.6, 4.2])
+    s.p("A <b>Time in zones</b> bar shows how the ride was distributed across the six power zones. Buttons: "
+        f"{UI('Delete ride')}, {UI('Use as FTP')} (FTP tests only), {UI('Export CSV')} and {UI('Close')}.")
+    s.sub("NP, IF and TSS explained")
+    s.bullets([
+        "<b>Normalized Power (NP)</b> estimates the power you could have held at a constant output for the same "
+        "physiological cost. It is calculated from 30-second rolling averages of power, raised to the 4th power, "
+        "averaged, and the 4th root taken. Rides shorter than 30 seconds use simple average power.",
+        "<b>Intensity Factor (IF)</b> = NP ÷ FTP. 0.75 is an endurance ride, about 0.9 a hard interval session, "
+        "1.0 equals a one-hour all-out effort.",
+        "<b>Training Stress Score (TSS)</b> = duration (s) × NP × IF ÷ (FTP × 3600) × 100. One hour at FTP "
+        "gives 100 TSS.",
+    ])
+    s.p("All three use the FTP stored with the ride (your FTP when the ride started). The Builder and the "
+        "library show an <i>estimated</i> TSS calculated from the workout targets.")
+
+    s.section("Exporting CSV")
+    s.p(f"Click {UI('Export CSV')} at the top of the page (or in the ride details) and choose:")
+    s.bullets([
+        f"{UI('Selected ride (per second)')} – suggested file name "
+        f"{C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.csv')}",
+        f"{UI('All rides in range (summary)')} – suggested file name {C('watt-history-YYYY-MM-DD.csv')}",
+    ])
+    s.p("The save dialog opens in your Documents folder. Files are UTF-8, comma-separated, with a header row.")
+    s.sub("Per-second file")
+    s.p(f"Three comment lines ({C('# workout,…')}, {C('# started,…')} with ISO date/time, {C('# ftp,…')}) are "
+        "followed by one row per second:")
+    s.table(["Column", "Content"], [
+        [C("seconds"), "Seconds since start (0, 1, 2, …)"],
+        [C("elapsed"), "Elapsed time as hh:mm:ss"],
+        [C("power_w"), "Power in watts"],
+        [C("target_w"), "Requested target power in watts (0 in a free ride)"],
+        [C("cadence_rpm"), "Cadence in RPM"],
+        [C("heart_rate_bpm"), "Heart rate in BPM (0 = no data)"],
+    ], [1.6, 4.2])
+    s.sub("Summary file")
+    s.p("One row per ride in the selected period:")
+    s.table(["Column", "Content"], [
+        [C("date"), "Start date and time (ISO 8601)"],
+        [C("workout"), "Workout name"],
+        [C("duration_s"), "Recorded duration in seconds"],
+        [C("mode"), "ERG or Free Ride"],
+        [C("avg_power_w") + ", " + C("max_power_w") + ", " + C("normalized_power_w"), "Average, maximum and "
+                                                                                       "normalized power"],
+        [C("avg_hr_bpm") + ", " + C("max_hr_bpm"), "Average and maximum heart rate"],
+        [C("avg_cadence_rpm"), "Average cadence"],
+        [C("energy_kj"), "Energy in kJ"],
+        [C("intensity_factor"), "IF (3 decimals)"],
+        [C("tss"), "Training Stress Score"],
+        [C("ftp_w"), "FTP used for the ride"],
+    ], [2.6, 3.2])
+    s.section("Deleting rides")
+    s.p(f"In the ride details, click {UI('Delete ride')} and confirm. The ride and all its recorded data are "
+        "removed permanently. Deleting a workout from the library does <i>not</i> delete its rides.")
+
+    # =====================================================================
+    s.chapter("Music player",
+              "Play your own music while you ride – from the Dashboard, without leaving the app.")
+    s.section("The player card")
+    s.p(f"The {UI('Music Player')} card on the Dashboard shows the album art (when the file contains it), "
+        "title and artist, a heart button, previous / play-pause / next, a position bar, a mute button and a "
+        f"volume slider (default 70 %, remembered). {UI('Up Next')} lists the next up to three songs; click one "
+        "to play it. The playlist icon in the card header opens the music library.")
+    s.p("Title and artist are read from the file's tags. Without tags, a file name of the form "
+        f"{C('Artist - Title.mp3')} is split into artist and title; otherwise the file name is used.")
+    s.section("Music library and playlists")
+    s.bullets([
+        "The left column lists your playlists with the number of songs; click one to open it.",
+        f"Type a name in {UI('New playlist name')} and click {UI('Create')}. The trash button deletes the "
+        "current playlist.",
+        f"{UI('Add Files')} adds selected audio files; {UI('Add Folder')} adds all supported files in a folder "
+        "and its sub-folders (sorted by name).",
+        f"{UI('Shuffle')} plays the playlist in random order; {UI('Repeat playlist')} (default on) starts again "
+        "after the last song.",
+        "For each song: play, move up, move down and remove from the playlist.",
+    ])
+    s.p("<b>Favourites:</b> the heart button on the player card adds the current song to a playlist called "
+        "<i>Favorites</i> (created automatically) or removes it again.")
+    s.p("<b>Supported formats:</b> MP3, M4A, AAC, FLAC, WAV, OGG, Opus and WMA. Playback uses the operating "
+        "system's media framework, so whether a format actually plays can depend on the platform (WMA, for "
+        "example, is typically only available on Windows).")
+    s.section("Default playlist")
+    s.p("On first start the app creates the playlist <i>Workout Mix</i> and fills it with up to 200 supported "
+        "files from the first folder that contains music: the sample music shipped with the app (two tracks) "
+        "or, if none is found, your system Music folder. If you delete the last playlist, an empty "
+        "<i>Workout Mix</i> is created again.")
+    s.note("Playlists store links to your files – the files are not copied. If you move or delete a file, the "
+           "player reports <i>“File not found”</i>; remove it and add it again from its new location.")
+
+    # =====================================================================
+    s.chapter("Settings & data")
+    s.section("Settings dialog")
+    s.p("Click the gear icon in the top bar. The Settings dialog contains:")
+    s.bullets([
+        f"{UI('Dark theme')} – same as the sun/moon button.",
+        f"{UI('Show virtual devices')} and {UI('Auto-connect known devices')} – same as in Connection "
+        "Preferences on the Devices page.",
+        "The full path of the database file (<i>“All data is stored locally (offline) in SQLite”</i>).",
+        f"The app version. {UI('Done')} closes the dialog.",
+    ])
+    s.section("Where your data is stored")
+    s.p(f"Everything – profiles, workouts, rides with per-second data, playlists and settings – is stored in "
+        f"a single SQLite file named {C('watt-trainer.sqlite')} in the standard application-data folder of "
+        "your user account (organisation <i>Artilody</i>, application <i>Watt Trainer</i>):")
+    s.table(["System", "Default location"], [
+        ["Windows", C("%APPDATA%\\Artilody\\Watt Trainer\\watt-trainer.sqlite") + "<br/>(usually "
+         + C("C:\\Users\\&lt;name&gt;\\AppData\\Roaming\\…") + ")"],
+        ["macOS", C("~/Library/Application Support/Artilody/Watt Trainer/watt-trainer.sqlite")],
+        ["Linux / Raspberry Pi", C("~/.local/share/Artilody/Watt Trainer/watt-trainer.sqlite")],
+    ], [1.4, 4.4])
+    s.p("The exact path on your computer is always shown in the Settings dialog.")
+    s.sub("Using a different database file")
+    s.p(f"Set the environment variable {C('WATT_DB_PATH')} to the full path of a database file before starting "
+        "the app; it will then use (or create) that file instead. Example for macOS/Linux:")
+    s.code('WATT_DB_PATH="$HOME/watt-test.sqlite" artilody-watts-trainer')
+    s.section("Backup and restore")
+    s.steps([
+        "Close the app.",
+        f"Copy {C('watt-trainer.sqlite')} from the folder shown in Settings to a safe place (USB drive, cloud "
+        "folder, another computer).",
+        "To restore, close the app and copy the backup back to the same folder under the same name.",
+    ])
+    s.tip("You can move your complete training history to a new computer the same way. Music files and "
+          "avatar pictures are referenced by path and must be copied separately.")
+    s.section("Offline and privacy")
+    s.p("Artilody Watts Trainer runs fully offline: no account, no cloud, no telemetry or analytics. "
+        "The app only talks to your Bluetooth devices. Your data leaves your computer only when you export a "
+        "CSV file or copy the database yourself.")
+
+    # =====================================================================
+    s.chapter("Troubleshooting & FAQ")
+    faq = [
+        ("My trainer is not found.",
+         "Make sure it is an FTMS (Bluetooth LE) trainer – ANT+-only and proprietary-protocol trainers are not "
+         "supported. Wake it by pedaling, disconnect it from other apps and devices (Zwift, phone apps, bike "
+         "computers), check that Bluetooth is on (and, on macOS, that the app has Bluetooth permission), then "
+         "press Scan for Devices. Look at the Connection Log for errors."),
+        ("ERG does not change the resistance.",
+         "Check that the ERG Mode switch on the Dashboard is on and that the ride is running (ERG is released "
+         "while waiting, paused and in Free Ride). Check that the trainer lists <i>ERG Control</i> under "
+         "Capabilities, and try the Trainer Control Test. A log entry <i>Trainer control refused</i> means "
+         "another app holds control of the trainer. Some trainers react with a delay of a few seconds."),
+        ("Heart rate shows “–”.",
+         "No heart-rate data has arrived for 6 seconds. Moisten the strap electrodes, make sure the strap is "
+         "connected on the Devices page, and that it is not paired exclusively to a watch or phone. Replace "
+         "the battery if the sensor connects but drops out."),
+        ("Power or cadence drop to 0 for a moment.",
+         "Values are reset after 3 seconds without data, typically because of a weak Bluetooth signal. Reduce "
+         "the distance, avoid metal obstacles and 2.4 GHz interference, or use a USB Bluetooth adapter with an "
+         "extension cable and select it under Bluetooth Adapter."),
+        ("The workout does not start.",
+         "An armed workout waits until your cadence reaches 20 RPM (or power 30 W). If your trainer reports "
+         "neither, press Start now or Space."),
+        ("My ride was not saved.",
+         "Rides with less than 30 seconds of recorded time are not saved, and Discard deletes the ride. Rides "
+         "are saved for the profile that was active when the ride started."),
+        ("The FTP dialog did not appear after my test.",
+         "The estimate is only offered for workouts in the FTP Tests category, with at least 5 minutes of data "
+         "and a result between 50 and 600 W. You can still open the ride in History → View Details → Use as "
+         "FTP."),
+        ("macOS says the app cannot be opened or is damaged.",
+         "Right-click the app → Open → Open. If that does not help, run "
+         + C('xattr -cr "/Applications/Artilody Watts Trainer.app"') + " in Terminal (section 2.2)."),
+        ("Windows shows “Windows protected your PC”.",
+         "The app is not code-signed yet. Click More info → Run anyway."),
+        ("Raspberry Pi: the UI is slow or too small.",
+         "Use a Pi 4 or 5 and the 64-bit OS. Maximise the window – the UI scales down to fit and needs at least "
+         "800 × 480 pixels. Close other programs while riding."),
+        ("Music does not play.",
+         "Check the volume and mute button on the player card. If a song reports <i>File not found</i>, it "
+         "was moved or deleted; <i>Cannot play this file</i> means the format is not supported by your "
+         "system's media framework – convert it to MP3, M4A or FLAC."),
+        ("How do I reset all data?",
+         "Close the app and delete (or rename, to keep a backup) " + C("watt-trainer.sqlite") + " in the folder "
+         "shown in Settings. The next start creates a fresh database with the default profile and the built-in "
+         "workouts."),
+        ("Do I need an internet connection?",
+         "No. The app works fully offline."),
+    ]
+    for q, a in faq:
+        s.sub(q)
+        s.p(a)
+
+    # =====================================================================
+    s.chapter("Glossary & keyboard shortcuts")
+    s.section("Glossary")
+    s.table(["Term", "Explanation"], [
+        ["BLE", "Bluetooth Low Energy – the wireless standard used for trainers and sensors."],
+        ["Cadence", "Pedaling rate in revolutions per minute (RPM)."],
+        ["ERG mode", "The trainer automatically sets the resistance so you produce the target power, "
+                     "regardless of cadence."],
+        ["Free Ride", "The trainer does not follow power targets; it simulates a flat road and you control the "
+                      "effort. Also a ride without a workout."],
+        ["FTMS", "Fitness Machine Service – the standard Bluetooth profile for smart trainers (data and "
+                 "control)."],
+        ["FTP", "Functional Threshold Power – the highest power you can sustain for about one hour."],
+        ["HRS", "Heart Rate Service – the standard Bluetooth profile for heart-rate sensors."],
+        ["IF", "Intensity Factor = Normalized Power ÷ FTP."],
+        ["Karvonen", "Method for heart-rate zones based on the heart-rate reserve (max HR − resting HR)."],
+        ["kJ", "Kilojoules of mechanical work; roughly equal to kcal of food energy burned."],
+        ["NP", "Normalized Power – a weighted average power that reflects the physiological cost of a "
+               "variable ride."],
+        ["RPE", "Rating of Perceived Exertion – how hard an effort feels on a scale of 1 to 10."],
+        ["TSS", "Training Stress Score – training load from duration and intensity; one hour at FTP = 100."],
+        ["W/kg", "Watts per kilogram of body weight – power relative to weight."],
+        ["Zone", "An intensity range defined as a percentage of FTP (power) or heart-rate reserve (HR)."],
+    ], [1.1, 4.7])
+    s.section("Keyboard shortcuts")
+    s.table(["Key", "Where", "Action"], [
+        [K("Space"), "Dashboard", "Pause / resume the ride. While waiting for pedaling: start now. With nothing "
+                                  "armed: start the loaded workout immediately."],
+        [K("Enter"), "New playlist name", "Create the playlist."],
+    ], [1.0, 1.5, 3.3])
+
+    # =====================================================================
+    s.chapter("Built-in workouts", appendix=True, new_page=True,
+              lead="These workouts are installed on first start. Watt values depend on your FTP; the examples "
+                   "assume 250 W. Built-in workouts cannot be deleted; edits are saved as a personal copy.")
+    s.table(["Workout", "Category", "Duration", "Focus / structure"], [
+        ["Sweet Spot 3 × 12", "Intervals", "56 min",
+         "Sweet Spot. 6 min warm-up, 3 × 12 min at 90 % FTP (cadence 90) with 5 min recovery at 55 %, "
+         "4 min cool-down."],
+        ["Endurance Base", "Endurance", "60 min",
+         "Build your base. 10 min warm-up, 20 min at 68 % and 20 min at 72 % FTP, 10 min cool-down."],
+        ["VO<sub>2</sub> Max 5 × 3", "Intervals", "45 min",
+         "VO<sub>2</sub> Max. 10 min warm-up, 5 × 3 min at 120 % FTP (cadence 100) with 3 min recovery, 5 min "
+         "cool-down."],
+        ["Recovery Spin", "Recovery", "30 min",
+         "Active recovery. 3 min easy start, 24 min at 55 % FTP, 3 min cool-down."],
+        ["Threshold 2 × 20", "Intervals", "65 min",
+         "Threshold. 10 min warm-up, 2 × 20 min at 95 % FTP with 5 min recovery, 10 min cool-down."],
+        ["Ramp FTP Test", "FTP Tests", "25 min",
+         "Progressive ramp to test your FTP. 5 min warm-up, 20 min ramp from 50 to 150 % FTP. Protected – "
+         "always present."],
+        ["Tempo 3 × 15", "Endurance", "67 min",
+         "Muscular endurance. 8 min warm-up, 3 × 15 min at 80 % FTP with 4 min recovery, 6 min cool-down."],
+        ["Over-Unders 4 × 8", "Intervals", "62 min",
+         "Lactate clearance. 10 min warm-up, 4 sets of 8 min alternating 2 min at 92 % and 1 min at 108 % FTP, "
+         "4 min recovery between sets, 8 min cool-down."],
+    ], [1.5, 0.95, 0.75, 3.6])
+
+    s.chapter("Power zone reference", appendix=True)
+    s.table(["Zone", "Default % FTP", "RPE", "Typical use"], [
+        ["Z1 Recovery", "&lt; 55 %", "1", "Warm-up, cool-down, recovery between intervals and recovery rides."],
+        ["Z2 Endurance", "55 – 75 %", "2 – 3", "Long aerobic rides; builds the aerobic base."],
+        ["Z3 Tempo", "75 – 87 %", "4 – 6", "Steady, moderately hard efforts; muscular endurance."],
+        ["Z4 Sweet Spot", "87 – 94 %", "7 – 8", "Efficient threshold development with manageable fatigue."],
+        ["Z5 Threshold", "94 – 105 %", "9", "Efforts around FTP, 8–20+ minutes."],
+        ["Z6 VO<sub>2</sub> Max", "&gt; 105 %", "10", "Short, very hard intervals of 1–5 minutes."],
+    ], [1.4, 1.1, 0.7, 3.4], swatches=list(Z), keep=True)
+    s.p("The zone colours are used everywhere in the app: Dashboard power bar, workout charts, timeline blocks, "
+        "Builder and History. Zone boundaries can be changed per profile (section 4.3).")
+
+    s.chapter("License & credits", appendix=True)
+    s.p("Artilody Watts Trainer is free software: you can redistribute it and/or modify it under the terms of "
+        "the <b>GNU General Public License version 3</b> (GPL-3.0) as published by the Free Software "
+        "Foundation. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without "
+        "even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the "
+        f"{C('LICENSE')} file for details.")
+    s.bullets([
+        "Built with the Qt framework (Qt Quick, Qt Bluetooth, Qt Multimedia, Qt SQL), used under the LGPL/GPL.",
+        "Data storage by SQLite.",
+        "Uses the Bluetooth SIG's open Fitness Machine and Heart Rate service specifications.",
+        "The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.",
+    ])
+    s.p(f"Source code, releases and issue tracker: {L(REPO)}")
+    s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")
+    s.spacer(10)
+    s.p('<font color="#5b6485">This manual describes Artilody Watts Trainer version 1.0.0 (October 2026). '
+        "Screenshots show the app with the virtual trainer and virtual heart-rate sensor; the profile dialog "
+        "illustration is a design mockup.</font>")

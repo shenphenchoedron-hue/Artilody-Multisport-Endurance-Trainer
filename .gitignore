@@ -1,0 +1,29 @@
+# Build output
+dist/
+build*/
+cmake-build*/
+CMakeCache.txt
+CMakeFiles/
+Testing/
+_CPack_Packages/
+
+# Packages
+*.dmg
+
+# IDE / editor
+*.user
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# In-source CMake/CPack artifacts
+CPackConfig.cmake
+CPackSourceConfig.cmake
+*.sqlite
+*.sqlite-journal

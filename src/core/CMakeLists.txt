@@ -1,0 +1,22 @@
+qt_add_library(watt_core STATIC
+    Interval.h Interval.cpp
+    Workout.h Workout.cpp
+    Zones.h Zones.cpp
+    Profile.h Profile.cpp
+    Ride.h
+    Track.h
+    Database.h Database.cpp
+    RideAnalysis.h RideAnalysis.cpp
+    CsvExporter.h CsvExporter.cpp
+    WorkoutEngine.h WorkoutEngine.cpp
+    SensorHub.h SensorHub.cpp
+    TimeFormat.h TimeFormat.cpp
+    ProfileManager.h ProfileManager.cpp
+    WorkoutLibrary.h WorkoutLibrary.cpp
+    WorkoutBuilder.h WorkoutBuilder.cpp
+    TrainingSession.h TrainingSession.cpp
+    HistoryManager.h HistoryManager.cpp
+)
+
+target_include_directories(watt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(watt_core PUBLIC Qt6::Core Qt6::Sql)

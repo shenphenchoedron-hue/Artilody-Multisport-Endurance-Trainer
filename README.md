@@ -1,0 +1,252 @@
+<div align="center">
+
+<img src="docs/screenshots/icon-256.png" alt="Artilody Watts Trainer icon" width="128">
+
+# Artilody Watts Trainer
+
+**Free, open-source, offline power training for indoor cycling with your Bluetooth smart trainer.**
+
+[![Latest release](https://img.shields.io/github/v/release/shenphenchoedron-hue/Artilody-Watts-Trainer?sort=semver)](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)
+[![Release build](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/actions/workflows/release.yml/badge.svg)](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/actions/workflows/release.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Raspberry%20Pi-informational)](#download--install)
+[![Qt 6](https://img.shields.io/badge/Qt-6%20%2F%20QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
+
+[Download](#download--install) · [User manual](docs/Artilody-Watts-Trainer-Manual.pdf) · [Quick start](#quick-start) · [Build from source](#building-from-source) · [Report a bug](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/issues)
+
+</div>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Artilody Watts Trainer dashboard during a workout" width="900">
+</p>
+
+Artilody Watts Trainer is a desktop app for structured, power-based indoor cycling. It connects to Bluetooth LE smart trainers (FTMS) and heart-rate sensors, sets the trainer resistance for you in **ERG mode**, and saves every ride to a local database on your computer. You don't need an account, a subscription or an internet connection.
+
+It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Linux (Debian / Ubuntu)** and **Raspberry Pi OS**.
+
+---
+
+## Contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Download & install](#download--install)
+- [User manual](#user-manual)
+- [Quick start](#quick-start)
+- [Supported hardware](#supported-hardware)
+- [Privacy](#privacy)
+- [Building from source](#building-from-source)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgements](#acknowledgements)
+
+## Features
+
+### Ride
+- **Live dashboard** with power, cadence, heart rate and elapsed/remaining time.
+- **Workout chart** with targets coloured by RPE/power zone, your heart-rate curve and a position marker, plus a timeline of the intervals.
+- **On-the-fly control**: change the intensity in ±5 % steps, skip the current interval, and turn ERG on or off during the ride.
+- **Start on pedaling**: the workout loads and waits until you start pedaling (cadence ≥ 20 rpm, or power ≥ 30 W on trainers that don't report cadence). Press **Start now** to start it yourself.
+- **ERG or Free Ride**: in ERG mode the app sends the target power to the trainer. In Free Ride you still see the targets, but the trainer simulates a flat road and you control the effort.
+
+### Train
+- **Workout library** with 8 built-in workouts (Sweet Spot, Endurance, VO₂ Max, Threshold, Tempo, Over-Unders, Recovery and a Ramp FTP Test). It has search, category filters, sorting, favourites and a preview, and lets you duplicate or delete workouts. Built-in workouts can't be deleted.
+- **Workout Builder**, a visual editor: add blocks from presets (Warm Up, Steady, Intervals, Recovery, Cool Down, Ramp), drag them into order, and set the duration, target in watts or % FTP, ramp end power, cadence and RPE. The preview updates as you edit. If you edit a built-in workout, it is saved as your own copy.
+- **FTP test**: when you finish the built-in *Ramp FTP Test*, the app estimates your FTP as 75 % of your best 1-minute power and asks whether to update your profile. You can also pick any FTP test ride in History and use it as your FTP.
+
+### Analyse
+- **History** with totals, a chart of the selected ride (target, actual power and heart rate), weekly training time and time in zones.
+- **Ride metrics**: average/max power, Normalized Power (NP), Intensity Factor (IF), Training Stress Score (TSS) and more.
+- **CSV export** of every second of a ride, or a summary of all rides. You can also delete rides.
+
+### Devices & profiles
+- **Bluetooth LE** scanning for FTMS smart trainers (power, cadence, speed, ERG target power, flat-road simulation) and heart-rate sensors (HRS).
+- Auto-connect and auto-reconnect, Bluetooth adapter selection, an ERG control test and a connection log.
+- A **virtual trainer and heart-rate sensor**, so you can try every feature without hardware.
+- **Multiple rider profiles**, each with weight, FTP, max/resting HR, preferred cadence, default mode and an avatar. Power zones can be edited, and heart-rate zones are calculated with the Karvonen method.
+
+### Extras
+- **Music player** for your own files (mp3, m4a, flac, wav, ogg, …) with playlists, favourites, shuffle/repeat and album art. Two sample tracks are included.
+- **Light and dark theme.**
+- The **UI scales** to small screens such as the official 7" Raspberry Pi display (800 × 480).
+- **Fully offline**: all data is stored in a local SQLite database.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/workouts.png" alt="Workout library"><br>
+      <sub><b>Workouts</b>: library with filters, favourites and preview</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/builder.png" alt="Workout builder"><br>
+      <sub><b>Builder</b>: visual block editor with live preview</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/history.png" alt="History and analysis"><br>
+      <sub><b>History</b>: ride analysis, zones, NP / IF / TSS</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/devices.png" alt="Devices"><br>
+      <sub><b>Devices</b>: Bluetooth trainers and heart-rate sensors</sub>
+    </td>
+  </tr>
+</table>
+
+## Download & install
+
+Download the latest version from the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**.
+
+| Platform | File |
+|---|---|
+| **Windows 10/11** (64-bit), installer | `ArtilodyWattsTrainer-<version>-windows-x64-setup.exe` |
+| **Windows 10/11** (64-bit), portable | `ArtilodyWattsTrainer-<version>-windows-x64.zip` |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | `ArtilodyWattsTrainer-<version>-macOS-universal.dmg` |
+| **Ubuntu 24.04 LTS** (amd64) | `artilody-watts-trainer_<version>_ubuntu24.04_amd64.deb` |
+| **Debian 12 Bookworm** (amd64) | `artilody-watts-trainer_<version>_debian12_amd64.deb` |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | `artilody-watts-trainer_<version>_raspberrypi-os-bookworm_arm64.deb` |
+| User manual | `Artilody-Watts-Trainer-Manual.pdf` |
+| Checksums | `SHA256SUMS.txt` |
+
+<details>
+<summary><b>Windows</b></summary>
+
+1. Run `ArtilodyWattsTrainer-<version>-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+   If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
+2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
+3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
+
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+1. Open the DMG and drag **Artilody Watts Trainer** into **Applications**.
+2. **Gatekeeper:** the app is ad-hoc signed but not notarized by Apple. The first time you open it, **right-click (or Control-click) the app → Open → Open**.
+   If macOS says the app is "damaged" or still won't open it, run this once:
+   ```sh
+   xattr -cr "/Applications/Artilody Watts Trainer.app"
+   ```
+3. Allow **Bluetooth access** when macOS asks. If you denied it by mistake, turn it on again under *System Settings → Privacy & Security → Bluetooth*.
+
+</details>
+
+<details>
+<summary><b>Ubuntu 24.04 / Debian 12</b></summary>
+
+Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
+
+```sh
+sudo apt install ./artilody-watts-trainer_<version>_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_<version>_debian12_amd64.deb      # Debian 12
+```
+
+Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
+Bluetooth needs the BlueZ service to be running: `sudo systemctl enable --now bluetooth`.
+Ubuntu 22.04 and older are **not** supported, because they ship Qt 6.2 and the app requires Qt 6.4 or newer.
+
+</details>
+
+<details>
+<summary><b>Raspberry Pi OS</b></summary>
+
+Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400. The 32-bit edition is not supported. A Pi 4 or 5 gives the smoothest UI.
+
+```sh
+sudo apt update
+sudo apt install ./artilody-watts-trainer_<version>_raspberrypi-os-bookworm_arm64.deb
+```
+
+The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
+
+</details>
+
+**Bluetooth requirements:** a Bluetooth LE (4.0+) adapter, either built in or a USB dongle. On Linux the app uses BlueZ. On macOS you need to allow Bluetooth access the first time you scan.
+
+**Uninstall:** on Windows use *Settings → Apps*. On macOS move the app to the Trash. On Linux run `sudo apt remove artilody-watts-trainer`. Your rides and settings are kept in your user profile.
+
+## User manual
+
+The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every screen in detail. It is also attached to each [release](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest).
+
+## Quick start
+
+1. **Connect your devices.** Open **Devices → Scan for Devices**, then connect your smart trainer and heart-rate sensor. If you have no hardware, connect the **Virtual Trainer** and **Virtual HR Sensor** instead.
+2. **Set up your profile.** Click **Profile** in the left sidebar (or open the profile menu by clicking your avatar/name at the top right and choose **Edit profile…**) to enter your weight, FTP and heart-rate values. If you don't know your FTP, run the **Ramp FTP Test** first.
+3. **Choose a workout** under **Workouts**, or create your own in **Builder**.
+4. **Choose ERG or Free Ride**, then press **Start Workout**.
+5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> pauses and resumes.
+6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis or export it to CSV.
+
+## Supported hardware
+
+**Smart trainers.** The app should work with any trainer that implements the standard Bluetooth **Fitness Machine Service (FTMS)**. Most current trainers do, for example Tacx NEO, Wahoo KICKR, Saris H3, Elite (Suito, Direto, …) and Zwift Hub. ERG control needs a trainer that supports FTMS *Set Target Power*.
+
+**Heart-rate sensors.** Any Bluetooth LE strap or armband using the standard **Heart Rate Service (HRS)** should work, for example Polar H10, Garmin HRM-Dual/HRM-Pro or Wahoo TICKR.
+
+> [!NOTE]
+> **ANT+ is not supported**, only Bluetooth LE. Older trainers that only offer a proprietary Bluetooth protocol (no FTMS) can't be controlled.
+
+## Privacy
+
+Artilody Watts Trainer runs **fully offline**:
+
+- No account, no cloud and no telemetry or analytics.
+- Rides, profiles, workouts and playlists are stored in a local SQLite database (`watt-trainer.sqlite` in the user's app-data folder). The exact path is shown under **Settings** (the gear icon).
+- To use a different database file, set the `WATT_DB_PATH` environment variable.
+
+## Building from source
+
+**Requirements:** CMake ≥ 3.21, a C++17 compiler, and **Qt ≥ 6.4** with the modules Core, Gui, Qml, Quick, QuickControls2, Sql (SQLite driver), Bluetooth (qtconnectivity) and Multimedia.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<path-to-Qt>/6.x/<platform>
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure        # unit tests
+```
+
+On Debian 12, Ubuntu 24.04 and Raspberry Pi OS Bookworm you can use the distribution's Qt packages. Then `cd build && cpack -G DEB` builds an installable `.deb`.
+
+See **[docs/BUILDING.md](docs/BUILDING.md)** for the full package lists, platform notes for macOS (`macdeployqt`) and Windows (MSVC + `windeployqt`), CMake options and developer tips.
+
+## Architecture
+
+The UI and the application logic are kept completely separate. The C++ libraries have no QML or UI dependencies and are unit tested on their own.
+
+```
+src/core    watt_core         Domain model (Workout, Interval, Zones), SQLite database, ride analysis
+                              (NP/IF/TSS), CSV export, WorkoutEngine (pure state machine),
+                              TrainingSession, SensorHub, profile/library/builder/history managers
+src/ble     watt_bleprotocol  Pure FTMS/HRS parsing and encoding (QtCore only, fully testable)
+            watt_ble          BleLink, BleTrainer, BleHeartRateSensor, simulated devices, DeviceManager
+src/media   watt_media        MusicPlayer and playlists
+src/app     main.cpp          Wires the modules together and exposes them to QML
+qml/        Main.qml, Theme.qml, components/, pages/, dialogs/  (presentation only)
+tests/      QtTest unit tests (workout, engine, analysis, database, session, builder, BLE protocol)
+```
+
+- **`SensorHub`** decouples training from the sensors. Real BLE devices and the simulator send measurements to the hub, and `TrainingSession` asks for ERG targets through signals. This lets the tests drive a complete ride without hardware.
+- The backend is exposed to QML as **singletons** (`import Artilody.Backend`): `Training`, `Workouts`, `Builder`, `History`, `Devices`, `Sensors`, `Profiles` and `Music`.
+
+## Contributing
+
+Contributions are welcome:
+
+- **Bugs and ideas:** open an [issue](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/issues). For device problems, include your OS, trainer or sensor model and the connection log from the Devices page.
+- **Pull requests:** keep changes focused, follow the existing code style, keep UI code in `qml/` and logic in `src/`, and add or update tests in `tests/`. Make sure `ctest` passes before you submit.
+- **Trainer compatibility reports** are especially useful. Let us know which trainers and sensors work for you.
+
+## License
+
+Artilody Watts Trainer is free software, licensed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for details.
+
+## Acknowledgements
+
+- Built with the [Qt](https://www.qt.io/) framework (Qt Quick, Qt Bluetooth, Qt Multimedia, Qt SQL), used under the LGPL/GPL.
+- Data storage by [SQLite](https://sqlite.org/).
+- Uses the Bluetooth SIG's open **Fitness Machine** and **Heart Rate** service specifications.
+- The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.

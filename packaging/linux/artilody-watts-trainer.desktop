@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Artilody Watts Trainer
+GenericName=Indoor Cycling Trainer
+Comment=Power based indoor cycling workouts with ERG control
+Exec=artilody-watts-trainer
+TryExec=artilody-watts-trainer
+Icon=artilody-watts-trainer
+Terminal=false
+StartupNotify=true
+StartupWMClass=artilody-watts-trainer
+Categories=Sports;Utility;
+Keywords=cycling;trainer;ftms;erg;watt;power;bluetooth;
