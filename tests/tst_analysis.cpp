@@ -123,7 +123,8 @@ private slots:
         QString err;
         QVERIFY(csv::writeFile(path, csv, &err));
         QFile f(path);
-        QVERIFY(f.open(QIODevice::ReadOnly));
+        // writeFile() uses text mode (CRLF line endings on Windows), so read it back in text mode.
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
         QCOMPARE(QString::fromUtf8(f.readAll()), csv);
     }
 };
