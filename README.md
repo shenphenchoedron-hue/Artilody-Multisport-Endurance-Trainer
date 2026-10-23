@@ -26,8 +26,22 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
+## What's new in 1.1.0
+
+- **Workout calendar** – plan rides and rows by day, drag to move, start with a double-click, automatic tick-off.
+- **Concept2 PM5 rowing** – *Free Row*, *Watt Plan* and *Ghost Race* against your personal best, plus a *Virtual Rower*.
+- **Sport type & Rowing FTP** – cycling and rowing workouts, a sport filter in Workouts and History, a separate rowing FTP.
+- **FIT export** – upload rides and rows to Garmin Connect, Strava, TrainingPeaks, intervals.icu (rows as *indoor rowing* with distance).
+- **Workout sharing** – export/import Artilody `.awt` and Zwift `.zwo` files.
+- **New app icon**, larger and more readable menus, light-theme fixes and many smaller fixes.
+
+Existing data is kept: the database is upgraded automatically on first start. See the [release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.0) for details.
+
+---
+
 ## Contents
 
+- [What's new in 1.1.0](#whats-new-in-110)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Download & install](#download--install)
@@ -63,7 +77,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **Free Row**: row a set distance (or open-ended) and watch your boat move along the course, with power, distance, pace /500 m, stroke rate, heart rate and a live power/pace/heart-rate chart.
 - **Watt Plan**: row any rowing workout from your library. The interval blocks are shown at the bottom with your position, and you see target vs. actual watts, the time left in the interval, the next target, interval average and a compliance score. The PM5 has no ERG mode, so you follow the target by feel.
 - **Ghost Race**: race your own personal best over 500 m, 1k, 2k, 5k, 6k, 10k or a custom distance. A ghost boat replays your record stroke by stroke, and the gap is shown in metres and seconds. A new best is saved automatically and the personal-bests table keeps your records. A time is only saved as a personal best if the piece was rowed without a pause and the time is plausible.
-- The row starts on your first stroke (or press **Start now**), with **Pause**, **Finish** and **Reset**. Rows are saved to History as *Rowing* with distance and can be exported as FIT/CSV.
+- The row starts on your first stroke (or press **Start now**), with **Pause** (or <kbd>Space</kbd>), **Finish** and **Reset**. Rows are saved to History as *Rowing* with distance and can be exported as FIT/CSV.
 - **Rowing FTP**: every profile has a separate rowing FTP; watt-plan targets are a percentage of it.
 
 <table>
@@ -102,6 +116,8 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 ### Extras
 - **Music player** for your own files (mp3, m4a, flac, wav, ogg, …) with playlists, favourites, shuffle/repeat and album art. Two sample tracks are included.
 - **Light and dark theme.**
+- Larger, easy-to-read menus (Workouts sort/export/**⋯** menus, History **Export**, the Calendar's right-click/press-and-hold menu).
+- **Keyboard shortcuts:** <kbd>Space</kbd> pauses/resumes a ride on the Dashboard (and starts a waiting workout) or a row on the Rowing page; <kbd>Esc</kbd> closes dialogs.
 - The **UI scales** to small screens such as the official 7" Raspberry Pi display (800 × 480).
 - **Fully offline**: all data is stored in a local SQLite database.
 
@@ -142,23 +158,28 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ## Download & install
 
-Download the latest version from the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**.
+The current version is **1.1.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
-| Platform | File |
+| Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | `ArtilodyWattsTrainer-<version>-windows-x64-setup.exe` |
-| **Windows 10/11** (64-bit), portable | `ArtilodyWattsTrainer-<version>-windows-x64.zip` |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | `ArtilodyWattsTrainer-<version>-macOS-universal.dmg` |
-| **Ubuntu 24.04 LTS** (amd64) | `artilody-watts-trainer_<version>_ubuntu24.04_amd64.deb` |
-| **Debian 12 Bookworm** (amd64) | `artilody-watts-trainer_<version>_debian12_amd64.deb` |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | `artilody-watts-trainer_<version>_raspberrypi-os-bookworm_arm64.deb` |
-| User manual | `Artilody-Watts-Trainer-Manual.pdf` |
-| Checksums | `SHA256SUMS.txt` |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.1.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/ArtilodyWattsTrainer-1.1.0-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.1.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/ArtilodyWattsTrainer-1.1.0-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.1.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/ArtilodyWattsTrainer-1.1.0-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.1.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/artilody-watts-trainer_1.1.0_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.1.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/artilody-watts-trainer_1.1.0_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.1.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/artilody-watts-trainer_1.1.0_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+
+**System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
+
+> [!TIP]
+> **Upgrading from 1.0.0?** Just install the new version over the old one. Your rides, workouts, profiles and settings are kept; the database is upgraded automatically on first start.
 
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-<version>-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.1.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -184,8 +205,8 @@ Download the latest version from the **[Releases page](https://github.com/shenph
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_<version>_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_<version>_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.1.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.1.0_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -201,7 +222,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_<version>_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.1.0_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -222,7 +243,7 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 2. **Set up your profile.** Click **Profile** in the left sidebar (or open the profile menu by clicking your avatar/name at the top right and choose **Edit profile…**) to enter your weight, FTP (and rowing FTP, if you row) and heart-rate values. If you don't know your FTP, run the **Ramp FTP Test** first.
 3. **Choose a workout** under **Workouts**, or create your own in **Builder**.
 4. **Choose ERG or Free Ride**, then press **Start Workout**.
-5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> pauses and resumes.
+5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> pauses and resumes (on the Rowing page too).
 6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis, or use **Export** to save it as a FIT file (for Strava, Garmin Connect, TrainingPeaks, …) or CSV.
 7. **Rowing?** Open **Rowing**, pick *Free Row*, *Ghost Race* or *Watt Plan* and take your first stroke. Use **Calendar** to plan the coming weeks.
 

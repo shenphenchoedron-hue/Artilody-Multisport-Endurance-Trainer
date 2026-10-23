@@ -11,11 +11,26 @@ Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structur
   Rows start on the first stroke (or **Start now**) and can be paused, finished and reset. They are saved to History as *Rowing* with distance and can be exported as FIT (as an indoor-rowing activity with distance) and CSV. A dedicated heart-rate strap takes priority over heart rate from the PM5. Only the PM5 on a rower is supported (not BikeErg or SkiErg).
 - **Sport type for workouts**: workouts are *Cycling* or *Rowing*. The Workouts page shows sport badges and a sport filter and has a **Row Workout** button for rowing workouts; the Builder has a Cycling/Rowing selector (rowing uses stroke rate in SPM). History has a sport filter and shows the distance of rows. `.awt` files keep the sport; `.zwo` files are always cycling.
 - **Rowing FTP**: every profile has a separate rowing FTP; rowing watt plans are a percentage of it.
-- The database is upgraded automatically to schema version 2 on first start; all existing rides, workouts and settings are kept.
 - **FIT export for Garmin Connect, Strava, TrainingPeaks, intervals.icu …**: in **History → Export**, save the selected ride as a `.fit` activity file, or export every ride of the selected period as one FIT file per ride. The ride details dialog has an **Export FIT** button too. The files contain 1-second power, heart rate and cadence and a session summary (avg/max power and HR, cadence, NP, TSS, IF, threshold power, work and calories). Indoor rides contain no GPS or distance. The FIT encoder was written independently for this project; FIT is a format by Garmin, and this project is not affiliated with Garmin.
 - **Share workouts**: export any workout (**⋯ → Export…** in the workout preview) as an Artilody `.awt` file or as a Zwift `.zwo` file, or export all your own workouts in one `.awt` file. The new **Import** button on the Workouts page imports `.awt` and `.zwo` files (several at once). Intensities are stored relative to FTP, so shared workouts fit every rider. Duplicates are skipped and name clashes are imported as "… (imported)".
-- The CSV export is now in the same **Export** menu on the History page.
-- Updated user manual (workout calendar, rowing with a Concept2 PM5, sport types, FIT export, sharing workouts, the `.awt` file format).
+- **New app icon**.
+- **UI polish**: larger, easier-to-read menus; the CSV export now sits next to FIT in the **Export** menu on the History page; the rowing boat animation lines up exactly with the start and finish lines; <kbd>Space</kbd> also pauses/resumes a row.
+- **Fixes**: light-theme contrast and colour fixes, more robust rowing sessions and PM5 handling, reliable calendar completion, and many smaller fixes from code review.
+- Updated user manual (workout calendar, rowing with a Concept2 PM5, sport types, FIT export, sharing workouts, the `.awt` file format, checksums).
+
+## Upgrade notes
+
+- Install 1.1.0 over 1.0.0 – no need to uninstall first.
+- On first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+
+## Known limitations
+
+- **Concept2 PM5 support has so far only been tested with a PM5 simulator**, not yet with a real PM5. Please report your experience. The PM5 has **no ERG mode**: watt plans are followed by feel, the app can't set the resistance.
+- Only the **PM5 on a rower** is supported – **BikeErg and SkiErg are not supported**, nor PM3/PM4 monitors.
+- **`.zwo` files have no rowing**: rowing workouts are exported as cycling workouts, and imported `.zwo` files are always cycling. Use `.awt` to share rowing workouts.
+- **macOS**: the app is ad-hoc signed, not notarized. The first time, **right-click (Control-click) the app → Open → Open** (or run `xattr -cr "/Applications/Artilody Watts Trainer.app"`).
+- **Windows**: the app is not code-signed; SmartScreen may ask you to click **More info → Run anyway**.
+- ANT+ is not supported (Bluetooth LE only).
 
 ## Highlights
 
@@ -41,7 +56,8 @@ Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structur
 | **Ubuntu 24.04 LTS** (and derivatives, amd64) | `artilody-watts-trainer_{{VERSION}}_ubuntu24.04_amd64.deb` |
 | **Debian 12 Bookworm** (amd64) | `artilody-watts-trainer_{{VERSION}}_debian12_amd64.deb` |
 | **Raspberry Pi OS 64-bit (Bookworm)**: Raspberry Pi 3, 4, 5, 400 | `artilody-watts-trainer_{{VERSION}}_raspberrypi-os-bookworm_arm64.deb` |
-| User manual (PDF) | `Artilody-Watts-Trainer-Manual.pdf` (if attached) |
+| User manual (PDF) | `Artilody-Watts-Trainer-Manual.pdf` |
+| Checksums | `SHA256SUMS.txt` (verify with `sha256sum -c SHA256SUMS.txt --ignore-missing`) |
 
 ## Installation
 

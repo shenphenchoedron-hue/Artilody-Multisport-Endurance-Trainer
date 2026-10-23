@@ -126,7 +126,14 @@ def build(s, env):
         ["Debian 12 Bookworm (amd64)", C(f"artilody-watts-trainer_{V}_debian12_amd64.deb")],
         ["Raspberry Pi OS 64-bit Bookworm (Pi 3/4/5/400)",
          C(f"artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")],
+        ["User manual (this document)", C("Artilody-Watts-Trainer-Manual.pdf")],
+        ["Checksums", C("SHA256SUMS.txt")],
     ], [2.3, 3.4])
+    s.tip(f"To check a download, compare its SHA-256 checksum with {C('SHA256SUMS.txt')}: on Linux run "
+          f"{C('sha256sum -c SHA256SUMS.txt --ignore-missing')} in the download folder, on macOS "
+          f"{C('shasum -a 256 &lt;file&gt;')}, on Windows {C('Get-FileHash &lt;file&gt;')} in PowerShell.")
+    s.p("<b>Upgrading from an earlier version:</b> install the new version over the old one. Rides, workouts, "
+        "profiles and settings are kept; the database is upgraded automatically on first start.")
 
     s.section("Windows")
     s.steps([
@@ -1090,8 +1097,8 @@ def build(s, env):
         f"{UI('Start Now')} starts at once; without any setup it starts an open Free Row.",
         "If you leave the Rowing page before the row has started, the setup is cleared, so a stroke on the "
         "rower cannot start a row while you are on another page. Coming back sets it up again.",
-        f"{UI('Pause Row')} / {UI('Resume')} stops and continues the clock; distance rowed during a pause is "
-        "not counted.",
+        f"{UI('Pause Row')} / {UI('Resume')} (or {K('Space')}) stops and continues the clock; distance rowed "
+        "during a pause is not counted.",
         f"{UI('Finish')} asks <i>Finish row?</i>: {UI('Save &amp; Finish')} saves the row, {UI('Discard')} "
         "throws it away.",
         f"{UI('Reset')} (when paused or finished) discards an unfinished row and prepares the same session "
@@ -1330,6 +1337,8 @@ def build(s, env):
     s.table(["Key", "Where", "Action"], [
         [K("Space"), "Dashboard", "Pause / resume the ride. While waiting for pedaling: start now. With nothing "
                                   "armed: start the loaded workout immediately."],
+        [K("Space"), "Rowing", "Pause / resume a running row."],
+        [K("Esc"), "Dialogs", "Close the dialog (where it can be closed)."],
         [K("Enter"), "New playlist name", "Create the playlist."],
     ], [1.0, 1.5, 3.3])
 
