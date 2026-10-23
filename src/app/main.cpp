@@ -10,10 +10,12 @@
 #include "HistoryManager.h"
 #include "MusicPlayer.h"
 #include "ProfileManager.h"
+#include "RowingRecords.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
 #include "WorkoutBuilder.h"
 #include "WorkoutLibrary.h"
+#include "WorkoutPlanner.h"
 
 #include <QDir>
 #include <QGuiApplication>
@@ -70,6 +72,8 @@ int main(int argc, char *argv[])
     TrainingSession training(&db, &profiles, &hub);
     HistoryManager history(&db, &profiles);
     history.refresh();
+    WorkoutPlanner planner(&db, &profiles);
+    RowingRecords rowingRecords(&db, &profiles);
 
     DeviceManager devices(&db, &hub);
     auto syncPhysiology = [&] {
@@ -98,6 +102,13 @@ int main(int argc, char *argv[])
         history.refresh();
         history.selectRide(id);
     });
+    // A finished ride of a planned workout ticks off that day's plan entry.
+    QObject::connect(&training, &TrainingSession::rideSaved, &planner, [&](qint64 id) {
+        if (const auto ride = db.ride(id); ride && ride->workoutId >= 0)
+            planner.markCompletedForWorkout(ride->workoutId, ride->startedAt.date(), id);
+    });
+    // Deleting/importing workouts changes plan entries (deleted ones vanish).
+    QObject::connect(&library, &WorkoutLibrary::countChanged, &planner, &WorkoutPlanner::refresh);
 
     // Default workout on the dashboard: the selected (first) workout.
     if (library.selectedId() >= 0)
@@ -113,6 +124,8 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Devices", &devices);
     qmlRegisterSingletonInstance(uri, 1, 0, "Sensors", &hub);
     qmlRegisterSingletonInstance(uri, 1, 0, "Music", &music);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Planner", &planner);
+    qmlRegisterSingletonInstance(uri, 1, 0, "RowingRecords", &rowingRecords);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));

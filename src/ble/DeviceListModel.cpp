@@ -25,6 +25,7 @@ QVariant DeviceListModel::data(const QModelIndex &index, int role) const
     case StateRole: return e.state;
     case SimulatedRole: return e.simulated;
     case KnownRole: return e.known;
+    case KindRole: return e.kind;
     default: return {};
     }
 }
@@ -32,7 +33,8 @@ QVariant DeviceListModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> DeviceListModel::roleNames() const
 {
     return { { IdRole, "deviceId" }, { NameRole, "name" }, { ProtocolRole, "protocol" }, { RssiRole, "rssi" },
-             { StateRole, "linkState" }, { SimulatedRole, "simulated" }, { KnownRole, "known" } };
+             { StateRole, "linkState" }, { SimulatedRole, "simulated" }, { KnownRole, "known" },
+             { KindRole, "kind" } };
 }
 
 int DeviceListModel::indexOf(const QString &id) const

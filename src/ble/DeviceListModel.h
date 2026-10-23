@@ -13,15 +13,17 @@ struct DeviceEntry
     int state = 0;           // LinkState
     bool simulated = false;
     bool known = false;      // previously paired / used
+    QString kind;            // "trainer", "heartRate" or "rower" (QML section key)
 };
 
-// Discovered devices of one category (smart trainers or heart-rate sensors).
+// Discovered devices of one category (smart trainers, heart-rate sensors or
+// rowers). The "kind" role lets QML group/section mixed lists.
 class DeviceListModel : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 public:
-    enum Roles { IdRole = Qt::UserRole + 1, NameRole, ProtocolRole, RssiRole, StateRole, SimulatedRole, KnownRole };
+    enum Roles { IdRole = Qt::UserRole + 1, NameRole, ProtocolRole, RssiRole, StateRole, SimulatedRole, KnownRole, KindRole };
 
     explicit DeviceListModel(QObject *parent = nullptr);
 

@@ -41,6 +41,8 @@ struct RideRecord
     double intensityFactor = 0;
     double tss = 0;
     std::array<int, kZoneCount> zoneSeconds {};
+    QString sport = QStringLiteral("cycling");   // "cycling" or "rowing" (schema v2)
+    double distanceM = 0;                         // rowing distance in metres (0 = unknown)
 };
 
 } // namespace watt

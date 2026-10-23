@@ -30,7 +30,7 @@ TrainingSession::TrainingSession(Database *db, ProfileManager *profiles, SensorH
 
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         if (!active()) {
-            m_engine.setFtp(m_profiles->ftp());
+            m_engine.setFtp(m_profiles->current().ftpFor(m_engine.workout().sport));
             m_ergMode = m_profiles->defaultErg();
             emit ergModeChanged();
             emit workoutChanged();
@@ -131,7 +131,8 @@ void TrainingSession::loadWorkout(const Workout &workout)
 {
     if (active())
         return;
-    m_engine.load(workout, m_profiles->ftp());
+    // Rowing workouts are % of the rowing FTP (see ftpForSport() in Workout.h).
+    m_engine.load(workout, m_profiles->current().ftpFor(workout.sport));
     clearRecording();
     m_lastIndex = -2;
     emit workoutChanged();
@@ -469,8 +470,9 @@ qint64 TrainingSession::saveRide()
     r.startedAt = m_startedAt;
     r.blocks = m_engine.workout().intervals.size();
     r.ergMode = m_ergMode;
-    r.ftp = p.ftp;
-    analysis::applyStats(r, analysis::analyze(m_samples, p.ftp, p.zones));
+    r.sport = sport::normalize(m_engine.workout().sport);
+    r.ftp = p.ftpFor(r.sport);
+    analysis::applyStats(r, analysis::analyze(m_samples, r.ftp, p.zones));
     m_lastRideId = m_db->saveRide(r, m_samples);
     if (m_lastRideId >= 0)
         emit rideSaved(m_lastRideId);

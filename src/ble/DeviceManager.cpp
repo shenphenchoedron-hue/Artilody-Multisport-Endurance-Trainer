@@ -5,6 +5,8 @@
 #include "Database.h"
 #include "FtmsProtocol.h"
 #include "HrsProtocol.h"
+#include "Pm5Protocol.h"
+#include "Pm5Rower.h"
 #include "SensorHub.h"
 #include "SimulatedDevices.h"
 
@@ -22,6 +24,16 @@ namespace watt {
 namespace {
 const QString kSimTrainer = QStringLiteral("sim:trainer");
 const QString kSimHr = QStringLiteral("sim:hr");
+const QString kSimRower = QStringLiteral("sim:rower");
+const QString kKindTrainer = QStringLiteral("trainer");
+const QString kKindHeartRate = QStringLiteral("heartRate");
+const QString kKindRower = QStringLiteral("rower");
+
+bool nameLooksLikeRower(const QString &n)
+{
+    // PM5 advertises as e.g. "PM5 430012345 Row" / "PM5 430012345 Ski".
+    return n.trimmed().startsWith(QStringLiteral("PM5"), Qt::CaseInsensitive);
+}
 
 bool nameLooksLikeTrainer(const QString &n)
 {
@@ -63,10 +75,15 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
     connect(m_hub, &SensorHub::targetPowerRequested, this, [this](int watts) {
         if (m_trainer && !m_ergTest)
             m_trainer->setTargetPower(watts);
+        // the virtual athlete on the simulated rower follows the plan as well
+        if (auto *sim = qobject_cast<SimulatedRower *>(m_rower.data()))
+            sim->setTargetPower(watts);
     });
     connect(m_hub, &SensorHub::freeRideRequested, this, [this] {
         if (m_trainer && !m_ergTest)
             m_trainer->setFreeRide();
+        if (auto *sim = qobject_cast<SimulatedRower *>(m_rower.data()))
+            sim->setTargetPower(0);
     });
 
     // keeps "Last scan: x min ago" fresh
@@ -81,6 +98,8 @@ DeviceManager::~DeviceManager()
         m_trainer->disconnectDevice();
     if (m_hr)
         m_hr->disconnectDevice();
+    if (m_rower)
+        m_rower->disconnectDevice();
 }
 
 void DeviceManager::initialize()
@@ -92,6 +111,7 @@ void DeviceManager::initialize()
     m_selectedAdapter = m_db->setting(QStringLiteral("ble/adapter"), 0).toInt();
     m_knownTrainer = m_db->setting(QStringLiteral("ble/knownTrainer")).toString();
     m_knownHr = m_db->setting(QStringLiteral("ble/knownHr")).toString();
+    m_knownRower = m_db->setting(QStringLiteral("ble/knownRower")).toString();
 
     addLog(QStringLiteral("Application started"), true);
     refreshAdapter();
@@ -103,8 +123,11 @@ void DeviceManager::initialize()
             connectDevice(kSimTrainer);
         if (m_knownHr == kSimHr && m_simulatorEnabled)
             connectDevice(kSimHr);
+        if (m_knownRower == kSimRower && m_simulatorEnabled)
+            connectDevice(kSimRower);
         const bool needsScan = (!m_knownTrainer.isEmpty() && m_knownTrainer != kSimTrainer)
-                               || (!m_knownHr.isEmpty() && m_knownHr != kSimHr);
+                               || (!m_knownHr.isEmpty() && m_knownHr != kSimHr)
+                               || (!m_knownRower.isEmpty() && m_knownRower != kSimRower);
         if (needsScan && bluetoothAvailable())
             QTimer::singleShot(500, this, &DeviceManager::startScan);
     }
@@ -264,6 +287,7 @@ void DeviceManager::doStartScan()
         m_agent->stop();
     m_trainers.removeDisconnected();
     m_hrSensors.removeDisconnected();
+    m_rowers.removeDisconnected();
     addSimulatedEntries();
     m_scanStatus = QStringLiteral("Scanning for nearby devices…");
     addLog(QStringLiteral("Scanning for devices…"), true);
@@ -288,6 +312,10 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
     if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
         return Kind::Unknown;
     const auto uuids = info.serviceUuids();
+    // Rowers first: newer PM5 firmware may also advertise FTMS (rower data),
+    // which must not be treated as an indoor-bike trainer.
+    if (uuids.contains(QBluetoothUuid(pm5::uuid(pm5::kRowingService))) || nameLooksLikeRower(info.name()))
+        return Kind::Rower;
     if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)))
         return Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
@@ -314,10 +342,17 @@ void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
     e.rssi = info.rssi();
     if (kind == Kind::Trainer) {
         e.protocol = QStringLiteral("Bluetooth FTMS");
+        e.kind = kKindTrainer;
         e.known = id == m_knownTrainer;
         m_trainers.upsert(e);
+    } else if (kind == Kind::Rower) {
+        e.protocol = QStringLiteral("Concept2 PM5 Bluetooth");
+        e.kind = kKindRower;
+        e.known = id == m_knownRower;
+        m_rowers.upsert(e);
     } else {
         e.protocol = QStringLiteral("Bluetooth Heart Rate Service (HRS)");
+        e.kind = kKindHeartRate;
         e.known = id == m_knownHr;
         m_hrSensors.upsert(e);
     }
@@ -329,13 +364,15 @@ void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
         // connected or connecting (avoids flip-flopping between two known devices).
         if (!m_allowMultiple) {
             const bool otherBusy = (m_trainer && m_trainer->id() != id && m_trainer->state() != LinkState::Disconnected)
-                                   || (m_hr && m_hr->id() != id && m_hr->state() != LinkState::Disconnected);
+                                   || (m_hr && m_hr->id() != id && m_hr->state() != LinkState::Disconnected)
+                                   || (m_rower && m_rower->id() != id && m_rower->state() != LinkState::Disconnected);
             if (otherBusy)
                 return;
         }
         const bool trainerFree = kind == Kind::Trainer && (!m_trainer || m_trainer->id() != id);
         const bool hrFree = kind == Kind::HeartRate && (!m_hr || m_hr->id() != id);
-        if (trainerFree || hrFree)
+        const bool rowerFree = kind == Kind::Rower && (!m_rower || m_rower->id() != id);
+        if (trainerFree || hrFree || rowerFree)
             connectDevice(id);
     }
 }
@@ -349,6 +386,7 @@ void DeviceManager::addSimulatedEntries()
     t.name = QStringLiteral("Virtual Trainer");
     t.protocol = QStringLiteral("Simulated FTMS");
     t.simulated = true;
+    t.kind = kKindTrainer;
     t.rssi = -52;
     t.known = m_knownTrainer == kSimTrainer;
     m_trainers.upsert(t);
@@ -358,9 +396,20 @@ void DeviceManager::addSimulatedEntries()
     h.name = QStringLiteral("Virtual HR Sensor");
     h.protocol = QStringLiteral("Simulated HRS");
     h.simulated = true;
+    h.kind = kKindHeartRate;
     h.rssi = -60;
     h.known = m_knownHr == kSimHr;
     m_hrSensors.upsert(h);
+
+    DeviceEntry r;
+    r.id = kSimRower;
+    r.name = QStringLiteral("Virtual Rower");
+    r.protocol = QStringLiteral("Simulated Concept2 PM5");
+    r.simulated = true;
+    r.kind = kKindRower;
+    r.rssi = -55;
+    r.known = m_knownRower == kSimRower;
+    m_rowers.upsert(r);
 }
 
 // --- connections -----------------------------------------------------------
@@ -378,6 +427,8 @@ void DeviceManager::connectDevice(const QString &id)
             releaseTrainer();
         if (m_hr && m_hr->id() != id)
             releaseHeartRate();
+        if (m_rower && m_rower->id() != id)
+            releaseRower();
     }
 
     if (m_trainers.contains(id)) {
@@ -419,6 +470,27 @@ void DeviceManager::connectDevice(const QString &id)
         m_knownHr = id;
         m_db->setSetting(QStringLiteral("ble/knownHr"), id);
         h->connectDevice();
+    } else if (m_rowers.contains(id)) {
+        if (m_rower && m_rower->id() == id) {
+            if (m_rower->state() == LinkState::Disconnected)
+                m_rower->connectDevice();
+            return;
+        }
+        releaseRower();
+        RowerDevice *r = nullptr;
+        if (id == kSimRower) {
+            auto *sim = new SimulatedRower(this);
+            sim->setTargetPower(m_hub->requestedTarget());
+            r = sim;
+        } else if (m_infos.contains(id)) {
+            r = new Pm5Rower(m_infos.value(id), adapter, this);
+        }
+        if (!r)
+            return;
+        attachRower(r);
+        m_knownRower = id;
+        m_db->setSetting(QStringLiteral("ble/knownRower"), id);
+        r->connectDevice();
     }
     emit devicesChanged();
 }
@@ -433,6 +505,10 @@ void DeviceManager::disconnectDevice(const QString &id)
         releaseHeartRate();
         m_knownHr.clear();
         m_db->setSetting(QStringLiteral("ble/knownHr"), QString());
+    } else if (m_rower && m_rower->id() == id) {
+        releaseRower();
+        m_knownRower.clear();
+        m_db->setSetting(QStringLiteral("ble/knownRower"), QString());
     }
     emit devicesChanged();
 }
@@ -486,6 +562,52 @@ void DeviceManager::attachHeartRate(HeartRateDevice *h)
     });
 }
 
+void DeviceManager::attachRower(RowerDevice *r)
+{
+    m_rower = r;
+    r->setAutoReconnect(m_autoReconnect);
+    m_rowers.setState(r->id(), int(LinkState::Connecting));
+    connect(r, &RowerDevice::measurementChanged, this, &DeviceManager::rowerDataChanged);
+    connect(r, &RowerDevice::heartRateMeasured, this, [this](int bpm) {
+        // Use the PM5's HR only when no dedicated HR sensor is connected.
+        if (!m_hr || m_hr->state() != LinkState::Connected)
+            m_hub->updateHeartRate(bpm);
+    });
+    connect(r, &RowerDevice::powerMeasured, this, [this](int watts) {
+        // Let the virtual HR sensor respond to rowing when no trainer drives it.
+        if (m_trainer && m_trainer->state() == LinkState::Connected)
+            return;
+        if (auto *sim = qobject_cast<SimulatedHeartRate *>(m_hr.data()))
+            sim->setLoad(watts);
+    });
+    connect(r, &RowerDevice::rssiChanged, this, [this, r](int rssi) {
+        m_rowers.setRssi(r->id(), rssi);
+        emit devicesChanged();
+    });
+    connect(r, &RowerDevice::logMessage, this, &DeviceManager::addLog);
+    connect(r, &RowerDevice::stateChanged, this, [this, r](LinkState s) {
+        m_rowers.setState(r->id(), int(s));
+        emit devicesChanged();
+        emit rowerDataChanged();
+    });
+    emit rowerChanged(r);
+    emit rowerDataChanged();
+}
+
+void DeviceManager::releaseRower()
+{
+    if (!m_rower)
+        return;
+    RowerDevice *r = m_rower;
+    m_rower = nullptr;
+    m_rowers.setState(r->id(), int(LinkState::Disconnected));
+    r->disconnect(this);
+    r->disconnectDevice();
+    r->deleteLater();
+    emit rowerChanged(nullptr);
+    emit rowerDataChanged();
+}
+
 void DeviceManager::releaseTrainer()
 {
     if (!m_trainer)
@@ -526,6 +648,8 @@ int DeviceManager::connectedCount() const
         ++n;
     if (m_hr && m_hr->state() == LinkState::Connected)
         ++n;
+    if (m_rower && m_rower->state() == LinkState::Connected)
+        ++n;
     return n;
 }
 
@@ -533,13 +657,17 @@ QString DeviceManager::connectedSummary() const
 {
     const bool t = m_trainer && m_trainer->state() == LinkState::Connected;
     const bool h = m_hr && m_hr->state() == LinkState::Connected;
-    if (t && h)
-        return QStringLiteral("Trainer + Heart Rate Sensor");
+    const bool r = m_rower && m_rower->state() == LinkState::Connected;
+    QStringList parts;
     if (t)
-        return QStringLiteral("Trainer");
+        parts << QStringLiteral("Trainer");
+    if (r)
+        parts << QStringLiteral("Rower");
     if (h)
-        return QStringLiteral("Heart Rate Sensor");
-    return QStringLiteral("No sensors connected");
+        parts << QStringLiteral("Heart Rate Sensor");
+    if (parts.isEmpty())
+        return QStringLiteral("No sensors connected");
+    return parts.join(QStringLiteral(" + "));
 }
 
 QString DeviceManager::trainerId() const { return m_trainer ? m_trainer->id() : QString(); }
@@ -556,6 +684,12 @@ QString DeviceManager::heartRateId() const { return m_hr ? m_hr->id() : QString(
 QString DeviceManager::heartRateName() const { return m_hr ? m_hr->name() : QString(); }
 QString DeviceManager::heartRateProtocol() const { return m_hr ? m_hr->protocol() : QString(); }
 int DeviceManager::heartRateState() const { return m_hr ? int(m_hr->state()) : 0; }
+QString DeviceManager::rowerId() const { return m_rower ? m_rower->id() : QString(); }
+QString DeviceManager::rowerName() const { return m_rower ? m_rower->name() : QString(); }
+QString DeviceManager::rowerProtocol() const { return m_rower ? m_rower->protocol() : QString(); }
+int DeviceManager::rowerState() const { return m_rower ? int(m_rower->state()) : 0; }
+int DeviceManager::rowerRssi() const { return m_rower ? m_rower->rssi() : 0; }
+bool DeviceManager::rowerConnected() const { return m_rower && m_rower->state() == LinkState::Connected; }
 
 QString DeviceManager::signalText(int rssi) const
 {
@@ -649,6 +783,8 @@ void DeviceManager::setAutoReconnect(bool on)
         m_trainer->setAutoReconnect(on);
     if (m_hr)
         m_hr->setAutoReconnect(on);
+    if (m_rower)
+        m_rower->setAutoReconnect(on);
     savePreferences();
 }
 
@@ -670,8 +806,11 @@ void DeviceManager::setSimulatorEnabled(bool on)
             disconnectDevice(m_trainer->id());
         if (m_hr && m_hr->isSimulated())
             disconnectDevice(m_hr->id());
+        if (m_rower && m_rower->isSimulated())
+            disconnectDevice(m_rower->id());
         m_trainers.remove(kSimTrainer);
         m_hrSensors.remove(kSimHr);
+        m_rowers.remove(kSimRower);
     }
     savePreferences();
     if (on)

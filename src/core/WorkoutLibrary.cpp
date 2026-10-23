@@ -38,7 +38,7 @@ QVariant WorkoutLibrary::data(const QModelIndex &index, int role) const
     if (!index.isValid() || index.row() >= m_visible.size())
         return {};
     const Workout &w = m_visible.at(index.row());
-    const int ftp = m_profiles->ftp();
+    const int ftp = m_profiles->current().ftpFor(w.sport);
     switch (role) {
     case IdRole: return w.id;
     case NameRole: return w.name;
@@ -52,6 +52,7 @@ QVariant WorkoutLibrary::data(const QModelIndex &index, int role) const
     case IntensityRole: return int(std::lround(w.averagePercent() * 100));
     case FavoriteRole: return w.favorite;
     case BuiltInRole: return w.builtIn;
+    case SportRole: return w.sport;
     case SegmentsRole: return Workout::segmentsToVariant(w.segments(ftp, m_profiles->current().zones));
     default: return {};
     }
@@ -64,6 +65,7 @@ QHash<int, QByteArray> WorkoutLibrary::roleNames() const
         { DescriptionRole, "description" }, { DurationMinRole, "durationMin" }, { SummaryRole, "summary" },
         { IntervalsLabelRole, "intervalsLabel" }, { IntensityRole, "intensity" }, { FavoriteRole, "favorite" },
         { BuiltInRole, "builtIn" }, { SegmentsRole, "segments" }, { TotalSecRole, "totalSec" },
+        { SportRole, "sport" },
     };
 }
 
@@ -92,6 +94,22 @@ void WorkoutLibrary::setSortMode(int mode)
     m_sort = mode;
     applyFilter();
     emit filterChanged();
+}
+
+void WorkoutLibrary::setSportFilter(const QString &sport)
+{
+    const QString value = sport.trimmed().toLower() == QLatin1String("all") || sport.trimmed().isEmpty()
+        ? QStringLiteral("all") : sport::normalize(sport);
+    if (m_sportFilter == value)
+        return;
+    m_sportFilter = value;
+    applyFilter();
+    emit filterChanged();
+}
+
+QStringList WorkoutLibrary::sports() const
+{
+    return { QStringLiteral("all"), sport::cycling(), sport::rowing() };
 }
 
 QStringList WorkoutLibrary::categories() const
@@ -140,7 +158,7 @@ std::optional<Workout> WorkoutLibrary::workout(qint64 id) const
 
 QVariantMap WorkoutLibrary::toMap(const Workout &w) const
 {
-    const int ftp = m_profiles->ftp();
+    const int ftp = m_profiles->current().ftpFor(w.sport);
     QVariantMap m;
     m.insert(QStringLiteral("workoutId"), w.id);
     m.insert(QStringLiteral("name"), w.name);
@@ -155,6 +173,8 @@ QVariantMap WorkoutLibrary::toMap(const Workout &w) const
     m.insert(QStringLiteral("tss"), int(std::lround(w.estimatedTss())));
     m.insert(QStringLiteral("favorite"), w.favorite);
     m.insert(QStringLiteral("builtIn"), w.builtIn);
+    m.insert(QStringLiteral("sport"), w.sport);
+    m.insert(QStringLiteral("ftp"), ftp);
     m.insert(QStringLiteral("deletable"), !w.builtIn);
     m.insert(QStringLiteral("isFtpTest"), w.isFtpTest());
     m.insert(QStringLiteral("requiredForFtp"), w.isProtected());
@@ -228,6 +248,8 @@ void WorkoutLibrary::applyFilter()
     m_visible.clear();
     const QString needle = m_search.trimmed();
     for (const Workout &w : m_all) {
+        if (m_sportFilter != QLatin1String("all") && w.sport != m_sportFilter)
+            continue;
         if (m_category != QLatin1String("All")) {
             const bool custom = m_category == QLatin1String("Custom");
             if (custom ? w.builtIn : w.category != m_category)

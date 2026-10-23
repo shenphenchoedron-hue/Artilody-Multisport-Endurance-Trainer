@@ -19,6 +19,9 @@ class WorkoutLibrary : public QAbstractListModel
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY filterChanged)
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY filterChanged)
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY filterChanged)
+    // "all" (default), "cycling" or "rowing"
+    Q_PROPERTY(QString sportFilter READ sportFilter WRITE setSportFilter NOTIFY filterChanged)
+    Q_PROPERTY(QStringList sports READ sports CONSTANT)
     Q_PROPERTY(QStringList categories READ categories CONSTANT)
     Q_PROPERTY(QStringList sortModes READ sortModes CONSTANT)
     Q_PROPERTY(qint64 selectedId READ selectedId WRITE setSelectedId NOTIFY selectedChanged)
@@ -30,7 +33,8 @@ class WorkoutLibrary : public QAbstractListModel
 public:
     enum Roles {
         IdRole = Qt::UserRole + 1, NameRole, CategoryRole, FocusRole, DescriptionRole, DurationMinRole,
-        SummaryRole, IntervalsLabelRole, IntensityRole, FavoriteRole, BuiltInRole, SegmentsRole, TotalSecRole
+        SummaryRole, IntervalsLabelRole, IntensityRole, FavoriteRole, BuiltInRole, SegmentsRole, TotalSecRole,
+        SportRole
     };
     enum SortMode { MostPopular, NameAZ, Shortest, Longest, FavoritesFirst, Newest };
     Q_ENUM(SortMode)
@@ -47,6 +51,9 @@ public:
     void setCategory(const QString &category);
     int sortMode() const { return m_sort; }
     void setSortMode(int mode);
+    QString sportFilter() const { return m_sportFilter; }
+    void setSportFilter(const QString &sport);
+    QStringList sports() const;
     QStringList categories() const;
     QStringList sortModes() const;
     qint64 selectedId() const { return m_selectedId; }
@@ -97,6 +104,7 @@ private:
     QVector<Workout> m_visible;
     QString m_search;
     QString m_category = QStringLiteral("All");
+    QString m_sportFilter = QStringLiteral("all");
     int m_sort = MostPopular;
     qint64 m_selectedId = -1;
     QString m_lastMessage;

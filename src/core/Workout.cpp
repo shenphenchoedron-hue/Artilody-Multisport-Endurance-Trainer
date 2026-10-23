@@ -7,6 +7,31 @@
 
 namespace watt {
 
+namespace sport {
+QString normalize(const QString &value)
+{
+    const QString v = value.trimmed().toLower();
+    if (v == QLatin1String("rowing") || v == QLatin1String("row") || v == QLatin1String("rower"))
+        return rowing();
+    return cycling();
+}
+
+QStringList all()
+{
+    return { cycling(), rowing() };
+}
+} // namespace sport
+
+int ftpForSport(const QString &s, int ftp, int rowingFtp)
+{
+    return sport::normalize(s) == sport::rowing() ? rowingFtp : ftp;
+}
+
+int targetWatts(const Interval &interval, double secondInInterval, const QString &s, int ftp, int rowingFtp)
+{
+    return interval.wattsAt(secondInInterval, ftpForSport(s, ftp, rowingFtp));
+}
+
 int zoneForInterval(const Interval &interval, double percent, const ZoneSet &zones)
 {
     if (interval.rpeZone >= 0)

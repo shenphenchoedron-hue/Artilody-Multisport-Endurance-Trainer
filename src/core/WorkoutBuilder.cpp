@@ -29,7 +29,7 @@ QVariant IntervalModel::data(const QModelIndex &index, int role) const
     if (!index.isValid() || index.row() >= m_items.size())
         return {};
     const Interval &i = m_items.at(index.row());
-    const int ftp = m_profiles->ftp();
+    const int ftp = this->ftp();
     switch (role) {
     case NameRole: return i.name;
     case TypeRole: return blockTypeToString(i.type);
@@ -100,6 +100,20 @@ void IntervalModel::move(int from, int to)
         return;
     m_items.move(from, to);
     endMoveRows();
+}
+
+int IntervalModel::ftp() const
+{
+    return m_profiles->current().ftpFor(m_sport);
+}
+
+void IntervalModel::setSport(const QString &sport)
+{
+    const QString s = sport::normalize(sport);
+    if (s == m_sport)
+        return;
+    m_sport = s;
+    refreshAll();
 }
 
 void IntervalModel::refreshAll()
@@ -178,6 +192,24 @@ void WorkoutBuilder::setDescription(const QString &d)
     emit workoutChanged();
 }
 
+void WorkoutBuilder::setSport(const QString &value)
+{
+    const QString s = sport::normalize(value);
+    if (m_workout.sport == s)
+        return;
+    m_workout.sport = s;
+    m_model.setSport(s);
+    markDirty();
+    emit workoutChanged();
+    emit contentChanged();
+    emit selectedChanged();
+}
+
+int WorkoutBuilder::ftp() const
+{
+    return m_profiles->current().ftpFor(m_workout.sport);
+}
+
 void WorkoutBuilder::setSelectedIndex(int index)
 {
     index = std::clamp(index, -1, m_model.rowCount() - 1);
@@ -214,7 +246,7 @@ int WorkoutBuilder::totalDurationSec() const
 
 QVariantList WorkoutBuilder::segments() const
 {
-    return Workout::segmentsToVariant(currentWorkout().segments(m_profiles->ftp(), m_profiles->current().zones));
+    return Workout::segmentsToVariant(currentWorkout().segments(ftp(), m_profiles->current().zones));
 }
 
 int WorkoutBuilder::intensity() const
@@ -240,11 +272,13 @@ QStringList WorkoutBuilder::categories() const
              QStringLiteral("FTP Tests") };
 }
 
-void WorkoutBuilder::newWorkout()
+void WorkoutBuilder::newWorkout(const QString &sport)
 {
     m_workout = Workout();
+    m_workout.sport = sport::normalize(sport);
     m_workout.name = QStringLiteral("New Workout");
     m_workout.category = QStringLiteral("Intervals");
+    m_model.setSport(m_workout.sport);
     QVector<Interval> blocks { Interval::defaultFor(BlockType::WarmUp), Interval::defaultFor(BlockType::Interval),
                                Interval::defaultFor(BlockType::CoolDown) };
     m_model.setIntervals(blocks);
@@ -264,6 +298,7 @@ bool WorkoutBuilder::loadWorkout(qint64 id)
         return false;
     }
     m_workout = *w;
+    m_model.setSport(w->sport);
     m_model.setIntervals(w->intervals);
     m_selected = w->intervals.isEmpty() ? -1 : 0;
     m_dirty = false;
@@ -434,7 +469,7 @@ bool WorkoutBuilder::setDurationText(int index, const QString &text)
 
 void WorkoutBuilder::setWatts(int index, int watts)
 {
-    const int ftp = std::max(1, m_profiles->ftp());
+    const int ftp = std::max(1, this->ftp());
     modify(index, [&](Interval &i) {
         const double p = std::clamp(watts, 0, 2000) / double(ftp);
         const bool ramp = i.isRamp();
@@ -446,7 +481,7 @@ void WorkoutBuilder::setWatts(int index, int watts)
 
 void WorkoutBuilder::setEndWatts(int index, int watts)
 {
-    const int ftp = std::max(1, m_profiles->ftp());
+    const int ftp = std::max(1, this->ftp());
     modify(index, [&](Interval &i) { i.endPercent = std::clamp(watts, 0, 2000) / double(ftp); });
 }
 

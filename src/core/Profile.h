@@ -16,6 +16,7 @@ struct Profile
     QString name = QStringLiteral("Rider");
     double weightKg = 70.0;
     int ftp = 250;
+    int rowingFtp = 150;          // rowing FTP (W); rowing workouts are % of this
     int maxHr = 185;
     int restHr = 60;
     int preferredCadence = 85;
@@ -24,6 +25,8 @@ struct Profile
     ZoneSet zones;
 
     double wattsPerKg() const { return weightKg > 0 ? ftp / weightKg : 0.0; }
+    // FTP to use for workouts of the given sport ("cycling"/"rowing").
+    int ftpFor(const QString &sport) const;
     bool isValid(QString *error = nullptr) const;
 };
 

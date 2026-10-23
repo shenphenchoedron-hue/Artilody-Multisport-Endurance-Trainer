@@ -369,6 +369,7 @@ QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion)
         o.insert(QStringLiteral("category"), w.category);
         o.insert(QStringLiteral("focus"), w.focus);
         o.insert(QStringLiteral("description"), w.description);
+        o.insert(QStringLiteral("sport"), sport::normalize(w.sport));
         o.insert(QStringLiteral("intervals"), w.intervalsToJson());
         list.append(o);
     }
@@ -395,6 +396,7 @@ QByteArray toZwo(const Workout &w)
     xml.writeTextElement(QStringLiteral("author"), QStringLiteral("Artilody Watts Trainer"));
     xml.writeTextElement(QStringLiteral("name"), w.name);
     xml.writeTextElement(QStringLiteral("description"), w.description);
+    // Zwift has no rowing sport type; see WorkoutIO.h.
     xml.writeTextElement(QStringLiteral("sportType"), QStringLiteral("bike"));
     xml.writeStartElement(QStringLiteral("tags"));
     xml.writeEmptyElement(QStringLiteral("tag"));
@@ -505,6 +507,7 @@ ImportResult parseAwt(const QByteArray &rawData)
         w.name = o.value(QStringLiteral("name")).toString();
         w.focus = o.value(QStringLiteral("focus")).toString();
         w.description = o.value(QStringLiteral("description")).toString();
+        w.sport = sport::normalize(o.value(QStringLiteral("sport")).toString());
         const QString label = limited(w.name, kMaxNameLength).isEmpty() ? defaultWorkoutName()
                                                                           : limited(w.name, kMaxNameLength);
         cleaner.begin(list.size() > 1 ? label : QString());
@@ -716,6 +719,7 @@ ImportResult parseZwo(const QByteArray &data)
     if (!unknown.isEmpty())
         r.warnings.append(QStringLiteral("Ignored unsupported elements: %1.").arg(unknown.join(QStringLiteral(", "))));
 
+    w.sport = sport::cycling();
     if (finishWorkout(w, rawCategory, cleaner, &r.warnings))
         r.workouts.append(w);
     else

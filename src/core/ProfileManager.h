@@ -20,6 +20,7 @@ class ProfileManager : public QObject
     Q_PROPERTY(QString initials READ initials NOTIFY profileChanged)
     Q_PROPERTY(double weight READ weight NOTIFY profileChanged)
     Q_PROPERTY(int ftp READ ftp NOTIFY profileChanged)
+    Q_PROPERTY(int rowingFtp READ rowingFtp WRITE setRowingFtp NOTIFY profileChanged)
     Q_PROPERTY(int maxHr READ maxHr NOTIFY profileChanged)
     Q_PROPERTY(int restHr READ restHr NOTIFY profileChanged)
     Q_PROPERTY(int preferredCadence READ preferredCadence NOTIFY profileChanged)
@@ -43,6 +44,11 @@ public:
     QString initials() const;
     double weight() const { return m_profile.weightKg; }
     int ftp() const { return m_profile.ftp; }
+    int rowingFtp() const { return m_profile.rowingFtp; }
+    // Validates (Profile::kMinFtp..kMaxFtp) and persists the rowing FTP of the current profile.
+    Q_INVOKABLE bool setRowingFtp(int watts);
+    // FTP for workouts of a sport: rowingFtp for "rowing", ftp otherwise.
+    Q_INVOKABLE int ftpForSport(const QString &sport) const { return m_profile.ftpFor(sport); }
     int maxHr() const { return m_profile.maxHr; }
     int restHr() const { return m_profile.restHr; }
     int preferredCadence() const { return m_profile.preferredCadence; }
@@ -56,7 +62,7 @@ public:
     QString lastError() const { return m_lastError; }
 
     // Saves the edited profile. Keys: name, weight, ftp, maxHr, restHr,
-    // preferredCadence, defaultErg, avatarUrl, zoneBounds (list of 5 fractions).
+    // preferredCadence, defaultErg, avatarUrl, rowingFtp, zoneBounds (list of 5 fractions).
     Q_INVOKABLE bool saveProfile(const QVariantMap &values);
     Q_INVOKABLE bool selectProfile(qint64 id);
     Q_INVOKABLE qint64 createProfile(const QString &name);

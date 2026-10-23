@@ -34,10 +34,14 @@ public:
     void remove(int row);
     void move(int from, int to);
     void refreshAll();
+    // Watts are shown relative to the FTP of this sport (see ftpForSport()).
+    void setSport(const QString &sport);
 
 private:
+    int ftp() const;
     ProfileManager *m_profiles;
     QVector<Interval> m_items;
+    QString m_sport = sport::cycling();
 };
 
 // Visual workout editor backend. Exposed to QML as "Builder".
@@ -49,6 +53,11 @@ class WorkoutBuilder : public QObject
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY workoutChanged)
     Q_PROPERTY(QString focus READ focus WRITE setFocus NOTIFY workoutChanged)
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY workoutChanged)
+    // "cycling" (default) or "rowing"; saved with the workout. Watts are % of
+    // the profile's FTP or rowing FTP accordingly.
+    Q_PROPERTY(QString sport READ sport WRITE setSport NOTIFY workoutChanged)
+    Q_PROPERTY(QStringList sports READ sports CONSTANT)
+    Q_PROPERTY(int ftp READ ftp NOTIFY workoutChanged)
     Q_PROPERTY(IntervalModel *intervals READ intervals CONSTANT)
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
@@ -74,6 +83,10 @@ public:
     void setFocus(const QString &f);
     QString description() const { return m_workout.description; }
     void setDescription(const QString &d);
+    QString sport() const { return m_workout.sport; }
+    void setSport(const QString &sport);
+    QStringList sports() const { return sport::all(); }
+    int ftp() const;   // FTP of the current workout's sport
     IntervalModel *intervals() { return &m_model; }
     int selectedIndex() const { return m_selected; }
     void setSelectedIndex(int index);
@@ -90,7 +103,8 @@ public:
 
     Workout currentWorkout() const;
 
-    Q_INVOKABLE void newWorkout();
+    // sport: "cycling" (default when empty) or "rowing"
+    Q_INVOKABLE void newWorkout(const QString &sport = QString());
     Q_INVOKABLE bool loadWorkout(qint64 id);
     Q_INVOKABLE qint64 save();     // returns id or -1
 

@@ -18,6 +18,9 @@ qt_add_library(watt_core STATIC
     WorkoutBuilder.h WorkoutBuilder.cpp
     TrainingSession.h TrainingSession.cpp
     HistoryManager.h HistoryManager.cpp
+    PlanTypes.h
+    WorkoutPlanner.h WorkoutPlanner.cpp
+    RowingRecords.h RowingRecords.cpp
 )
 
 target_include_directories(watt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

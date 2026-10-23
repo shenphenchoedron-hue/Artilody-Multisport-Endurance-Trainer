@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
 
 namespace watt {
@@ -32,6 +33,16 @@ void HistoryManager::setRangeDays(int days)
     refresh();
 }
 
+void HistoryManager::setSportFilter(const QString &sport)
+{
+    const QString value = sport.trimmed().isEmpty() || sport.trimmed().toLower() == QLatin1String("all")
+        ? QStringLiteral("all") : sport::normalize(sport);
+    if (m_sportFilter == value)
+        return;
+    m_sportFilter = value;
+    refresh();
+}
+
 QVariantList HistoryManager::rangeOptions() const
 {
     auto opt = [](const QString &label, int days) {
@@ -48,6 +59,11 @@ void HistoryManager::refresh()
     if (m_rangeDays > 0)
         from = QDateTime(QDate::currentDate().addDays(-(m_rangeDays - 1)), QTime(0, 0));
     m_rides = m_db->rides(m_profiles->profileId(), from);
+    if (m_sportFilter != QLatin1String("all")) {
+        m_rides.erase(std::remove_if(m_rides.begin(), m_rides.end(),
+                                     [this](const RideRecord &r) { return r.sport != m_sportFilter; }),
+                      m_rides.end());
+    }
     emit dataChanged();
 
     bool stillThere = false;
@@ -108,6 +124,8 @@ QVariantList HistoryManager::rides() const
         m.insert(QStringLiteral("name"), r.workoutName);
         m.insert(QStringLiteral("durationMin"), int(std::lround(r.durationSec / 60.0)));
         m.insert(QStringLiteral("avgPower"), int(std::lround(r.avgPower)));
+        m.insert(QStringLiteral("sport"), r.sport);
+        m.insert(QStringLiteral("distanceM"), r.distanceM);
         list.append(m);
     }
     return list;
@@ -202,6 +220,8 @@ QVariantMap HistoryManager::selectedRide() const
     const RideRecord &r = m_selected;
     m.insert(QStringLiteral("rideId"), r.id);
     m.insert(QStringLiteral("name"), r.workoutName);
+    m.insert(QStringLiteral("sport"), r.sport);
+    m.insert(QStringLiteral("distanceM"), r.distanceM);
     m.insert(QStringLiteral("date"), en.toString(r.startedAt.date(), QStringLiteral("MMM d, yyyy")));
     m.insert(QStringLiteral("time"), en.toString(r.startedAt.time(), QStringLiteral("HH:mm")));
     m.insert(QStringLiteral("durationSec"), r.durationSec);

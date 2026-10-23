@@ -106,6 +106,7 @@ QVariantList ProfileManager::profiles() const
         m.insert(QStringLiteral("id"), p.id);
         m.insert(QStringLiteral("name"), p.name);
         m.insert(QStringLiteral("ftp"), p.ftp);
+        m.insert(QStringLiteral("rowingFtp"), p.rowingFtp);
         list.append(m);
     }
     return list;
@@ -148,6 +149,7 @@ void ProfileManager::applyValues(Profile &p, const QVariantMap &v)
     p.name = v.value(QStringLiteral("name"), p.name).toString().trimmed();
     p.weightKg = v.value(QStringLiteral("weight"), p.weightKg).toDouble();
     p.ftp = v.value(QStringLiteral("ftp"), p.ftp).toInt();
+    p.rowingFtp = v.value(QStringLiteral("rowingFtp"), p.rowingFtp).toInt();
     p.maxHr = v.value(QStringLiteral("maxHr"), p.maxHr).toInt();
     p.restHr = v.value(QStringLiteral("restHr"), p.restHr).toInt();
     p.preferredCadence = v.value(QStringLiteral("preferredCadence"), p.preferredCadence).toInt();
@@ -185,6 +187,13 @@ bool ProfileManager::saveProfile(const QVariantMap &v)
     emit profileChanged();
     emit profilesChanged();
     return true;
+}
+
+bool ProfileManager::setRowingFtp(int watts)
+{
+    if (watts == m_profile.rowingFtp)
+        return true;
+    return saveProfile({ { QStringLiteral("rowingFtp"), watts } });
 }
 
 bool ProfileManager::selectProfile(qint64 id)

@@ -14,7 +14,15 @@
 //   { "format": "artilody-watts-trainer/workout", "version": 1,
 //     "exportedAt": "<ISO-8601 UTC>", "app": "Artilody Watts Trainer <ver>",
 //     "workouts": [ { "name", "category", "focus", "description",
+//                     "sport": "cycling"|"rowing",
 //                     "intervals": [ Interval::toJson() objects ] } ] }
+// "sport" was added without bumping the format version (older readers ignore
+// it); a missing/unknown sport is read as "cycling".
+//
+// .zwo: Zwift only knows sportType "bike" and "run". Rowing workouts can be
+// exported, but are written with sportType "bike" (their intervals are % FTP
+// like bike workouts), so the sport is lost on a .zwo round trip. Imported
+// .zwo files are always cycling workouts.
 // Intensities are fractions of FTP, so shared workouts scale to the
 // importing rider's FTP.
 namespace watt::workoutio {

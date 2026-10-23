@@ -17,6 +17,8 @@ class HistoryManager : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int rangeDays READ rangeDays WRITE setRangeDays NOTIFY dataChanged)
+    // "all" (default), "cycling" or "rowing": restricts rides and statistics.
+    Q_PROPERTY(QString sportFilter READ sportFilter WRITE setSportFilter NOTIFY dataChanged)
     Q_PROPERTY(QVariantList rangeOptions READ rangeOptions CONSTANT)
     Q_PROPERTY(int totalRides READ totalRides NOTIFY dataChanged)
     Q_PROPERTY(int totalSeconds READ totalSeconds NOTIFY dataChanged)
@@ -40,6 +42,8 @@ public:
 
     int rangeDays() const { return m_rangeDays; }
     void setRangeDays(int days);
+    QString sportFilter() const { return m_sportFilter; }
+    void setSportFilter(const QString &sport);
     QVariantList rangeOptions() const;
     int totalRides() const { return m_rides.size(); }
     int totalSeconds() const;
@@ -85,6 +89,7 @@ private:
     Database *m_db;
     ProfileManager *m_profiles;
     int m_rangeDays = 30;
+    QString m_sportFilter = QStringLiteral("all");
     QVector<RideRecord> m_rides;
     RideRecord m_selected;
     QVector<Sample> m_selSamples;

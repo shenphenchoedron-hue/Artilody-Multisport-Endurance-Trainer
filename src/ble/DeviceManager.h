@@ -20,8 +20,8 @@ namespace watt {
 class Database;
 class SensorHub;
 
-// Discovers and manages Bluetooth LE sensors (FTMS trainers + HRS heart-rate
-// sensors) plus optional simulated devices. Feeds all measurements into the
+// Discovers and manages Bluetooth LE sensors (FTMS trainers, HRS heart-rate
+// sensors, Concept2 PM5 rowers) plus optional simulated devices. Feeds all measurements into the
 // SensorHub and forwards ERG requests to the trainer. Exposed to QML as "Devices".
 class DeviceManager : public QObject
 {
@@ -37,6 +37,7 @@ class DeviceManager : public QObject
 
     Q_PROPERTY(DeviceListModel *trainers READ trainers CONSTANT)
     Q_PROPERTY(DeviceListModel *heartRateSensors READ heartRateSensors CONSTANT)
+    Q_PROPERTY(DeviceListModel *rowers READ rowers CONSTANT)
 
     Q_PROPERTY(int connectedCount READ connectedCount NOTIFY devicesChanged)
     Q_PROPERTY(QString connectedSummary READ connectedSummary NOTIFY devicesChanged)
@@ -51,6 +52,25 @@ class DeviceManager : public QObject
     Q_PROPERTY(QString heartRateName READ heartRateName NOTIFY devicesChanged)
     Q_PROPERTY(QString heartRateProtocol READ heartRateProtocol NOTIFY devicesChanged)
     Q_PROPERTY(int heartRateState READ heartRateState NOTIFY devicesChanged)
+
+    // Active rower. `rower` is the RowerDevice object itself (null when none is
+    // selected) with live properties (watts, strokesPerMinute, ...). The flat
+    // rower* live values mirror it for null-safe QML bindings.
+    Q_PROPERTY(watt::RowerDevice *rower READ rower NOTIFY rowerChanged)
+    Q_PROPERTY(QString rowerId READ rowerId NOTIFY devicesChanged)
+    Q_PROPERTY(QString rowerName READ rowerName NOTIFY devicesChanged)
+    Q_PROPERTY(QString rowerProtocol READ rowerProtocol NOTIFY devicesChanged)
+    Q_PROPERTY(int rowerState READ rowerState NOTIFY devicesChanged)
+    Q_PROPERTY(int rowerRssi READ rowerRssi NOTIFY devicesChanged)
+    Q_PROPERTY(bool rowerConnected READ rowerConnected NOTIFY devicesChanged)
+    Q_PROPERTY(int rowerWatts READ rowerWatts NOTIFY rowerDataChanged)
+    Q_PROPERTY(int rowerStrokesPerMinute READ rowerStrokesPerMinute NOTIFY rowerDataChanged)
+    Q_PROPERTY(int rowerHeartRate READ rowerHeartRate NOTIFY rowerDataChanged)
+    Q_PROPERTY(double rowerPace500 READ rowerPace500 NOTIFY rowerDataChanged)
+    Q_PROPERTY(double rowerDistance READ rowerDistance NOTIFY rowerDataChanged)
+    Q_PROPERTY(double rowerElapsed READ rowerElapsed NOTIFY rowerDataChanged)
+    Q_PROPERTY(int rowerStrokeCount READ rowerStrokeCount NOTIFY rowerDataChanged)
+    Q_PROPERTY(bool rowerActive READ rowerActive NOTIFY rowerDataChanged)
 
     Q_PROPERTY(QVariantList log READ log NOTIFY logChanged)
     Q_PROPERTY(bool autoConnect READ autoConnect WRITE setAutoConnect NOTIFY preferencesChanged)
@@ -80,6 +100,7 @@ public:
 
     DeviceListModel *trainers() { return &m_trainers; }
     DeviceListModel *heartRateSensors() { return &m_hrSensors; }
+    DeviceListModel *rowers() { return &m_rowers; }
 
     int connectedCount() const;
     QString connectedSummary() const;
@@ -94,6 +115,24 @@ public:
     QString heartRateName() const;
     QString heartRateProtocol() const;
     int heartRateState() const;
+
+    // Active rower for C++ consumers (e.g. a RowingSession): connect to
+    // rowerChanged() and (re)attach to the RowerDevice signals. May be null.
+    RowerDevice *rower() const { return m_rower; }
+    QString rowerId() const;
+    QString rowerName() const;
+    QString rowerProtocol() const;
+    int rowerState() const;
+    int rowerRssi() const;
+    bool rowerConnected() const;
+    int rowerWatts() const { return m_rower ? m_rower->watts() : 0; }
+    int rowerStrokesPerMinute() const { return m_rower ? m_rower->strokesPerMinute() : 0; }
+    int rowerHeartRate() const { return m_rower ? m_rower->heartRateBpm() : 0; }
+    double rowerPace500() const { return m_rower ? m_rower->pace500Seconds() : 0.0; }
+    double rowerDistance() const { return m_rower ? m_rower->distanceMeters() : 0.0; }
+    double rowerElapsed() const { return m_rower ? m_rower->elapsedSeconds() : 0.0; }
+    int rowerStrokeCount() const { return m_rower ? m_rower->strokeCount() : 0; }
+    bool rowerActive() const { return m_rower && m_rower->rowingActive(); }
 
     QVariantList log() const { return m_log; }
     bool autoConnect() const { return m_autoConnect; }
@@ -123,9 +162,11 @@ signals:
     void logChanged();
     void preferencesChanged();
     void ergTestChanged();
+    void rowerChanged(watt::RowerDevice *rower);   // active rower object replaced (may be null)
+    void rowerDataChanged();                        // live rower values updated
 
 private:
-    enum class Kind { Unknown, Trainer, HeartRate };
+    enum class Kind { Unknown, Trainer, HeartRate, Rower };
     static Kind classify(const QBluetoothDeviceInfo &info);
     static QString idFor(const QBluetoothDeviceInfo &info);
 
@@ -135,8 +176,10 @@ private:
     void addSimulatedEntries();
     void attachTrainer(TrainerDevice *t);
     void attachHeartRate(HeartRateDevice *h);
+    void attachRower(RowerDevice *r);
     void releaseTrainer();
     void releaseHeartRate();
+    void releaseRower();
     void savePreferences();
 
     Database *m_db;
@@ -145,13 +188,15 @@ private:
     QBluetoothDeviceDiscoveryAgent *m_agent = nullptr;
     DeviceListModel m_trainers;
     DeviceListModel m_hrSensors;
+    DeviceListModel m_rowers;
     QHash<QString, QBluetoothDeviceInfo> m_infos;
     QPointer<TrainerDevice> m_trainer;
     QPointer<HeartRateDevice> m_hr;
+    QPointer<RowerDevice> m_rower;
     QVariantList m_log;
     QDateTime m_lastScan;
     QString m_scanStatus;
-    QString m_knownTrainer, m_knownHr;
+    QString m_knownTrainer, m_knownHr, m_knownRower;
     bool m_autoConnect = true;
     bool m_autoReconnect = true;
     bool m_allowMultiple = true;

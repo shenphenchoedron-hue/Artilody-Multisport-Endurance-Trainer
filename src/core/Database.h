@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PlanTypes.h"
 #include "Profile.h"
 #include "Ride.h"
 #include "Track.h"
@@ -20,7 +21,11 @@ class Database : public QObject
 {
     Q_OBJECT
 public:
-    static constexpr int kSchemaVersion = 1;
+    // Schema history (PRAGMA user_version):
+    //   1  initial schema
+    //   2  workouts.sport, rides.sport, rides.distance_m, profiles.rowing_ftp,
+    //      tables planned_workouts and rowing_records
+    static constexpr int kSchemaVersion = 2;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -62,6 +67,26 @@ public:
     QVector<Sample> rideSamples(qint64 rideId) const;
     bool deleteRide(qint64 id);
 
+    // Workout plan (calendar). Entries whose workout no longer exists are
+    // never returned (inner join) and are deleted together with the workout.
+    QVector<PlannedWorkout> plannedWorkouts(qint64 profileId, const QDate &from, const QDate &to,
+                                            bool onlyOpen = false, int limit = -1) const;
+    std::optional<PlannedWorkout> plannedWorkout(qint64 id) const;
+    qint64 addPlannedWorkout(qint64 profileId, const QDate &date, qint64 workoutId, const QString &notes = {});
+    bool removePlannedWorkout(qint64 id);
+    bool movePlannedWorkout(qint64 id, const QDate &date);   // appended at the end of the new day
+    bool setPlannedCompleted(qint64 id, bool completed, qint64 rideId = -1);
+    bool setPlannedNotes(qint64 id, const QString &notes);
+    // Marks the first open entry of workoutId on date completed. Returns its id or -1.
+    qint64 completePlannedWorkout(qint64 profileId, qint64 workoutId, const QDate &date, qint64 rideId);
+
+    // Rowing records (ghost race). Traces are stored as compact JSON [[t,d],...].
+    qint64 saveRowingRecord(const RowingRecord &record);
+    std::optional<RowingRecord> bestRowingRecord(qint64 profileId, int distanceM) const;
+    QVector<RowingRecord> bestRowingRecords(qint64 profileId, bool withTrace = false) const;   // one per distance
+    static QString traceToText(const QVector<TracePoint> &trace);
+    static QVector<TracePoint> traceFromText(const QString &text);
+
     // Music
     QVector<Playlist> playlists() const;
     qint64 createPlaylist(const QString &name);
@@ -76,6 +101,11 @@ public:
 private:
     bool exec(const QString &sql);
     bool migrate();
+    bool createSchemaV1();
+    bool migrateToV2();
+    bool hasColumn(const QString &table, const QString &column) const;
+    bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);
+    int userVersion() const;
     void ensureBuiltInFtpTest();
     QSqlDatabase db() const;
     void setError(const QString &context, const QString &error) const;

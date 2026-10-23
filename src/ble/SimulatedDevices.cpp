@@ -1,5 +1,7 @@
 #include "SimulatedDevices.h"
 
+#include "Pm5Protocol.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -123,6 +125,91 @@ void SimulatedHeartRate::step()
     // HR responds slowly (time constant ~25 s)
     m_hr += (goal - m_hr) / 25.0;
     emit heartRateMeasured(int(std::lround(m_hr + noise(0.8))));
+}
+
+// ---------------------------------------------------------------------------
+
+SimulatedRower::SimulatedRower(QObject *parent)
+    : RowerDevice(parent)
+{
+    m_timer.setInterval(250);
+    connect(&m_timer, &QTimer::timeout, this, [this] { step(0.25); });
+}
+
+void SimulatedRower::connectDevice()
+{
+    if (state() != LinkState::Disconnected)
+        return;
+    setState(LinkState::Connecting);
+    QTimer::singleShot(700, this, [this] {
+        if (state() != LinkState::Connecting)
+            return;
+        if (m_hr <= 0)
+            m_hr = 72;
+        setRssi(-55);
+        setState(LinkState::Connected);
+        emit logMessage(QStringLiteral("Rower connected (%1)").arg(name()), true);
+        m_timer.start();
+    });
+}
+
+void SimulatedRower::disconnectDevice()
+{
+    m_timer.stop();
+    setState(LinkState::Disconnected);
+    emit logMessage(QStringLiteral("Rower disconnected"), false);
+}
+
+void SimulatedRower::step(double dt)
+{
+    const double effort = m_target > 0 ? m_target
+                                       : m_freePower + 20.0 * std::sin(m_t / 45.0) + 8.0 * std::sin(m_t / 9.0);
+    // Rate rises gently with effort: 150 W -> 24 spm, 200 W -> 26 spm.
+    const double spm = std::clamp(18.0 + effort / 25.0 + 0.8 * std::sin(m_t / 30.0), 16.0, 36.0);
+
+    m_t += dt;
+    if (m_rowing) {
+        m_idle = 0;
+        m_power += (effort - m_power) * std::min(1.0, dt * 1.5);
+        m_phase += dt * spm / 60.0;
+        if (m_phase >= 1.0) {
+            m_phase -= 1.0;
+            ++m_strokes;
+            const int strokePower = int(std::lround(std::max(0.0, effort + noise(10.0))));
+            m_powerSum += strokePower;
+            applyStroke(m_strokes, strokePower);
+            applyStrokeRate(int(std::lround(spm + noise(0.6))));
+        }
+    } else {
+        m_idle += dt;
+        m_power *= std::max(0.0, 1.0 - dt * 0.6);   // flywheel spins down
+        if (m_power < 5)
+            m_power = 0;
+        if (m_idle > 3.0)
+            applyStrokeRate(0);
+    }
+
+    const double pace = pm5::pace500FromWatts(m_power);          // s / 500 m
+    const double speed = pace > 0 ? 500.0 / pace : 0.0;          // m/s
+    m_dist += speed * dt;
+    m_kcal += (4.0 * m_power + 300.0) / 3600.0 * dt;             // Concept2 cal/h
+
+    const double hrGoal = std::clamp(72.0 + 0.48 * (m_rowing ? effort : 0.0), 60.0, 190.0);
+    m_hr += (hrGoal - m_hr) * std::min(1.0, dt / 25.0);
+
+    const bool active = m_rowing || m_idle <= 3.0;
+    applyWorkoutState(int(pm5::WorkoutState::WorkoutRow), active);
+    applyElapsed(m_t);
+    applyDistance(m_dist);
+    applySpeed(speed);
+    applyPace(pace);
+    applyAveragePace(m_dist > 1 ? m_t / m_dist * 500.0 : 0.0);
+    applyAverageWatts(m_strokes > 0 ? int(std::lround(m_powerSum / m_strokes)) : 0);
+    applyCalories(int(m_kcal));
+    applyDragFactor(120);
+    if (m_reportHr)
+        applyHeartRate(int(std::lround(m_hr + noise(0.8))));
+    commitMeasurement();
 }
 
 } // namespace watt

@@ -85,6 +85,53 @@ private slots:
         }
     }
 
+    void sportRoundTrips()
+    {
+        Workout row = Workout::builtInLibrary().first();
+        row.name = QStringLiteral("Row 4 x 500");
+        row.sport = QStringLiteral("rowing");
+        Workout bike = Workout::builtInLibrary().at(1);
+
+        // .awt keeps the sport
+        const workoutio::ImportResult res = workoutio::parseAwt(workoutio::toAwt({ row, bike }, QString()));
+        QVERIFY(res.ok());
+        QCOMPARE(res.workouts.size(), 2);
+        QCOMPARE(res.workouts.at(0).sport, QStringLiteral("rowing"));
+        QVERIFY(res.workouts.at(0).isRowing());
+        QCOMPARE(res.workouts.at(1).sport, QStringLiteral("cycling"));
+
+        // missing/unknown sport -> cycling (files from older versions)
+        const QByteArray legacy = R"({"format":"artilody-watts-trainer/workout","version":1,"workouts":[
+            {"name":"Old","intervals":[{"duration":300,"start":0.6}]},
+            {"name":"Odd","sport":"swimming","intervals":[{"duration":300,"start":0.6}]}]})";
+        const workoutio::ImportResult old = workoutio::parseAwt(legacy);
+        QVERIFY(old.ok());
+        QCOMPARE(old.workouts.at(0).sport, QStringLiteral("cycling"));
+        QCOMPARE(old.workouts.at(1).sport, QStringLiteral("cycling"));
+
+        // .zwo: exported as "bike", imported as cycling
+        const QByteArray zwo = workoutio::toZwo(row);
+        QVERIFY(zwo.contains("<sportType>bike</sportType>"));
+        const workoutio::ImportResult z = workoutio::parseZwo(zwo);
+        QVERIFY(z.ok());
+        QCOMPARE(z.workouts.first().sport, QStringLiteral("cycling"));
+        QCOMPARE(z.workouts.first().intervals, row.intervals);
+
+        // persisted in the database
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        Workout copy = row;
+        copy.id = -1;
+        copy.builtIn = false;
+        const qint64 id = db.saveWorkout(copy);
+        QVERIFY(id > 0);
+        QCOMPARE(db.workout(id)->sport, QStringLiteral("rowing"));
+        copy.id = id;
+        copy.sport = QStringLiteral("cycling");
+        QCOMPARE(db.saveWorkout(copy), id);
+        QCOMPARE(db.workout(id)->sport, QStringLiteral("cycling"));
+    }
+
     void zwoRoundTripsBuiltIns()
     {
         for (const Workout &a : Workout::builtInLibrary()) {

@@ -5,6 +5,7 @@
 
 #include <QJsonArray>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVector>
 
@@ -19,6 +20,28 @@ struct Segment
     int zone = 0;   // 0..5
 };
 
+// Sport a workout / ride belongs to. Stored as lower-case text in the DB
+// ("cycling" is the default for everything created before schema v2).
+namespace sport {
+inline QString cycling() { return QStringLiteral("cycling"); }
+inline QString rowing() { return QStringLiteral("rowing"); }
+// Maps any input to a known sport; unknown/empty -> cycling.
+QString normalize(const QString &value);
+QStringList all();
+} // namespace sport
+
+// FTP selection for a sport: rowing workouts are prescribed as % of the
+// rider's rowing FTP, everything else as % of the cycling FTP.
+// Wave 2 (rowing UI / PM5 sessions) should always go through these helpers
+// (or Profile::ftpFor()) instead of reading Profile::ftp directly.
+int ftpForSport(const QString &sport, int ftp, int rowingFtp);
+// Target watts of an interval at secondInInterval for the given sport.
+int targetWatts(const Interval &interval, double secondInInterval, const QString &sport, int ftp, int rowingFtp);
+inline int targetWatts(const Interval &interval, const QString &sport, int ftp, int rowingFtp)
+{
+    return targetWatts(interval, 0.0, sport, ftp, rowingFtp);
+}
+
 struct Workout
 {
     qint64 id = -1;
@@ -29,7 +52,10 @@ struct Workout
     bool favorite = false;
     bool builtIn = false;
     int timesUsed = 0;
+    QString sport = sport::cycling();   // "cycling" or "rowing"
     QVector<Interval> intervals;
+
+    bool isRowing() const { return sport == sport::rowing(); }
 
     int totalDurationSec() const;
     int intervalIndexAt(int second) const;   // -1 when outside the workout
