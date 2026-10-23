@@ -11,9 +11,11 @@ Rectangle {
     property real iconSize: 22
     property bool enabled: true
     property bool bold: true
+    property real horizontalPadding: 22
+    property real iconSpacing: 12
     signal clicked()
 
-    implicitWidth: content.implicitWidth + 44
+    implicitWidth: content.implicitWidth + 2 * horizontalPadding
     implicitHeight: 54
     radius: 10
     opacity: enabled ? 1 : 0.45
@@ -31,7 +33,7 @@ Rectangle {
     Row {
         id: content
         anchors.centerIn: parent
-        spacing: 12
+        spacing: button.iconSpacing
         Icon {
             visible: button.iconName.length > 0
             name: button.iconName

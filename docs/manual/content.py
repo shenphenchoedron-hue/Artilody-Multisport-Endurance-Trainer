@@ -432,9 +432,11 @@ def build(s, env):
     s.sub("Workout preview")
     s.p("The preview panel shows the name, category, duration and focus, a larger profile chart, and the "
         f"tiles {UI('Duration')}, {UI('Intensity')} (average % of FTP) and {UI('Intervals')} (e.g. 3 × 12 min), "
-        f"followed by the description. The {UI('•••')} (more) menu offers:")
+        f"followed by the description. Below it are {UI('Start Workout')}, {UI('Edit')} (opens the workout in "
+        f"the Builder) and a share button that exports the selected workout (section 6.2). The {UI('•••')} "
+        "(more) menu offers:")
     s.bullets([
-        f"{UI('Export…')} – saves the selected workout as an Artilody {C('.awt')} file or a Zwift {C('.zwo')} "
+        f"{UI('Export selected workout…')} – saves the selected workout as an Artilody {C('.awt')} file or a Zwift {C('.zwo')} "
         "file to share it (section 6.2).",
         f"{UI('Export all my workouts…')} – saves all your own (custom) workouts into one {C('.awt')} file.",
         f"{UI('Duplicate')} – creates your own copy named “… (copy)” that you can edit freely.",
@@ -461,15 +463,17 @@ def build(s, env):
     s.sub("Exporting a workout")
     s.steps([
         "Select the workout in the library (built-in workouts can be exported too).",
-        f"Open the {UI('•••')} menu in the Workout Preview and choose {UI('Export…')}.",
+        f"Click {UI('Export')} in the filter bar of the Workouts page (next to {UI('Import')}) and choose "
+        f"{UI('Export selected workout…')}. You can also click the share button next to {UI('Edit')} at the "
+        f"bottom of the Workout Preview, or use the {UI('•••')} menu of the preview.",
         f"Choose the file type in the save dialog – {UI('Artilody workout (*.awt)')} or "
         f"{UI('Zwift workout (*.zwo)')} – and save. The file extension decides the format; the suggested "
         "file name is the workout name in your Documents folder.",
         "Send the file to a friend (e-mail, chat, USB stick …) or keep it as a backup.",
     ])
-    s.p(f"{UI('Export all my workouts…')} writes all your own workouts (not the built-in ones) into a single "
-        f"{C('.awt')} file, suggested name {C('My workouts.awt')}. If you have no own workouts yet, the app "
-        "tells you so.")
+    s.p(f"{UI('Export')} → {UI('Export all my workouts…')} writes all your own workouts (not the built-in ones) into a single "
+        f"{C('.awt')} file, suggested name {C('My workouts.awt')}. The entry is disabled "
+        "until you have created or imported at least one workout of your own.")
     s.sub("Importing workouts")
     s.steps([
         f"Click {UI('Import')} in the filter bar of the Workouts page.",
@@ -945,7 +949,7 @@ def build(s, env):
         "folder, another computer).",
         "To restore, close the app and copy the backup back to the same folder under the same name.",
     ])
-    s.tip(f"To back up only your own workouts, use {UI('Export all my workouts…')} on the Workouts page "
+    s.tip(f"To back up only your own workouts, use {UI('Export')} → {UI('Export all my workouts…')} on the Workouts page "
           f"(section 6.2).")
     s.tip("You can move your complete training history to a new computer the same way. Music files and "
           "avatar pictures are referenced by path and must be copied separately.")

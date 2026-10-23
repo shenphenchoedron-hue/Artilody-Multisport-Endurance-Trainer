@@ -187,7 +187,7 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 
 ## Sharing workouts
 
-On the **Workouts** page, open the **⋯** menu of the workout preview and choose **Export…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. Use the **Import** button next to the sort menu to import one or more files.
+On the **Workouts** page, click **Export** in the filter bar (next to **Import**) and choose **Export selected workout…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. The selected workout can also be exported with the share button next to **Edit** at the bottom of the Workout Preview (or from its **⋯** menu). Use the **Import** button to import one or more files.
 
 | Format | Best for | Notes |
 |---|---|---|

@@ -33,7 +33,7 @@ Item {
         y: 146
         width: parent.width - 2 * Theme.pageMargin
         height: 54
-        spacing: 12
+        spacing: 8
 
         AppTextField {
             Layout.fillWidth: true
@@ -47,7 +47,7 @@ Item {
 
         Rectangle {
             Layout.fillHeight: true
-            Layout.preferredWidth: catRow.width + 10
+            Layout.preferredWidth: catRow.width + 8
             radius: 10
             color: Theme.card
             border.color: Theme.cardBorder
@@ -58,7 +58,7 @@ Item {
                 Repeater {
                     model: Workouts.categories
                     Rectangle {
-                        width: catLabel.implicitWidth + 28
+                        width: catLabel.implicitWidth + 18
                         height: 44
                         radius: 8
                         color: Workouts.category === modelData ? Theme.accent : (catMouse.containsMouse ? Theme.hover : "transparent")
@@ -98,6 +98,8 @@ Item {
 
         AppButton {
             Layout.fillHeight: true
+            horizontalPadding: 16
+            iconSpacing: 8
             kind: "secondary"
             bold: false
             text: "Import"
@@ -106,7 +108,36 @@ Item {
         }
 
         AppButton {
+            id: exportButton
             Layout.fillHeight: true
+            horizontalPadding: 16
+            iconSpacing: 8
+            kind: "secondary"
+            bold: false
+            text: "Export"
+            iconName: "export"
+            onClicked: exportMenu.popup()
+            Menu {
+                id: exportMenu
+                y: exportButton.height + 4
+                width: Math.max(implicitWidth, 300)
+                MenuItem {
+                    text: "Export selected workout…"
+                    enabled: page.sel.workoutId !== undefined
+                    onTriggered: page.startExport(false)
+                }
+                MenuItem {
+                    text: "Export all my workouts…"
+                    enabled: Workouts.customCount > 0
+                    onTriggered: page.startExport(true)
+                }
+            }
+        }
+
+        AppButton {
+            Layout.fillHeight: true
+            horizontalPadding: 18
+            iconSpacing: 8
             text: "New Workout"
             iconName: "plus"
             onClicked: page.newWorkout()
@@ -317,12 +348,14 @@ Item {
                 onClicked: moreMenu.popup()
                 Menu {
                     id: moreMenu
+                    width: Math.max(implicitWidth, 300)
                     MenuItem {
-                        text: "Export…"
+                        text: "Export selected workout…"
                         onTriggered: page.startExport(false)
                     }
                     MenuItem {
                         text: "Export all my workouts…"
+                        enabled: Workouts.customCount > 0
                         onTriggered: page.startExport(true)
                     }
                     MenuSeparator {}
@@ -517,13 +550,21 @@ Item {
                 }
             }
             AppButton {
-                Layout.preferredWidth: 160
+                Layout.preferredWidth: 130
                 Layout.fillHeight: true
                 kind: "secondary"
                 iconName: "edit"
                 text: "Edit"
                 bold: false
                 onClicked: page.editWorkout(page.sel.workoutId)
+            }
+            IconButton {
+                Layout.preferredWidth: 62
+                Layout.fillHeight: true
+                iconName: "share"
+                iconSize: 26
+                tooltip: "Export / share workout"
+                onClicked: page.startExport(false)
             }
         }
 
