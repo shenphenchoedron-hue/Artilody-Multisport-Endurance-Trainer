@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.1.0 source code (qml/, src/core, src/ble, src/media,
+Written against the v1.1.0 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -33,8 +33,9 @@ def build(s, env):
     # =====================================================================
     s.chapter("Introduction", new_page=True, lead=
               "Artilody Watts Trainer is a free, open-source desktop app for structured, power-based indoor "
-              "cycling. It connects to your Bluetooth smart trainer and heart-rate sensor, controls the "
-              "trainer's resistance in ERG mode and records every ride locally on your computer.")
+              "cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 "
+              "PM5 rower, controls the trainer's resistance in ERG mode and records every ride and row locally "
+              "on your computer.")
 
     s.section("What the app does")
     s.bullets([
@@ -47,6 +48,10 @@ def build(s, env):
         f"{UI('Records and analyses')} – every second of every ride is stored. History shows totals, charts, "
         "time in zones, Normalized Power, Intensity Factor and Training Stress Score. Rides can be exported as FIT "
         "files (for Strava, Garmin Connect, TrainingPeaks, intervals.icu …) or as CSV files.",
+        f"{UI('Plans your training')} – a month calendar for planned rides and rows; planned workouts are "
+        "started with one click and ticked off automatically when you complete them.",
+        f"{UI('Rows on a Concept2')} – connects to a Concept2 PM5 for free rows over a distance, watt-plan "
+        "rowing workouts and ghost races against your own personal best.",
         f"{UI('Shares workouts')} – export your workouts as Artilody {C('.awt')} files or Zwift {C('.zwo')} "
         "files, and import workouts that others have shared with you.",
         f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test calculates your Functional Threshold Power "
@@ -103,6 +108,8 @@ def build(s, env):
         "Zwift Hub. ERG control requires a trainer that supports the FTMS <i>Set Target Power</i> command.",
         f"{UI('Heart-rate sensors')} that use the standard Bluetooth <b>Heart Rate Service (HRS)</b>, for "
         "example Polar H10, Garmin HRM-Dual/HRM-Pro or Wahoo TICKR straps and armbands.",
+        f"{UI('Rowers')}: Concept2 rowing machines with a <b>PM5</b> monitor (Bluetooth LE). The PM5 has no "
+        "ERG mode – watt targets are followed by feel (chapter 11).",
     ])
     s.warning("<b>ANT+ is not supported</b> – only Bluetooth LE. Older trainers that offer only a proprietary "
               "Bluetooth protocol (no FTMS) cannot be controlled.")
@@ -173,7 +180,7 @@ def build(s, env):
         f"Linux and Raspberry Pi: {C('sudo apt remove artilody-watts-trainer')}.",
     ])
     s.note("Your rides, profiles, workouts and settings are stored separately in your user folder (see "
-           "section 11.2) and are kept when you uninstall the app.")
+           "section 13.2) and are kept when you uninstall the app.")
 
     s.section("First start")
     s.p("On the very first start the app creates its database and fills it with:")
@@ -182,7 +189,8 @@ def build(s, env):
         "85 RPM, default mode ERG) – open the profile and enter your own name and values;",
         "the eight built-in workouts (see Appendix A);",
         "a music playlist called <i>Workout Mix</i> with the sample tracks shipped with the app;",
-        "a virtual trainer and a virtual heart-rate sensor, so you can try everything without hardware.",
+        "a virtual trainer, a virtual heart-rate sensor and a virtual rower, so you can try everything "
+        "without hardware.",
     ])
     s.p("A good order for getting started:")
     s.steps([
@@ -206,9 +214,11 @@ def build(s, env):
     s.section("Sidebar")
     s.table(["Item", "Purpose"], [
         [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
-        [UI("Workouts"), "The workout library: browse, search, preview and start workouts."],
+        [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
+        [UI("Calendar"), "The training plan: plan, move and start workouts by day (chapter 10)."],
         [UI("Builder"), "The Workout Builder for creating and editing workouts."],
-        [UI("History"), "Recorded rides, analysis, time in zones and CSV export."],
+        [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
+        [UI("History"), "Recorded rides and rows, analysis, time in zones, FIT and CSV export."],
         [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
         [UI("Profile"), "Opens the User Profile dialog for the current rider."],
     ], [1.2, 4.5])
@@ -219,7 +229,7 @@ def build(s, env):
     s.bullets([
         f"{UI('Sun/moon icon')} – switches between the dark and the light theme. The app always starts in the "
         "dark theme; the choice applies until you close the app.",
-        f"{UI('Gear icon')} – opens the Settings dialog (section 11.1).",
+        f"{UI('Gear icon')} – opens the Settings dialog (section 13.1).",
         f"{UI('Avatar and name')} – opens the profile menu: a list of all profiles (name and FTP) to switch "
         f"between, {UI('Edit profile…')} and {UI('New profile…')}. Switching and creating profiles is disabled "
         "while a ride is running or paused.",
@@ -247,7 +257,9 @@ def build(s, env):
     s.table(["Field", "Range in the dialog", "Notes"], [
         ["Name", "–", "Must not be empty."],
         ["Weight", "30 – 200 kg, steps of 0.5", "Used for W/kg (shown under the FTP field)."],
-        ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all workout targets."],
+        ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all cycling workout targets."],
+        ["Rowing FTP", "50 – 600 W, steps of 5", "Used for rowing workouts and rows (default 150 W, "
+         "section 11.6)."],
         ["Max heart rate", "100 – 230 BPM", "Must be more than 20 BPM above the resting heart rate."],
         ["Resting heart rate", "30 – 110 BPM", "Used together with max HR for the Karvonen zones."],
         ["Preferred cadence", "50 – 130 RPM",
@@ -308,7 +320,8 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Connecting devices",
-              "The Devices page finds and connects Bluetooth LE smart trainers and heart-rate sensors, and "
+              "The Devices page finds and connects Bluetooth LE smart trainers, heart-rate sensors and "
+              "Concept2 PM5 rowers, and "
               "helps you diagnose connection problems.")
     s.figure(SHOTS / "devices.png",
              "The Devices page with the virtual trainer and virtual heart-rate sensor connected.")
@@ -325,8 +338,9 @@ def build(s, env):
           "heart-rate strap. Most sensors stop advertising when idle.")
 
     s.section("Available devices and connecting")
-    s.p(f"Found devices appear under {UI('Smart Trainers')} and {UI('Heart Rate Sensors')} (both sections can "
-        "be collapsed). Each row shows the name, connection state and protocol. Click "
+    s.p(f"Found devices appear under {UI('Smart Trainers')}, {UI('Heart Rate Sensors')} and "
+        f"{UI('Rowers (Concept2 PM5)')} (the sections can be collapsed; connecting a PM5 is described in "
+        "section 11.1). Each row shows the name, connection state and protocol. Click "
         f"{UI('Connect')} to connect; while connecting the button reads {UI('Cancel')}, and once connected "
         f"{UI('Disconnect')}. Connected devices show live values: power and cadence for a trainer, heart rate "
         "for a sensor.")
@@ -337,7 +351,7 @@ def build(s, env):
         "connected automatically next time.",
         f"Pressing {UI('Disconnect')} forgets the device again, so it will not auto-connect until you connect "
         "it manually.",
-        "Only one trainer and one heart-rate sensor can be connected at a time. Connecting another trainer "
+        "Only one trainer, one heart-rate sensor and one rower can be connected at a time. Connecting another trainer "
         "replaces the current one.",
         "If no heart-rate sensor is connected but your trainer reports heart rate (some trainers pass on a "
         "paired strap), the trainer's heart rate is used.",
@@ -405,7 +419,7 @@ def build(s, env):
         "Values drop to 0 or “–”: power and cadence are reset after 3 seconds without new data, heart rate "
         "after 6 seconds. This usually means a weak signal – reduce the distance or use a USB adapter with an "
         "extension cable.",
-        "See chapter 12 for more solutions.",
+        "See chapter 14 for more solutions.",
     ])
 
     # =====================================================================
@@ -416,12 +430,14 @@ def build(s, env):
     s.section("The workout library")
     s.bullets([
         f"{UI('Search')} – filters by name, focus and category as you type.",
+        f"{UI('Sport')} – <i>All sports</i>, <i>Cycling</i> or <i>Rowing</i> (section 11.8).",
         f"{UI('Category')} – <i>All</i>, <i>Endurance</i>, <i>Intervals</i>, <i>Recovery</i>, <i>FTP Tests</i> or "
         "<i>Custom</i>. Custom shows all your own workouts, whatever their category.",
         f"{UI('Sort')} – <i>Most Popular</i> (most often started first; default), <i>Name A–Z</i>, "
         "<i>Shortest</i>, <i>Longest</i>, <i>Favorites</i> (favourites first) or <i>Newest</i>.",
         f"{UI('Import')} – imports shared workouts from {C('.awt')} or Zwift {C('.zwo')} files (section 6.2).",
-        f"{UI('New Workout')} – opens an empty workout in the Builder.",
+        f"{UI('New Workout')} – choose {UI('New cycling workout')} or {UI('New rowing workout')}; it opens "
+        "in the Builder.",
     ])
     s.p("Each card shows the category (your own workouts are marked <i>CUSTOM</i>), name, duration, a mini "
         "profile chart and a summary such as <i>3 × 12 min @ 225 W • Intervals</i>. Watt values are always "
@@ -439,6 +455,7 @@ def build(s, env):
         f"{UI('Export selected workout…')} – saves the selected workout as an Artilody {C('.awt')} file or a Zwift {C('.zwo')} "
         "file to share it (section 6.2).",
         f"{UI('Export all my workouts…')} – saves all your own (custom) workouts into one {C('.awt')} file.",
+        f"{UI('Add to calendar…')} – plans the workout on a day of your choice (chapter 10).",
         f"{UI('Duplicate')} – creates your own copy named “… (copy)” that you can edit freely.",
         f"{UI('Delete')} – removes one of your own workouts after confirmation. Rides already recorded with it "
         "stay in History. Built-in workouts cannot be deleted; for the Ramp FTP Test the menu reads "
@@ -453,7 +470,7 @@ def build(s, env):
     s.table(["Format", "Use it for", "Contains"], [
         [C(".awt") + "<br/>(Artilody workout)", "Sharing with other Artilody Watts Trainer users, and "
          "backing up your own workouts. Recommended.",
-         "Everything: name, category, focus, description and every block with type, name, duration, start/end "
+         "Everything: name, sport, category, focus, description and every block with type, name, duration, start/end "
          "intensity, cadence and RPE. One file can hold many workouts (Appendix C)."],
         [C(".zwo") + "<br/>(Zwift workout)", "Exchanging workouts with Zwift, TrainerRoad, Golden Cheetah, "
          "MyWhoosh and other apps that read Zwift workout files.",
@@ -579,7 +596,7 @@ def build(s, env):
         "Free Ride). The text below explains the current mode.",
         f"{UI('Controls')} – {UI('Start')} / {UI('Start now')} / {UI('Pause')} / {UI('Resume')} and "
         f"{UI('Stop')}.",
-        f"{UI('Music Player')} – see chapter 10.",
+        f"{UI('Music Player')} – see chapter 12.",
     ])
 
     s.section("Pause, resume and stop")
@@ -630,7 +647,8 @@ def build(s, env):
         f"{UI('Edit Workout')} on the Dashboard.",
     ])
     s.p("At the top of the page you enter the <b>workout name</b> and choose the <b>category</b> (Endurance, "
-        "Intervals, Recovery or FTP Tests).")
+        "Intervals, Recovery or FTP Tests). The <b>Cycling / Rowing</b> selector sets the sport; rowing "
+        "workouts use your rowing FTP and stroke rate (SPM) instead of cadence (section 11.8).")
     s.note("A workout in the <i>FTP Tests</i> category is treated as an FTP test: when you finish it, the app "
            "estimates your FTP (chapter 8).")
 
@@ -741,14 +759,15 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("History & Analysis",
-              "Every saved ride appears in History with a full analysis. Only rides of the current profile "
-              "are shown.")
+              "Every saved ride and row appears in History with a full analysis. Only rides of the current "
+              "profile are shown.")
     s.figure(SHOTS / "history.png", "The History &amp; Analysis page.")
     s.section("Period and totals")
     s.p("Choose the period in the selector at the top: <i>Last 7 days</i>, <i>Last 30 days</i> (default), "
         "<i>Last 90 days</i>, <i>Last 12 months</i> or <i>All time</i>. Periods count whole days including today. "
         f"The tiles show {UI('Total Rides')}, {UI('Training Time')}, {UI('Avg Power')} and "
-        f"{UI('Total Energy')} (kJ) for that period.")
+        f"{UI('Total Energy')} (kJ) for that period. The {UI('All')} / {UI('Cycling')} / {UI('Rowing')} "
+        "selector limits the page to one sport (rows are described in section 11.7).")
     s.section("Selected ride, ride list and charts")
     s.bullets([
         f"{UI('Selected Workout')} – a chart of the selected ride with <i>Target Power</i>, <i>Actual Power</i> and "
@@ -769,6 +788,7 @@ def build(s, env):
         ["Energy", "Mechanical work in kilojoules (sum of watts per second ÷ 1000). Roughly equal to the food "
                    "energy burned in kcal."],
         ["Intensity (IF)", "Intensity Factor = NP ÷ FTP."],
+        ["SPM", "Strokes per minute – the stroke rate when rowing."],
         ["TSS", "Training Stress Score – see below."],
         ["Avg / Max HR", "Mean and highest heart rate (seconds without data are ignored)."],
         ["Avg Cadence", "Mean cadence while pedaling (zero cadence is ignored)."],
@@ -883,6 +903,229 @@ def build(s, env):
         "removed permanently. Deleting a workout from the library does <i>not</i> delete its rides.")
 
     # =====================================================================
+    s.chapter("Workout calendar",
+              "Plan your training weeks ahead: put cycling and rowing workouts on the days you want to do "
+              "them, move them around when life happens, and start them straight from the calendar.")
+    s.figure(SHOTS / "calendar.png",
+             "The Calendar page: month view with planned and completed workouts (left), the selected day "
+             "and the upcoming workouts (right).")
+    s.section("The month view")
+    s.p(f"Click {UI('Calendar')} in the sidebar. The calendar shows one month as a grid of weeks (Monday to "
+        f"Sunday). Use the arrow buttons to go to the previous or next month and {UI('Today')} to jump back to "
+        "the current month. Next to the month name a summary shows how many workouts are planned in the month, "
+        "how many are done and the total planned time, for example <i>22 planned • 12 done • 17 h 48</i>.")
+    s.bullets([
+        "Every planned workout is shown as a small chip with a sport icon (bike or rowing), its name and "
+        "duration. Cycling and rowing have different colours (see the legend at the top right).",
+        "Completed workouts are dimmed, crossed out and marked with a tick and <i>done</i>.",
+        "Today has a filled circle around the date. If a day holds more workouts than fit, the last line "
+        "reads <i>+N more</i> – select the day to see all of them in the side panel.",
+        "Hold the pointer over a chip to see the full name, the duration and what clicking does.",
+    ])
+    s.section("Adding a workout")
+    s.steps([
+        f"Click an empty day, or the {UI('+')} button that appears in the corner of a day when you point at "
+        f"it (double-clicking a day works too). {UI('Add Workout')} at the top right and in the side panel "
+        "adds to the selected day.",
+        f"The {UI('Add Workout')} dialog opens for that date. Type in {UI('Search workouts...')} and use the "
+        f"{UI('Cycling')} / {UI('Rowing')} filter to find the workout.",
+        f"Optionally enter {UI('Notes')} (for example <i>“Outdoor if dry”</i>).",
+        f"Click {UI('Add to Calendar')}. Double-clicking a workout in the list adds it right away.",
+    ])
+    s.p(f"You can also plan from the Workouts page: choose {UI('Add to calendar…')} in the "
+        f"{UI('•••')} menu of the Workout Preview (or the calendar button), then pick the date. The same workout "
+        "can be planned on several days, and a day can hold several workouts.")
+    s.section("Starting a planned workout")
+    s.p("Click a chip in the month view, or the play button of an entry in the side panel "
+        f"({UI('Ride')} or {UI('Row')}):")
+    s.bullets([
+        f"a <b>cycling</b> workout is loaded on the {UI('Dashboard')} – choose ERG or Free Ride and start "
+        "pedaling as usual (chapter 6);",
+        f"a <b>rowing</b> workout is set up as a <b>Watt Plan</b> on the {UI('Rowing')} page (chapter 11) – "
+        "take your first stroke to begin.",
+    ])
+    s.p("If a ride or a row is already running, the app shows a message and takes you to it instead. Finish "
+        "it first.")
+    s.note("When you save a ride or row of a workout, the first open entry of that workout on the same day is "
+           "<b>marked as completed automatically</b> and linked to the ride. Rides of workouts that were not "
+           "planned, free rides and free rows do not change the calendar.")
+    s.section("Moving, completing and removing")
+    s.p("Right-click a chip (on touch screens: press and hold it) to open its menu:")
+    s.table(["Menu item", "Effect"], [
+        [UI("Ride this workout") + " / " + UI("Row this workout"), "Same as clicking the chip."],
+        [UI("Mark as completed") + " / " + UI("Mark as not completed"), "Ticks the entry off by hand – for "
+         "example after an outdoor ride – or opens it again."],
+        [UI("Move to…"), "Opens a date picker; the entry moves to the chosen day."],
+        [UI("Move to next day"), "Moves the entry one day forward."],
+        [UI("Show day"), "Selects the day in the side panel."],
+        [UI("Remove from calendar"), "Deletes the plan entry. The workout itself and any recorded ride are "
+         "not affected."],
+    ], [2.3, 3.5])
+    s.p("<b>Drag and drop:</b> press a chip and drag it to another day of the visible month – the target day "
+        "is highlighted – and release it there.")
+    s.section("Side panel: selected day and Upcoming")
+    s.bullets([
+        f"The upper card shows the selected day (<i>Today</i> or the date) with every workout planned for it: "
+        f"name, sport, category and duration, and buttons for {UI('Ride')}/{UI('Row')}, mark as completed, "
+        f"move and remove. {UI('+')} adds another workout to the day.",
+        f"{UI('Upcoming')} lists the next open workouts from today onwards (<i>Today</i>, <i>Tomorrow</i>, "
+        "then the date). Click a row to select its day, or the play button to start it.",
+    ])
+    s.tip("The plan belongs to the current profile, like the ride history. Each rider in a shared installation "
+          "has a separate calendar.")
+
+    # =====================================================================
+    s.chapter("Rowing with a Concept2 PM5",
+              "Connect a Concept2 rowing machine with a PM5 monitor over Bluetooth and row a distance, follow a "
+              "watt plan, or race a ghost of your personal best. Rows are saved to History like rides.")
+    s.figure(SHOTS / "rowing-ghost.png",
+             "The Rowing page during a 1000 m Ghost Race: live metrics, the power/pace/heart-rate chart over "
+             "distance, the race course with your boat and the ghost, and the Session panel with your personal "
+             "bests.")
+    s.section("Connecting the PM5")
+    s.steps([
+        "Sit on the rower and wake the PM5 by pressing any button.",
+        f"On the PM5 choose {UI('More Options')} → {UI('Turn Wireless ON')} → {UI('Connect Device')}. The "
+        "monitor now advertises itself over Bluetooth LE (it shows a waiting screen).",
+        f"In the app open {UI('Devices')} and press {UI('Scan for Devices')}. The PM5 appears in the section "
+        f"{UI('Rowers (Concept2 PM5)')} with a name such as <i>PM5 430012345 Row</i>.",
+        f"Click {UI('Connect')}. Once connected the row shows live power, pace /500 m and stroke rate, and the "
+        "PM5 display switches to the connected state.",
+    ])
+    s.p("The rower is remembered like a trainer and reconnected automatically next time (if "
+        f"{UI('Auto-connect known devices')} is on) – just turn wireless on at the PM5 again. A trainer, a "
+        "heart-rate sensor and a rower can be connected at the same time. Heart rate comes from a strap paired "
+        "with the PM5 or, if the PM5 reports none, from the connected heart-rate sensor.")
+    s.p(f"{UI('Virtual Rower')} (Simulated Concept2 PM5) in the same section lets you try every rowing feature "
+        "without a rower. It rows by itself at around 175 W and follows the target in a Watt Plan.")
+    s.note("Only the <b>PM5</b> monitor is supported (RowErg, SkiErg and BikeErg with a PM5 advertise the same "
+           "way; the app is designed for rowing). PM3/PM4 monitors have no Bluetooth. The PM5 accepts one "
+           "Bluetooth app at a time – disconnect ErgData or other apps first.")
+
+    s.section("The Rowing page")
+    s.p(f"Open {UI('Rowing')} in the sidebar. If no rower is connected, the Session panel shows "
+        f"<i>No rower connected</i> and an {UI('Open Devices')} button.")
+    s.table(["Card", "Shows"], [
+        [UI("Power"), "Current power in watts; below the average power (in a Watt Plan: the target)."],
+        [UI("Distance"), "Metres rowed – of the target distance with a progress bar, or with strokes and calories."],
+        [UI("Pace"), "Current pace per 500 m; below the average pace (in a Ghost Race: the ghost's pace)."],
+        [UI("Stroke Rate"), "Strokes per minute (SPM) and the average."],
+        [UI("Heart Rate"), "Current and average heart rate."],
+        [UI("Elapsed"), "Rowing time; for a distance the estimated finish time at the current average pace, in a "
+                         "Watt Plan the time left."],
+    ], [1.3, 4.5])
+    s.p(f"The {UI('Power, Pace &amp; Heart Rate')} chart plots your power as bars and pace and heart rate as "
+        "curves – over distance in Free Row and Ghost Race, over time in a Watt Plan. The bottom card depends "
+        "on the mode (below). The sidebar shows a small <i>Rowing</i> status box with time and heart rate "
+        "while you row on other pages.")
+
+    s.section("Modes")
+    s.p(f"Choose the mode in the {UI('Session')} panel. The mode and its settings can be changed while no row "
+        "is running.")
+    s.sub("Free Row")
+    s.p(f"Row a distance at your own pace, without targets. Pick the {UI('Workout Distance')}: "
+        f"{UI('Open (no distance)')}, 500 m, 1000 m, 2000 m, 5000 m, 6000 m, 10 000 m or {UI('Custom…')} "
+        "(100 – 42 195 m). The bottom card shows a course with your boat moving towards the finish line, the "
+        "metres rowed, the metres to go and the number of strokes. A distance row ends automatically at the "
+        f"finish line; an open row runs until you press {UI('Finish')}.")
+    s.figure(SHOTS / "rowing-solo.png", "Free Row over 1000 m: your boat on the course.", width_frac=0.82)
+    s.sub("Watt Plan")
+    s.p(f"Row a structured <b>rowing workout</b> from your library (choose it under {UI('Rowing Workout')}; "
+        f"{UI('New Rowing Workout')} opens the Builder). Targets are a percentage of your <b>rowing FTP</b>. "
+        "The bottom card shows the interval blocks of the workout coloured by zone, with a rower marker moving "
+        "along a line beneath them, and these values:")
+    s.table(["Value", "Meaning"], [
+        [UI("Target"), "Target power of the current second."],
+        [UI("Current"), "Your power – green within ±10 % of the target, amber below, red above."],
+        [UI("Interval left"), "Time left in the current interval."],
+        [UI("Next target"), "Target of the next interval (<i>Finish</i> in the last one)."],
+        [UI("Interval avg"), "Your average power in the current interval."],
+        [UI("Compliance"), "Share of the seconds with a target in which you were within ±10 % of it "
+                           "(green from 80 %, amber from 50 %)."],
+    ], [1.4, 4.4])
+    s.figure(SHOTS / "rowing-plan.png", "A rowing Watt Plan: interval blocks and target vs. actual power.",
+             width_frac=0.82)
+    s.warning("The PM5 has <b>no ERG mode</b>: the rower cannot set the resistance for you. You follow the "
+              "target yourself by changing how hard and how fast you pull. The workout runs on time and "
+              "finishes (and is saved) automatically at its end.")
+    s.sub("Ghost Race")
+    s.p(f"Race against your own <b>personal best</b>. Choose the {UI('Race Distance')} – 500 m, 1000 m, 2000 m, "
+        f"5000 m, 6000 m, 10 000 m or {UI('Custom…')}; the list shows your current best for each distance. A "
+        "pink <b>ghost boat</b> replays your record row metre by metre next to your own boat. The header shows "
+        "both distances and the gap, for example <i>+7 m ahead (+2.0 s)</i> in green or <i>−4 m behind</i> in "
+        "red; the gap in seconds is how much earlier or later you reached your current distance than the "
+        "ghost did.")
+    s.p("Without a record for the distance there is no ghost yet (<i>No record yet – set your first time</i>) – "
+        "row the distance once and that row becomes your ghost.")
+
+    s.section("Personal bests")
+    s.bullets([
+        "A personal best is saved when you <b>complete</b> a distance in a <b>Ghost Race</b> or a <b>Free "
+        "Row</b> with a set distance, and your time is faster than the previous best. The whole row (distance "
+        "over time) is stored, so the next ghost rows exactly like you did.",
+        f"After the finish the summary shows your time and, for a new record, <i>New personal best!</i> with "
+        "the improvement over the old record.",
+        f"The {UI('Personal bests')} table in the Ghost Race panel lists time and pace /500 m for the standard "
+        "distances and every custom distance you have a record for.",
+        "Open rows, Watt Plans and rows you finish early never change your records. Records belong to the "
+        "current profile.",
+    ])
+
+    s.section("Starting, pausing and finishing")
+    s.bullets([
+        f"With {UI('Start on first stroke')} on (default) the row is armed as soon as it is set up "
+        "(<i>Waiting for first stroke…</i>) and starts with your first stroke. Turn it off to start only "
+        f"with {UI('Start Now')}.",
+        f"{UI('Start Now')} starts at once; without any setup it starts an open Free Row.",
+        f"{UI('Pause Row')} / {UI('Resume')} stops and continues the clock; distance rowed during a pause is "
+        "not counted.",
+        f"{UI('Finish')} asks <i>Finish row?</i>: {UI('Save &amp; Finish')} saves the row, {UI('Discard')} "
+        "throws it away.",
+        f"{UI('Reset')} (when paused or finished) discards an unfinished row and prepares the same session "
+        f"again. After a row, {UI('Row Again')} starts the same session and {UI('View in History')} opens the "
+        "saved row.",
+    ])
+    s.p("As with rides, rows shorter than 30 seconds are not saved. Values from the monitor are taken relative "
+        "to the start of the session, so it does not matter what the PM5 showed before.")
+
+    s.section("Rowing FTP")
+    s.p(f"Every profile has a separate {UI('Rowing FTP')} (50 – 600 W, default 150 W) in the {UI('User Profile')} "
+        "dialog, next to the cycling FTP. Rowing workouts, the Builder in rowing mode and the zones and TSS of "
+        "rows use it; cycling uses the normal FTP. Rowing power is usually much lower than cycling power for "
+        "the same effort, which is why the two are kept apart.")
+    s.tip("No rowing FTP yet? A common estimate is 95 % of the average watts of an all-out 20-minute row, or "
+          "the average watts of a hard but steady 30-minute row. Update it every few weeks.")
+
+    s.section("Rows in History and export")
+    s.p(f"Saved rows appear in {UI('History')} with a rowing icon, the sport <i>Rowing</i> and the distance "
+        "rowed (e.g. <i>2,002 m rowed</i>); the cadence tile shows the stroke rate in SPM. Use the "
+        f"{UI('All')} / {UI('Cycling')} / {UI('Rowing')} filter at the top to show one sport only – the totals, "
+        "charts and zones follow the filter. Free rows are named <i>Free Row</i> or <i>Row 2000 m</i>, ghost "
+        "races <i>Ghost Race 1000 m</i>, Watt Plans after the workout.")
+    s.p("Rows can be exported as FIT and CSV like rides (section 9.4).")
+    s.note("The FIT file of a row currently uses the same layout as a ride: it is marked as an <b>indoor "
+           "cycling</b> activity, contains power, heart rate and the stroke rate (as cadence) and no distance. "
+           "Change the activity type to rowing on the platform after uploading if you want it there as a row.")
+
+    s.section("Sport type: cycling and rowing workouts")
+    s.p("Every workout has a sport – <b>Cycling</b> or <b>Rowing</b>:")
+    s.bullets([
+        f"<b>Workouts page:</b> cards show a Cycling or Rowing badge, and the filter {UI('All sports')} / "
+        f"{UI('Cycling')} / {UI('Rowing')} at the top limits the library to one sport. For a rowing workout "
+        f"the preview shows {UI('Row Workout')} instead of Start Workout; it opens the workout as a Watt Plan "
+        f"on the Rowing page. {UI('New Workout')} asks for {UI('New cycling workout')} or "
+        f"{UI('New rowing workout')}. Watt values on rowing cards use your rowing FTP.",
+        f"<b>Builder:</b> the {UI('Cycling')} / {UI('Rowing')} selector at the top sets the sport. In rowing "
+        f"mode, watts and {UI('% Rowing FTP')} are based on your rowing FTP, and the cadence field becomes "
+        f"{UI('Stroke Rate (SPM)')}. Switching the sport keeps the blocks (all targets are percentages).",
+        "<b>History:</b> the sport filter and the distance of rows (above).",
+        f"<b>Sharing:</b> {C('.awt')} files keep the sport (Appendix C). Zwift {C('.zwo')} files have no "
+        "rowing type: workouts are always exported and imported as cycling workouts.",
+    ])
+    s.p("All rides and workouts from earlier versions are cycling. The database is upgraded automatically "
+        "the first time version 1.1.0 starts; nothing is lost.")
+
+    # =====================================================================
     s.chapter("Music player",
               "Play your own music while you ride – from the Dashboard, without leaving the app.")
     s.section("The player card")
@@ -928,7 +1171,8 @@ def build(s, env):
         f"The app version. {UI('Done')} closes the dialog.",
     ])
     s.section("Where your data is stored")
-    s.p(f"Everything – profiles, workouts, rides with per-second data, playlists and settings – is stored in "
+    s.p(f"Everything – profiles, workouts, rides and rows with per-second data, the training plan, rowing "
+        f"records, playlists and settings – is stored in "
         f"a single SQLite file named {C('watt-trainer.sqlite')} in the standard application-data folder of "
         "your user account (organisation <i>Artilody</i>, application <i>Watt Trainer</i>):")
     s.table(["System", "Default location"], [
@@ -1012,6 +1256,19 @@ def build(s, env):
         ("An imported workout is called “… (imported)”.",
          "Your library already contained a different workout with the same name. Rename it in the Builder if "
          "you like. If nothing was imported at all, the workout was already in your library."),
+        ("My Concept2 PM5 is not found.",
+         "On the PM5 choose More Options → Turn Wireless ON → Connect Device and scan again while the monitor "
+         "shows the waiting screen. Close ErgData and other apps that may be connected to the PM5, and keep the "
+         "computer within a few metres."),
+        ("The rower does not follow the watt plan targets.",
+         "That is expected: the PM5 has no ERG mode. Follow the target power by pulling harder or easier; "
+         "the Current value turns green within ±10 % of the target."),
+        ("My ghost race did not save a new record.",
+         "Records are only saved when the full distance is completed in a Ghost Race or a distance Free Row, "
+         "and the time is faster than the existing best. Rows finished early do not count."),
+        ("A planned workout was not ticked off.",
+         "Entries are completed automatically only by a saved ride or row of the same workout on the same "
+         "day. Use Mark as completed in the chip menu for anything else."),
         ("Do I need an internet connection?",
          "No. The app works fully offline."),
     ]
@@ -1026,6 +1283,7 @@ def build(s, env):
         [".awt", "Artilody workout file – the app's own JSON format for sharing workouts (Appendix C)."],
         ["BLE", "Bluetooth Low Energy – the wireless standard used for trainers and sensors."],
         ["Cadence", "Pedaling rate in revolutions per minute (RPM)."],
+        ["Compliance", "In a rowing Watt Plan: share of seconds within ±10 % of the target power."],
         ["ERG mode", "The trainer automatically sets the resistance so you produce the target power, "
                      "regardless of cadence."],
         ["Free Ride", "The trainer does not follow power targets; it simulates a flat road and you control the "
@@ -1034,11 +1292,15 @@ def build(s, env):
                 "Strava, Garmin Connect, TrainingPeaks, intervals.icu and most other platforms."],
         ["FTMS", "Fitness Machine Service – the standard Bluetooth profile for smart trainers (data and "
                  "control)."],
-        ["FTP", "Functional Threshold Power – the highest power you can sustain for about one hour."],
+        ["FTP", "Functional Threshold Power – the highest power you can sustain for about one hour. Kept "
+                "separately for cycling and rowing (Rowing FTP)."],
+        ["Ghost", "A replay of your personal best row that you race against."],
         ["HRS", "Heart Rate Service – the standard Bluetooth profile for heart-rate sensors."],
         ["IF", "Intensity Factor = Normalized Power ÷ FTP."],
         ["Karvonen", "Method for heart-rate zones based on the heart-rate reserve (max HR − resting HR)."],
         ["kJ", "Kilojoules of mechanical work; roughly equal to kcal of food energy burned."],
+        ["Pace", "Rowing speed as time per 500 m (e.g. 2:04 /500m)."],
+        ["PM5", "Performance Monitor 5 – the Bluetooth display of Concept2 rowing machines."],
         ["NP", "Normalized Power – a weighted average power that reflects the physiological cost of a "
                "variable ride."],
         ["RPE", "Rating of Perceived Exertion – how hard an effort feels on a scale of 1 to 10."],
@@ -1105,6 +1367,7 @@ def build(s, env):
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
+      "sport": "cycling",
       "category": "Intervals",
       "focus": "Sweet Spot",
       "description": "Three 12-minute sweet spot efforts ...",
@@ -1126,6 +1389,8 @@ def build(s, env):
                                              "informational only."],
         [C("workouts"), "List of workouts (at most 500 per file)."],
         [C("name"), "Workout name (required)."],
+        [C("sport"), f"{C('cycling')} or {C('rowing')} (optional, default {C('cycling')}). Rowing targets are "
+                     "fractions of the rowing FTP."],
         [C("category"), "Endurance, Intervals, Recovery or FTP Tests. Other values are replaced on import."],
         [C("focus") + ", " + C("description"), "Short focus text and description (optional)."],
         [C("intervals"), "The blocks in order (at least one, at most 2000)."],
@@ -1151,12 +1416,14 @@ def build(s, env):
     s.bullets([
         "Built with the Qt framework (Qt Quick, Qt Bluetooth, Qt Multimedia, Qt SQL), used under the LGPL/GPL.",
         "Data storage by SQLite.",
-        "Uses the Bluetooth SIG's open Fitness Machine and Heart Rate service specifications.",
+        "Uses the Bluetooth SIG's open Fitness Machine and Heart Rate service specifications and Concept2's "
+        "public PM5 Bluetooth Smart Interface Definition. Concept2, PM5 and RowErg are trademarks of "
+        "Concept2, Inc.; this project is not affiliated with Concept2.",
         "The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.",
     ])
     s.p(f"Source code, releases and issue tracker: {L(REPO)}")
     s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")
     s.spacer(10)
     s.p(f'<font color="#5b6485">This manual describes Artilody Watts Trainer version {V} (October 2026). '
-        "Screenshots show the app with the virtual trainer and virtual heart-rate sensor; the profile dialog "
+        "Screenshots show the app with the virtual trainer, heart-rate sensor and rower and demo data; the profile dialog "
         "illustration is a design mockup.</font>")
