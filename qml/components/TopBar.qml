@@ -12,6 +12,12 @@ Item {
     width: row.width
     height: 60
 
+    // screenshot aid (WATT_SCREENSHOT_MENU)
+    function openScreenshotMenu() {
+        profileMenu.popup(0, 54)
+        return profileMenu
+    }
+
     Row {
         id: row
         anchors.verticalCenter: parent.verticalCenter
@@ -71,45 +77,33 @@ Item {
                 onClicked: profileMenu.popup(0, height + 4)
             }
 
-            Menu {
+            AppMenu {
                 id: profileMenu
-                width: 230
-                background: Rectangle {
-                    color: Theme.dark ? "#22327c" : "#ffffff"
-                    radius: 10
-                    border.color: Theme.cardBorder
-                }
+                minWidth: 240
 
                 Instantiator {
                     model: Profiles.profiles
-                    delegate: MenuItem {
+                    delegate: AppMenuItem {
                         text: modelData.name + "  ·  FTP " + modelData.ftp
                         checkable: true
                         checked: modelData.id === Profiles.profileId
                         enabled: !Training.active   // no profile switching mid-ride
                         onTriggered: Profiles.selectProfile(modelData.id)
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.text
-                            font.pixelSize: 14
-                            leftPadding: 22
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                     onObjectAdded: (index, object) => profileMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => profileMenu.removeItem(object)
                 }
-                MenuSeparator {}
-                MenuItem {
+                AppMenuSeparator {}
+                AppMenuItem {
                     text: "Edit profile…"
+                    iconName: "edit"
                     onTriggered: bar.editProfileRequested()
-                    contentItem: Text { text: parent.text; color: Theme.text; font.pixelSize: 14; leftPadding: 22; verticalAlignment: Text.AlignVCenter }
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "New profile…"
+                    iconName: "plus"
                     enabled: !Training.active
                     onTriggered: bar.newProfileRequested()
-                    contentItem: Text { text: parent.text; color: Theme.text; font.pixelSize: 14; leftPadding: 22; verticalAlignment: Text.AlignVCenter }
                 }
             }
         }

@@ -58,27 +58,30 @@ Item {
             iconName: "download"
             text: "Export"
             onClicked: exportMenu.popup()
-            Menu {
+            AppMenu {
                 id: exportMenu
                 y: 54
-                width: Math.max(implicitWidth, 440)
-                MenuItem {
+                AppMenuItem {
                     text: "Selected ride – FIT (Garmin, Strava, TrainingPeaks…)"
+                    iconName: "download"
                     enabled: page.hasRide
                     onTriggered: page.startExport("fit")
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "Selected ride – CSV (per second)"
+                    iconName: "chart"
                     enabled: page.hasRide
                     onTriggered: page.startExport("csv")
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "All rides in range – CSV summary"
+                    iconName: "document"
                     enabled: History.totalRides > 0
                     onTriggered: page.startExport("summary")
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "All rides in range – FIT files…"
+                    iconName: "folder"
                     enabled: History.totalRides > 0
                     onTriggered: {
                         exportFolderDialog.currentFolder = History.suggestedExportUrl("folder")
@@ -87,6 +90,12 @@ Item {
                 }
             }
         }
+    }
+
+    // screenshot aid (WATT_SCREENSHOT_MENU)
+    function openScreenshotMenu() {
+        exportMenu.popup(0, exportMenu.parent.height + 4)
+        return exportMenu
     }
 
     function startExport(kind) {

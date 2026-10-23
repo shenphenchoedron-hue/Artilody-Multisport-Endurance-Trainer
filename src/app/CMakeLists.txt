@@ -15,6 +15,9 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/ToggleSwitch.qml
     ${QML_ROOT}/components/AppTextField.qml
     ${QML_ROOT}/components/AppComboBox.qml
+    ${QML_ROOT}/components/AppMenu.qml
+    ${QML_ROOT}/components/AppMenuItem.qml
+    ${QML_ROOT}/components/AppMenuSeparator.qml
     ${QML_ROOT}/components/AppSlider.qml
     ${QML_ROOT}/components/StepperField.qml
     ${QML_ROOT}/components/UnitSpinBox.qml

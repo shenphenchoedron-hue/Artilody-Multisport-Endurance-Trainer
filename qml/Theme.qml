@@ -73,6 +73,12 @@ QtObject {
     readonly property int pageMargin: 22
     readonly property string fontFamily: Qt.application.font.family
 
+    // --- menus (AppMenu / AppMenuItem, AppComboBox popups) ---------------------
+    readonly property int menuFontSize: 16
+    readonly property int menuItemHeight: 44
+    readonly property color menuBackground: dark ? "#22327c" : "#ffffff"
+    readonly property color menuBorder: dark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0.1, 0.16, 0.4, 0.14)
+
     // --- helpers ------------------------------------------------------------
     function clock(sec) {
         sec = Math.max(0, Math.floor(sec))

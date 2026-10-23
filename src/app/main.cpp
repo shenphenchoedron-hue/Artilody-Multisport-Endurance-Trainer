@@ -27,6 +27,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSize>
 #include <QTimer>
 #include <memory>
 #include <QStandardPaths>
@@ -170,12 +171,22 @@ int main(int argc, char *argv[])
     //                                  the cycling workout
     //   WATT_SCREENSHOT_ROWING_MODE    ghost (default) | solo | plan
     //   WATT_SCREENSHOT_ROWING_SEC     seconds rowed before rowing.png (default 40)
+    //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
+    //                                  pages (menu-<name>.png): calendar, workouts,
+    //                                  new, workouts-export, history, profile
+    //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
     const QString shotDir = qEnvironmentVariable("WATT_SCREENSHOT_DIR");
+    const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")
+                                      .split(QLatin1Char(','), Qt::SkipEmptyParts);
     const bool shotRowing = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING") > 0;
     if (!shotDir.isEmpty() && !engine.rootObjects().isEmpty()) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         QDir().mkpath(shotDir);
-        window->resize(1584, 992);
+        QSize shotSize(1584, 992);
+        const QStringList sz = qEnvironmentVariable("WATT_SCREENSHOT_SIZE").split(QLatin1Char('x'));
+        if (sz.size() == 2 && sz.at(0).toInt() > 0 && sz.at(1).toInt() > 0)
+            shotSize = QSize(sz.at(0).toInt(), sz.at(1).toInt());
+        window->resize(shotSize);
         devices.connectDevice(QStringLiteral("sim:trainer"));
         devices.connectDevice(QStringLiteral("sim:hr"));
         if (shotRowing) {
@@ -215,6 +226,29 @@ int main(int argc, char *argv[])
                     rowingRecords.saveIfBest(1000, 260.0, QVector<TracePoint> { { 0, 0 }, { 260, 1000 } });
                 rowing.setupGhost(1000);
             }
+        }
+
+        if (!shotMenus.isEmpty()) {
+            // open each menu, grab, close; then quit
+            auto *menuTimer = new QTimer(&app);
+            auto menuStep = std::make_shared<int>(0);
+            QObject::connect(menuTimer, &QTimer::timeout, &app, [=] {
+                const int s = (*menuStep)++;
+                const int k = s / 2;
+                if (k >= shotMenus.size()) {
+                    QCoreApplication::quit();
+                    return;
+                }
+                const QString name = shotMenus.at(k).trimmed();
+                if (s % 2 == 0) {
+                    QMetaObject::invokeMethod(window, "openScreenshotMenu", Q_ARG(QVariant, name));
+                    return;
+                }
+                window->grabWindow().save(QDir(shotDir).filePath(QStringLiteral("menu-%1.png").arg(name)));
+                QMetaObject::invokeMethod(window, "closeScreenshotMenu");
+            });
+            menuTimer->start(qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") > 0
+                                 ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") : 1200);
         }
 
         // Rowing page last, so the row has time to get going.
@@ -261,8 +295,9 @@ int main(int argc, char *argv[])
             if (k + 1 >= order.size())
                 QCoreApplication::quit();
         });
-        timer->start(qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") > 0
-                         ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") : 1500);
+        if (shotMenus.isEmpty())
+            timer->start(qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") > 0
+                             ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") : 1500);
     }
 
     const int rc = app.exec();

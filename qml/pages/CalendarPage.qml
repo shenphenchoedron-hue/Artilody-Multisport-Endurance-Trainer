@@ -189,6 +189,20 @@ Item {
         chipMenu.entry = e
         chipMenu.popup()
     }
+    // screenshot aid (WATT_SCREENSHOT_MENU): menu of the first visible chip
+    function openScreenshotMenu() {
+        for (var i = 0; i < cells.length; ++i) {
+            if (cells[i].entries && cells[i].entries.length > 0) {
+                var p = calGrid.mapToItem(page, (i % 7 + 0.5) * calGrid.cellWidth, Math.floor(i / 7) * calGrid.cellHeight + 52)
+                chipMenu.entry = cells[i].entries[0]
+                chipMenu.popup(p.x, p.y)
+                return chipMenu
+            }
+        }
+        chipMenu.entry = { name: "Workout", sport: "cycling", date: selectedDate }
+        chipMenu.popup(page.width / 3, page.height / 3)
+        return chipMenu
+    }
 
     Component.onCompleted: goToday()
     onVisibleChanged: if (visible) refresh()
@@ -845,34 +859,42 @@ Item {
     }
 
     // --- context menu for a planned workout ------------------------------------------------------------------
-    Menu {
+    AppMenu {
         id: chipMenu
         property var entry: ({})
-        width: Math.max(implicitWidth, 260)
-        MenuItem {
+        minWidth: 260
+        AppMenuItem {
             text: chipMenu.entry.sport === "rowing" ? "Row this workout" : "Ride this workout"
+            iconName: "play"
+            iconColor: Theme.sportColor(chipMenu.entry.sport)
             onTriggered: page.startEntry(chipMenu.entry)
         }
-        MenuItem {
+        AppMenuItem {
             text: chipMenu.entry.completed ? "Mark as not completed" : "Mark as completed"
+            iconName: chipMenu.entry.completed ? "close" : "check"
             onTriggered: page.toggleCompleted(chipMenu.entry)
         }
-        MenuSeparator {}
-        MenuItem {
+        AppMenuSeparator {}
+        AppMenuItem {
             text: "Move to…"
+            iconName: "calendar"
             onTriggered: page.openMove(chipMenu.entry)
         }
-        MenuItem {
+        AppMenuItem {
             text: "Move to next day"
+            iconName: "chevronRight"
             onTriggered: page.moveEntry(chipMenu.entry, page.addDays(chipMenu.entry.date, 1))
         }
-        MenuItem {
+        AppMenuItem {
             text: "Show day"
+            iconName: "calendarDays"
             onTriggered: page.selectDay(chipMenu.entry.date)
         }
-        MenuSeparator {}
-        MenuItem {
+        AppMenuSeparator {}
+        AppMenuItem {
             text: "Remove from calendar"
+            iconName: "trash"
+            destructive: true
             onTriggered: page.removeEntry(chipMenu.entry)
         }
     }

@@ -159,17 +159,18 @@ Item {
             text: "Export"
             iconName: "export"
             onClicked: exportMenu.popup()
-            Menu {
+            AppMenu {
                 id: exportMenu
                 y: exportButton.height + 4
-                width: Math.max(implicitWidth, 300)
-                MenuItem {
+                AppMenuItem {
                     text: "Export selected workout…"
+                    iconName: "export"
                     enabled: page.sel.workoutId !== undefined
                     onTriggered: page.startExport(false)
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "Export all my workouts…"
+                    iconName: "folder"
                     enabled: Workouts.customCount > 0
                     onTriggered: page.startExport(true)
                 }
@@ -184,20 +185,31 @@ Item {
             text: "New Workout"
             iconName: "plus"
             onClicked: newMenu.popup()
-            Menu {
+            AppMenu {
                 id: newMenu
                 y: newButton.height + 4
-                width: Math.max(implicitWidth, 260)
-                MenuItem {
+                minWidth: 260
+                AppMenuItem {
                     text: "New cycling workout"
+                    iconName: "bike"
+                    iconColor: Theme.cyclingColor
                     onTriggered: page.createWorkout("cycling")
                 }
-                MenuItem {
+                AppMenuItem {
                     text: "New rowing workout"
+                    iconName: "rowing"
+                    iconColor: Theme.rowingColor
                     onTriggered: page.createWorkout("rowing")
                 }
             }
         }
+    }
+
+    // screenshot aid (WATT_SCREENSHOT_MENU): "more" | "new" | "export"
+    function openScreenshotMenu(which) {
+        var m = which === "new" ? newMenu : which === "export" ? exportMenu : moreMenu
+        m.popup(which === "more" ? 0 : m.parent.width - 300, m.parent.height + 4)
+        return m
     }
 
     // --- sharing (export / import) -------------------------------------------
@@ -421,26 +433,30 @@ Item {
                 iconName: "dots"
                 iconSize: 24
                 onClicked: moreMenu.popup()
-                Menu {
+                AppMenu {
                     id: moreMenu
-                    width: Math.max(implicitWidth, 300)
-                    MenuItem {
+                    minWidth: 260
+                    AppMenuItem {
                         text: "Add to calendar…"
+                        iconName: "calendar"
                         onTriggered: page.planWorkout(page.sel.workoutId, page.sel.name)
                     }
-                    MenuSeparator {}
-                    MenuItem {
+                    AppMenuSeparator {}
+                    AppMenuItem {
                         text: "Export selected workout…"
+                        iconName: "export"
                         onTriggered: page.startExport(false)
                     }
-                    MenuItem {
+                    AppMenuItem {
                         text: "Export all my workouts…"
+                        iconName: "folder"
                         enabled: Workouts.customCount > 0
                         onTriggered: page.startExport(true)
                     }
-                    MenuSeparator {}
-                    MenuItem {
+                    AppMenuSeparator {}
+                    AppMenuItem {
                         text: "Duplicate"
+                        iconName: "copy"
                         onTriggered: {
                             var id = Workouts.duplicate(page.sel.workoutId)
                             if (id >= 0) {
@@ -449,9 +465,11 @@ Item {
                             }
                         }
                     }
-                    MenuItem {
+                    AppMenuItem {
                         // built-in workouts cannot be deleted; the Ramp FTP Test says why
                         text: page.sel.requiredForFtp ? "Delete (required for FTP tests)" : "Delete"
+                        iconName: "trash"
+                        destructive: true
                         enabled: page.sel.deletable === true
                         onTriggered: deleteDialog.open()
                     }

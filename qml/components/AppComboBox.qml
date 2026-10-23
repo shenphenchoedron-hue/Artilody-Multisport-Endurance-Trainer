@@ -51,8 +51,9 @@ ComboBox {
     }
 
     delegate: ItemDelegate {
-        width: combo.width
-        height: 42
+        width: combo.width - 12
+        height: Theme.menuItemHeight
+        leftPadding: 12
         highlighted: combo.highlightedIndex === index
         contentItem: Text {
             // Works for JS arrays, C++ QStringList/QVariantList (of strings or maps) and
@@ -67,13 +68,14 @@ ComboBox {
                 return v !== undefined ? v : combo.textAt(index)
             }
             color: Theme.text
-            font.pixelSize: 15
+            font.pixelSize: Theme.menuFontSize
+            font.weight: combo.currentIndex === index ? Font.DemiBold : Font.Normal
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
         background: Rectangle {
-            color: parent.highlighted ? Theme.navSelected : "transparent"
-            radius: 6
+            color: parent.highlighted ? Qt.rgba(0.13, 0.47, 1.0, Theme.dark ? 0.30 : 0.16) : "transparent"
+            radius: 8
         }
     }
 
@@ -90,9 +92,9 @@ ComboBox {
             ScrollIndicator.vertical: ScrollIndicator {}
         }
         background: Rectangle {
-            radius: 10
-            color: Theme.dark ? "#22327c" : "#ffffff"
-            border.color: Theme.cardBorder
+            radius: 12
+            color: Theme.menuBackground
+            border.color: Theme.menuBorder
         }
     }
 }

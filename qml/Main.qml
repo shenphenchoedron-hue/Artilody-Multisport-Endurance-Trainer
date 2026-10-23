@@ -47,6 +47,29 @@ ApplicationWindow {
 
     readonly property string currentPage: pageNames[sidebar.currentIndex] || ""
 
+    // Screenshot aid (WATT_SCREENSHOT_MENU, see main.cpp): open one of the menus.
+    property var screenshotMenu: null
+    function openScreenshotMenu(name) {
+        closeScreenshotMenu()
+        switch (name) {
+        case "calendar": showPage("calendar"); screenshotMenu = calendarPage.openScreenshotMenu(); break
+        case "workouts": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("more"); break
+        case "new": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("new"); break
+        case "workouts-export": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("export"); break
+        case "history": showPage("history"); screenshotMenu = historyPage.openScreenshotMenu(); break
+        case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
+        default: console.warn("openScreenshotMenu: unknown menu", name)
+        }
+        // show the keyboard highlight (the destructive entry on the calendar menu)
+        if (screenshotMenu)
+            screenshotMenu.currentIndex = name === "calendar" ? screenshotMenu.count - 1 : 0
+    }
+    function closeScreenshotMenu() {
+        if (screenshotMenu)
+            screenshotMenu.close()
+        screenshotMenu = null
+    }
+
     function showToast(text) {
         toast.show(text)
     }
@@ -104,6 +127,7 @@ ApplicationWindow {
                     onOpenHistory: window.showPage("history")
                 }
                 WorkoutsPage {
+                    id: workoutsPage
                     onStarted: window.showPage("dashboard")
                     onEditWorkout: (id) => window.editWorkout(id)
                     onNewWorkout: {
@@ -112,7 +136,7 @@ ApplicationWindow {
                     }
                     onMessage: (text) => window.showToast(text)
                 }
-                CalendarPage {}
+                CalendarPage { id: calendarPage }
                 BuilderPage {
                     onMessage: (text) => window.showToast(text)
                 }
@@ -126,12 +150,14 @@ ApplicationWindow {
                     onMessage: (text) => window.showToast(text)
                 }
                 HistoryPage {
+                    id: historyPage
                     onMessage: (text) => window.showToast(text)
                 }
                 DevicesPage {}
             }
 
             TopBar {
+                id: topBar
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.rightMargin: 24
