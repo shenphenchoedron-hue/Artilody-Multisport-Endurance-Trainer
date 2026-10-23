@@ -697,8 +697,31 @@ def build(s, env):
     s.p(f"The {UI('Workout Timeline')} chart shows the whole workout with total duration and number of blocks. "
         f"Use {UI('View:')} to switch the vertical axis between {UI('Power (Watts)')} and {UI('% FTP')}. Click "
         "anywhere in the chart to select the block at that time.")
-    s.p("In the block list, drag a block by its grip handle to a new position; a marker shows where it will be "
-        "dropped. The copy button duplicates a block (inserted right after it) and the trash button deletes it.")
+    s.p("Below the chart, the block list shows one card per block in workout order (left = start). Click a "
+        "card to select and edit it. A hint line above the list summarises how to reorder and delete blocks.")
+
+    s.section("Reordering and deleting blocks")
+    s.p("Each block card has a <b>grip strip</b> at the top (the six-dot grip icon next to the coloured zone bar) and "
+        "four small buttons at the bottom: ‹ and › on the left, copy and trash on the right. Hover over any of "
+        "them to see a tooltip. There are four ways to change the order:")
+    s.table(["Method", "How"], [
+        ["Drag", "Point at the grip strip (the cursor becomes an open hand), press and drag the card left or "
+                 "right. The card being moved is dimmed, a copy follows the pointer and a blue line with dots "
+                 "shows where it will land. Release to drop it there. Near the edge of the list it scrolls "
+                 "automatically."],
+        [UI("‹") + " / " + UI("›"), "Moves the block one place earlier (left) or later (right). The buttons are "
+                 "greyed out on the first and last block."],
+        ["Right-click menu", f"Right-click a card for {UI('Move earlier')}, {UI('Move later')}, "
+                 f"{UI('Move to start')}, {UI('Move to end')}, {UI('Duplicate')} and {UI('Delete interval')}."],
+        ["Keyboard", "<b>Alt+←</b> / <b>Alt+→</b> (on a Mac <b>Option+←</b> / <b>Option+→</b>; the up/down arrows work too) "
+                 "move the selected block earlier or later. This works when no text field has the keyboard focus."],
+    ], [1.4, 4.4])
+    s.p("A moved block stays selected, so you can keep pressing the arrows. To <b>delete</b> a block, click the "
+        f"red trash button on its card (or choose {UI('Delete interval')} in the right-click menu). The copy "
+        "button duplicates a block and inserts the copy right after it.")
+    s.tip("Deleting has no undo. If you delete a block by mistake in a workout you saved earlier, open the "
+          "workout again from the library without saving to get the saved version back; otherwise add the "
+          "block again from the Add Block panel.")
 
     s.section("Summary, preview and saving")
     s.p(f"{UI('Workout Summary')} shows the average intensity (% FTP), the estimated TSS, the total duration "

@@ -99,6 +99,100 @@ Item {
         }
     }
 
+    // --- reorder / delete helpers --------------------------------------------
+    readonly property string altKey: Qt.platform.os === "osx" ? "⌥" : "Alt+"
+
+    function moveTo(from, to) {
+        var n = Builder.blockCount
+        if (from < 0 || from >= n)
+            return
+        to = Math.max(0, Math.min(n - 1, to))
+        if (to === from)
+            return
+        Builder.moveBlock(from, to)
+        Builder.selectedIndex = to
+        blockList.positionViewAtIndex(to, ListView.Contain)
+    }
+    function deleteBlock(index) {
+        if (index < 0 || index >= Builder.blockCount)
+            return
+        Builder.removeBlock(index)
+    }
+    function openBlockMenu(index) {
+        blockMenu.blockIndex = index
+        blockMenu.popup()
+    }
+    // screenshot aid (WATT_SCREENSHOT_MENU=builder): menu of the selected block
+    function openScreenshotMenu() {
+        var i = Math.max(0, page.selIndex)
+        var item = blockList.itemAtIndex(i)
+        var p = item ? item.mapToItem(page, item.width * 0.6, 60) : Qt.point(page.width / 3, page.height / 2)
+        blockMenu.blockIndex = i
+        blockMenu.popup(p.x, p.y)
+        return blockMenu
+    }
+
+    // true while a text field has the keyboard focus (Alt+arrows edit text there)
+    readonly property bool textFocus: {
+        var f = page.Window.activeFocusItem
+        return f !== null && f !== undefined && f.cursorPosition !== undefined
+    }
+    Shortcut {
+        sequences: ["Alt+Left", "Alt+Up"]
+        enabled: page.visible && page.hasSel && !page.textFocus
+        onActivated: page.moveTo(page.selIndex, page.selIndex - 1)
+    }
+    Shortcut {
+        sequences: ["Alt+Right", "Alt+Down"]
+        enabled: page.visible && page.hasSel && !page.textFocus
+        onActivated: page.moveTo(page.selIndex, page.selIndex + 1)
+    }
+
+    AppMenu {
+        id: blockMenu
+        property int blockIndex: -1
+        minWidth: 250
+        AppMenuItem {
+            text: "Move earlier"
+            iconName: "chevronLeft"
+            hint: page.altKey + "←"
+            enabled: blockMenu.blockIndex > 0
+            onTriggered: page.moveTo(blockMenu.blockIndex, blockMenu.blockIndex - 1)
+        }
+        AppMenuItem {
+            text: "Move later"
+            iconName: "chevronRight"
+            hint: page.altKey + "→"
+            enabled: blockMenu.blockIndex >= 0 && blockMenu.blockIndex < Builder.blockCount - 1
+            onTriggered: page.moveTo(blockMenu.blockIndex, blockMenu.blockIndex + 1)
+        }
+        AppMenuItem {
+            text: "Move to start"
+            iconName: "skipBack"
+            enabled: blockMenu.blockIndex > 0
+            onTriggered: page.moveTo(blockMenu.blockIndex, 0)
+        }
+        AppMenuItem {
+            text: "Move to end"
+            iconName: "skipForward"
+            enabled: blockMenu.blockIndex >= 0 && blockMenu.blockIndex < Builder.blockCount - 1
+            onTriggered: page.moveTo(blockMenu.blockIndex, Builder.blockCount - 1)
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Duplicate"
+            iconName: "copy"
+            onTriggered: Builder.duplicateBlock(blockMenu.blockIndex)
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: "Delete interval"
+            iconName: "trash"
+            destructive: true
+            onTriggered: page.deleteBlock(blockMenu.blockIndex)
+        }
+    }
+
     function save() {
         var id = Builder.save()
         if (id >= 0)
@@ -154,7 +248,7 @@ Item {
             x: 4
             y: 88
             width: parent.width - 20
-            height: 260
+            height: 238
             segments: Builder.segments
             totalSec: Builder.totalDurationSec
             showHeartRate: false
@@ -166,82 +260,171 @@ Item {
             onClickedAt: (second) => Builder.selectedIndex = Builder.blockAtSecond(second)
         }
 
-        // block cards
+        // how to reorder / edit / delete (the grip alone was easy to miss)
+        Row {
+            id: reorderHint
+            x: 18
+            y: 328
+            width: parent.width - 36
+            height: 20
+            spacing: 6
+            clip: true
+            readonly property color tint: Theme.textSecondary
+            readonly property int fontSize: 14
+            Icon { name: "grip"; size: 18; color: reorderHint.tint; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "Drag the grip or use"; color: reorderHint.tint; font.pixelSize: reorderHint.fontSize; anchors.verticalCenter: parent.verticalCenter }
+            Icon { name: "chevronLeft"; size: 16; strokeWidth: 2.2; color: reorderHint.tint; anchors.verticalCenter: parent.verticalCenter }
+            Icon { name: "chevronRight"; size: 16; strokeWidth: 2.2; color: reorderHint.tint; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "to reorder   ·   click a block to edit   ·"; color: reorderHint.tint; font.pixelSize: reorderHint.fontSize; anchors.verticalCenter: parent.verticalCenter }
+            Icon { name: "trash"; size: 16; color: reorderHint.tint; anchors.verticalCenter: parent.verticalCenter }
+            Text {
+                text: "to delete   ·   right-click for more   ·   " + page.altKey + "←/→ moves the selected block"
+                color: reorderHint.tint
+                font.pixelSize: reorderHint.fontSize
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        // block cards: drag the grip strip (or use the arrows / right-click menu /
+        // Alt+←/→) to reorder, trash to delete
         ListView {
             id: blockList
             x: 10
-            y: 356
+            y: 354
             width: parent.width - 20
             height: 166
             orientation: ListView.Horizontal
             spacing: 8
+            leftMargin: 6       // room for the drop indicator before the first card
+            rightMargin: 6
             clip: true
             model: Builder.intervals
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded; height: 6 }
 
-            property int dragFrom: -1
+            readonly property int cardWidth: 150
+            property int dragFrom: -1       // index of the dragged card, -1 = no drag
             property int dropIndex: -1
+            property real dragX: 0          // pointer x in content coordinates
+            property string dragName
+            property int dragZone: 0
+
+            function updateDrop(viewX, contentPos) {
+                dragX = contentPos
+                var slot = Math.floor((contentPos + spacing / 2) / (cardWidth + spacing))
+                dropIndex = Math.max(0, Math.min(count - 1, slot))
+                // auto-scroll near the edges
+                var maxX = contentWidth - width + rightMargin
+                if (contentWidth + leftMargin + rightMargin > width) {
+                    if (viewX < 40)
+                        contentX = Math.max(-leftMargin, contentX - 14)
+                    else if (viewX > width - 40)
+                        contentX = Math.min(maxX, contentX + 14)
+                }
+            }
+            function endDrag(commit) {
+                if (commit && dragFrom >= 0 && dropIndex >= 0 && dropIndex !== dragFrom)
+                    page.moveTo(dragFrom, dropIndex)
+                dragFrom = -1
+                dropIndex = -1
+            }
 
             delegate: Item {
                 id: blockDelegate
-                width: 134
+                width: blockList.cardWidth
                 height: 160
                 readonly property bool isSel: index === Builder.selectedIndex
+                readonly property bool dragged: blockList.dragFrom === index
 
                 Rectangle {
                     anchors.fill: parent
                     radius: 10
                     color: blockDelegate.isSel ? Theme.cardStrong : Theme.card
-                    border.width: blockDelegate.isSel ? 3 : 1
-                    border.color: blockDelegate.isSel ? Theme.accent : Theme.cardBorder
-                    opacity: blockList.dragFrom === index ? 0.5 : 1
+                    border.width: blockDelegate.dragged ? 2 : blockDelegate.isSel ? 3 : 1
+                    border.color: blockDelegate.dragged ? Theme.accentLight
+                                : blockDelegate.isSel ? Theme.accent : Theme.cardBorder
+                    opacity: blockDelegate.dragged ? 0.45 : 1
 
                     MouseArea {
+                        id: cardMouse
                         anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: Builder.selectedIndex = index
-                    }
-
-                    // grip (drag to reorder)
-                    Icon {
-                        x: 2
-                        y: 40
-                        name: "grip"
-                        size: 18
-                        color: Theme.textSecondary
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -6
-                            cursorShape: Qt.SizeAllCursor
-                            preventStealing: true
-                            onPressed: blockList.dragFrom = index
-                            onPositionChanged: (mouse) => {
-                                var p = mapToItem(blockList.contentItem, mouse.x, mouse.y)
-                                var i = blockList.indexAt(p.x, 50)
-                                blockList.dropIndex = i < 0 ? (p.x < 0 ? 0 : blockList.count - 1) : i
-                            }
-                            onReleased: {
-                                if (blockList.dropIndex >= 0 && blockList.dropIndex !== blockList.dragFrom)
-                                    Builder.moveBlock(blockList.dragFrom, blockList.dropIndex)
-                                blockList.dragFrom = -1
-                                blockList.dropIndex = -1
-                            }
+                        onClicked: (mouse) => {
+                            Builder.selectedIndex = index
+                            if (mouse.button === Qt.RightButton)
+                                page.openBlockMenu(index)
                         }
                     }
 
+                    // grip strip (drag to reorder); the zone colour bar sits inside it
                     Rectangle {
-                        x: 18
-                        y: 10
-                        width: parent.width - 30
-                        height: 12
-                        radius: 6
-                        color: Theme.zoneColor(zone)
+                        id: gripStrip
+                        x: 4
+                        y: 4
+                        width: parent.width - 8
+                        height: 26
+                        radius: 7
+                        // faint at rest so it reads as a handle, stronger on hover
+                        color: gripMouse.containsMouse || gripMouse.pressed ? Theme.hover
+                             : (Theme.dark ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(0.1, 0.2, 0.6, 0.03))
+                        border.width: 1
+                        border.color: gripMouse.containsMouse || gripMouse.pressed ? Theme.accentLight : Theme.cardBorder
+
+                        Icon {
+                            x: 2
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "grip"
+                            size: 20
+                            color: gripMouse.containsMouse || gripMouse.pressed ? Theme.text : Theme.textSecondary
+                        }
+                        Rectangle {
+                            x: 26
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 32
+                            height: 10
+                            radius: 5
+                            color: Theme.zoneColor(zone)
+                        }
+
+                        MouseArea {
+                            id: gripMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            preventStealing: true
+                            cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                            property real pressX: 0
+                            onPressed: (mouse) => {
+                                pressX = mouse.x
+                                Builder.selectedIndex = index
+                            }
+                            onPositionChanged: (mouse) => {
+                                if (!pressed)
+                                    return
+                                if (blockList.dragFrom < 0) {
+                                    if (Math.abs(mouse.x - pressX) < 5)
+                                        return
+                                    blockList.dragName = name
+                                    blockList.dragZone = zone
+                                    blockList.dragFrom = index
+                                }
+                                var v = mapToItem(blockList, mouse.x, mouse.y)
+                                var c = mapToItem(blockList.contentItem, mouse.x, mouse.y)
+                                blockList.updateDrop(v.x, c.x)
+                            }
+                            onReleased: blockList.endDrag(true)
+                            onCanceled: blockList.endDrag(false)
+                        }
+                        ToolTip.visible: gripMouse.containsMouse && !gripMouse.pressed
+                        ToolTip.delay: 500
+                        ToolTip.text: "Drag to reorder"
                     }
+
                     Text {
-                        x: 24
-                        y: 32
-                        width: parent.width - 30
+                        x: 12
+                        y: 36
+                        width: parent.width - 20
                         text: name
                         color: Theme.text
                         font.pixelSize: 16
@@ -249,7 +432,7 @@ Item {
                         elide: Text.ElideRight
                     }
                     Column {
-                        x: 24
+                        x: 12
                         y: 62
                         spacing: 6
                         Row {
@@ -267,24 +450,97 @@ Item {
                             }
                         }
                     }
+                    // move earlier / later
                     Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.horizontalCenterOffset: 6
+                        x: 5
                         anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 10
-                        spacing: 16
-                        IconButton { flat: true; iconName: "copy"; iconSize: 19; tooltip: "Duplicate"; onClicked: Builder.duplicateBlock(index) }
-                        IconButton { flat: true; iconName: "trash"; iconSize: 19; tooltip: "Delete"; onClicked: Builder.removeBlock(index) }
+                        anchors.bottomMargin: 6
+                        spacing: 2
+                        IconButton {
+                            flat: true; iconName: "chevronLeft"; iconSize: 18
+                            enabled: index > 0
+                            tooltip: "Move earlier (left)"
+                            onClicked: page.moveTo(index, index - 1)
+                        }
+                        IconButton {
+                            flat: true; iconName: "chevronRight"; iconSize: 18
+                            enabled: index < blockList.count - 1
+                            tooltip: "Move later (right)"
+                            onClicked: page.moveTo(index, index + 1)
+                        }
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 5
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 6
+                        spacing: 2
+                        IconButton { flat: true; iconName: "copy"; iconSize: 18; tooltip: "Duplicate interval"; onClicked: Builder.duplicateBlock(index) }
+                        IconButton { flat: true; iconName: "trash"; iconSize: 18; iconColor: Theme.danger; tooltip: "Delete interval"; onClicked: page.deleteBlock(index) }
                     }
                 }
 
+                // drop indicator: where the dragged card will land
                 Rectangle {
-                    visible: blockList.dropIndex === index && blockList.dragFrom !== index
+                    visible: blockList.dragFrom >= 0 && blockList.dropIndex === index && !blockDelegate.dragged
                     width: 4
                     height: parent.height
                     radius: 2
                     x: blockList.dragFrom > index ? -6 : parent.width + 2
                     color: Theme.accentLight
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: -1
+                        width: 12; height: 12; radius: 6
+                        color: Theme.accentLight
+                    }
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: -1
+                        width: 12; height: 12; radius: 6
+                        color: Theme.accentLight
+                    }
+                }
+            }
+
+            // card that follows the pointer while dragging
+            Rectangle {
+                visible: blockList.dragFrom >= 0
+                z: 10
+                x: blockList.dragX - width / 2
+                y: 14
+                width: blockList.cardWidth
+                height: 44
+                radius: 10
+                color: Theme.cardStrong
+                border.width: 2
+                border.color: Theme.accent
+                opacity: 0.95
+                Icon {
+                    x: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: "grip"
+                    size: 20
+                    color: Theme.text
+                }
+                Rectangle {
+                    x: 30
+                    y: 8
+                    width: parent.width - 40
+                    height: 6
+                    radius: 3
+                    color: Theme.zoneColor(blockList.dragZone)
+                }
+                Text {
+                    x: 30
+                    y: 18
+                    width: parent.width - 38
+                    text: blockList.dragName
+                    color: Theme.text
+                    font.pixelSize: 15
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
                 }
             }
         }

@@ -83,6 +83,7 @@ ApplicationWindow {
         case "workouts": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("more"); break
         case "new": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("new"); break
         case "workouts-export": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("export"); break
+        case "builder": showPage("builder"); screenshotMenu = builderPage.openScreenshotMenu(); break
         case "history": showPage("history"); screenshotMenu = historyPage.openScreenshotMenu(); break
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
@@ -168,6 +169,7 @@ ApplicationWindow {
                 }
                 CalendarPage { id: calendarPage }
                 BuilderPage {
+                    id: builderPage
                     onMessage: (text) => window.showToast(text)
                 }
                 RowingPage {

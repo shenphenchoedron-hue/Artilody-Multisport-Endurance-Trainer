@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_ROWING_SEC     seconds rowed before rowing.png (default 40)
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
-    //                                  new, workouts-export, history, profile
+    //                                  new, workouts-export, history, profile, builder
     //                                  (music: the music library dialog)
     //   WATT_SCREENSHOT_MUSIC=1        seed a long demo playlist (see above)
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
