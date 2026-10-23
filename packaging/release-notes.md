@@ -1,8 +1,18 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.1.1
+## What's new in 1.1.2
 
-A small bug-fix release on top of 1.1.0:
+A small usability release on top of 1.1.1 – reordering and deleting intervals in the **Workout Builder** is now obvious:
+
+- **Grip strip for dragging**: every block card has a ⋮⋮ grip strip at the top (with a tooltip and an open-hand cursor). While you drag, the moved card is dimmed, a copy follows the pointer, a **blue drop indicator** shows exactly where the block will land, and the block list **scrolls automatically** near its edges.
+- **‹ / › move buttons** on each card move a block one place earlier or later (greyed out on the first and last block).
+- **Right-click menu** on a card: *Move earlier*, *Move later*, *Move to start*, *Move to end*, *Duplicate* and *Delete interval*.
+- **Keyboard**: <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> (<kbd>⌥</kbd>+<kbd>←</kbd>/<kbd>→</kbd> on a Mac) moves the selected block; it stays selected so you can keep pressing.
+- **Clear delete button**: the trash button is red and has a tooltip; every button on the card has a tooltip, and a hint line above the block list explains how to reorder and delete.
+- **Fix**: dropping a block in the gap between two blocks no longer sends it to the end of the workout.
+- Updated user manual (new section *Reordering and deleting blocks*) and Builder screenshot.
+
+## Includes everything from 1.1.1
 
 - **Music playlist stays inside its frame**: the *Up Next* list on the Dashboard music card now always stays inside the card: when the card is small (e.g. in a smaller window) the list is clipped at the card frame and scrolls, instead of drawing past the bottom of the card.
 - **Music Library**: the track and playlist lists have scrollbars, playlist names use the available width, and long titles are shortened with "…" instead of overlapping.
@@ -27,7 +37,7 @@ A small bug-fix release on top of 1.1.0:
 
 ## Upgrade notes
 
-- Install 1.1.1 over 1.1.0 or 1.0.0 – no need to uninstall first.
+- Install 1.1.2 over 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations
