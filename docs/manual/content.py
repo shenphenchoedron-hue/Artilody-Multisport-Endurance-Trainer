@@ -49,7 +49,7 @@ def build(s, env):
         "time in zones, Normalized Power, Intensity Factor and Training Stress Score. Rides can be exported as FIT "
         "files (for Strava, Garmin Connect, TrainingPeaks, intervals.icu …) or as CSV files.",
         f"{UI('Plans your training')} – a month calendar for planned rides and rows; planned workouts are "
-        "started with one click and ticked off automatically when you complete them.",
+        "started with a double-click and ticked off automatically when you complete them.",
         f"{UI('Rows on a Concept2')} – connects to a Concept2 PM5 for free rows over a distance, watt-plan "
         "rowing workouts and ghost races against your own personal best.",
         f"{UI('Shares workouts')} – export your workouts as Artilody {C('.awt')} files or Zwift {C('.zwo')} "
@@ -928,9 +928,9 @@ def build(s, env):
     ])
     s.section("Adding a workout")
     s.steps([
-        f"Click an empty day, or the {UI('+')} button that appears in the corner of a day when you point at "
-        f"it (double-clicking a day works too). {UI('Add Workout')} at the top right and in the side panel "
-        "adds to the selected day.",
+        f"Double-click a day, or click the {UI('+')} button that appears in the corner of a day when you point "
+        f"at it. {UI('Add Workout')} at the top right and {UI('+')} in the side panel add to the selected day. "
+        "A single click only selects the day.",
         f"The {UI('Add Workout')} dialog opens for that date. Type in {UI('Search workouts...')} and use the "
         f"{UI('Cycling')} / {UI('Rowing')} filter to find the workout.",
         f"Optionally enter {UI('Notes')} (for example <i>“Outdoor if dry”</i>).",
@@ -940,8 +940,9 @@ def build(s, env):
         f"{UI('•••')} menu of the Workout Preview (or the calendar button), then pick the date. The same workout "
         "can be planned on several days, and a day can hold several workouts.")
     s.section("Starting a planned workout")
-    s.p("Click a chip in the month view, or the play button of an entry in the side panel "
-        f"({UI('Ride')} or {UI('Row')}):")
+    s.p("A single click on a chip selects it and its day. To start it, <b>double-click</b> the chip, press "
+        f"{UI('Ride')} or {UI('Row')} for the entry in the side panel (or the play button in "
+        f"{UI('Upcoming')}), or choose {UI('Ride this workout')} / {UI('Row this workout')} in its menu:")
     s.bullets([
         f"a <b>cycling</b> workout is loaded on the {UI('Dashboard')} – choose ERG or Free Ride and start "
         "pedaling as usual (chapter 6);",
@@ -950,20 +951,23 @@ def build(s, env):
     ])
     s.p("If a ride or a row is already running, the app shows a message and takes you to it instead. Finish "
         "it first.")
-    s.note("When you save a ride or row of a workout, the first open entry of that workout on the same day is "
-           "<b>marked as completed automatically</b> and linked to the ride. Rides of workouts that were not "
-           "planned, free rides and free rows do not change the calendar.")
+    s.note("When you <b>complete</b> a workout you started from the calendar, exactly that plan entry is "
+           "<b>marked as completed automatically</b> and linked to the ride – even if it was planned for another "
+           "day. A completed workout started elsewhere (Workouts page, Dashboard) ticks off the first open entry "
+           "of that workout on the same day. Rides you stop before the end of the workout, aborted rows, free "
+           "rides and free rows do not change the calendar. If you delete the ride in History, its plan entry "
+           "is opened again.")
     s.section("Moving, completing and removing")
     s.p("Right-click a chip (on touch screens: press and hold it) to open its menu:")
     s.table(["Menu item", "Effect"], [
-        [UI("Ride this workout") + " / " + UI("Row this workout"), "Same as clicking the chip."],
+        [UI("Ride this workout") + " / " + UI("Row this workout"), "Starts the workout, like double-clicking the chip."],
         [UI("Mark as completed") + " / " + UI("Mark as not completed"), "Ticks the entry off by hand – for "
          "example after an outdoor ride – or opens it again."],
         [UI("Move to…"), "Opens a date picker; the entry moves to the chosen day."],
         [UI("Move to next day"), "Moves the entry one day forward."],
         [UI("Show day"), "Selects the day in the side panel."],
-        [UI("Remove from calendar"), "Deletes the plan entry. The workout itself and any recorded ride are "
-         "not affected."],
+        [UI("Remove from calendar"), "Asks for confirmation, then deletes the plan entry. The workout itself "
+         "and any recorded ride are not affected."],
     ], [2.3, 3.5])
     s.p("<b>Drag and drop:</b> press a chip and drag it to another day of the visible month – the target day "
         "is highlighted – and release it there.")
@@ -973,7 +977,7 @@ def build(s, env):
         f"name, sport, category and duration, and buttons for {UI('Ride')}/{UI('Row')}, mark as completed, "
         f"move and remove. {UI('+')} adds another workout to the day.",
         f"{UI('Upcoming')} lists the next open workouts from today onwards (<i>Today</i>, <i>Tomorrow</i>, "
-        "then the date). Click a row to select its day, or the play button to start it.",
+        "then the date). Click a row to select its day, double-click it or press the play button to start it.",
     ])
     s.tip("The plan belongs to the current profile, like the ride history. Each rider in a shared installation "
           "has a separate calendar.")
@@ -998,12 +1002,14 @@ def build(s, env):
     ])
     s.p("The rower is remembered like a trainer and reconnected automatically next time (if "
         f"{UI('Auto-connect known devices')} is on) – just turn wireless on at the PM5 again. A trainer, a "
-        "heart-rate sensor and a rower can be connected at the same time. Heart rate comes from a strap paired "
-        "with the PM5 or, if the PM5 reports none, from the connected heart-rate sensor.")
+        "heart-rate sensor and a rower can be connected at the same time. Heart rate comes from the connected "
+        "heart-rate sensor (Devices → Heart Rate Sensors) if there is one – a dedicated strap always wins – "
+        "otherwise from a strap paired with the PM5.")
     s.p(f"{UI('Virtual Rower')} (Simulated Concept2 PM5) in the same section lets you try every rowing feature "
         "without a rower. It rows by itself at around 175 W and follows the target in a Watt Plan.")
-    s.note("Only the <b>PM5</b> monitor is supported (RowErg, SkiErg and BikeErg with a PM5 advertise the same "
-           "way; the app is designed for rowing). PM3/PM4 monitors have no Bluetooth. The PM5 accepts one "
+    s.note("Only the <b>PM5</b> on a <b>rower</b> (RowErg and other Concept2 rowing machines) is supported. "
+           "BikeErg and SkiErg are <b>not supported</b> – they advertise the same way, but the app only handles "
+           "rowing data. PM3/PM4 monitors have no Bluetooth. The PM5 accepts one "
            "Bluetooth app at a time – disconnect ErgData or other apps first.")
 
     s.section("The Rowing page")
@@ -1071,8 +1077,9 @@ def build(s, env):
         "the improvement over the old record.",
         f"The {UI('Personal bests')} table in the Ghost Race panel lists time and pace /500 m for the standard "
         "distances and every custom distance you have a record for.",
-        "Open rows, Watt Plans and rows you finish early never change your records. Records belong to the "
-        "current profile.",
+        "Open rows, Watt Plans and rows you finish early never change your records. A time is also not "
+        "saved as a record if you <b>paused</b> during the piece or the time is <b>implausible</b> (faster "
+        "than is physically possible, e.g. after a monitor glitch). Records belong to the current profile.",
     ])
 
     s.section("Starting, pausing and finishing")
@@ -1081,6 +1088,8 @@ def build(s, env):
         "(<i>Waiting for first stroke…</i>) and starts with your first stroke. Turn it off to start only "
         f"with {UI('Start Now')}.",
         f"{UI('Start Now')} starts at once; without any setup it starts an open Free Row.",
+        "If you leave the Rowing page before the row has started, the setup is cleared, so a stroke on the "
+        "rower cannot start a row while you are on another page. Coming back sets it up again.",
         f"{UI('Pause Row')} / {UI('Resume')} stops and continues the clock; distance rowed during a pause is "
         "not counted.",
         f"{UI('Finish')} asks <i>Finish row?</i>: {UI('Save &amp; Finish')} saves the row, {UI('Discard')} "
