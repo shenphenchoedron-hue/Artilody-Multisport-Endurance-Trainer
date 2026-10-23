@@ -8,7 +8,7 @@ Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structur
   - **Watt Plan**: row a rowing workout with interval blocks, a rower marker along the plan, target vs. actual watts, interval time left, next target and a compliance score. The PM5 has no ERG mode, so you follow the target yourself.
   - **Ghost Race**: race your personal best over 500 m, 1k, 2k, 5k, 6k, 10k or a custom distance against a ghost boat, with the gap in metres and seconds. New personal bests are saved automatically and listed in a personal-bests table.
   
-  Rows start on the first stroke (or **Start now**) and can be paused, finished and reset. They are saved to History as *Rowing* with distance and can be exported as FIT (currently written as an indoor-cycling activity without distance) and CSV.
+  Rows start on the first stroke (or **Start now**) and can be paused, finished and reset. They are saved to History as *Rowing* with distance and can be exported as FIT (as an indoor-rowing activity with distance) and CSV.
 - **Sport type for workouts**: workouts are *Cycling* or *Rowing*. The Workouts page shows sport badges and a sport filter and has a **Row Workout** button for rowing workouts; the Builder has a Cycling/Rowing selector (rowing uses stroke rate in SPM). History has a sport filter and shows the distance of rows. `.awt` files keep the sport; `.zwo` files are always cycling.
 - **Rowing FTP**: every profile has a separate rowing FTP; rowing watt plans are a percentage of it.
 - The database is upgraded automatically to schema version 2 on first start; all existing rides, workouts and settings are kept.

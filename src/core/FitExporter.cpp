@@ -3,7 +3,6 @@
 #include <QSaveFile>
 #include <algorithm>
 #include <cmath>
-#include <initializer_list>
 #include <vector>
 
 namespace watt::fit {
@@ -32,6 +31,7 @@ int baseTypeSize(quint8 t)
 // Global message numbers.
 enum Mesg : quint16 {
     MesgFileId = 0,
+    MesgSport = 12,
     MesgSession = 18,
     MesgLap = 19,
     MesgRecord = 20,
@@ -51,6 +51,8 @@ constexpr quint64 kProduct = 1;
 constexpr quint64 kSoftwareVersion = 100;   // 1.00 (scale 100)
 constexpr quint64 kSportCycling = 2;
 constexpr quint64 kSubSportIndoorCycling = 6;
+constexpr quint64 kSportRowing = 15;
+constexpr quint64 kSubSportIndoorRowing = 14;
 constexpr quint64 kEventTimer = 0;
 constexpr quint64 kEventSession = 8;
 constexpr quint64 kEventLap = 9;
@@ -102,7 +104,7 @@ class Encoder
 public:
     // Writes a data message; emits a definition message first whenever the
     // field layout of the local message type changes.
-    void write(quint8 local, quint16 global, std::initializer_list<Field> fields)
+    void write(quint8 local, quint16 global, const std::vector<Field> &fields)
     {
         Layout layout { global, {} };
         for (const Field &f : fields)
@@ -177,11 +179,41 @@ private:
 };
 
 // Local message types (one per kind of message we write).
-enum Local : quint8 { LFileId, LDeviceInfo, LEvent, LRecord, LLap, LSession, LActivity };
+enum Local : quint8 { LFileId, LDeviceInfo, LEvent, LRecord, LLap, LSession, LActivity, LSport };
 
 quint64 fitTime(qint64 unixSecs)
 {
     return quint64(std::max<qint64>(0, unixSecs - kFitEpochOffset));
+}
+
+// Cumulative distance (metres) at each sample for a ride whose only distance
+// information is the total. The total is spread over the samples in
+// proportion to power^(1/3): on an air-braked rower (Concept2) power grows
+// with the cube of boat speed (P = 2.80 * v^3), so speed ~ P^(1/3) and each
+// second covers a share of the distance proportional to that. If no sample
+// has power, the distance is spread evenly. The last value equals totalM.
+std::vector<double> derivedDistance(const QVector<Sample> &samples, double totalM)
+{
+    std::vector<double> out(size_t(samples.size()), 0.0);
+    if (samples.isEmpty() || !(totalM > 0))
+        return out;
+    std::vector<double> w(out.size());
+    double sum = 0;
+    for (size_t i = 0; i < w.size(); ++i) {
+        w[i] = std::cbrt(double(std::max(0, samples[int(i)].power)));
+        sum += w[i];
+    }
+    if (!(sum > 0)) {
+        std::fill(w.begin(), w.end(), 1.0);
+        sum = double(w.size());
+    }
+    double acc = 0;
+    for (size_t i = 0; i < w.size(); ++i) {
+        acc += w[i];
+        out[i] = totalM * acc / sum;
+    }
+    out.back() = totalM;
+    return out;
 }
 
 } // namespace
@@ -213,7 +245,20 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     const quint64 elapsedMs = u32(double(elapsedSec) * 1000.0);
     const quint64 serial = ride.id > 0 ? quint64(ride.id) & 0xFFFFFFFF : 1;
     const quint64 workJ = u32(ride.kilojoules * 1000.0);
-    const quint64 calories = u16(ride.kilojoules);   // ~1 kcal per kJ of mechanical work on a bike
+    const quint64 calories = u16(ride.kilojoules);   // ~1 kcal per kJ of mechanical work (~24 % efficiency)
+    const bool rowing = ride.sport == QLatin1String("rowing");
+    const quint64 sport = rowing ? kSportRowing : kSportCycling;
+    const quint64 subSport = rowing ? kSubSportIndoorRowing : kSubSportIndoorCycling;
+    const bool hasDistance = ride.distanceM > 0;
+    const quint64 totalDistance = u32(ride.distanceM * 100.0);   // total_distance: m, scale 100
+    const quint64 avgSpeed = elapsedSec > 0 ? u16(ride.distanceM / double(elapsedSec) * 1000.0)
+                                            : invalidFor(UInt16);   // avg_speed: m/s, scale 1000
+    // Samples carry no per-second distance; for rows it is derived from the
+    // total (see derivedDistance). Cycling has no speed model for an indoor
+    // trainer, so a cycling ride only gets session/lap totals (if any).
+    const bool recordDistance = rowing && hasDistance && !samples.isEmpty();
+    const std::vector<double> distances = recordDistance ? derivedDistance(samples, ride.distanceM)
+                                                         : std::vector<double>();
 
     Encoder e;
     e.write(LFileId, MesgFileId,
@@ -229,19 +274,27 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
               { 3, UInt32z, serial ? serial : 1 },
               { 4, UInt16, kProduct },
               { 5, UInt16, kSoftwareVersion } });
+    e.write(LSport, MesgSport,
+            { { 0, Enum, sport },
+              { 1, Enum, subSport } });
     e.write(LEvent, MesgEvent,
             { { kFieldTimestamp, UInt32, start },
               { 0, Enum, kEventTimer },
               { 1, Enum, kEventTypeStart },
               { 4, UInt8, 0 } });
 
-    for (const Sample &s : samples) {
+    std::vector<Field> rec;
+    for (int i = 0; i < samples.size(); ++i) {
+        const Sample &s = samples[i];
         const qint64 t = std::max(0, s.t);
-        e.write(LRecord, MesgRecord,
-                { { kFieldTimestamp, UInt32, fitTime(startUnix + t) },
-                  { 7, UInt16, u16(s.power) },
-                  { 3, UInt8, u8OrInvalid(s.heartRate) },
-                  { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) } });
+        // cadence: rpm for cycling, strokes/min for rowing (same FIT field)
+        rec = { { kFieldTimestamp, UInt32, fitTime(startUnix + t) },
+                { 7, UInt16, u16(s.power) },
+                { 3, UInt8, u8OrInvalid(s.heartRate) },
+                { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) } };
+        if (recordDistance)
+            rec.push_back({ 5, UInt32, u32(distances[size_t(i)] * 100.0) });   // distance: m, scale 100
+        e.write(LRecord, MesgRecord, rec);
     }
 
     e.write(LEvent, MesgEvent,
@@ -257,8 +310,8 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     const quint64 avgCad = u8(ride.avgCadence);
     const quint64 np = u16OrInvalid(ride.normalizedPower);
 
-    e.write(LLap, MesgLap,
-            { { kFieldMessageIndex, UInt16, 0 },
+    std::vector<Field> lap {
+              { kFieldMessageIndex, UInt16, 0 },
               { kFieldTimestamp, UInt32, end },
               { 0, Enum, kEventLap },
               { 1, Enum, kEventTypeStop },
@@ -271,19 +324,24 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
               { 17, UInt8, avgCad },
               { 19, UInt16, avgPower },
               { 20, UInt16, maxPower },
-              { 25, Enum, kSportCycling },
+              { 25, Enum, sport },
               { 33, UInt16, np },
-              { 39, Enum, kSubSportIndoorCycling },
-              { 41, UInt32, workJ } });
+              { 39, Enum, subSport },
+              { 41, UInt32, workJ } };
+    if (hasDistance) {
+        lap.push_back({ 9, UInt32, totalDistance });   // total_distance
+        lap.push_back({ 13, UInt16, avgSpeed });       // avg_speed
+    }
+    e.write(LLap, MesgLap, lap);
 
-    e.write(LSession, MesgSession,
-            { { kFieldMessageIndex, UInt16, 0 },
+    std::vector<Field> session {
+              { kFieldMessageIndex, UInt16, 0 },
               { kFieldTimestamp, UInt32, end },
               { 0, Enum, kEventSession },
               { 1, Enum, kEventTypeStop },
               { 2, UInt32, start },
-              { 5, Enum, kSportCycling },
-              { 6, Enum, kSubSportIndoorCycling },
+              { 5, Enum, sport },
+              { 6, Enum, subSport },
               { 7, UInt32, elapsedMs },
               { 8, UInt32, elapsedMs },
               { 11, UInt16, calories },
@@ -298,7 +356,12 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
               { 35, UInt16, u16OrInvalid(ride.tss * 10.0) },
               { 36, UInt16, u16OrInvalid(ride.intensityFactor * 1000.0) },
               { 45, UInt16, ride.ftp > 0 ? u16(ride.ftp) : invalidFor(UInt16) },
-              { 48, UInt32, workJ } });
+              { 48, UInt32, workJ } };
+    if (hasDistance) {
+        session.push_back({ 9, UInt32, totalDistance });   // total_distance
+        session.push_back({ 14, UInt16, avgSpeed });       // avg_speed
+    }
+    e.write(LSession, MesgSession, session);
 
     const qint64 localOffset = started.offsetFromUtc();
     e.write(LActivity, MesgActivity,

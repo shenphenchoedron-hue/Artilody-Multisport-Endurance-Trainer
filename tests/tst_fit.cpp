@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <cmath>
 
 using namespace watt;
 
@@ -224,6 +225,13 @@ private slots:
         QCOMPARE(laps[0].fields.value(41), quint64(725800));
         QCOMPARE(laps[0].fields.value(25), quint64(2));
         QCOMPARE(laps[0].fields.value(39), quint64(6));
+        QVERIFY(!laps[0].fields.contains(9));   // no distance for cycling without distanceM
+        QVERIFY(!rec[0].fields.contains(5));
+
+        const auto sport = f.of(12);
+        QCOMPARE(sport.size(), 1);
+        QCOMPARE(sport[0].fields.value(0), quint64(2));   // cycling
+        QCOMPARE(sport[0].fields.value(1), quint64(6));   // indoor_cycling
 
         const auto ses = f.of(18);
         QCOMPARE(ses.size(), 1);
@@ -252,6 +260,76 @@ private slots:
         QCOMPARE(act[0].fields.value(1), quint64(1));
         QCOMPARE(act[0].fields.value(0), quint64(600000));
         QCOMPARE(act[0].fields.value(5), kStartFit + 600);   // UTC ride: local == utc
+    }
+
+    void rowingSession()
+    {
+        // 300 s row, spm as cadence; power alternates 100 W / 800 W so the
+        // P^(1/3) split (4.64 vs 9.28 -> 1:2) is easy to check.
+        QVector<Sample> s;
+        for (int t = 0; t < 300; ++t)
+            s.append({ t, t % 2 == 0 ? 100 : 800, 0, 24, 0 });
+        RideRecord r = makeRide(300);
+        r.sport = QStringLiteral("rowing");
+        r.distanceM = 1234.56;
+        const FitFile f = parse(fit::encodeActivity(r, s));
+        QVERIFY2(f.ok, qPrintable(f.error));
+
+        const auto sport = f.of(12);
+        QCOMPARE(sport.size(), 1);
+        QCOMPARE(sport[0].fields.value(0), quint64(15));   // rowing
+        QCOMPARE(sport[0].fields.value(1), quint64(14));   // indoor_rowing
+
+        const auto ses = f.of(18);
+        QCOMPARE(ses.size(), 1);
+        QCOMPARE(ses[0].fields.value(5), quint64(15));
+        QCOMPARE(ses[0].fields.value(6), quint64(14));
+        QCOMPARE(ses[0].fields.value(9), quint64(123456));   // total_distance m*100
+        QCOMPARE(ses[0].fields.value(14), quint64(4115));    // avg_speed 1234.56/300 m/s *1000
+
+        const auto laps = f.of(19);
+        QCOMPARE(laps.size(), 1);
+        QCOMPARE(laps[0].fields.value(25), quint64(15));
+        QCOMPARE(laps[0].fields.value(39), quint64(14));
+        QCOMPARE(laps[0].fields.value(9), quint64(123456));
+        QCOMPARE(laps[0].fields.value(13), quint64(4115));
+
+        const auto rec = f.of(20);
+        QCOMPARE(rec.size(), 300);
+        QCOMPARE(rec[0].fields.value(4), quint64(24));   // strokes/min
+        // 150 pairs of (1 + 2) weight units -> 450 units total
+        QCOMPARE(rec[0].fields.value(5), quint64(std::llround(123456.0 * 1 / 450)));
+        QCOMPARE(rec[1].fields.value(5), quint64(std::llround(123456.0 * 3 / 450)));
+        QCOMPARE(rec[2].fields.value(5), quint64(std::llround(123456.0 * 4 / 450)));
+        QCOMPARE(rec.last().fields.value(5), quint64(123456));
+        for (int i = 1; i < rec.size(); ++i)
+            QVERIFY(rec[i].fields.value(5) >= rec[i - 1].fields.value(5));
+    }
+
+    void rowingWithoutDistance()
+    {
+        RideRecord r = makeRide(2);
+        r.sport = QStringLiteral("rowing");
+        const FitFile f = parse(fit::encodeActivity(r, { { 0, 0, 0, 0, 0 }, { 1, 0, 0, 0, 0 } }));
+        QVERIFY2(f.ok, qPrintable(f.error));
+        QCOMPARE(f.of(18)[0].fields.value(5), quint64(15));
+        QVERIFY(!f.of(18)[0].fields.contains(9));
+        QVERIFY(!f.of(20)[0].fields.contains(5));
+    }
+
+    void rowingZeroPowerSpreadsEvenly()
+    {
+        RideRecord r = makeRide(4);
+        r.sport = QStringLiteral("rowing");
+        r.distanceM = 40;
+        QVector<Sample> s;
+        for (int t = 0; t < 4; ++t)
+            s.append({ t, 0, 0, 0, 0 });
+        const FitFile f = parse(fit::encodeActivity(r, s));
+        QVERIFY2(f.ok, qPrintable(f.error));
+        const auto rec = f.of(20);
+        QCOMPARE(rec[0].fields.value(5), quint64(1000));
+        QCOMPARE(rec[3].fields.value(5), quint64(4000));
     }
 
     void emptySamples()

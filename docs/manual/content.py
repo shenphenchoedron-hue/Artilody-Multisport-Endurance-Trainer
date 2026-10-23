@@ -837,12 +837,16 @@ def build(s, env):
         ["intervals.icu", "Drag the file(s) onto the calendar or the activities list, or use the upload "
                           "button."],
     ], [1.4, 4.4])
-    s.p("The ride appears as an <b>indoor cycling</b> activity with its original start time, duration and "
+    s.p("A ride appears as an <b>indoor cycling</b> activity, a row as an <b>indoor rowing</b> activity, "
+        "with its original start time, duration and "
         "per-second power, heart-rate and cadence curves. Most platforms recognise a ride that was already "
         "uploaded and reject the second upload as a duplicate.")
     s.sub("What the file contains")
     s.bullets([
-        "Sport <i>cycling</i>, sub-sport <i>indoor cycling</i>, start time and duration.",
+        "Sport <i>cycling</i>, sub-sport <i>indoor cycling</i> (rows: sport <i>rowing</i>, sub-sport "
+        "<i>indoor rowing</i>), start time and duration.",
+        "For rows: the total distance and average speed, and a per-second distance estimated from the total "
+        "(chapter 11).",
         "One record per second with <b>power</b>, <b>heart rate</b> and <b>cadence</b> (heart rate is "
         "left out for seconds without data).",
         "One lap covering the whole ride and a session summary: average and maximum power and heart rate, "
@@ -851,8 +855,8 @@ def build(s, env):
     ])
     s.sub("Limitations")
     s.bullets([
-        "<b>No GPS, distance or speed</b> – the ride is an indoor ride. Platforms show a distance of 0 and no "
-        "map.",
+        "<b>No GPS, distance or speed</b> for rides – an indoor ride has no speed model. Platforms show a "
+        "distance of 0 and no map. Rows contain distance, but no GPS or map.",
         "The workout's intervals are not written as separate laps; the whole ride is one lap.",
         "Pauses are not part of the file: it contains the recorded riding time only.",
         "Platforms often calculate NP, TSS and IF again with the FTP stored in <i>your account there</i>, so "
@@ -1103,9 +1107,12 @@ def build(s, env):
         "charts and zones follow the filter. Free rows are named <i>Free Row</i> or <i>Row 2000 m</i>, ghost "
         "races <i>Ghost Race 1000 m</i>, Watt Plans after the workout.")
     s.p("Rows can be exported as FIT and CSV like rides (section 9.4).")
-    s.note("The FIT file of a row currently uses the same layout as a ride: it is marked as an <b>indoor "
-           "cycling</b> activity, contains power, heart rate and the stroke rate (as cadence) and no distance. "
-           "Change the activity type to rowing on the platform after uploading if you want it there as a row.")
+    s.note("The FIT file of a row is marked as an <b>indoor rowing</b> activity (sport <i>rowing</i>, "
+           "sub-sport <i>indoor rowing</i>) and contains the distance rowed, the average speed, power, heart "
+           "rate and the stroke rate (as cadence, in strokes per minute). The PM5 reports only the total "
+           "distance, so the distance curve inside the file is estimated: the total is spread over the seconds "
+           "in proportion to the cube root of the power (on an air-braked rower the speed grows with the cube "
+           "root of the power), and it ends exactly at the distance rowed."),
 
     s.section("Sport type: cycling and rowing workouts")
     s.p("Every workout has a sport – <b>Cycling</b> or <b>Rowing</b>:")
