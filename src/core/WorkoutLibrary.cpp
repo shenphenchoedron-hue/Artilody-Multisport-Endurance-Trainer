@@ -190,6 +190,52 @@ QVariantMap WorkoutLibrary::get(qint64 id) const
     return {};
 }
 
+QVariantList WorkoutLibrary::catalog(const QString &sportName) const
+{
+    const QString wanted = sportName.trimmed().isEmpty() || sportName.trimmed().toLower() == QLatin1String("all")
+        ? QString() : sport::normalize(sportName);
+    QVector<Workout> list;
+    for (const Workout &w : m_all) {
+        if (wanted.isEmpty() || w.sport == wanted)
+            list.append(w);
+    }
+    // (case-insensitive compare: localeAwareCompare is unreliable under the C/POSIX locale)
+    std::stable_sort(list.begin(), list.end(), [](const Workout &a, const Workout &b) {
+        return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+    });
+    QVariantList out;
+    out.reserve(list.size());
+    for (const Workout &w : list) {
+        const int ftp = m_profiles->current().ftpFor(w.sport);
+        QVariantMap m;
+        m.insert(QStringLiteral("workoutId"), w.id);
+        m.insert(QStringLiteral("name"), w.name);
+        m.insert(QStringLiteral("category"), w.category);
+        m.insert(QStringLiteral("sport"), w.sport);
+        m.insert(QStringLiteral("durationMin"), int(std::lround(w.totalDurationSec() / 60.0)));
+        m.insert(QStringLiteral("totalSec"), w.totalDurationSec());
+        m.insert(QStringLiteral("summary"), w.summary(ftp));
+        m.insert(QStringLiteral("builtIn"), w.builtIn);
+        m.insert(QStringLiteral("favorite"), w.favorite);
+        out.append(m);
+    }
+    return out;
+}
+
+qint64 WorkoutLibrary::firstWorkoutId(const QString &sportName) const
+{
+    const QString wanted = sport::normalize(sportName);
+    if (const auto sel = workout(m_selectedId); sel && sel->sport == wanted)
+        return sel->id;
+    for (const QVector<Workout> *list : { &m_visible, &m_all }) {
+        for (const Workout &w : *list) {
+            if (w.sport == wanted)
+                return w.id;
+        }
+    }
+    return -1;
+}
+
 void WorkoutLibrary::toggleFavorite(qint64 id)
 {
     for (Workout &w : m_all) {

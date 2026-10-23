@@ -10,6 +10,7 @@ Item {
 
     readonly property var ride: History.selectedRide
     readonly property bool hasRide: ride.rideId !== undefined
+    readonly property bool rideRowing: ride.sport === "rowing"
     property string exportKind: "csv"   // "csv" | "summary" | "fit"
     property bool showAll: false
 
@@ -25,6 +26,18 @@ Item {
         anchors.rightMargin: Theme.pageMargin
         y: 76
         spacing: 14
+        SegmentedControl {
+            height: 50
+            fontSize: 15
+            segmentPadding: 12
+            value: History.sportFilter
+            options: [
+                { value: "all", label: "All" },
+                { value: "cycling", label: "Cycling", icon: "bike" },
+                { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+            ]
+            onActivated: (v) => History.sportFilter = v
+        }
         AppComboBox {
             width: 222
             height: 50
@@ -175,7 +188,9 @@ Item {
             visible: page.hasRide
             Icon { name: "calendar"; size: 20; anchors.verticalCenter: parent.verticalCenter }
             Text {
-                text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  " + page.ride.blocks + " blocks  •  " + page.ride.mode
+                text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  "
+                      + (page.rideRowing ? "Rowing  •  " + Theme.thousands(page.ride.distanceM || 0) + " m"
+                                         : page.ride.blocks + " blocks  •  " + page.ride.mode)
                 color: Theme.text
                 font.pixelSize: 17
                 anchors.verticalCenter: parent.verticalCenter
@@ -277,7 +292,28 @@ Item {
                     x: 12
                     anchors.verticalCenter: parent.verticalCenter
                     Text { width: 84; text: modelData.date; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
-                    Text { width: 166; text: modelData.name; color: Theme.text; font.pixelSize: 16; elide: Text.ElideRight; rightPadding: 8; font.weight: isSel ? Font.Bold : Font.Normal }
+                    Item {
+                        width: 166
+                        height: 22
+                        Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: modelData.sport === "rowing" ? "rowing" : "bike"
+                            size: 16
+                            strokeWidth: 2
+                            color: Theme.sportColor(modelData.sport)
+                        }
+                        Text {
+                            x: 22
+                            width: parent.width - 22
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.name
+                            color: Theme.text
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                            rightPadding: 8
+                            font.weight: isSel ? Font.Bold : Font.Normal
+                        }
+                    }
                     Text { width: 82; text: modelData.durationMin + " min"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
                     Text { width: 70; text: modelData.avgPower + " W"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
                 }
@@ -424,9 +460,15 @@ Item {
             x: 18; y: 86
             spacing: 10
             visible: page.hasRide
-            Icon { name: "calendar"; size: 18; anchors.verticalCenter: parent.verticalCenter }
+            Icon {
+                name: page.rideRowing ? "rowing" : "calendar"
+                size: 18
+                color: page.rideRowing ? Theme.rowingColor : Theme.text
+                anchors.verticalCenter: parent.verticalCenter
+            }
             Text {
-                text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  " + page.ride.blocks + " blocks"
+                text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  "
+                      + (page.rideRowing ? Theme.thousands(page.ride.distanceM || 0) + " m rowed" : page.ride.blocks + " blocks")
                 color: Theme.text
                 font.pixelSize: 16
             }
@@ -442,7 +484,7 @@ Item {
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "heart"; iconColor: Theme.danger; iconSize: 30; caption: "Avg HR"; value: (page.ride.avgHr || 0) + " BPM" }
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "heart"; iconColor: Theme.danger; iconSize: 30; caption: "Max HR"; value: (page.ride.maxHr || 0) + " BPM" }
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "bolt"; iconColor: Theme.warning; iconSize: 30; caption: "Normalized Power"; value: (page.ride.np || 0) + " W" }
-            StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "cadence"; iconColor: Theme.accentLight; iconSize: 30; caption: "Cadence"; value: (page.ride.cadence || 0) + " RPM" }
+            StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "cadence"; iconColor: Theme.accentLight; iconSize: 30; caption: page.rideRowing ? "Stroke Rate" : "Cadence"; value: (page.ride.cadence || 0) + (page.rideRowing ? " SPM" : " RPM") }
         }
         AppButton {
             x: 14

@@ -23,6 +23,7 @@ AppDialog {
         nameField.text = newProfile ? "" : Profiles.name
         weight.value = Profiles.weight
         ftp.value = Profiles.ftp
+        rowingFtp.value = Profiles.rowingFtp
         maxHr.value = Profiles.maxHr
         restHr.value = Profiles.restHr
         cadence.value = Profiles.preferredCadence
@@ -47,6 +48,7 @@ AppDialog {
             name: nameField.text,
             weight: weight.value,
             ftp: ftp.value,
+            rowingFtp: rowingFtp.value,
             maxHr: maxHr.value,
             restHr: restHr.value,
             preferredCadence: cadence.value,
@@ -126,6 +128,21 @@ AppDialog {
             Text {
                 width: parent.width
                 text: (weight.value > 0 ? (ftp.value / weight.value).toFixed(2) : "0") + " W/kg · used for zones"
+                color: Theme.textSecondary
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Text { text: "Rowing FTP"; color: Theme.text; font.pixelSize: 16; Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
+        Column {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            spacing: 4
+            UnitSpinBox { id: rowingFtp; width: parent.width; unit: "W"; from: 50; to: 600; stepSize: 5 }
+            Text {
+                width: parent.width
+                text: "Used for rowing workouts"
                 color: Theme.textSecondary
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap

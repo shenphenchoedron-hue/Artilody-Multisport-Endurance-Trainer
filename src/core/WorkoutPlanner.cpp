@@ -173,6 +173,28 @@ QVariantList WorkoutPlanner::upcoming(int n) const
     return toList(m_db->plannedWorkouts(m_profiles->profileId(), QDate::currentDate(), QDate(), true, n));
 }
 
+QString WorkoutPlanner::sportFor(const QVariant &entryOrId) const
+{
+    QVariantMap m;
+    if (entryOrId.typeId() == QMetaType::QVariantMap || entryOrId.typeId() == QMetaType::QVariantHash)
+        m = entryOrId.toMap();
+    else if (entryOrId.canConvert<qint64>() && entryOrId.toLongLong() > 0)
+        m = entry(entryOrId.toLongLong());
+    else
+        m = entryOrId.toMap();
+    QString s = m.value(QStringLiteral("sport")).toString();
+    if (s.isEmpty() && m.contains(QStringLiteral("workoutId"))) {
+        if (const auto w = m_db->workout(m.value(QStringLiteral("workoutId")).toLongLong()))
+            s = w->sport;
+    }
+    return sport::normalize(s);
+}
+
+bool WorkoutPlanner::isRowing(const QVariant &entryOrId) const
+{
+    return sportFor(entryOrId) == sport::rowing();
+}
+
 qint64 WorkoutPlanner::markCompletedForWorkout(qint64 workoutId, const QVariant &date, qint64 rideId)
 {
     QDate d = toDate(date);

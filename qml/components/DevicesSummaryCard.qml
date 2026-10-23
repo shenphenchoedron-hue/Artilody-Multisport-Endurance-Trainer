@@ -6,6 +6,8 @@ Card {
     id: card
     signal openDevices()
     title: "Devices"
+    // trainer + HR sensor only (a connected rower is counted in Devices.connectedCount too)
+    readonly property int cyclingConnected: (Devices.trainerState === 2 ? 1 : 0) + (Devices.heartRateState === 2 ? 1 : 0)
 
     headerRight: [
         Row {
@@ -13,11 +15,11 @@ Card {
             Rectangle {
                 width: 12; height: 12; radius: 6
                 anchors.verticalCenter: parent.verticalCenter
-                color: Devices.connectedCount === 2 ? Theme.success : Devices.connectedCount === 1 ? Theme.warning : Theme.textMuted
+                color: card.cyclingConnected === 2 ? Theme.success : card.cyclingConnected === 1 ? Theme.warning : Theme.textMuted
             }
             Text {
-                text: Devices.connectedCount === 2 ? "All connected"
-                    : Devices.connectedCount === 1 ? "1 of 2 connected" : "Not connected"
+                text: card.cyclingConnected === 2 ? "All connected"
+                    : card.cyclingConnected === 1 ? "1 of 2 connected" : "Not connected"
                 color: Theme.textSecondary
                 font.pixelSize: 15
             }

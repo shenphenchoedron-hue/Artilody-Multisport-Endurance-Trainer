@@ -8,6 +8,18 @@ Item {
     property int ergTarget: 150
     property bool trainersOpen: true
     property bool hrOpen: true
+    property bool rowersOpen: true
+    readonly property var sectionTrainer: ({ title: "Smart Trainers", icon: "bike", kind: "trainer" })
+    readonly property var sectionHr: ({ title: "Heart Rate Sensors", icon: "heart", kind: "hr" })
+    readonly property var sectionRower: ({ title: "Rowers (Concept2 PM5)", icon: "rowing", kind: "rower" })
+
+    function paceText(sec) {
+        if (!(sec > 0) || sec > 3600)
+            return "–"
+        var m = Math.floor(sec / 60)
+        var s = sec - m * 60
+        return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1)
+    }
 
     PageHeader {
         x: Theme.pageMargin + 4
@@ -113,7 +125,7 @@ Item {
         x: Theme.pageMargin - 6
         y: 264
         width: 636
-        height: 400
+        height: 470
         title: "Available Devices"
         titleSize: 22
         headerRight: [
@@ -150,15 +162,18 @@ Item {
                 spacing: 12
 
                 Repeater {
-                    model: [
-                        { title: "Smart Trainers", icon: "bike", kind: "trainer" },
-                        { title: "Heart Rate Sensors", icon: "heart", kind: "hr" }
-                    ]
+                    // Rowers right after the trainers (heart rate sensors serve
+                    // both); a connected rower without a trainer comes first.
+                    model: Devices.rowerConnected && Devices.trainerState !== 2
+                           ? [page.sectionRower, page.sectionTrainer, page.sectionHr]
+                           : [page.sectionTrainer, page.sectionRower, page.sectionHr]
                     Rectangle {
                         id: section
                         readonly property string kindName: modelData.kind
-                        readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen : page.hrOpen
-                        readonly property var listModel: modelData.kind === "trainer" ? Devices.trainers : Devices.heartRateSensors
+                        readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen
+                                                   : modelData.kind === "rower" ? page.rowersOpen : page.hrOpen
+                        readonly property var listModel: modelData.kind === "trainer" ? Devices.trainers
+                                                       : modelData.kind === "rower" ? Devices.rowers : Devices.heartRateSensors
                         width: devCol.width
                         height: 50 + (open ? listCol.height + 8 : 0)
                         radius: 10
@@ -173,7 +188,8 @@ Item {
                             Icon {
                                 name: modelData.icon
                                 size: 28
-                                color: modelData.kind === "hr" ? Theme.danger : Theme.accentLight
+                                color: modelData.kind === "hr" ? Theme.danger
+                                     : modelData.kind === "rower" ? Theme.rowingColor : Theme.accentLight
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
@@ -185,11 +201,44 @@ Item {
                             }
                         }
                         Icon {
+                            id: chevron
                             anchors.right: parent.right
                             anchors.rightMargin: 18
                             y: 14
                             name: section.open ? "chevronUp" : "chevronDown"
                             size: 22
+                        }
+                        // connected device of this kind, visible even when collapsed
+                        Rectangle {
+                            readonly property string connectedName: section.kindName === "trainer"
+                                                                     ? (Devices.trainerState === 2 ? Devices.trainerName : "")
+                                                                     : section.kindName === "rower"
+                                                                       ? (Devices.rowerState === 2 ? Devices.rowerName : "")
+                                                                       : (Devices.heartRateState === 2 ? Devices.heartRateName : "")
+                            visible: connectedName.length > 0
+                            anchors.right: chevron.left
+                            anchors.rightMargin: 12
+                            y: 11
+                            height: 28
+                            width: Math.min(220, badgeRow.implicitWidth + 22)
+                            radius: 14
+                            color: Qt.rgba(0.2, 0.85, 0.4, 0.12)
+                            border.color: Qt.rgba(0.25, 0.85, 0.45, 0.6)
+                            clip: true
+                            Row {
+                                id: badgeRow
+                                x: 11
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 6
+                                Rectangle { width: 8; height: 8; radius: 4; color: Theme.success; anchors.verticalCenter: parent.verticalCenter }
+                                Text {
+                                    text: parent.parent.connectedName
+                                    color: Theme.text
+                                    font.pixelSize: 13
+                                    width: Math.min(implicitWidth, 180)
+                                    elide: Text.ElideRight
+                                }
+                            }
                         }
                         MouseArea {
                             width: parent.width
@@ -198,6 +247,8 @@ Item {
                             onClicked: {
                                 if (modelData.kind === "trainer")
                                     page.trainersOpen = !page.trainersOpen
+                                else if (modelData.kind === "rower")
+                                    page.rowersOpen = !page.rowersOpen
                                 else
                                     page.hrOpen = !page.hrOpen
                             }
@@ -213,7 +264,8 @@ Item {
                                 Rectangle {
                                     x: 0
                                     width: listCol.width
-                                    height: 92
+                                    readonly property bool rowerLive: section.kindName === "rower" && linkState === 2
+                                    height: rowerLive ? 160 : 92
                                     radius: 10
                                     color: linkState === 2 ? Theme.navSelected : "transparent"
                                     border.width: linkState === 2 ? 1.5 : 0
@@ -221,15 +273,15 @@ Item {
 
                                     Rectangle {
                                         x: 12
-                                        anchors.verticalCenter: parent.verticalCenter
+                                        y: 10
                                         width: 86; height: 72; radius: 8
                                         color: Theme.field
                                         Icon {
                                             anchors.centerIn: parent
-                                            name: section.kindName === "hr" ? "heartPulse" : "trainer"
+                                            name: section.kindName === "hr" ? "heartPulse" : section.kindName === "rower" ? "rowing" : "trainer"
                                             size: 44
                                             strokeWidth: 1.6
-                                            color: section.kindName === "hr" ? "#ff6b8a" : Theme.text
+                                            color: section.kindName === "hr" ? "#ff6b8a" : section.kindName === "rower" ? Theme.rowingColor : Theme.text
                                         }
                                         Text {
                                             visible: simulated
@@ -244,7 +296,7 @@ Item {
                                     }
                                     Column {
                                         x: 114
-                                        anchors.verticalCenter: parent.verticalCenter
+                                        y: 46 - height / 2
                                         spacing: 4
                                         Text {
                                             text: name
@@ -262,14 +314,14 @@ Item {
                                                 text: protocol
                                                 color: Theme.textSecondary
                                                 font.pixelSize: 14
-                                                width: section.kindName === "hr" ? 230 : 150
+                                                width: section.kindName === "hr" ? 230 : section.kindName === "rower" ? 270 : 150
                                                 elide: Text.ElideRight
                                             }
                                         }
                                     }
                                     // live values
                                     Row {
-                                        visible: linkState === 2
+                                        visible: linkState === 2 && section.kindName !== "rower"
                                         x: section.kindName === "hr" ? 360 : 286
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 14
@@ -284,10 +336,38 @@ Item {
                                             }
                                         }
                                     }
+                                    // live rower values (second line)
+                                    Row {
+                                        visible: parent.rowerLive
+                                        x: 12
+                                        y: 92
+                                        spacing: 8
+                                        Repeater {
+                                            model: [
+                                                { c: "Power", v: Devices.rowerWatts + " W" },
+                                                { c: "Stroke rate", v: Devices.rowerStrokesPerMinute + " SPM" },
+                                                { c: "Pace /500m", v: page.paceText(Devices.rowerPace500) },
+                                                { c: "Distance", v: Theme.thousands(Devices.rowerDistance) + " m" }
+                                            ]
+                                            Rectangle {
+                                                width: (listCol.width - 24 - 3 * 8) / 4
+                                                height: 56
+                                                radius: 8
+                                                color: Theme.field
+                                                Column {
+                                                    x: 10
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    spacing: 2
+                                                    Text { text: modelData.c; color: Theme.textSecondary; font.pixelSize: 12 }
+                                                    Text { text: modelData.v; color: Theme.text; font.pixelSize: 17; font.weight: Font.Bold }
+                                                }
+                                            }
+                                        }
+                                    }
                                     Row {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 12
-                                        anchors.verticalCenter: parent.verticalCenter
+                                        y: 46 - height / 2
                                         spacing: 10
                                         AppButton {
                                             width: 112
@@ -318,6 +398,21 @@ Item {
                                 text: Devices.scanning ? "Searching…" : "No devices found – press Scan for Devices"
                                 color: Theme.textSecondary
                                 font.pixelSize: 15
+                            }
+                            Row {
+                                visible: section.kindName === "rower"
+                                x: 16
+                                height: 34
+                                spacing: 8
+                                Icon { name: "info"; size: 18; color: Theme.textSecondary; anchors.verticalCenter: parent.verticalCenter }
+                                Text {
+                                    width: listCol.width - 60
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "On the PM5: More Options → Turn Wireless ON → Connect Device"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 14
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }
@@ -353,7 +448,7 @@ Item {
         }
         Column {
             x: 18
-            y: 76
+            y: 64
             width: parent.width - 36
             Repeater {
                 model: [
@@ -364,7 +459,7 @@ Item {
                 ]
                 Item {
                     width: parent.width
-                    height: 46
+                    height: 36
                     Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
                     Text { x: 6; anchors.verticalCenter: parent.verticalCenter; text: modelData.k; color: Theme.text; font.pixelSize: 17 }
                     Text {
@@ -388,6 +483,39 @@ Item {
         height: 240
         title: "Selected Trainer"
         titleSize: 22
+        // the connected rower is shown here too (its details are in Available Devices)
+        headerRight: [
+            Item {
+                visible: Devices.rowerName.length > 0
+                width: rowerPill.width
+                height: 30
+                Rectangle {
+                    id: rowerPill
+                    height: 30
+                    width: Math.min(330, rowerPillRow.implicitWidth + 24)
+                    radius: 15
+                    color: Theme.cardStrong
+                    border.color: Devices.rowerState === 2 ? Theme.rowingColor : Theme.cardBorder
+                    clip: true
+                    Row {
+                        id: rowerPillRow
+                        x: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 7
+                        Icon { name: "rowing"; size: 18; color: Theme.rowingColor; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            text: "Rower: " + Devices.rowerName + "  •  "
+                                  + (Devices.rowerState === 2 ? "Connected" : Devices.rowerState === 1 ? "Connecting…" : "Disconnected")
+                            color: Theme.text
+                            font.pixelSize: 14
+                            width: Math.min(implicitWidth, 280)
+                            elide: Text.ElideMiddle
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
+            }
+        ]
 
         Item {
             anchors.fill: parent
@@ -579,7 +707,7 @@ Item {
                     { t: "Auto-connect known devices", s: "Automatically connect to previously paired devices", p: "autoConnect" },
                     { t: "Reconnect when signal is lost", s: "Try to reconnect automatically", p: "autoReconnect" },
                     { t: "Allow multiple sensors", s: "Connect compatible BLE sensors simultaneously", p: "allowMultiple" },
-                    { t: "Show virtual devices", s: "Simulated trainer and HR sensor for testing", p: "simulatorEnabled" }
+                    { t: "Show virtual devices", s: "Simulated trainer, HR sensor and rower for testing", p: "simulatorEnabled" }
                 ]
                 Item {
                     width: parent.width

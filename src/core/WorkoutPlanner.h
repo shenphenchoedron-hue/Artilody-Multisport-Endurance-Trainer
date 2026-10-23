@@ -46,6 +46,14 @@ public:
     // Returns the entry id or -1 when nothing was planned.
     Q_INVOKABLE qint64 markCompletedForWorkout(qint64 workoutId, const QVariant &date = QVariant(), qint64 rideId = -1);
 
+    // Routing helper for "start planned workout": the sport of a plan entry
+    // ("cycling" or "rowing"). Accepts an entry map (as returned above, uses
+    // its "sport" field) or an entry id. Unknown entries -> "cycling".
+    //   if (Planner.isRowing(entry)) Rowing.setupPlan(entry.workoutId)
+    //   else Training.loadWorkout(entry.workoutId)
+    Q_INVOKABLE QString sportFor(const QVariant &entryOrId) const;
+    Q_INVOKABLE bool isRowing(const QVariant &entryOrId) const;
+
     static QDate toDate(const QVariant &value);
     QVariantMap toMap(const PlannedWorkout &e) const;
 

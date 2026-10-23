@@ -12,12 +12,35 @@ Item {
     readonly property bool hasSel: selIndex >= 0 && sel.index !== undefined
     readonly property bool showEndPower: hasSel && (sel.isRamp || sel.type === "ramp" || sel.type === "warmup" || sel.type === "cooldown")
     property bool percentView: false
+    readonly property bool rowing: Builder.sport === "rowing"
+    readonly property string ftpLabel: rowing ? "Rowing FTP" : "FTP"
 
     PageHeader {
         x: Theme.pageMargin + 8
         y: 30
         title: "Workout Builder"
-        subtitle: "Design your own training session"
+        subtitle: page.rowing ? "Design your own rowing session" : "Design your own training session"
+    }
+
+    // FTP the watts are based on (rowing workouts use the rowing FTP)
+    Row {
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.pageMargin
+        y: 90
+        spacing: 8
+        Icon {
+            name: page.rowing ? "rowing" : "bike"
+            size: 22
+            strokeWidth: 2
+            color: Theme.sportColor(Builder.sport)
+            anchors.verticalCenter: parent.verticalCenter
+        }
+        Text {
+            text: "Watts based on your " + page.ftpLabel + ": " + Builder.ftp + " W"
+            color: Theme.textSecondary
+            font.pixelSize: 17
+            anchors.verticalCenter: parent.verticalCenter
+        }
     }
 
     // --- name / actions ----------------------------------------------------
@@ -38,6 +61,17 @@ Item {
             placeholderText: "Workout name"
             onTextEdited: Builder.name = text
             onTrailingClicked: { nameField.forceActiveFocus(); nameField.selectAll() }
+        }
+        SegmentedControl {
+            Layout.fillHeight: true
+            fontSize: 16
+            segmentPadding: 14
+            value: Builder.sport
+            options: [
+                { value: "cycling", label: "Cycling", icon: "bike" },
+                { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+            ]
+            onActivated: (v) => Builder.sport = v
         }
         AppComboBox {
             Layout.preferredWidth: 180
@@ -109,7 +143,7 @@ Item {
             AppComboBox {
                 width: 206
                 height: 46
-                model: ["Power (Watts)", "% FTP"]
+                model: ["Power (Watts)", "% " + page.ftpLabel]
                 currentIndex: page.percentView ? 1 : 0
                 onActivated: (index) => page.percentView = index === 1
             }
@@ -125,7 +159,7 @@ Item {
             totalSec: Builder.totalDurationSec
             showHeartRate: false
             percentAxis: page.percentView
-            ftp: Profiles.ftp
+            ftp: Builder.ftp
             barGaps: false
             selectionStart: page.hasSel ? Builder.blockStartSec(page.selIndex, Builder.totalDurationSec) : -1
             selectionEnd: page.hasSel ? Builder.blockStartSec(page.selIndex, Builder.totalDurationSec) + page.sel.duration : -1
@@ -389,7 +423,7 @@ Item {
                     switch (page.sel.type) {
                     case "warmup": return "Gradually raise the effort"
                     case "cooldown": return "Bring the effort down gently"
-                    case "recovery": return "Easy spinning between efforts"
+                    case "recovery": return page.rowing ? "Easy paddling between efforts" : "Easy spinning between efforts"
                     case "ramp": return "Steadily increasing power"
                     case "interval": return "Build sustainable power"
                     default: return "Constant effort"
@@ -438,7 +472,7 @@ Item {
                     Layout.fillWidth: true
                     iconName: "dashboard"
                     iconColor: Theme.accentLight
-                    label: "% FTP"
+                    label: "% " + page.ftpLabel
                     unit: "%"
                     value: page.sel.percent !== undefined ? page.sel.percent : ""
                     onDecrement: Builder.setPercent(page.selIndex, page.sel.percent - 1)
@@ -448,11 +482,11 @@ Item {
                 StepperField {
                     Layout.fillWidth: true
                     iconName: "target"
-                    label: "Cadence (RPM)"
-                    unit: "RPM"
+                    label: page.rowing ? "Stroke Rate (SPM)" : "Cadence (RPM)"
+                    unit: page.rowing ? "SPM" : "RPM"
                     value: page.sel.cadence > 0 ? page.sel.cadence : "–"
-                    onDecrement: Builder.setCadence(page.selIndex, page.sel.cadence > 40 ? page.sel.cadence - 1 : 0)
-                    onIncrement: Builder.setCadence(page.selIndex, page.sel.cadence > 0 ? page.sel.cadence + 1 : Profiles.preferredCadence)
+                    onDecrement: Builder.setCadence(page.selIndex, page.sel.cadence > (page.rowing ? 16 : 40) ? page.sel.cadence - 1 : 0)
+                    onIncrement: Builder.setCadence(page.selIndex, page.sel.cadence > 0 ? page.sel.cadence + 1 : (page.rowing ? 22 : Profiles.preferredCadence))
                     onEdited: (text) => { var v = parseInt(text); Builder.setCadence(page.selIndex, isNaN(v) ? 0 : v) }
                 }
                 RowLayout {
@@ -563,7 +597,7 @@ Item {
             x: 28
             y: 72
             text: Math.round(Builder.totalDurationSec / 60) + " min  •  " + Builder.blockCount + " blocks  •  "
-                  + Builder.intensity + "% FTP  •  estimated TSS " + Builder.tss + "  •  FTP " + Profiles.ftp + " W"
+                  + Builder.intensity + "% FTP  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " " + Builder.ftp + " W"
             color: Theme.textSecondary
             font.pixelSize: 17
         }
@@ -580,7 +614,7 @@ Item {
             segments: Builder.segments
             totalSec: Builder.totalDurationSec
             showHeartRate: false
-            ftp: Profiles.ftp
+            ftp: Builder.ftp
         }
         RowLayout {
             anchors.left: parent.left

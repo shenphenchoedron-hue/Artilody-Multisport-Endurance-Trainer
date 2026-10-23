@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <functional>
 
 namespace watt {
 
@@ -129,9 +130,15 @@ public:
     // Drive the clock manually (unit tests). Disables the internal timer.
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
+    // Optional guard: while it returns true, start()/startWhenPedaling() are
+    // refused (e.g. a rowing session is running; only one session at a time).
+    void setStartBlocker(std::function<bool()> blocker) { m_startBlocker = std::move(blocker); }
+    bool startBlocked() const { return m_startBlocker && m_startBlocker(); }
 
+    // Indoor cycling only: rowing workouts are refused (false + rowingWorkoutRefused());
+    // they run in RowingSession.
     Q_INVOKABLE bool loadWorkout(qint64 id);
-    void loadWorkout(const Workout &workout);
+    bool loadWorkout(const Workout &workout);
     Q_INVOKABLE void loadFreeRide();
     Q_INVOKABLE void start();               // starts the clock immediately
     Q_INVOKABLE void startWhenPedaling();   // arms; start() runs once the rider pedals
@@ -154,6 +161,10 @@ signals:
     void seriesChanged();
     void rideSaved(qint64 id);
     void finished();
+    // start()/startWhenPedaling() was refused because another session (rowing) is active.
+    void startRefused();
+    // loadWorkout() was given a rowing workout (use Rowing.setupPlan()).
+    void rowingWorkoutRefused(qint64 workoutId, const QString &name);
     // Emitted after finished() when a ride of an FTP test workout (category
     // "FTP Tests") was saved and gave a plausible estimate. The profile is not
     // changed; the UI asks the rider whether to apply it.
@@ -194,6 +205,7 @@ private:
     qint64 m_rideMs = 0;        // ridden time (excludes pauses and skipped intervals)
     Profile m_rideProfile;      // rider snapshot taken at start()
     qint64 m_lastRideId = -1;
+    std::function<bool()> m_startBlocker;
 };
 
 } // namespace watt

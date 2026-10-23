@@ -38,6 +38,14 @@ QtObject {
     readonly property color cyan: "#22d6e6"
     readonly property color heartRate: "#ff2fb4"
     readonly property color actualPower: "#38f2ff"
+    readonly property color ghost: "#ff3fc8"        // ghost boat / lane (rowing)
+    readonly property color pace: "#38d9f5"         // pace curve (rowing)
+    readonly property color rowingColor: "#22d6e6"  // rowing sport accent
+    readonly property color cyclingColor: accent    // cycling sport accent
+
+    function sportColor(s) {
+        return s === "rowing" ? rowingColor : cyclingColor
+    }
 
     // Six power / RPE zones (Z1 … Z6)
     readonly property var zoneColors: ["#3d86fb", "#25d3e3", "#45d659", "#ffd21f", "#ff8a26", "#ff3b30"]
@@ -144,6 +152,14 @@ QtObject {
         "skipNext": "M5 5l9 7-9 7z M18 5v14",
         "user": "M8 8a4 4 0 1 0 8 0a4 4 0 1 0 -8 0 M4.5 20.5a7.5 7.5 0 0 1 15 0",
         "logout": "M15 4h4v16h-4 M10 8l-4 4 4 4 M6 12h10",
-        "chart": "M4 4v16h16 M8 15l3-4 3 2 4-6"
+        "chart": "M4 4v16h16 M8 15l3-4 3 2 4-6",
+        "calendarDays": "M4 6h16v14H4z M4 10.5h16 M8.5 3v4.5 M15.5 3v4.5 M8 14h.01 M12 14h.01 M16 14h.01 M8 17.2h.01 M12 17.2h.01",
+        "rowing": "M4 20l9.5-9.5 M12 9l3 3 M15.2 5.8a2.6 2.6 0 0 1 3.7 0l.3.3a2.6 2.6 0 0 1 0 3.7L16.5 12.5 12.5 8.5z",
+        "waves": "M3 9.5c2-2 4-2 6 0s4 2 6 0 4-2 6 0 M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0",
+        "ghost": "M5 20V10.5a7 7 0 0 1 14 0V20l-2.3-1.8-2.4 1.8-2.3-1.8-2.3 1.8-2.4-1.8z M9.5 11v.5 M14.5 11v.5",
+        "flag": "M5 21V4 M5 4.5h12l-2.5 4 2.5 4H5",
+        "mapPin": "M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z M9.7 10a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0-4.6 0",
+        "gauge": "M4 17a8 8 0 1 1 16 0 M12 17l4-5.5 M7.2 10.6l1.2 1 M12 8v1.5 M16.8 10.6l-1.2 1",
+        "trophy": "M8 4h8v6a4 4 0 0 1-8 0z M8 6H4.5a3.5 3.5 0 0 0 3.8 4 M16 6h3.5a3.5 3.5 0 0 1-3.8 4 M12 14v3.5 M8.5 20.5h7 M9.5 17.5h5v3h-5z"
     })
 }

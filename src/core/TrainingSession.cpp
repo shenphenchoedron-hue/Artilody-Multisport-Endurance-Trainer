@@ -123,15 +123,18 @@ bool TrainingSession::loadWorkout(qint64 id)
     auto w = m_db->workout(id);
     if (!w)
         return false;
-    loadWorkout(*w);
-    return true;
+    return loadWorkout(*w);
 }
 
-void TrainingSession::loadWorkout(const Workout &workout)
+bool TrainingSession::loadWorkout(const Workout &workout)
 {
     if (active())
-        return;
-    // Rowing workouts are % of the rowing FTP (see ftpForSport() in Workout.h).
+        return false;
+    if (workout.isRowing()) {
+        // The cycling session never shows a rowing workout (Rowing.setupPlan()).
+        emit rowingWorkoutRefused(workout.id, workout.name);
+        return false;
+    }
     m_engine.load(workout, m_profiles->current().ftpFor(workout.sport));
     clearRecording();
     m_lastIndex = -2;
@@ -140,6 +143,7 @@ void TrainingSession::loadWorkout(const Workout &workout)
     emit intervalChanged();
     emit targetChanged();
     emit tick();
+    return true;
 }
 
 void TrainingSession::loadFreeRide()
@@ -207,11 +211,16 @@ void TrainingSession::start()
 {
     if (active())
         return;
+    if (startBlocked()) {
+        cancelWaiting();
+        emit startRefused();
+        return;
+    }
     m_waiting = false;
     const Workout &w = m_engine.workout();
     // Snapshot the rider so profile changes during the ride cannot alter it.
     m_rideProfile = m_profiles->current();
-    m_engine.setFtp(m_rideProfile.ftp);
+    m_engine.setFtp(m_rideProfile.ftpFor(w.sport));
     clearRecording();
     m_lastIndex = -2;
     m_lastRideId = -1;
@@ -232,6 +241,10 @@ void TrainingSession::startWhenPedaling()
 {
     if (active() || m_waiting)
         return;
+    if (startBlocked()) {
+        emit startRefused();
+        return;
+    }
     m_waiting = true;
     if (m_engine.state() == WorkoutEngine::State::Finished)
         m_engine.reset();   // re-arming after a ride: show the workout from 0:00

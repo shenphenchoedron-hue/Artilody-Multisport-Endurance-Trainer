@@ -3,6 +3,7 @@
 #include "ProfileManager.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
+#include "WorkoutLibrary.h"
 
 #include <QSignalSpy>
 #include <QtTest>
@@ -80,6 +81,34 @@ private slots:
         delete hub;
         delete profiles;
         delete db;
+    }
+
+    void rowingWorkoutsAreRefused()
+    {
+        QVERIFY(session->loadWorkout(shortWorkout()));
+        const QString cyclingName = session->workoutName();
+        Workout row = shortWorkout();
+        row.name = QStringLiteral("AAA Row Intervals");
+        row.sport = sport::rowing();
+        const qint64 rowId = db->saveWorkout(row);
+        QVERIFY(rowId > 0);
+        QSignalSpy refused(session, &TrainingSession::rowingWorkoutRefused);
+        QVERIFY(!session->loadWorkout(rowId));
+        QVERIFY(!session->loadWorkout(row));
+        QCOMPARE(refused.count(), 2);
+        QCOMPARE(session->workoutName(), cyclingName);   // unchanged
+
+        // Default workout for the cycling dashboard skips rowing workouts,
+        // even when a rowing workout is selected / sorts first.
+        WorkoutLibrary lib(db, profiles);
+        lib.reload();
+        lib.setSortMode(WorkoutLibrary::NameAZ);
+        lib.setSelectedId(rowId);
+        const qint64 cyclingId = lib.firstWorkoutId(sport::cycling());
+        QVERIFY(cyclingId >= 0);
+        QCOMPARE(lib.workout(cyclingId)->sport, sport::cycling());
+        QCOMPARE(lib.firstWorkoutId(sport::rowing()), rowId);
+        QVERIFY(session->loadWorkout(cyclingId));
     }
 
     void ergSendsTargets()

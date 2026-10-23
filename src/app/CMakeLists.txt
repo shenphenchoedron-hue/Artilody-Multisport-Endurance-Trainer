@@ -30,10 +30,23 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/MusicCard.qml
     ${QML_ROOT}/components/AppDialog.qml
     ${QML_ROOT}/components/Toast.qml
+    ${QML_ROOT}/components/SportBadge.qml
+    ${QML_ROOT}/components/DatePickerDialog.qml
+    ${QML_ROOT}/components/SegmentedControl.qml
+    # rowing
+    ${QML_ROOT}/components/RowingBoat.qml
+    ${QML_ROOT}/components/RowingMetric.qml
+    ${QML_ROOT}/components/RowingChart.qml
+    ${QML_ROOT}/components/RowerTrack.qml
+    ${QML_ROOT}/components/GhostRaceTrack.qml
+    ${QML_ROOT}/components/RowingIntervalChart.qml
+    ${QML_ROOT}/components/ModeOption.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/WorkoutsPage.qml
+    ${QML_ROOT}/pages/CalendarPage.qml
     ${QML_ROOT}/pages/BuilderPage.qml
+    ${QML_ROOT}/pages/RowingPage.qml
     ${QML_ROOT}/pages/HistoryPage.qml
     ${QML_ROOT}/pages/DevicesPage.qml
     # dialogs
@@ -85,7 +98,7 @@ qt_add_qml_module(ArtilodyWattTrainer
 target_compile_definitions(ArtilodyWattTrainer PRIVATE APP_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(ArtilodyWattTrainer PRIVATE
-    watt_core watt_ble watt_media
+    watt_core watt_ble watt_rowing watt_media
     Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 
 set_target_properties(ArtilodyWattTrainer PROPERTIES

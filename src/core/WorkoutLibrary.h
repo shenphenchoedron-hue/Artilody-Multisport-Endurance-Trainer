@@ -62,6 +62,10 @@ public:
 
     Q_INVOKABLE void reload();
     Q_INVOKABLE QVariantMap get(qint64 id) const;
+    // Unfiltered catalog (ignores search/category/sport filters of the model),
+    // sorted by name. sport: "all", "cycling" or "rowing". Lightweight maps:
+    // { workoutId, name, category, sport, durationMin, totalSec, summary, builtIn, favorite }
+    Q_INVOKABLE QVariantList catalog(const QString &sport = QStringLiteral("all")) const;
     Q_INVOKABLE void toggleFavorite(qint64 id);
     Q_INVOKABLE bool remove(qint64 id);   // false for built-in workouts (never deleted)
     Q_INVOKABLE qint64 duplicate(qint64 id);
@@ -84,6 +88,9 @@ public:
     QString lastMessage() const { return m_lastMessage; }
     int customCount() const;
     std::optional<Workout> workout(qint64 id) const;
+    // Default workout of a sport: the selected one when it matches, else the
+    // first matching workout in list order (visible first). -1 when none.
+    Q_INVOKABLE qint64 firstWorkoutId(const QString &sport) const;
 
 signals:
     void filterChanged();

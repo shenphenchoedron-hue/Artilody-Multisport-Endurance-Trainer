@@ -29,6 +29,10 @@ Rectangle {
             y: tile.large ? 0 : 4
         }
         Column {
+            id: textCol
+            // room left of the icon; long values shrink instead of overflowing the tile
+            readonly property real maxWidth: Math.max(20, tile.width - parent.x - parent.spacing
+                                                          - (tile.large ? 54 : tile.iconSize) - 10)
             spacing: tile.large ? 2 : 6
             Text {
                 text: tile.caption
@@ -40,6 +44,9 @@ Rectangle {
                 color: Theme.text
                 font.pixelSize: tile.large ? 36 : tile.valueSize
                 font.weight: Font.Bold
+                width: Math.min(implicitWidth, textCol.maxWidth)
+                fontSizeMode: Text.HorizontalFit
+                minimumPixelSize: 12
             }
         }
     }

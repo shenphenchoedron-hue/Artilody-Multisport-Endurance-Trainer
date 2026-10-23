@@ -87,6 +87,7 @@ public:
     void disconnectDevice() override;
 
     void setTargetPower(int watts) { m_target = watts; }   // <= 0: free rowing
+    void requestTargetPower(int watts) override { setTargetPower(watts); }
     void setFreeRowPower(int watts) { m_freePower = watts; }
     void setRowing(bool on) { m_rowing = on; }              // pause/resume the athlete
     bool isRowing() const { return m_rowing; }

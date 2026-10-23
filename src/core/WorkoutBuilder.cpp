@@ -134,9 +134,12 @@ WorkoutBuilder::WorkoutBuilder(Database *db, ProfileManager *profiles, QObject *
 {
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         m_model.refreshAll();
+        emit ftpChanged();
         emit contentChanged();
         emit selectedChanged();
     });
+    // the sport (and with it the FTP) changes with the workout
+    connect(this, &WorkoutBuilder::workoutChanged, this, &WorkoutBuilder::ftpChanged);
     newWorkout();
 }
 

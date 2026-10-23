@@ -12,7 +12,35 @@ Item {
     signal message(string text)
 
     readonly property var sel: Workouts.selected
+    readonly property bool selRowing: sel.sport === "rowing"
     property bool ergSelected: Profiles.defaultErg
+
+    // Navigation lives in Main.qml (ApplicationWindow.window.showPage).
+    function goTo(name) {
+        var w = ApplicationWindow.window
+        if (w && typeof w.showPage === "function")
+            w.showPage(name)
+    }
+    function createWorkout(sport) {
+        Builder.newWorkout(sport)
+        goTo("builder")
+    }
+    function rowWorkout(id) {
+        if (Rowing.active) {
+            page.message("A rowing session is in progress – finish it first")
+            goTo("rowing")
+            return
+        }
+        if (Rowing.setupPlan(id))
+            goTo("rowing")
+        else
+            page.message("Could not set up the rowing plan")
+    }
+    function planWorkout(id, name) {
+        calendarPicker.workoutId = id
+        calendarPicker.subtitle = "Plan \"" + name + "\" on…"
+        calendarPicker.openFor("")
+    }
 
     Connections {
         target: Profiles
@@ -23,7 +51,21 @@ Item {
         x: Theme.pageMargin + 8
         y: 30
         title: "Workouts"
-        subtitle: "Choose your next ride"
+        subtitle: "Choose your next ride or row"
+    }
+
+    SegmentedControl {
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.pageMargin
+        y: 76
+        height: 50
+        value: Workouts.sportFilter
+        options: [
+            { value: "all", label: "All sports" },
+            { value: "cycling", label: "Cycling", icon: "bike" },
+            { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+        ]
+        onActivated: (v) => Workouts.sportFilter = v
     }
 
     // --- filter bar ------------------------------------------------------------
@@ -135,12 +177,26 @@ Item {
         }
 
         AppButton {
+            id: newButton
             Layout.fillHeight: true
             horizontalPadding: 18
             iconSpacing: 8
             text: "New Workout"
             iconName: "plus"
-            onClicked: page.newWorkout()
+            onClicked: newMenu.popup()
+            Menu {
+                id: newMenu
+                y: newButton.height + 4
+                width: Math.max(implicitWidth, 260)
+                MenuItem {
+                    text: "New cycling workout"
+                    onTriggered: page.createWorkout("cycling")
+                }
+                MenuItem {
+                    text: "New rowing workout"
+                    onTriggered: page.createWorkout("rowing")
+                }
+            }
         }
     }
 
@@ -222,11 +278,30 @@ Item {
                     onDoubleClicked: page.editWorkout(workoutId)
                 }
 
-                CategoryBadge {
+                Row {
                     x: 18
                     y: 14
-                    category: model.category
-                    label: model.builtIn ? model.category.toUpperCase() : "CUSTOM · " + model.category.toUpperCase()
+                    spacing: 8
+                    SportBadge {
+                        sport: model.sport
+                        compact: true
+                        implicitHeight: 28
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    CategoryBadge {
+                        category: model.category
+                        label: model.builtIn ? model.category.toUpperCase() : "CUSTOM · " + model.category.toUpperCase()
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+                // sport stripe so rowing and cycling stand apart at a glance
+                Rectangle {
+                    x: 1
+                    y: 18
+                    width: 4
+                    height: parent.height - 36
+                    radius: 2
+                    color: Theme.sportColor(model.sport)
                 }
 
                 // selected check / favourite heart
@@ -286,7 +361,7 @@ Item {
                     showHeartRate: false
                     segments: model.segments
                     totalSec: model.totalSec
-                    ftp: Profiles.ftp
+                    ftp: model.sport === "rowing" ? Profiles.rowingFtp : Profiles.ftp
                     barGaps: false
                     enabled: false
                 }
@@ -350,6 +425,11 @@ Item {
                     id: moreMenu
                     width: Math.max(implicitWidth, 300)
                     MenuItem {
+                        text: "Add to calendar…"
+                        onTriggered: page.planWorkout(page.sel.workoutId, page.sel.name)
+                    }
+                    MenuSeparator {}
+                    MenuItem {
                         text: "Export selected workout…"
                         onTriggered: page.startExport(false)
                     }
@@ -391,6 +471,7 @@ Item {
         Row {
             x: 20; y: 106
             spacing: 12
+            SportBadge { sport: page.sel.sport || "cycling"; implicitHeight: 28; anchors.verticalCenter: parent.verticalCenter }
             CategoryBadge { category: page.sel.category || ""; anchors.verticalCenter: parent.verticalCenter }
             Icon { name: "timer"; size: 20; anchors.verticalCenter: parent.verticalCenter }
             Text {
@@ -411,7 +492,7 @@ Item {
             showHeartRate: false
             showAxisTitles: true
             fontSize: 14
-            ftp: Profiles.ftp
+            ftp: page.selRowing ? Profiles.rowingFtp : Profiles.ftp
             barGaps: false
         }
 
@@ -452,6 +533,7 @@ Item {
             x: 20
             anchors.bottom: modeRow.top
             anchors.bottomMargin: 10
+            visible: !page.selRowing
             text: "Ride Mode"
             color: Theme.text
             font.pixelSize: 18
@@ -460,6 +542,7 @@ Item {
 
         RowLayout {
             id: modeRow
+            visible: !page.selRowing
             x: 20
             width: parent.width - 40
             height: 74
@@ -522,6 +605,47 @@ Item {
             }
         }
 
+        Rectangle {
+            visible: page.selRowing
+            x: 20
+            width: parent.width - 40
+            height: 96
+            anchors.bottom: actionRow.top
+            anchors.bottomMargin: 22
+            radius: 10
+            color: Qt.rgba(Theme.rowingColor.r, Theme.rowingColor.g, Theme.rowingColor.b, 0.12)
+            border.color: Qt.rgba(Theme.rowingColor.r, Theme.rowingColor.g, Theme.rowingColor.b, 0.55)
+            Icon {
+                x: 16
+                y: 16
+                name: "rowing"
+                size: 30
+                strokeWidth: 2
+                color: Theme.rowingColor
+            }
+            Column {
+                x: 60
+                y: 12
+                width: parent.width - 76
+                spacing: 4
+                Text {
+                    text: "Rowing workout"
+                    color: Theme.text
+                    font.pixelSize: 17
+                    font.weight: Font.Bold
+                }
+                Text {
+                    width: parent.width
+                    text: "Watt targets use your rowing FTP (" + Profiles.rowingFtp + " W). Row it on a Concept2 PM5 (or the Virtual Rower) on the Rowing page."
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
         RowLayout {
             id: actionRow
             x: 20
@@ -537,11 +661,16 @@ Item {
                 iconName: "play"
                 // While waiting for pedaling another workout can be chosen; it replaces the armed one.
                 readonly property bool armedHere: Training.waiting && Training.workoutId === page.sel.workoutId
-                text: Training.active ? "Workout in progress"
-                                      : (armedHere ? "Waiting for pedaling…" : "Start Workout")
+                text: page.selRowing ? (Rowing.active ? "Rowing…" : "Row Workout")
+                      : Training.active ? "In progress"
+                                        : (armedHere ? "Waiting…" : "Start Workout")
                 fontSize: 20
-                enabled: !Training.active && !armedHere
+                enabled: page.selRowing ? !Rowing.active : (!Training.active && !armedHere)
                 onClicked: {
+                    if (page.selRowing) {
+                        page.rowWorkout(page.sel.workoutId)
+                        return
+                    }
                     if (Training.loadWorkout(page.sel.workoutId)) {
                         Training.ergMode = page.ergSelected
                         Training.startWhenPedaling()
@@ -550,13 +679,23 @@ Item {
                 }
             }
             AppButton {
-                Layout.preferredWidth: 130
+                Layout.preferredWidth: 112
                 Layout.fillHeight: true
                 kind: "secondary"
                 iconName: "edit"
+                iconSpacing: 8
+                horizontalPadding: 12
                 text: "Edit"
                 bold: false
                 onClicked: page.editWorkout(page.sel.workoutId)
+            }
+            IconButton {
+                Layout.preferredWidth: 62
+                Layout.fillHeight: true
+                iconName: "calendar"
+                iconSize: 26
+                tooltip: "Add to calendar"
+                onClicked: page.planWorkout(page.sel.workoutId, page.sel.name)
             }
             IconButton {
                 Layout.preferredWidth: 62
@@ -577,7 +716,7 @@ Item {
             text: "Ride without workout ›"
             color: Theme.accentLight
             font.pixelSize: 14
-            visible: !Training.active && !(Training.waiting && Training.freeRide)
+            visible: !page.selRowing && !Training.active && !(Training.waiting && Training.freeRide)
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
@@ -587,6 +726,20 @@ Item {
                     page.started()
                 }
             }
+        }
+    }
+
+    DatePickerDialog {
+        id: calendarPicker
+        property var workoutId: -1
+        title: "Add to calendar"
+        acceptText: "Add to Calendar"
+        onPicked: (iso) => {
+            if (Planner.addWorkout(iso, calendarPicker.workoutId) >= 0)
+                page.message("Planned for " + calendarPicker.parseIso(iso).toLocaleDateString(Qt.locale("en_US"), "dddd, d MMMM")
+                             + " – see Calendar")
+            else
+                page.message("Could not add the workout to the calendar")
         }
     }
 
@@ -607,7 +760,8 @@ Item {
         target: Workouts
         function onSelectedChanged() {
             // an armed workout is only replaced by pressing Start Workout again
-            if (!Training.armedOrActive && Workouts.selectedId >= 0)
+            // rowing workouts are set up on the Rowing page, not the cycling dashboard
+            if (!Training.armedOrActive && Workouts.selectedId >= 0 && Workouts.selected.sport !== "rowing")
                 Training.loadWorkout(Workouts.selectedId)
         }
     }

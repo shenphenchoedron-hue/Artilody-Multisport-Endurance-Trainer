@@ -3,6 +3,7 @@
 #include "WorkoutBuilder.h"
 #include "WorkoutLibrary.h"
 
+#include <QSignalSpy>
 #include <QtTest>
 
 using namespace watt;
@@ -138,6 +139,34 @@ private slots:
         QCOMPARE(lib.rowCount(), all);
     }
 
+    void libraryCatalogIgnoresFilters()
+    {
+        WorkoutLibrary lib(db, profiles);
+        lib.reload();
+        const int all = lib.rowCount();
+        Workout row;
+        row.name = QStringLiteral("Aaa Row Pyramid");
+        row.category = QStringLiteral("Intervals");
+        row.sport = QStringLiteral("rowing");
+        row.intervals = { Interval::defaultFor(BlockType::Steady) };
+        const qint64 rowId = db->saveWorkout(row);
+        QVERIFY(rowId > 0);
+        lib.reload();
+        lib.setSportFilter(QStringLiteral("cycling"));
+        lib.setSearchText(QStringLiteral("threshold"));
+        QCOMPARE(lib.catalog().size(), all + 1);                       // filters are ignored
+        const QVariantList rowing = lib.catalog(QStringLiteral("rowing"));
+        QCOMPARE(rowing.size(), 1);
+        QCOMPARE(rowing.first().toMap().value(QStringLiteral("workoutId")).toLongLong(), rowId);
+        QCOMPARE(rowing.first().toMap().value(QStringLiteral("sport")).toString(), QStringLiteral("rowing"));
+        QCOMPARE(lib.catalog(QStringLiteral("cycling")).size(), all);
+        QCOMPARE(lib.catalog().first().toMap().value(QStringLiteral("name")).toString(), row.name);   // sorted by name
+        QCOMPARE(lib.searchText(), QStringLiteral("threshold"));       // filters untouched
+        lib.setSearchText(QString());
+        lib.setSportFilter(QStringLiteral("all"));
+        QVERIFY(db->deleteWorkout(rowId));
+    }
+
     void builtInWorkoutsCannotBeRemoved()
     {
         WorkoutLibrary lib(db, profiles);
@@ -177,6 +206,21 @@ private slots:
         QVERIFY(!copy.value(QStringLiteral("requiredForFtp")).toBool());
         QVERIFY(lib.remove(copyId));
         QVERIFY(db->workout(rampId));
+    }
+
+    void ftpFollowsProfile()
+    {
+        WorkoutBuilder b(db, profiles);
+        b.newWorkout(QStringLiteral("rowing"));
+        QSignalSpy spy(&b, &WorkoutBuilder::ftpChanged);
+        const int newFtp = profiles->rowingFtp() + 17;
+        QVERIFY(profiles->setRowingFtp(newFtp));
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(b.ftp(), newFtp);
+        spy.clear();
+        b.setSport(QStringLiteral("cycling"));
+        QVERIFY(spy.count() >= 1);
+        QCOMPARE(b.ftp(), profiles->ftp());
     }
 
     void ftpComparison()

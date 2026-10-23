@@ -57,7 +57,7 @@ class WorkoutBuilder : public QObject
     // the profile's FTP or rowing FTP accordingly.
     Q_PROPERTY(QString sport READ sport WRITE setSport NOTIFY workoutChanged)
     Q_PROPERTY(QStringList sports READ sports CONSTANT)
-    Q_PROPERTY(int ftp READ ftp NOTIFY workoutChanged)
+    Q_PROPERTY(int ftp READ ftp NOTIFY ftpChanged)   // also on profile / FTP changes
     Q_PROPERTY(IntervalModel *intervals READ intervals CONSTANT)
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
@@ -128,6 +128,7 @@ public:
 
 signals:
     void workoutChanged();
+    void ftpChanged();
     void selectedChanged();
     void contentChanged();
     void dirtyChanged();

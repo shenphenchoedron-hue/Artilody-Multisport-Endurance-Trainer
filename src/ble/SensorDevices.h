@@ -143,6 +143,10 @@ public:
     // "use the internal clock".
     void checkPowerHold(qint64 msSinceLastStroke = -1);
 
+    // Target power of a rowing plan (<= 0 = free rowing). A real monitor
+    // cannot be controlled and ignores it; the simulated athlete follows it.
+    virtual void requestTargetPower(int watts) { Q_UNUSED(watts) }
+
 signals:
     void connectedChanged(bool connected);
     void measurementChanged();
