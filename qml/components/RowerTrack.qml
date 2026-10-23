@@ -2,7 +2,8 @@ import QtQuick
 
 // Top view of a rowing course: distance ticks, a finish flag and one lane
 // ("YOU") or two lanes (YOU + translucent GHOST, see GhostRaceTrack.qml).
-// Boats move from the start to the finish line by metres rowed.
+// Boats move from the start to the finish line by metres rowed: the bow tip
+// sits exactly on the start line at 0 m and on the finish line at the target.
 Item {
     id: track
     property real totalMeters: 2000
@@ -17,17 +18,57 @@ Item {
     property string emptyGhostText: "No record yet – this row becomes your ghost"
     property string finishLabel: Theme.thousands(totalMeters) + " m"
 
-    readonly property real x0: 92
-    readonly property real x1: width - 64
     readonly property real laneTop: 64
     readonly property real laneBottom: height - 10
     readonly property int laneCount: showGhost ? 2 : 1
     readonly property real laneH: (laneBottom - laneTop) / laneCount
-    readonly property real boatLength: Math.max(60, Math.min(124, laneH * 1.05))
+    readonly property real boatLength: Math.max(46, Math.min(96, laneH * 0.82))
+    readonly property real pillRight: 12 + 58
+    // start line: the whole boat waits behind it, right of the name pill
+    readonly property real x0: pillRight + 10 + boatLength
+    readonly property real x1: width - 64
 
-    function xFor(m) {
-        return x0 + (x1 - x0) * Math.max(0, Math.min(1, m / Math.max(1, totalMeters)))
+    function progressFor(m) {
+        return Math.max(0, Math.min(1, m / Math.max(1, totalMeters)))
     }
+    function xFor(m) {
+        return x0 + (x1 - x0) * progressFor(m)
+    }
+
+    // --- smoothed positions ------------------------------------------------------
+    // Metrics arrive every 250 ms; the shown distances glide linearly between
+    // updates and snap (no backwards slide) on a reset or a new set-up.
+    readonly property int glideMs: 280
+    readonly property real youTarget: Math.max(0, Math.min(totalMeters, youMeters))
+    readonly property real ghostTarget: Math.max(0, Math.min(totalMeters, ghostMeters))
+    property real youShown: 0
+    property real ghostShown: 0
+    readonly property real youTipX: xFor(youShown)
+    readonly property real ghostTipX: xFor(ghostShown)
+
+    function glide(anim, prop, value) {
+        anim.stop()
+        var cur = track[prop]
+        if (value < cur || value - cur > totalMeters * 0.2)
+            track[prop] = value
+        else if (value !== cur) {
+            anim.from = cur
+            anim.to = value
+            anim.start()
+        }
+    }
+    function snap() {
+        youGlide.stop()
+        ghostGlide.stop()
+        youShown = youTarget
+        ghostShown = ghostTarget
+    }
+    onYouTargetChanged: glide(youGlide, "youShown", youTarget)
+    onGhostTargetChanged: glide(ghostGlide, "ghostShown", ghostTarget)
+    onTotalMetersChanged: snap()
+    Component.onCompleted: snap()
+    NumberAnimation { id: youGlide; target: track; property: "youShown"; duration: track.glideMs; easing.type: Easing.Linear }
+    NumberAnimation { id: ghostGlide; target: track; property: "ghostShown"; duration: track.glideMs; easing.type: Easing.Linear }
     function laneCenter(i) {
         return laneTop + laneH * (i + 0.5)
     }
@@ -101,6 +142,17 @@ Item {
         }
     }
 
+    // start line
+    Column {
+        x: track.x0 - 1
+        y: 40
+        spacing: 4
+        Repeater {
+            model: Math.max(0, Math.floor((track.height - 50) / 12))
+            Rectangle { width: 2.5; height: 8; color: "white"; opacity: 0.85 }
+        }
+    }
+
     // finish line + flag
     Item {
         x: track.x1
@@ -162,11 +214,10 @@ Item {
         Item {
             id: lane
             readonly property bool ghost: index === 1
-            readonly property real meters: ghost ? track.ghostMeters : track.youMeters
             readonly property color tint: ghost ? Theme.ghost : Theme.accentLight
             readonly property bool hasBoat: !ghost || track.ghostAvailable
-            readonly property real bowX: track.xFor(meters)
-            readonly property real boatX: Math.max(track.x0 - 6, bowX - track.boatLength)
+            readonly property real tipX: ghost ? track.ghostTipX : track.youTipX
+            readonly property real boatX: tipX - boat.tipOffset
             y: track.laneCenter(index)
             width: track.width
 
@@ -189,10 +240,10 @@ Item {
 
             // wake / trail
             Rectangle {
-                visible: lane.hasBoat && lane.boatX > track.x0
-                x: track.x0
+                visible: lane.hasBoat && lane.tipX > track.x0 + 1
+                x: track.x0 - boat.tipOffset
                 y: -8
-                width: Math.max(0, lane.boatX + track.boatLength * 0.3 - track.x0)
+                width: Math.max(0, lane.boatX + boat.tipOffset * 0.3 - x)
                 height: 16
                 radius: 8
                 gradient: Gradient {
@@ -203,6 +254,7 @@ Item {
             }
 
             RowingBoat {
+                id: boat
                 visible: lane.hasBoat
                 x: lane.boatX
                 y: -height / 2
@@ -218,9 +270,9 @@ Item {
 
             Text {
                 visible: lane.hasBoat
-                x: Math.min(lane.boatX + track.boatLength + 10, track.width - width - 8)
+                x: Math.min(lane.tipX + 10, track.width - width - 8)
                 y: -height / 2
-                text: Theme.thousands(Math.floor(lane.meters)) + " m"
+                text: Theme.thousands(Math.floor(lane.ghost ? track.ghostTarget : track.youTarget)) + " m"
                 color: Theme.text
                 font.pixelSize: 16
                 font.weight: Font.Bold
@@ -230,7 +282,7 @@ Item {
 
             Text {
                 visible: !lane.hasBoat
-                x: track.x0 + 20
+                x: track.pillRight + 14
                 y: -height / 2
                 text: track.emptyGhostText
                 color: Theme.textSecondary
@@ -252,9 +304,9 @@ Item {
 
     // gap marker between the boats
     Rectangle {
-        visible: track.showGhost && track.ghostAvailable && (track.youMeters > 0 || track.ghostMeters > 0)
-        readonly property real cx: Math.max(track.xFor(track.youMeters), track.xFor(track.ghostMeters))
-        x: Math.min(track.x1 - width, cx + 8)
+        visible: track.showGhost && track.ghostAvailable && (track.youShown > 0 || track.ghostShown > 0)
+        readonly property real cx: Math.max(track.youTipX, track.ghostTipX)
+        x: Math.min(track.width - width - 6, cx + 8)
         y: track.laneTop + track.laneH - height / 2
         width: gapText.implicitWidth + 20
         height: 28

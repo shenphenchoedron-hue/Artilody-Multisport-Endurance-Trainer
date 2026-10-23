@@ -3,6 +3,8 @@ import QtQuick
 // Stylised single scull seen from above (bow pointing right) with a rower
 // and two oars. Every change of strokeCount plays one oar stroke
 // (drive + recovery) timed by the stroke rate.
+// The item spans the hull from stern (x = 0) to the bow tip (x = tipOffset):
+// tracks place it with x = tipX - tipOffset so the bow touches the line.
 Item {
     id: boat
     property color hullColor: "white"
@@ -12,13 +14,15 @@ Item {
     property int strokeCount: 0
     property int strokeRate: 24          // strokes per minute (animation timing)
     property bool animated: true
-    property real boatLength: 116
+    property real boatLength: 90
     // -1 = finish (blades toward the stern), +1 = catch (blades toward the bow)
     property real sweep: 0.15
 
     readonly property real hullHeight: boatLength * 0.15
     readonly property real oarLength: boatLength * 0.46
     readonly property real maxAngle: 38
+    // x of the bow tip inside the item (the hull ends in a point there)
+    readonly property real tipOffset: boatLength
 
     implicitWidth: boatLength
     implicitHeight: oarLength * 2 + 8

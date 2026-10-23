@@ -2,7 +2,9 @@ import QtQuick
 
 // Watt plan of a rowing workout: interval blocks (height = target watts,
 // colour = intensity zone), the rowed power on top and, below, a course line
-// on which the boat moves with elapsed / total time.
+// on which the boat moves with elapsed / total time. The bow tip marks the
+// elapsed time on the same axis as the blocks (start post = 0:00, finish
+// post = total); the hull trails into the left padding.
 Item {
     id: chart
     property var intervals: []          // {name,startSec,durationSec,watts,endWatts,percent,ramp}
@@ -14,7 +16,8 @@ Item {
     property int strokeCount: 0
     property int strokeRate: 24
 
-    readonly property real padL: 54
+    readonly property real boatLength: 42
+    readonly property real padL: Math.max(54, boatLength + 12)
     readonly property real padR: 54
     readonly property real blocksTop: 6
     readonly property real blocksBottom: height - 74
@@ -30,6 +33,24 @@ Item {
             m = Math.max(m, Number(powerSeries[j]))
         return Math.ceil(m * 1.12 / 50) * 50
     }
+    // elapsed time shown by the boat and cursor: glides between the 250 ms
+    // metric updates, snaps back on a reset or a new plan
+    readonly property real elapsedTarget: Math.max(0, Math.min(totalSec, elapsed))
+    property real shownElapsed: 0
+    onElapsedTargetChanged: {
+        glide.stop()
+        if (elapsedTarget < shownElapsed || elapsedTarget - shownElapsed > Math.max(2, totalSec * 0.2))
+            shownElapsed = elapsedTarget
+        else if (elapsedTarget !== shownElapsed) {
+            glide.from = shownElapsed
+            glide.to = elapsedTarget
+            glide.start()
+        }
+    }
+    onTotalSecChanged: { glide.stop(); shownElapsed = elapsedTarget }
+    Component.onCompleted: shownElapsed = elapsedTarget
+    NumberAnimation { id: glide; target: chart; property: "shownElapsed"; duration: 280; easing.type: Easing.Linear }
+
     function px(sec) { return padL + plotW * Math.max(0, Math.min(1, sec / Math.max(1, totalSec))) }
     function py(w) { return blocksTop + blocksH * (1 - Math.max(0, Math.min(1, w / wattsMax))) }
     function zoneFor(percent) {
@@ -169,8 +190,8 @@ Item {
 
     // elapsed cursor across blocks
     Rectangle {
-        visible: chart.elapsed > 0
-        x: chart.px(chart.elapsed) - 1
+        visible: chart.shownElapsed > 0
+        x: chart.px(chart.shownElapsed) - 1
         y: chart.blocksTop
         width: 2
         height: chart.laneY - chart.blocksTop
@@ -180,12 +201,12 @@ Item {
 
     // the boat on the course line
     Rectangle {
-        x: chart.padL
+        x: chart.padL - boat.tipOffset
         y: chart.laneY - 7
-        width: Math.max(0, boat.x + boat.width * 0.3 - chart.padL)
+        width: Math.max(0, boat.x + boat.tipOffset * 0.3 - x)
         height: 14
         radius: 7
-        visible: chart.elapsed > 0
+        visible: chart.shownElapsed > 0
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0; color: "transparent" }
@@ -194,8 +215,8 @@ Item {
     }
     RowingBoat {
         id: boat
-        boatLength: 54
-        x: Math.max(chart.padL - 4, chart.px(chart.elapsed) - boatLength)
+        boatLength: chart.boatLength
+        x: chart.px(chart.shownElapsed) - tipOffset
         y: chart.laneY - height / 2
         strokeCount: chart.strokeCount
         strokeRate: chart.strokeRate
