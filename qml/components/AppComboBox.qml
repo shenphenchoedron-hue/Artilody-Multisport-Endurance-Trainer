@@ -55,7 +55,17 @@ ComboBox {
         height: 42
         highlighted: combo.highlightedIndex === index
         contentItem: Text {
-            text: combo.textRole ? (Array.isArray(combo.model) ? modelData[combo.textRole] : model[combo.textRole]) : modelData
+            // Works for JS arrays, C++ QStringList/QVariantList (of strings or maps) and
+            // item models. A QVariantList from C++ is not a JS Array, so look the role up
+            // on modelData first, then on the model roles, then ask the ComboBox itself.
+            text: {
+                if (!combo.textRole)
+                    return modelData !== undefined ? modelData : combo.textAt(index)
+                var v = (modelData !== null && typeof modelData === "object") ? modelData[combo.textRole] : undefined
+                if (v === undefined && model)
+                    v = model[combo.textRole]
+                return v !== undefined ? v : combo.textAt(index)
+            }
             color: Theme.text
             font.pixelSize: 15
             verticalAlignment: Text.AlignVCenter

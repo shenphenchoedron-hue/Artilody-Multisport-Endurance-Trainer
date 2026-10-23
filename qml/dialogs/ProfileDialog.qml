@@ -14,7 +14,8 @@ AppDialog {
     property var bounds: Profiles.defaultZoneBounds
 
     panelWidth: showZones ? 1010 : 528
-    panelHeight: 586
+    // grows when an error message is shown so it never overlaps the fields or buttons
+    panelHeight: Math.max(586, fields.y + fields.height + (errorText.text.length > 0 ? errorText.height + 16 : 0) + 96)
 
     function openFor(newProfile) {
         creating = newProfile
@@ -95,6 +96,7 @@ AppDialog {
 
     // fields
     GridLayout {
+        id: fields
         x: 168
         y: 76
         width: 332
@@ -117,12 +119,16 @@ AppDialog {
         Text { text: "FTP"; color: Theme.text; font.pixelSize: 16; Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
         Column {
             Layout.fillWidth: true
+            // keep the hint's implicit width from widening the grid column
+            Layout.preferredWidth: 1
             spacing: 4
             UnitSpinBox { id: ftp; width: parent.width; unit: "W"; from: 50; to: 600; stepSize: 5 }
             Text {
-                text: "Used to calculate power zones  •  " + (weight.value > 0 ? (ftp.value / weight.value).toFixed(2) : "0") + " W/kg"
+                width: parent.width
+                text: (weight.value > 0 ? (ftp.value / weight.value).toFixed(2) : "0") + " W/kg · used for zones"
                 color: Theme.textSecondary
                 font.pixelSize: 12
+                wrapMode: Text.WordWrap
             }
         }
 
@@ -162,8 +168,8 @@ AppDialog {
     Text {
         id: errorText
         x: 28
-        y: 470
-        width: 470
+        y: fields.y + fields.height + 10
+        width: 472
         color: Theme.danger
         font.pixelSize: 14
         wrapMode: Text.WordWrap
@@ -223,8 +229,8 @@ AppDialog {
                     }
                     SpinBox {
                         visible: index < 5
-                        x: 206
-                        width: 104
+                        x: 200
+                        width: 124
                         height: 30
                         anchors.verticalCenter: parent.verticalCenter
                         from: 20
