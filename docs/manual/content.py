@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.1.0 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
+Written against the v1.1.1 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1155,12 +1155,13 @@ def build(s, env):
     s.p(f"The {UI('Music Player')} card on the Dashboard shows the album art (when the file contains it), "
         "title and artist, a heart button, previous / play-pause / next, a position bar, a mute button and a "
         f"volume slider (default 70 %, remembered). {UI('Up Next')} lists the next up to three songs; click one "
-        "to play it. The playlist icon in the card header opens the music library.")
+        "to play it. When the card is small, the list stays inside the card and scrolls. The playlist icon in the card header opens the music library.")
     s.p("Title and artist are read from the file's tags. Without tags, a file name of the form "
         f"{C('Artist - Title.mp3')} is split into artist and title; otherwise the file name is used.")
     s.section("Music library and playlists")
     s.bullets([
-        "The left column lists your playlists with the number of songs; click one to open it.",
+        "The left column lists your playlists with the number of songs; click one to open it. Long lists get "
+        "a scrollbar, and long names are shortened with “…”.",
         f"Type a name in {UI('New playlist name')} and click {UI('Create')}. The trash button deletes the "
         "current playlist.",
         f"{UI('Add Files')} adds selected audio files; {UI('Add Folder')} adds all supported files in a folder "
@@ -1388,7 +1389,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.1.0",
+  "app": "Artilody Watts Trainer 1.1.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

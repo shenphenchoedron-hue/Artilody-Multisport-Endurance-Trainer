@@ -1,6 +1,13 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.1.0
+## What's new in 1.1.1
+
+A small bug-fix release on top of 1.1.0:
+
+- **Music playlist stays inside its frame**: the *Up Next* list on the Dashboard music card now always stays inside the card: when the card is small (e.g. in a smaller window) the list is clipped at the card frame and scrolls, instead of drawing past the bottom of the card.
+- **Music Library**: the track and playlist lists have scrollbars, playlist names use the available width, and long titles are shortened with "…" instead of overlapping.
+
+## Includes everything from 1.1.0
 
 - **Workout calendar**: the new **Calendar** page shows your training plan as a month view. A single click selects a day or workout; double-click a day, click **+** or press **Add Workout** to add a workout (search, Cycling/Rowing filter, optional notes). Drag workouts between days, and right-click or press and hold a workout for *Ride/Row this workout*, *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (with confirmation). Double-click a planned workout or press **Ride**/**Row** in the side panel to start it – cycling workouts on the Dashboard, rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout started from the calendar, that plan entry is ticked off (on any day); stopped or aborted rides don't count, and deleting a ride reopens its entry. Workouts can also be planned from the Workouts page (**Add to calendar…**).
 - **Rowing with a Concept2 PM5** over Bluetooth LE: connect the PM5 under **Devices → Rowers (Concept2 PM5)** (on the PM5: *More Options → Turn Wireless ON → Connect Device*), or try it with the **Virtual Rower**. The new **Rowing** page has three modes:
@@ -20,8 +27,8 @@ Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structur
 
 ## Upgrade notes
 
-- Install 1.1.0 over 1.0.0 – no need to uninstall first.
-- On first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+- Install 1.1.1 over 1.1.0 or 1.0.0 – no need to uninstall first.
+- Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations
 
