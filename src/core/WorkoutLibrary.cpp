@@ -2,7 +2,14 @@
 
 #include "Database.h"
 #include "ProfileManager.h"
+#include "WorkoutIO.h"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QRegularExpression>
+#include <QSet>
+#include <QStandardPaths>
 #include <algorithm>
 #include <cmath>
 
@@ -264,6 +271,252 @@ void WorkoutLibrary::applyFilter()
     }
     endResetModel();
     emit countChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Sharing: export / import
+// ---------------------------------------------------------------------------
+namespace {
+
+QString pluralWorkouts(int n)
+{
+    return n == 1 ? QStringLiteral("1 workout") : QStringLiteral("%1 workouts").arg(n);
+}
+
+// "Name (imported)" / "Name (imported 3)" -> "Name"
+QString baseImportName(const QString &name)
+{
+    static const QRegularExpression suffix(QStringLiteral("\\s*\\(imported(?:\\s+\\d+)?\\)$"));
+    QString n = name;
+    n.remove(suffix);
+    return n.trimmed();
+}
+
+bool isDuplicate(const Workout &w, const QVector<Workout> &existing)
+{
+    const QString base = baseImportName(w.name);
+    for (const Workout &e : existing) {
+        if (e.intervals == w.intervals && baseImportName(e.name).compare(base, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+QString uniqueName(const QString &name, const QVector<Workout> &existing)
+{
+    QSet<QString> used;
+    for (const Workout &e : existing)
+        used.insert(e.name.toLower());
+    if (!used.contains(name.toLower()))
+        return name;
+    QString candidate = name + QStringLiteral(" (imported)");
+    for (int n = 2; used.contains(candidate.toLower()); ++n)
+        candidate = name + QStringLiteral(" (imported %1)").arg(n);
+    return candidate;
+}
+
+QString exportDir()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    return dir.isEmpty() ? QDir::homePath() : dir;
+}
+
+} // namespace
+
+QString WorkoutLibrary::localPath(const QUrl &url)
+{
+    return url.isLocalFile() ? url.toLocalFile() : url.toString();
+}
+
+void WorkoutLibrary::setMessage(const QString &message)
+{
+    m_lastMessage = message;
+    emit lastMessageChanged();
+}
+
+int WorkoutLibrary::customCount() const
+{
+    return int(std::count_if(m_all.cbegin(), m_all.cend(), [](const Workout &w) { return !w.builtIn; }));
+}
+
+QUrl WorkoutLibrary::suggestedExportUrl(qint64 id, const QString &format) const
+{
+    const QDir dir(exportDir());
+    const auto w = workout(id);
+    if (format == QLatin1String("all") || !w)
+        return QUrl::fromLocalFile(dir.filePath(QStringLiteral("My workouts.awt")));
+    const QString suffix = format == QLatin1String("zwo") ? QStringLiteral(".zwo") : QStringLiteral(".awt");
+    return QUrl::fromLocalFile(dir.filePath(workoutio::safeFileName(w->name) + suffix));
+}
+
+bool WorkoutLibrary::exportWorkout(qint64 id, const QUrl &file, const QString &formatHint)
+{
+    auto w = workout(id);
+    if (!w)
+        w = m_db->workout(id);
+    if (!w) {
+        setMessage(QStringLiteral("No workout selected"));
+        return false;
+    }
+    QString path = localPath(file);
+    if (path.isEmpty()) {
+        setMessage(QStringLiteral("Export failed: no file chosen"));
+        return false;
+    }
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const bool knownSuffix = suffix == QLatin1String("awt") || suffix == QLatin1String("json")
+                          || suffix == QLatin1String("zwo") || suffix == QLatin1String("xml");
+    workoutio::Format format;
+    if (knownSuffix) {
+        format = workoutio::formatForFileName(path);
+    } else {
+        format = formatHint.compare(QLatin1String("zwo"), Qt::CaseInsensitive) == 0 ? workoutio::Format::Zwo
+                                                                                   : workoutio::Format::Awt;
+        path += format == workoutio::Format::Zwo ? QStringLiteral(".zwo") : QStringLiteral(".awt");
+    }
+    const QByteArray data = format == workoutio::Format::Zwo
+        ? workoutio::toZwo(*w)
+        : workoutio::toAwt({ *w }, QCoreApplication::applicationVersion());
+    QString err;
+    if (!workoutio::writeFile(path, data, &err)) {
+        setMessage(QStringLiteral("Export failed: %1").arg(err));
+        return false;
+    }
+    setMessage(QStringLiteral("Exported \"%1\" to %2").arg(w->name, QDir::toNativeSeparators(path)));
+    return true;
+}
+
+int WorkoutLibrary::writeAwt(const QVector<Workout> &workouts, const QString &rawPath)
+{
+    QString path = rawPath;
+    if (path.isEmpty()) {
+        setMessage(QStringLiteral("Export failed: no file chosen"));
+        return 0;
+    }
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix != QLatin1String("awt") && suffix != QLatin1String("json"))
+        path += QStringLiteral(".awt");   // several workouts are always written as .awt
+    QString err;
+    if (!workoutio::writeFile(path, workoutio::toAwt(workouts, QCoreApplication::applicationVersion()), &err)) {
+        setMessage(QStringLiteral("Export failed: %1").arg(err));
+        return 0;
+    }
+    setMessage(QStringLiteral("Exported %1 to %2").arg(pluralWorkouts(workouts.size()), QDir::toNativeSeparators(path)));
+    return workouts.size();
+}
+
+int WorkoutLibrary::exportWorkouts(const QVariantList &ids, const QUrl &file)
+{
+    QVector<Workout> list;
+    for (const QVariant &v : ids) {
+        auto w = workout(v.toLongLong());
+        if (!w)
+            w = m_db->workout(v.toLongLong());
+        if (w)
+            list.append(*w);
+    }
+    if (list.isEmpty()) {
+        setMessage(QStringLiteral("No workouts to export"));
+        return 0;
+    }
+    return writeAwt(list, localPath(file));
+}
+
+int WorkoutLibrary::exportAllCustom(const QUrl &file)
+{
+    QVector<Workout> list;
+    const QVector<Workout> all = m_db->workouts();
+    for (const Workout &w : all) {
+        if (!w.builtIn)
+            list.append(w);
+    }
+    if (list.isEmpty()) {
+        setMessage(QStringLiteral("You have no custom workouts to export yet"));
+        return 0;
+    }
+    return writeAwt(list, localPath(file));
+}
+
+int WorkoutLibrary::importFile(const QUrl &file)
+{
+    return importFiles({ file });
+}
+
+int WorkoutLibrary::importFiles(const QList<QUrl> &files)
+{
+    if (files.isEmpty()) {
+        setMessage(QStringLiteral("No file selected"));
+        return 0;
+    }
+    QVector<Workout> existing = m_db->workouts();
+    int imported = 0;
+    int duplicates = 0;
+    qint64 firstId = -1;
+    QStringList warnings;
+    QStringList errors;
+    for (const QUrl &url : files) {
+        const QString path = localPath(url);
+        const QString prefix = files.size() > 1 ? QFileInfo(path).fileName() + QStringLiteral(": ") : QString();
+        const workoutio::ImportResult res = workoutio::parseFile(path);
+        if (!res.error.isEmpty())
+            errors.append(prefix + res.error);
+        for (Workout w : res.workouts) {
+            if (isDuplicate(w, existing)) {
+                ++duplicates;
+                continue;
+            }
+            w.name = uniqueName(w.name, existing);
+            const qint64 id = m_db->saveWorkout(w);
+            if (id < 0) {
+                errors.append(prefix + QStringLiteral("could not save \"%1\" (%2)").arg(w.name, m_db->lastError()));
+                continue;
+            }
+            w.id = id;
+            existing.append(w);
+            ++imported;
+            if (firstId < 0)
+                firstId = id;
+        }
+        for (const QString &warning : res.warnings)
+            warnings.append(prefix + warning);
+    }
+
+    if (imported > 0) {
+        reload();
+        // make sure the imported workout is visible and selected
+        const bool visible = std::any_of(m_visible.cbegin(), m_visible.cend(),
+                                         [firstId](const Workout &w) { return w.id == firstId; });
+        if (!visible) {
+            m_category = QStringLiteral("All");
+            m_search.clear();
+            applyFilter();
+            emit filterChanged();
+        }
+        setSelectedId(firstId);
+    }
+
+    QString msg;
+    if (imported > 0) {
+        msg = QStringLiteral("Imported %1").arg(pluralWorkouts(imported));
+        if (duplicates > 0)
+            msg += duplicates == 1 ? QStringLiteral(" (1 duplicate skipped)")
+                                   : QStringLiteral(" (%1 duplicates skipped)").arg(duplicates);
+        msg += QLatin1Char('.');
+        if (!errors.isEmpty())
+            msg += QStringLiteral(" Not imported: %1").arg(errors.join(QStringLiteral("; ")));
+    } else if (duplicates > 0) {
+        msg = duplicates == 1 ? QStringLiteral("Nothing imported – the workout is already in your library.")
+                              : QStringLiteral("Nothing imported – all %1 workouts are already in your library.").arg(duplicates);
+    } else {
+        msg = QStringLiteral("Import failed: %1").arg(errors.isEmpty() ? QStringLiteral("no workouts found") : errors.join(QStringLiteral("; ")));
+    }
+    if (!warnings.isEmpty()) {
+        msg += QStringLiteral(" Warnings: %1").arg(warnings.mid(0, 3).join(QStringLiteral("; ")));
+        if (warnings.size() > 3)
+            msg += QStringLiteral(" (+%1 more)").arg(warnings.size() - 3);
+    }
+    setMessage(msg);
+    return imported;
 }
 
 } // namespace watt

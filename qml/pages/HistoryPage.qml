@@ -10,7 +10,7 @@ Item {
 
     readonly property var ride: History.selectedRide
     readonly property bool hasRide: ride.rideId !== undefined
-    property bool exportSummary: false
+    property string exportKind: "csv"   // "csv" | "summary" | "fit"
     property bool showAll: false
 
     PageHeader {
@@ -43,41 +43,67 @@ Item {
             width: 212
             height: 50
             iconName: "download"
-            text: "Export CSV"
+            text: "Export"
             onClicked: exportMenu.popup()
             Menu {
                 id: exportMenu
                 y: 54
+                width: Math.max(implicitWidth, 440)
                 MenuItem {
-                    text: "Selected ride (per second)"
+                    text: "Selected ride – FIT (Garmin, Strava, TrainingPeaks…)"
                     enabled: page.hasRide
-                    onTriggered: {
-                        page.exportSummary = false
-                        exportDialog.selectedFile = History.suggestedExportUrl(false)
-                        exportDialog.open()
-                    }
+                    onTriggered: page.startExport("fit")
                 }
                 MenuItem {
-                    text: "All rides in range (summary)"
+                    text: "Selected ride – CSV (per second)"
+                    enabled: page.hasRide
+                    onTriggered: page.startExport("csv")
+                }
+                MenuItem {
+                    text: "All rides in range – CSV summary"
+                    enabled: History.totalRides > 0
+                    onTriggered: page.startExport("summary")
+                }
+                MenuItem {
+                    text: "All rides in range – FIT files…"
                     enabled: History.totalRides > 0
                     onTriggered: {
-                        page.exportSummary = true
-                        exportDialog.selectedFile = History.suggestedExportUrl(true)
-                        exportDialog.open()
+                        exportFolderDialog.currentFolder = History.suggestedExportUrl("folder")
+                        exportFolderDialog.open()
                     }
                 }
             }
         }
     }
 
+    function startExport(kind) {
+        page.exportKind = kind
+        exportDialog.selectedFile = History.suggestedExportUrl(kind)
+        exportDialog.open()
+    }
+
     FileDialog {
         id: exportDialog
-        title: "Export training data"
+        title: page.exportKind === "fit" ? "Export FIT activity" : "Export training data"
         fileMode: FileDialog.SaveFile
-        nameFilters: ["CSV files (*.csv)"]
-        defaultSuffix: "csv"
+        nameFilters: page.exportKind === "fit" ? ["FIT activity files (*.fit)"] : ["CSV files (*.csv)"]
+        defaultSuffix: page.exportKind === "fit" ? "fit" : "csv"
         onAccepted: {
-            var ok = page.exportSummary ? History.exportSummaryCsv(selectedFile) : History.exportSelectedCsv(selectedFile)
+            if (page.exportKind === "fit")
+                History.exportSelectedFit(selectedFile)
+            else if (page.exportKind === "summary")
+                History.exportSummaryCsv(selectedFile)
+            else
+                History.exportSelectedCsv(selectedFile)
+            page.message(History.lastMessage)
+        }
+    }
+
+    FolderDialog {
+        id: exportFolderDialog
+        title: "Export all rides in range as FIT files"
+        onAccepted: {
+            History.exportAllFit(selectedFolder)
             page.message(History.lastMessage)
         }
     }
@@ -435,7 +461,7 @@ Item {
     AppDialog {
         id: rideDialog
         title: page.ride.name || ""
-        panelWidth: 760
+        panelWidth: page.ride.isFtpTest ? 860 : 760   // FTP tests show an extra "Use as FTP" button
         panelHeight: page.ride.isFtpTest ? 646 : 560
 
         Text {
@@ -545,12 +571,14 @@ Item {
             AppButton {
                 kind: "secondary"
                 iconName: "download"
+                text: "Export FIT"
+                onClicked: page.startExport("fit")
+            }
+            AppButton {
+                kind: "secondary"
+                iconName: "download"
                 text: "Export CSV"
-                onClicked: {
-                    page.exportSummary = false
-                    exportDialog.selectedFile = History.suggestedExportUrl(false)
-                    exportDialog.open()
-                }
+                onClicked: page.startExport("csv")
             }
             AppButton {
                 text: "Close"

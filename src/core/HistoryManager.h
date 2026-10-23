@@ -12,7 +12,7 @@ namespace watt {
 class Database;
 class ProfileManager;
 
-// Training history, statistics and CSV export. Exposed to QML as "History".
+// Training history, statistics and CSV/FIT export. Exposed to QML as "History".
 class HistoryManager : public QObject
 {
     Q_OBJECT
@@ -63,7 +63,13 @@ public:
     Q_INVOKABLE bool deleteRide(qint64 id);
     Q_INVOKABLE bool exportSelectedCsv(const QUrl &file);
     Q_INVOKABLE bool exportSummaryCsv(const QUrl &file);
-    Q_INVOKABLE QUrl suggestedExportUrl(bool summary) const;
+    Q_INVOKABLE bool exportSelectedFit(const QUrl &file);
+    // Writes every ride of the current range as a separate .fit file into folder.
+    // Returns the number of files written.
+    Q_INVOKABLE int exportAllFit(const QUrl &folder);
+    // kind: "csv" (selected ride per second), "summary" (all rides, CSV),
+    // "fit" (selected ride) or "folder" (target folder for exportAllFit).
+    Q_INVOKABLE QUrl suggestedExportUrl(const QString &kind) const;
 
 signals:
     void dataChanged();
@@ -72,6 +78,8 @@ signals:
 
 private:
     void setMessage(const QString &m);
+    static QString rideFileName(const RideRecord &r, const QString &suffix);
+    static QString exportDir();
     static QVariantList zonesToVariant(const std::array<int, kZoneCount> &zones);
 
     Database *m_db;

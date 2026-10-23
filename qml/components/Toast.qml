@@ -6,12 +6,14 @@ Rectangle {
     function show(message) {
         text = message
         opacity = 1
+        // longer messages (e.g. import results with warnings) stay a bit longer
+        hideTimer.interval = Math.min(9000, 3500 + Math.max(0, message.length - 60) * 40)
         hideTimer.restart()
     }
 
     z: 2000
     width: Math.min(label.implicitWidth + 48, parent.width - 80)
-    height: 52
+    height: Math.max(52, label.implicitHeight + 26)
     radius: 12
     color: Theme.dark ? "#0f1846" : "#16214f"
     border.color: Qt.rgba(1, 1, 1, 0.15)
@@ -27,7 +29,9 @@ Rectangle {
         text: toast.text
         color: "white"
         font.pixelSize: 16
-        elide: Text.ElideMiddle
+        wrapMode: Text.WordWrap
+        maximumLineCount: 3
+        elide: Text.ElideRight
     }
     Timer {
         id: hideTimer

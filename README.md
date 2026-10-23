@@ -33,6 +33,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - [Download & install](#download--install)
 - [User manual](#user-manual)
 - [Quick start](#quick-start)
+- [Sharing workouts](#sharing-workouts)
 - [Supported hardware](#supported-hardware)
 - [Privacy](#privacy)
 - [Building from source](#building-from-source)
@@ -53,11 +54,13 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 ### Train
 - **Workout library** with 8 built-in workouts (Sweet Spot, Endurance, VO₂ Max, Threshold, Tempo, Over-Unders, Recovery and a Ramp FTP Test). It has search, category filters, sorting, favourites and a preview, and lets you duplicate or delete workouts. Built-in workouts can't be deleted.
 - **Workout Builder**, a visual editor: add blocks from presets (Warm Up, Steady, Intervals, Recovery, Cool Down, Ramp), drag them into order, and set the duration, target in watts or % FTP, ramp end power, cadence and RPE. The preview updates as you edit. If you edit a built-in workout, it is saved as your own copy.
+- **Share workouts**: export any workout as an Artilody `.awt` file or a Zwift `.zwo` file, export all your own workouts in one file, and import `.awt`/`.zwo` files from friends, coaches or other apps (Zwift, TrainerRoad, Golden Cheetah, MyWhoosh, …). See [Sharing workouts](#sharing-workouts).
 - **FTP test**: when you finish the built-in *Ramp FTP Test*, the app estimates your FTP as 75 % of your best 1-minute power and asks whether to update your profile. You can also pick any FTP test ride in History and use it as your FTP.
 
 ### Analyse
 - **History** with totals, a chart of the selected ride (target, actual power and heart rate), weekly training time and time in zones.
 - **Ride metrics**: average/max power, Normalized Power (NP), Intensity Factor (IF), Training Stress Score (TSS) and more.
+- **FIT export** for Garmin Connect, Strava, TrainingPeaks, intervals.icu and other platforms: export the selected ride, or every ride in the selected period as one `.fit` file per ride. The file contains 1-second power, heart rate and cadence plus a session summary (NP, TSS, IF, threshold power, work).
 - **CSV export** of every second of a ride, or a summary of all rides. You can also delete rides.
 
 ### Devices & profiles
@@ -180,7 +183,46 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 3. **Choose a workout** under **Workouts**, or create your own in **Builder**.
 4. **Choose ERG or Free Ride**, then press **Start Workout**.
 5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> pauses and resumes.
-6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis or export it to CSV.
+6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis, or use **Export** to save it as a FIT file (for Strava, Garmin Connect, TrainingPeaks, …) or CSV.
+
+## Sharing workouts
+
+On the **Workouts** page, open the **⋯** menu of the workout preview and choose **Export…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. Use the **Import** button next to the sort menu to import one or more files.
+
+| Format | Best for | Notes |
+|---|---|---|
+| **`.awt`** (Artilody workout) | Sharing with other Artilody Watts Trainer users, backups | Keeps everything: name, category, focus, description and every block (type, name, duration, start/end intensity, cadence, RPE). One file can hold many workouts. |
+| **`.zwo`** (Zwift workout) | Zwift, TrainerRoad, Golden Cheetah, MyWhoosh and other apps | One workout per file. RPE settings are not stored; on import, `IntervalsT` repeats are expanded into individual blocks, `FreeRide` and `MaxEffort` become steady blocks at 60 % / 150 % FTP. |
+
+All intensities are stored **relative to FTP**, so a shared workout scales to the FTP of whoever imports it. Imported workouts are added to your own (*Custom*) workouts and can be edited or deleted. A workout that is already in your library is skipped, and a different workout with the same name is imported as *Name (imported)*. Files are validated before import (sizes, durations, intensities, categories).
+
+An `.awt` file is plain UTF-8 JSON:
+
+```json
+{
+  "format": "artilody-watts-trainer/workout",
+  "version": 1,
+  "exportedAt": "2026-10-23T12:00:00Z",
+  "app": "Artilody Watts Trainer 1.1.0",
+  "workouts": [
+    {
+      "name": "Sweet Spot 3 x 12",
+      "category": "Intervals",
+      "focus": "Sweet Spot",
+      "description": "Three 12-minute sweet spot efforts ...",
+      "intervals": [
+        { "name": "Warm Up", "type": "warmup", "duration": 360, "start": 0.40, "end": 0.65 },
+        { "name": "Sweet Spot", "type": "interval", "duration": 720, "start": 0.90, "end": 0.90, "cadence": 90 }
+      ]
+    }
+  ]
+}
+```
+
+`type` is one of `warmup`, `steady`, `interval`, `recovery`, `cooldown`, `ramp`; `duration` is in seconds; `start`/`end` are fractions of FTP (0.90 = 90 % FTP); `cadence` (RPM) and `rpe` (zone 0–5) are optional. The full description is in the [user manual](docs/Artilody-Watts-Trainer-Manual.pdf) (appendix C).
+
+> [!NOTE]
+> **About FIT files:** rides are written as FIT activity files by an independent encoder that is part of this project (no Garmin FIT SDK code is included). The files work with Garmin Connect, Strava, TrainingPeaks, intervals.icu and other platforms; upload them on the platform's website. Indoor rides contain no GPS, speed or distance. FIT is a file format by Garmin; this project is not affiliated with Garmin.
 
 ## Supported hardware
 
@@ -195,7 +237,7 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 
 Artilody Watts Trainer runs **fully offline**:
 
-- No account, no cloud and no telemetry or analytics.
+- No account, no cloud and no telemetry or analytics. Nothing is uploaded: FIT, CSV and workout files are only written when you export them yourself.
 - Rides, profiles, workouts and playlists are stored in a local SQLite database (`watt-trainer.sqlite` in the user's app-data folder). The exact path is shown under **Settings** (the gear icon).
 - To use a different database file, set the `WATT_DB_PATH` environment variable.
 
@@ -219,14 +261,16 @@ The UI and the application logic are kept completely separate. The C++ libraries
 
 ```
 src/core    watt_core         Domain model (Workout, Interval, Zones), SQLite database, ride analysis
-                              (NP/IF/TSS), CSV export, WorkoutEngine (pure state machine),
+                              (NP/IF/TSS), CSV and FIT export, workout import/export (.awt/.zwo),
+                              WorkoutEngine (pure state machine),
                               TrainingSession, SensorHub, profile/library/builder/history managers
 src/ble     watt_bleprotocol  Pure FTMS/HRS parsing and encoding (QtCore only, fully testable)
             watt_ble          BleLink, BleTrainer, BleHeartRateSensor, simulated devices, DeviceManager
 src/media   watt_media        MusicPlayer and playlists
 src/app     main.cpp          Wires the modules together and exposes them to QML
 qml/        Main.qml, Theme.qml, components/, pages/, dialogs/  (presentation only)
-tests/      QtTest unit tests (workout, engine, analysis, database, session, builder, BLE protocol)
+tests/      QtTest unit tests (workout, engine, analysis, database, session, builder, FIT,
+            workout import/export, BLE protocol)
 ```
 
 - **`SensorHub`** decouples training from the sensors. Real BLE devices and the simulator send measurements to the hub, and `TrainingSession` asks for ERG targets through signals. This lets the tests drive a complete ride without hardware.
@@ -250,3 +294,4 @@ Artilody Watts Trainer is free software, licensed under the **GNU General Public
 - Data storage by [SQLite](https://sqlite.org/).
 - Uses the Bluetooth SIG's open **Fitness Machine** and **Heart Rate** service specifications.
 - The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.
+- FIT is a file format by Garmin; the FIT encoder in this project was written independently. Zwift is a trademark of Zwift, Inc.; `.zwo` support is for interoperability only. This project is not affiliated with Garmin or Zwift.

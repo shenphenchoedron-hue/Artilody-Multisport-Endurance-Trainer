@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.0.0 source code (qml/, src/core, src/ble, src/media,
+Written against the v1.1.0 source code (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -26,7 +26,7 @@ def L(url, text=None):
 
 
 def build(s, env):
-    SHOTS, MOCKUPS, REPO = env["SHOTS"], env["MOCKUPS"], env["REPO"]
+    SHOTS, MOCKUPS, REPO, V = env["SHOTS"], env["MOCKUPS"], env["REPO"], env["VERSION"]
     Z = s.zone_hex
     RELEASES = REPO + "/releases/latest"
 
@@ -45,7 +45,10 @@ def build(s, env):
         f"{UI('Shows live data')} – power, cadence, heart rate, elapsed time, the workout profile and a "
         "timeline of all intervals.",
         f"{UI('Records and analyses')} – every second of every ride is stored. History shows totals, charts, "
-        "time in zones, Normalized Power, Intensity Factor and Training Stress Score, and can export CSV files.",
+        "time in zones, Normalized Power, Intensity Factor and Training Stress Score. Rides can be exported as FIT "
+        "files (for Strava, Garmin Connect, TrainingPeaks, intervals.icu …) or as CSV files.",
+        f"{UI('Shares workouts')} – export your workouts as Artilody {C('.awt')} files or Zwift {C('.zwo')} "
+        "files, and import workouts that others have shared with you.",
         f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test calculates your Functional Threshold Power "
         "and can update your profile and all training zones in one click.",
         f"{UI('Plays music')} – a built-in player for your own audio files with playlists and favourites.",
@@ -107,20 +110,20 @@ def build(s, env):
     # =====================================================================
     s.chapter("Installation",
               f"Download the file for your platform from the releases page: {L(RELEASES)}. "
-              "All packages contain the same version 1.0.0.")
+              f"All packages contain the same version {V}.")
     s.table(["Platform", "File"], [
-        ["Windows 10/11 (64-bit), installer", C("ArtilodyWattsTrainer-1.0.0-windows-x64-setup.exe")],
-        ["Windows 10/11 (64-bit), portable ZIP", C("ArtilodyWattsTrainer-1.0.0-windows-x64.zip")],
-        ["macOS 12 or newer (Apple Silicon and Intel)", C("ArtilodyWattsTrainer-1.0.0-macOS-universal.dmg")],
-        ["Ubuntu 24.04 LTS (amd64)", C("artilody-watts-trainer_1.0.0_ubuntu24.04_amd64.deb")],
-        ["Debian 12 Bookworm (amd64)", C("artilody-watts-trainer_1.0.0_debian12_amd64.deb")],
+        ["Windows 10/11 (64-bit), installer", C(f"ArtilodyWattsTrainer-{V}-windows-x64-setup.exe")],
+        ["Windows 10/11 (64-bit), portable ZIP", C(f"ArtilodyWattsTrainer-{V}-windows-x64.zip")],
+        ["macOS 12 or newer (Apple Silicon and Intel)", C(f"ArtilodyWattsTrainer-{V}-macOS-universal.dmg")],
+        ["Ubuntu 24.04 LTS (amd64)", C(f"artilody-watts-trainer_{V}_ubuntu24.04_amd64.deb")],
+        ["Debian 12 Bookworm (amd64)", C(f"artilody-watts-trainer_{V}_debian12_amd64.deb")],
         ["Raspberry Pi OS 64-bit Bookworm (Pi 3/4/5/400)",
-         C("artilody-watts-trainer_1.0.0_raspberrypi-os-bookworm_arm64.deb")],
+         C(f"artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")],
     ], [2.3, 3.4])
 
     s.section("Windows")
     s.steps([
-        f"Download {C('ArtilodyWattsTrainer-1.0.0-windows-x64-setup.exe')} and run it. The installer creates a "
+        f"Download {C(f'ArtilodyWattsTrainer-{V}-windows-x64-setup.exe')} and run it. The installer creates a "
         "Start menu entry and, if you choose, a desktop shortcut.",
         f"Prefer not to install anything? Extract the ZIP file instead and start "
         f"{C('Artilody Watts Trainer.exe')} from the extracted folder.",
@@ -146,8 +149,8 @@ def build(s, env):
     s.section("Ubuntu 24.04 and Debian 12")
     s.p("Download the matching .deb package and install it with apt, which also installs all required Qt 6 "
         "libraries:")
-    s.code("sudo apt install ./artilody-watts-trainer_1.0.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04\n"
-           "sudo apt install ./artilody-watts-trainer_1.0.0_debian12_amd64.deb      # Debian 12")
+    s.code(f"sudo apt install ./artilody-watts-trainer_{V}_ubuntu24.04_amd64.deb   # Ubuntu 24.04\n"
+           f"sudo apt install ./artilody-watts-trainer_{V}_debian12_amd64.deb      # Debian 12")
     s.p(f"Start {UI('Artilody Watts Trainer')} from the application menu or run {C('artilody-watts-trainer')} "
         "in a terminal. Bluetooth needs the BlueZ service to be running:")
     s.code("sudo systemctl enable --now bluetooth")
@@ -156,7 +159,7 @@ def build(s, env):
     s.p("You need <b>Raspberry Pi OS (64-bit) Bookworm</b> on a Raspberry Pi 3, 4, 5 or 400. Install the arm64 "
         "package:")
     s.code("sudo apt update\n"
-           "sudo apt install ./artilody-watts-trainer_1.0.0_raspberrypi-os-bookworm_arm64.deb")
+           f"sudo apt install ./artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")
     s.p("The built-in Bluetooth of the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure "
         "Bluetooth is switched on in the desktop panel.")
     s.tip("On small displays such as the official 7\" touch screen (800 × 480), maximise the window. The "
@@ -417,6 +420,7 @@ def build(s, env):
         "<i>Custom</i>. Custom shows all your own workouts, whatever their category.",
         f"{UI('Sort')} – <i>Most Popular</i> (most often started first; default), <i>Name A–Z</i>, "
         "<i>Shortest</i>, <i>Longest</i>, <i>Favorites</i> (favourites first) or <i>Newest</i>.",
+        f"{UI('Import')} – imports shared workouts from {C('.awt')} or Zwift {C('.zwo')} files (section 6.2).",
         f"{UI('New Workout')} – opens an empty workout in the Builder.",
     ])
     s.p("Each card shows the category (your own workouts are marked <i>CUSTOM</i>), name, duration, a mini "
@@ -430,11 +434,82 @@ def build(s, env):
         f"tiles {UI('Duration')}, {UI('Intensity')} (average % of FTP) and {UI('Intervals')} (e.g. 3 × 12 min), "
         f"followed by the description. The {UI('•••')} (more) menu offers:")
     s.bullets([
+        f"{UI('Export…')} – saves the selected workout as an Artilody {C('.awt')} file or a Zwift {C('.zwo')} "
+        "file to share it (section 6.2).",
+        f"{UI('Export all my workouts…')} – saves all your own (custom) workouts into one {C('.awt')} file.",
         f"{UI('Duplicate')} – creates your own copy named “… (copy)” that you can edit freely.",
         f"{UI('Delete')} – removes one of your own workouts after confirmation. Rides already recorded with it "
         "stay in History. Built-in workouts cannot be deleted; for the Ramp FTP Test the menu reads "
         "<i>Delete (required for FTP tests)</i>.",
     ])
+
+    s.section("Sharing workouts: export and import")
+    s.p("Workouts can be shared with other riders – also with riders who use other training apps. Because "
+        "every target is stored as a <b>percentage of FTP</b>, a shared workout automatically scales to the "
+        "FTP of the person who imports it: a block at 90 % FTP is 225 W for a rider with 250 W FTP and 180 W "
+        "for a rider with 200 W FTP.")
+    s.table(["Format", "Use it for", "Contains"], [
+        [C(".awt") + "<br/>(Artilody workout)", "Sharing with other Artilody Watts Trainer users, and "
+         "backing up your own workouts. Recommended.",
+         "Everything: name, category, focus, description and every block with type, name, duration, start/end "
+         "intensity, cadence and RPE. One file can hold many workouts (Appendix C)."],
+        [C(".zwo") + "<br/>(Zwift workout)", "Exchanging workouts with Zwift, TrainerRoad, Golden Cheetah, "
+         "MyWhoosh and other apps that read Zwift workout files.",
+         "Name, description, category (as a tag) and the blocks with duration, intensity, cadence and block "
+         "name. One workout per file."],
+    ], [1.3, 2.1, 2.4])
+    s.sub("Exporting a workout")
+    s.steps([
+        "Select the workout in the library (built-in workouts can be exported too).",
+        f"Open the {UI('•••')} menu in the Workout Preview and choose {UI('Export…')}.",
+        f"Choose the file type in the save dialog – {UI('Artilody workout (*.awt)')} or "
+        f"{UI('Zwift workout (*.zwo)')} – and save. The file extension decides the format; the suggested "
+        "file name is the workout name in your Documents folder.",
+        "Send the file to a friend (e-mail, chat, USB stick …) or keep it as a backup.",
+    ])
+    s.p(f"{UI('Export all my workouts…')} writes all your own workouts (not the built-in ones) into a single "
+        f"{C('.awt')} file, suggested name {C('My workouts.awt')}. If you have no own workouts yet, the app "
+        "tells you so.")
+    s.sub("Importing workouts")
+    s.steps([
+        f"Click {UI('Import')} in the filter bar of the Workouts page.",
+        f"Select one or more {C('.awt')}, {C('.json')} or {C('.zwo')} files (hold Ctrl/Cmd or Shift to select "
+        "several) and click Open.",
+        "A message reports how many workouts were imported, how many duplicates were skipped and any "
+        "warnings. The first imported workout is selected in the library.",
+    ])
+    s.bullets([
+        "Imported workouts are <b>your own (custom) workouts</b>: they appear under <i>Custom</i>, can be edited "
+        "in the Builder and can be deleted.",
+        "<b>Duplicates are skipped:</b> a workout with the same name and exactly the same blocks as one already "
+        "in your library is not imported again – so importing the same file twice does no harm.",
+        "<b>Name clashes:</b> if a different workout with the same name already exists, the imported one is "
+        "renamed to <i>Name (imported)</i>, <i>Name (imported 2)</i> and so on. Your existing workouts are "
+        "never overwritten.",
+        "Every file is <b>checked and cleaned</b> before import: durations are limited to 5 seconds – 6 hours "
+        "per block and 12 hours per workout, intensities to 400 % FTP and cadence to 200 RPM; unknown "
+        "categories are replaced by Endurance, Intervals or Recovery depending on the intensity. Adjustments "
+        "are listed as warnings. Files larger than 2 MB, with more than 500 workouts or more than 2000 blocks "
+        "per workout are rejected.",
+    ])
+    s.sub("Zwift .zwo files – what is converted")
+    s.table(["In the .zwo file", "In Artilody Watts Trainer"], [
+        [C("Warmup") + ", " + C("Cooldown") + ", " + C("Ramp"), "Warm Up, Cool Down and Ramp blocks (start "
+         "and end power)."],
+        [C("SteadyState"), "A steady block; depending on its intensity it becomes a Recovery, Steady or "
+         "Interval block."],
+        [C("IntervalsT"), "<b>Expanded</b> into individual blocks: e.g. 5 × (3 min on / 3 min off) becomes ten "
+         "blocks (Interval, Recovery, Interval, …). Exporting it again writes the individual blocks."],
+        [C("FreeRide"), "A steady block at 60 % FTP (ERG cannot follow a free-ride section)."],
+        [C("MaxEffort"), "An interval block at 150 % FTP."],
+        [C("Cadence") + " attribute", "Cadence target of the block."],
+        [C("textevent") + " at the start of a block", "Used as the block name (other on-screen messages are "
+         "ignored)."],
+    ], [2.2, 3.6])
+    s.note("A .zwo file cannot store everything: <b>RPE settings</b> of a block are not exported (the RPE "
+           "zone is derived from the intensity again after import), and Steady, Interval and Recovery blocks "
+           "are all written as <i>SteadyState</i>. Use .awt when sharing with other Artilody Watts Trainer "
+           "users to keep every detail.")
 
     s.section("Ride mode: ERG or Free Ride")
     s.p(f"Under {UI('Ride Mode')} choose {UI('ERG Mode')} (<i>automatically match target power</i>) or "
@@ -696,7 +771,8 @@ def build(s, env):
         ["Best 1 min, Estimated FTP", "Only for FTP-test rides (chapter 8)."],
     ], [1.6, 4.2])
     s.p("A <b>Time in zones</b> bar shows how the ride was distributed across the six power zones. Buttons: "
-        f"{UI('Delete ride')}, {UI('Use as FTP')} (FTP tests only), {UI('Export CSV')} and {UI('Close')}.")
+        f"{UI('Delete ride')}, {UI('Use as FTP')} (FTP tests only), {UI('Export FIT')}, {UI('Export CSV')} and "
+        f"{UI('Close')}.")
     s.sub("NP, IF and TSS explained")
     s.bullets([
         "<b>Normalized Power (NP)</b> estimates the power you could have held at a constant output for the same "
@@ -710,14 +786,67 @@ def build(s, env):
     s.p("All three use the FTP stored with the ride (your FTP when the ride started). The Builder and the "
         "library show an <i>estimated</i> TSS calculated from the workout targets.")
 
-    s.section("Exporting CSV")
-    s.p(f"Click {UI('Export CSV')} at the top of the page (or in the ride details) and choose:")
+    s.section("Exporting rides")
+    s.p(f"Click {UI('Export')} at the top of the History page and choose:")
+    s.table(["Menu item", "Result"], [
+        [UI("Selected ride – FIT (Garmin, Strava, TrainingPeaks…)"),
+         f"One FIT activity file, suggested name {C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.fit')}"],
+        [UI("Selected ride – CSV (per second)"), f"{C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.csv')} (section 9.6)"],
+        [UI("All rides in range – CSV summary"), f"{C('watt-history-YYYY-MM-DD.csv')}, one row per ride"],
+        [UI("All rides in range – FIT files…"), "One FIT file per ride of the selected period, in a folder "
+                                                "you choose"],
+    ], [2.9, 2.9])
+    s.p(f"The ride details dialog also has {UI('Export FIT')} and {UI('Export CSV')} buttons for the ride shown. "
+        "The save dialogs open in your Documents folder.")
+
+    s.section("FIT export: Strava, Garmin Connect, TrainingPeaks, intervals.icu")
+    s.p("<b>FIT</b> is the activity file format used by Garmin devices and read by practically every training "
+        "platform. Export a ride as FIT to keep your training log in one place or to share it with a coach.")
+    s.sub("Uploading the file")
+    s.p("Upload the .fit file through the website of your platform (menu names may change over time):")
+    s.table(["Platform", "How to upload"], [
+        ["Strava", f"On strava.com click the {UI('+')} button at the top right → {UI('Upload activity')} → "
+                   f"{UI('File')} and select one or more .fit files."],
+        ["Garmin Connect", f"On connect.garmin.com click {UI('+')} (or the upload icon) → {UI('Import Data')} "
+                           "and drop the file(s) into the window."],
+        ["TrainingPeaks", "Drag the file onto the day in your calendar, or click the day → Upload."],
+        ["intervals.icu", "Drag the file(s) onto the calendar or the activities list, or use the upload "
+                          "button."],
+    ], [1.4, 4.4])
+    s.p("The ride appears as an <b>indoor cycling</b> activity with its original start time, duration and "
+        "per-second power, heart-rate and cadence curves. Most platforms recognise a ride that was already "
+        "uploaded and reject the second upload as a duplicate.")
+    s.sub("What the file contains")
     s.bullets([
-        f"{UI('Selected ride (per second)')} – suggested file name "
-        f"{C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.csv')}",
-        f"{UI('All rides in range (summary)')} – suggested file name {C('watt-history-YYYY-MM-DD.csv')}",
+        "Sport <i>cycling</i>, sub-sport <i>indoor cycling</i>, start time and duration.",
+        "One record per second with <b>power</b>, <b>heart rate</b> and <b>cadence</b> (heart rate is "
+        "left out for seconds without data).",
+        "One lap covering the whole ride and a session summary: average and maximum power and heart rate, "
+        "average cadence, Normalized Power, TSS, IF, the FTP (threshold power) used for the ride, total work "
+        "and calories (estimated as 1 kcal per kJ of work).",
     ])
-    s.p("The save dialog opens in your Documents folder. Files are UTF-8, comma-separated, with a header row.")
+    s.sub("Limitations")
+    s.bullets([
+        "<b>No GPS, distance or speed</b> – the ride is an indoor ride. Platforms show a distance of 0 and no "
+        "map.",
+        "The workout's intervals are not written as separate laps; the whole ride is one lap.",
+        "Pauses are not part of the file: it contains the recorded riding time only.",
+        "Platforms often calculate NP, TSS and IF again with the FTP stored in <i>your account there</i>, so "
+        "their values can differ from the ones in the app.",
+        "The target power of each second is not included (use the CSV export if you need it).",
+    ])
+    s.sub("Exporting many rides at once")
+    s.p(f"Choose {UI('All rides in range – FIT files…')}, then pick a folder. The app writes one file per ride "
+        f"of the period selected at the top of the page ({UI('Last 30 days')}, {UI('All time')} …), named "
+        f"{C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.fit')}; files with the same name in that folder are replaced. "
+        "A message reports how many files were written. Most platforms accept several files in one upload.")
+    s.note("The FIT files are written by an independent encoder that is part of this app. FIT is a file format "
+           "by Garmin; Artilody Watts Trainer is not affiliated with or endorsed by Garmin, Strava, "
+           "TrainingPeaks or intervals.icu.")
+
+    s.section("Exporting CSV")
+    s.p("CSV files can be opened in any spreadsheet program (Excel, Numbers, LibreOffice). They are UTF-8, "
+        "comma-separated, with a header row.")
     s.sub("Per-second file")
     s.p(f"Three comment lines ({C('# workout,…')}, {C('# started,…')} with ISO date/time, {C('# ftp,…')}) are "
         "followed by one row per second:")
@@ -816,12 +945,14 @@ def build(s, env):
         "folder, another computer).",
         "To restore, close the app and copy the backup back to the same folder under the same name.",
     ])
+    s.tip(f"To back up only your own workouts, use {UI('Export all my workouts…')} on the Workouts page "
+          f"(section 6.2).")
     s.tip("You can move your complete training history to a new computer the same way. Music files and "
           "avatar pictures are referenced by path and must be copied separately.")
     s.section("Offline and privacy")
     s.p("Artilody Watts Trainer runs fully offline: no account, no cloud, no telemetry or analytics. "
         "The app only talks to your Bluetooth devices. Your data leaves your computer only when you export a "
-        "CSV file or copy the database yourself.")
+        "ride (FIT or CSV) or a workout, or copy the database yourself – the app never uploads anything.")
 
     # =====================================================================
     s.chapter("Troubleshooting & FAQ")
@@ -870,6 +1001,13 @@ def build(s, env):
          "Close the app and delete (or rename, to keep a backup) " + C("watt-trainer.sqlite") + " in the folder "
          "shown in Settings. The next start creates a fresh database with the default profile and the built-in "
          "workouts."),
+        ("How do I get my rides into Strava, Garmin Connect or TrainingPeaks?",
+         "Export them as FIT files in History (Export → Selected ride – FIT, or All rides in range – FIT "
+         "files…) and upload the files on the platform's website (section 9.5). The app does not upload "
+         "anything by itself."),
+        ("An imported workout is called “… (imported)”.",
+         "Your library already contained a different workout with the same name. Rename it in the Builder if "
+         "you like. If nothing was imported at all, the workout was already in your library."),
         ("Do I need an internet connection?",
          "No. The app works fully offline."),
     ]
@@ -881,12 +1019,15 @@ def build(s, env):
     s.chapter("Glossary & keyboard shortcuts")
     s.section("Glossary")
     s.table(["Term", "Explanation"], [
+        [".awt", "Artilody workout file – the app's own JSON format for sharing workouts (Appendix C)."],
         ["BLE", "Bluetooth Low Energy – the wireless standard used for trainers and sensors."],
         ["Cadence", "Pedaling rate in revolutions per minute (RPM)."],
         ["ERG mode", "The trainer automatically sets the resistance so you produce the target power, "
                      "regardless of cadence."],
         ["Free Ride", "The trainer does not follow power targets; it simulates a flat road and you control the "
                       "effort. Also a ride without a workout."],
+        ["FIT", "Flexible and Interoperable Data Transfer – the binary activity file format by Garmin, read by "
+                "Strava, Garmin Connect, TrainingPeaks, intervals.icu and most other platforms."],
         ["FTMS", "Fitness Machine Service – the standard Bluetooth profile for smart trainers (data and "
                  "control)."],
         ["FTP", "Functional Threshold Power – the highest power you can sustain for about one hour."],
@@ -900,6 +1041,8 @@ def build(s, env):
         ["TSS", "Training Stress Score – training load from duration and intensity; one hour at FTP = 100."],
         ["W/kg", "Watts per kilogram of body weight – power relative to weight."],
         ["Zone", "An intensity range defined as a percentage of FTP (power) or heart-rate reserve (HR)."],
+        ["ZWO", "Zwift workout file (.zwo) – an XML format for structured workouts, also read by TrainerRoad, "
+                "Golden Cheetah, MyWhoosh and others."],
     ], [1.1, 4.7])
     s.section("Keyboard shortcuts")
     s.table(["Key", "Where", "Action"], [
@@ -947,6 +1090,54 @@ def build(s, env):
     s.p("The zone colours are used everywhere in the app: Dashboard power bar, workout charts, timeline blocks, "
         "Builder and History. Zone boundaries can be changed per profile (section 4.3).")
 
+    s.chapter("The .awt file format", appendix=True,
+              lead="Artilody workout files (.awt) are plain UTF-8 JSON text, so they can be read, written or "
+                   "generated by other programs and scripts. This appendix describes version 1 of the format.")
+    s.code('''{
+  "format": "artilody-watts-trainer/workout",
+  "version": 1,
+  "exportedAt": "2026-10-23T12:00:00Z",
+  "app": "Artilody Watts Trainer 1.1.0",
+  "workouts": [
+    {
+      "name": "Sweet Spot 3 x 12",
+      "category": "Intervals",
+      "focus": "Sweet Spot",
+      "description": "Three 12-minute sweet spot efforts ...",
+      "intervals": [
+        { "name": "Warm Up", "type": "warmup", "duration": 360,
+          "start": 0.40, "end": 0.65 },
+        { "name": "Sweet Spot", "type": "interval", "duration": 720,
+          "start": 0.90, "end": 0.90, "cadence": 90 },
+        { "name": "Recovery", "type": "recovery", "duration": 300,
+          "start": 0.55, "end": 0.55, "rpe": 0 }
+      ]
+    }
+  ]
+}''')
+    s.table(["Field", "Meaning"], [
+        [C("format"), f"Always {C('artilody-watts-trainer/workout')}."],
+        [C("version"), "Format version, currently 1."],
+        [C("exportedAt") + ", " + C("app"), "Time of export (ISO 8601, UTC) and the exporting app – "
+                                             "informational only."],
+        [C("workouts"), "List of workouts (at most 500 per file)."],
+        [C("name"), "Workout name (required)."],
+        [C("category"), "Endurance, Intervals, Recovery or FTP Tests. Other values are replaced on import."],
+        [C("focus") + ", " + C("description"), "Short focus text and description (optional)."],
+        [C("intervals"), "The blocks in order (at least one, at most 2000)."],
+        [C("type"), f"{C('warmup')}, {C('steady')}, {C('interval')}, {C('recovery')}, {C('cooldown')} or "
+                    f"{C('ramp')}."],
+        [C("duration"), "Block length in seconds (5 – 21600)."],
+        [C("start") + ", " + C("end"), "Target at the start and end of the block as a <b>fraction of FTP</b> "
+                                         "(0.90 = 90 % FTP; maximum 4.0). Equal values give a steady block, "
+                                         "different values a ramp."],
+        [C("cadence"), "Optional cadence target in RPM (omitted = no target)."],
+        [C("rpe"), "Optional RPE zone 0 – 5 (Z1 – Z6); omitted = derived from the intensity."],
+    ], [1.6, 4.2])
+    s.p("Because intensities are fractions of FTP, the same file produces the right watts for every rider. "
+        f"Files with the extension {C('.json')} are accepted as well, and a file may also contain a single "
+        "workout object or a plain list of workouts.")
+
     s.chapter("License & credits", appendix=True)
     s.p("Artilody Watts Trainer is free software: you can redistribute it and/or modify it under the terms of "
         "the <b>GNU General Public License version 3</b> (GPL-3.0) as published by the Free Software "
@@ -962,6 +1153,6 @@ def build(s, env):
     s.p(f"Source code, releases and issue tracker: {L(REPO)}")
     s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")
     s.spacer(10)
-    s.p('<font color="#5b6485">This manual describes Artilody Watts Trainer version 1.0.0 (October 2026). '
+    s.p(f'<font color="#5b6485">This manual describes Artilody Watts Trainer version {V} (October 2026). '
         "Screenshots show the app with the virtual trainer and virtual heart-rate sensor; the profile dialog "
         "illustration is a design mockup.</font>")

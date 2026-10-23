@@ -3,6 +3,7 @@
 #include "Workout.h"
 
 #include <QAbstractListModel>
+#include <QUrl>
 #include <QVariantMap>
 #include <optional>
 
@@ -23,6 +24,8 @@ class WorkoutLibrary : public QAbstractListModel
     Q_PROPERTY(qint64 selectedId READ selectedId WRITE setSelectedId NOTIFY selectedChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(QString lastMessage READ lastMessage NOTIFY lastMessageChanged)
+    Q_PROPERTY(int customCount READ customCount NOTIFY countChanged)
 
 public:
     enum Roles {
@@ -56,15 +59,36 @@ public:
     Q_INVOKABLE bool remove(qint64 id);   // false for built-in workouts (never deleted)
     Q_INVOKABLE qint64 duplicate(qint64 id);
 
+    // --- sharing (see WorkoutIO.h) ---
+    // Exports one workout. The format follows the file extension (.zwo = Zwift,
+    // .awt/.json = Artilody JSON); without a known extension formatHint
+    // ("awt"/"zwo") decides and the matching extension is appended.
+    Q_INVOKABLE bool exportWorkout(qint64 id, const QUrl &file, const QString &formatHint = QString());
+    // Exports several workouts into one .awt file. Returns the number exported.
+    Q_INVOKABLE int exportWorkouts(const QVariantList &ids, const QUrl &file);
+    // Exports all custom (non built-in) workouts into one .awt file.
+    Q_INVOKABLE int exportAllCustom(const QUrl &file);
+    // Imports .awt/.json/.zwo files as custom workouts. Returns the number imported.
+    Q_INVOKABLE int importFile(const QUrl &file);
+    Q_INVOKABLE int importFiles(const QList<QUrl> &files);
+    // format: "awt", "zwo" or "all" (bulk export of custom workouts).
+    Q_INVOKABLE QUrl suggestedExportUrl(qint64 id, const QString &format) const;
+
+    QString lastMessage() const { return m_lastMessage; }
+    int customCount() const;
     std::optional<Workout> workout(qint64 id) const;
 
 signals:
     void filterChanged();
     void selectedChanged();
     void countChanged();
+    void lastMessageChanged();
 
 private:
     void applyFilter();
+    void setMessage(const QString &message);
+    int writeAwt(const QVector<Workout> &workouts, const QString &path);
+    static QString localPath(const QUrl &url);
     QVariantMap toMap(const Workout &w) const;
 
     Database *m_db;
@@ -75,6 +99,7 @@ private:
     QString m_category = QStringLiteral("All");
     int m_sort = MostPopular;
     qint64 m_selectedId = -1;
+    QString m_lastMessage;
 };
 
 } // namespace watt

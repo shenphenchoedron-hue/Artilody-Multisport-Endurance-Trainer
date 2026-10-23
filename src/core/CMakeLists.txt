@@ -8,11 +8,13 @@ qt_add_library(watt_core STATIC
     Database.h Database.cpp
     RideAnalysis.h RideAnalysis.cpp
     CsvExporter.h CsvExporter.cpp
+    FitExporter.h FitExporter.cpp
     WorkoutEngine.h WorkoutEngine.cpp
     SensorHub.h SensorHub.cpp
     TimeFormat.h TimeFormat.cpp
     ProfileManager.h ProfileManager.cpp
     WorkoutLibrary.h WorkoutLibrary.cpp
+    WorkoutIO.h WorkoutIO.cpp
     WorkoutBuilder.h WorkoutBuilder.cpp
     TrainingSession.h TrainingSession.cpp
     HistoryManager.h HistoryManager.cpp

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import Artilody.Backend
 
@@ -32,11 +33,11 @@ Item {
         y: 146
         width: parent.width - 2 * Theme.pageMargin
         height: 54
-        spacing: 14
+        spacing: 12
 
         AppTextField {
             Layout.fillWidth: true
-            Layout.minimumWidth: 220
+            Layout.minimumWidth: 170
             Layout.fillHeight: true
             iconName: "search"
             placeholderText: "Search workouts..."
@@ -57,7 +58,7 @@ Item {
                 Repeater {
                     model: Workouts.categories
                     Rectangle {
-                        width: catLabel.implicitWidth + 34
+                        width: catLabel.implicitWidth + 28
                         height: 44
                         radius: 8
                         color: Workouts.category === modelData ? Theme.accent : (catMouse.containsMouse ? Theme.hover : "transparent")
@@ -87,7 +88,7 @@ Item {
         }
 
         AppComboBox {
-            Layout.preferredWidth: 236
+            Layout.preferredWidth: 214
             Layout.fillHeight: true
             prefix: "Sort: "
             model: Workouts.sortModes
@@ -97,9 +98,60 @@ Item {
 
         AppButton {
             Layout.fillHeight: true
+            kind: "secondary"
+            bold: false
+            text: "Import"
+            iconName: "import"
+            onClicked: importDialog.open()
+        }
+
+        AppButton {
+            Layout.fillHeight: true
             text: "New Workout"
             iconName: "plus"
             onClicked: page.newWorkout()
+        }
+    }
+
+    // --- sharing (export / import) -------------------------------------------
+    function startExport(all) {
+        if (all && Workouts.customCount === 0) {
+            Workouts.exportAllCustom("")   // sets the "nothing to export" message
+            page.message(Workouts.lastMessage)
+            return
+        }
+        exportDialog.exportAll = all
+        exportDialog.selectedFile = Workouts.suggestedExportUrl(all ? -1 : page.sel.workoutId, all ? "all" : "awt")
+        exportDialog.open()
+    }
+
+    FileDialog {
+        id: importDialog
+        title: "Import workouts"
+        fileMode: FileDialog.OpenFiles
+        nameFilters: ["Workouts (*.awt *.json *.zwo)", "All files (*)"]
+        onAccepted: {
+            Workouts.importFiles(selectedFiles)
+            page.message(Workouts.lastMessage)
+        }
+    }
+
+    FileDialog {
+        id: exportDialog
+        property bool exportAll: false
+        title: exportAll ? "Export all my workouts" : "Export workout"
+        fileMode: FileDialog.SaveFile
+        nameFilters: exportAll ? ["Artilody workout (*.awt)"]
+                               : ["Artilody workout (*.awt)", "Zwift workout (*.zwo)"]
+        onAccepted: {
+            if (exportAll) {
+                Workouts.exportAllCustom(selectedFile)
+            } else {
+                // the file extension decides; without one the chosen filter does
+                var hint = selectedNameFilter.index === 1 ? "zwo" : "awt"
+                Workouts.exportWorkout(page.sel.workoutId, selectedFile, hint)
+            }
+            page.message(Workouts.lastMessage)
         }
     }
 
@@ -265,6 +317,15 @@ Item {
                 onClicked: moreMenu.popup()
                 Menu {
                     id: moreMenu
+                    MenuItem {
+                        text: "Export…"
+                        onTriggered: page.startExport(false)
+                    }
+                    MenuItem {
+                        text: "Export all my workouts…"
+                        onTriggered: page.startExport(true)
+                    }
+                    MenuSeparator {}
                     MenuItem {
                         text: "Duplicate"
                         onTriggered: {

@@ -2,6 +2,7 @@
 
 #include "CsvExporter.h"
 #include "Database.h"
+#include "FitExporter.h"
 #include "ProfileManager.h"
 #include "RideAnalysis.h"
 #include "TimeFormat.h"
@@ -9,6 +10,7 @@
 #include <QDir>
 #include <QLocale>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 #include <cmath>
 
@@ -236,20 +238,36 @@ void HistoryManager::setMessage(const QString &m)
     emit lastMessageChanged();
 }
 
-QUrl HistoryManager::suggestedExportUrl(bool summary) const
+QString HistoryManager::exportDir()
 {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (dir.isEmpty())
-        dir = QDir::homePath();
-    QString name;
-    if (summary || m_selected.id < 0) {
-        name = QStringLiteral("watt-history-%1.csv").arg(QDate::currentDate().toString(Qt::ISODate));
-    } else {
-        QString w = m_selected.workoutName;
-        w.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9]+")), QStringLiteral("-"));
-        name = QStringLiteral("ride-%1-%2.csv").arg(m_selected.startedAt.toString(QStringLiteral("yyyyMMdd-HHmm")), w);
-    }
-    return QUrl::fromLocalFile(QDir(dir).filePath(name));
+    return dir.isEmpty() ? QDir::homePath() : dir;
+}
+
+QString HistoryManager::rideFileName(const RideRecord &r, const QString &suffix)
+{
+    QString w = r.workoutName;
+    w.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9]+")), QStringLiteral("-"));
+    while (w.endsWith(QLatin1Char('-')))
+        w.chop(1);
+    while (w.startsWith(QLatin1Char('-')))
+        w.remove(0, 1);
+    QString name = QStringLiteral("ride-%1").arg(r.startedAt.toString(QStringLiteral("yyyyMMdd-HHmm")));
+    if (!w.isEmpty())
+        name += QLatin1Char('-') + w;
+    return name + QLatin1Char('.') + suffix;
+}
+
+QUrl HistoryManager::suggestedExportUrl(const QString &kind) const
+{
+    const QDir dir(exportDir());
+    if (kind == QLatin1String("folder"))
+        return QUrl::fromLocalFile(dir.absolutePath());
+    if (kind == QLatin1String("summary") || m_selected.id < 0)
+        return QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("watt-history-%1.csv").arg(QDate::currentDate().toString(Qt::ISODate))));
+    const QString suffix = kind == QLatin1String("fit") ? QStringLiteral("fit") : QStringLiteral("csv");
+    return QUrl::fromLocalFile(dir.filePath(rideFileName(m_selected, suffix)));
 }
 
 bool HistoryManager::exportSelectedCsv(const QUrl &file)
@@ -278,6 +296,62 @@ bool HistoryManager::exportSummaryCsv(const QUrl &file)
     }
     setMessage(QStringLiteral("Exported %1 rides to %2").arg(m_rides.size()).arg(QDir::toNativeSeparators(path)));
     return true;
+}
+
+bool HistoryManager::exportSelectedFit(const QUrl &file)
+{
+    if (m_selected.id < 0) {
+        setMessage(QStringLiteral("No ride selected"));
+        return false;
+    }
+    QString err;
+    const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
+    if (!fit::writeFile(path, m_selected, m_selSamples, &err)) {
+        setMessage(QStringLiteral("Export failed: %1").arg(err));
+        return false;
+    }
+    setMessage(QStringLiteral("Exported to %1").arg(QDir::toNativeSeparators(path)));
+    return true;
+}
+
+int HistoryManager::exportAllFit(const QUrl &folder)
+{
+    const QString path = folder.isLocalFile() ? folder.toLocalFile() : folder.toString();
+    const QDir dir(path);
+    if (path.isEmpty() || !dir.exists()) {
+        setMessage(QStringLiteral("Export failed: folder does not exist"));
+        return 0;
+    }
+    if (m_rides.isEmpty()) {
+        setMessage(QStringLiteral("No rides to export"));
+        return 0;
+    }
+    QSet<QString> used;
+    int written = 0;
+    QString firstError;
+    for (const RideRecord &r : m_rides) {
+        QString name = rideFileName(r, QStringLiteral("fit"));
+        if (used.contains(name))   // two rides of the same workout in the same minute
+            name.insert(name.size() - 4, QStringLiteral("-%1").arg(r.id));
+        used.insert(name);
+        QString err;
+        if (fit::writeFile(dir.filePath(name), r, m_db->rideSamples(r.id), &err))
+            ++written;
+        else if (firstError.isEmpty())
+            firstError = err;
+    }
+    if (written == 0)
+        setMessage(QStringLiteral("Export failed: %1").arg(firstError));
+    else if (written < m_rides.size())
+        setMessage(QStringLiteral("Exported %1 of %2 rides to %3 (%4)")
+                       .arg(written)
+                       .arg(m_rides.size())
+                       .arg(QDir::toNativeSeparators(dir.absolutePath()), firstError));
+    else
+        setMessage(QStringLiteral("Exported %1 FIT files to %2")
+                       .arg(written)
+                       .arg(QDir::toNativeSeparators(dir.absolutePath())));
+    return written;
 }
 
 } // namespace watt
