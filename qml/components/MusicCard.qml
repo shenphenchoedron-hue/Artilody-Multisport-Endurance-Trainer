@@ -203,7 +203,7 @@ Card {
     // up next
     Text {
         x: 16
-        y: 240
+        y: 234
         text: Music.upNext.length > 0 ? "Up Next" : (Music.hasTrack ? "" : "No music yet – open the library to add songs")
         color: Theme.text
         font.pixelSize: 15
@@ -211,75 +211,84 @@ Card {
         width: parent.width - 32
         wrapMode: Text.WordWrap
     }
-    Column {
+    // Bounded to the space left in the card: it never draws past the frame and
+    // scrolls if the rows do not fit (small cards).
+    ListView {
+        id: upNextList
         x: 16
-        y: 266
+        y: 258
         width: parent.width - 32
-        spacing: 6
-        Repeater {
-            model: Music.upNext
-            Item {
-                width: parent.width
-                height: 38
+        height: Math.max(0, parent.height - y - 12)
+        clip: true
+        spacing: 3
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        model: Music.upNext
+        ScrollBar.vertical: ScrollBar {
+            id: upNextBar
+            policy: upNextList.contentHeight > upNextList.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+        }
+        delegate: Item {
+            width: upNextList.width - (upNextBar.visible ? upNextBar.width + 4 : 0)
+            height: 34
+            Text {
+                text: index + 1
+                color: Theme.text
+                font.pixelSize: 14
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Rectangle {
+                x: 22
+                width: 30; height: 30; radius: 3
+                anchors.verticalCenter: parent.verticalCenter
+                color: Theme.zoneColor((modelData.index * 2 + 1) % 6)
+                opacity: 0.85
+                Icon { anchors.centerIn: parent; name: "music"; size: 16; color: "white" }
+            }
+            Column {
+                x: 62
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - 62 - 80
                 Text {
-                    text: index + 1
+                    text: modelData.title
                     color: Theme.text
                     font.pixelSize: 14
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-                Rectangle {
-                    x: 22
-                    width: 34; height: 34; radius: 3
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: Theme.zoneColor((modelData.index * 2 + 1) % 6)
-                    opacity: 0.85
-                    Icon { anchors.centerIn: parent; name: "music"; size: 18; color: "white" }
-                }
-                Column {
-                    x: 66
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 66 - 80
-                    Text {
-                        text: modelData.title
-                        color: Theme.text
-                        font.pixelSize: 14
-                        elide: Text.ElideRight
-                        width: parent.width
-                    }
-                    Text {
-                        text: modelData.artist
-                        color: Theme.textSecondary
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                        width: parent.width
-                    }
+                    elide: Text.ElideRight
+                    width: parent.width
                 }
                 Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 36
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: modelData.durationText
-                    color: Theme.text
-                    font.pixelSize: 13
+                    text: modelData.artist
+                    color: Theme.textSecondary
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    width: parent.width
                 }
-                Icon {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    name: "dots"
-                    size: 22
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: Music.playIndex(modelData.index)
-                    }
-                }
+            }
+            Text {
+                anchors.right: parent.right
+                anchors.rightMargin: 36
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData.durationText
+                color: Theme.text
+                font.pixelSize: 13
+            }
+            Icon {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                name: "dots"
+                size: 22
                 MouseArea {
                     anchors.fill: parent
-                    anchors.rightMargin: 30
-                    z: -1
                     cursorShape: Qt.PointingHandCursor
-                    onDoubleClicked: Music.playIndex(modelData.index)
+                    onClicked: Music.playIndex(modelData.index)
                 }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.rightMargin: 30
+                z: -1
+                cursorShape: Qt.PointingHandCursor
+                onDoubleClicked: Music.playIndex(modelData.index)
             }
         }
     }

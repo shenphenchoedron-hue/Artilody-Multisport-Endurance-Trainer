@@ -13,6 +13,7 @@
 #include "RowingRecords.h"
 #include "RowingSession.h"
 #include "SensorHub.h"
+#include "Track.h"
 #include "TrainingSession.h"
 #include "WorkoutBuilder.h"
 #include "WorkoutLibrary.h"
@@ -113,13 +114,41 @@ int main(int argc, char *argv[])
 
     MusicPlayer music(&db);
     const QString appDir = QCoreApplication::applicationDirPath();
-    music.initialize({ QDir(appDir).filePath(QStringLiteral("music")),
-                       QDir(appDir).filePath(QStringLiteral("../Resources/music")),   // macOS bundle
-                       QDir(appDir).filePath(QStringLiteral("../share/artilody-watts-trainer/music")), // Linux package
-                       QDir(appDir).filePath(QStringLiteral("../music")),
-                       QDir(appDir).filePath(QStringLiteral("../../music")),
-                       QDir(appDir).filePath(QStringLiteral("../../../../music")),
-                       QStandardPaths::writableLocation(QStandardPaths::MusicLocation) });
+    const QStringList musicFolders {
+        QDir(appDir).filePath(QStringLiteral("music")),
+        QDir(appDir).filePath(QStringLiteral("../Resources/music")),   // macOS bundle
+        QDir(appDir).filePath(QStringLiteral("../share/artilody-watts-trainer/music")), // Linux package
+        QDir(appDir).filePath(QStringLiteral("../music")),
+        QDir(appDir).filePath(QStringLiteral("../../music")),
+        QDir(appDir).filePath(QStringLiteral("../../../../music")),
+        QStandardPaths::writableLocation(QStandardPaths::MusicLocation)
+    };
+    // Screenshot aid: WATT_SCREENSHOT_MUSIC=1 adds a demo playlist with many
+    // long-named tracks (plus a few extra playlists) to the screenshot database
+    // so the music card and library can be checked with a full list.
+    if (!shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_MUSIC") > 0) {
+        QString file;   // a real file, so the player shows no "file not found"
+        for (const QString &folder : musicFolders.mid(0, musicFolders.size() - 1)) {
+            const QStringList mp3 = QDir(folder).entryList({ QStringLiteral("*.mp3") }, QDir::Files);
+            if (!mp3.isEmpty()) {
+                file = QDir(folder).filePath(mp3.constFirst());
+                break;
+            }
+        }
+        const qint64 id = db.createPlaylist(QStringLiteral("Demo: Very Long Endurance Ride Playlist for Testing"));
+        for (int i = 1; i <= 50; ++i) {
+            Track t;
+            t.path = file.isEmpty() ? QStringLiteral("/demo/track%1.mp3").arg(i) : file;
+            t.title = QStringLiteral("Track %1 – An Extremely Long Song Title That Should Be Elided Neatly").arg(i);
+            t.artist = QStringLiteral("The Orchestra of Unreasonably Long Artist Names feat. Guest %1").arg(i);
+            t.durationMs = (180 + i * 7) * 1000;
+            db.addTrack(id, t);
+        }
+        for (int i = 1; i <= 12; ++i)
+            db.createPlaylist(QStringLiteral("Demo playlist %1 with a long name").arg(i));
+        db.setSetting(QStringLiteral("music/playlist"), id);
+    }
+    music.initialize(musicFolders);
 
     // Keep views in sync with data changes.
     QObject::connect(&builder, &WorkoutBuilder::saved, &library, [&](qint64 id) {
@@ -190,6 +219,8 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile
+    //                                  (music: the music library dialog)
+    //   WATT_SCREENSHOT_MUSIC=1        seed a long demo playlist (see above)
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
     const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")
                                       .split(QLatin1Char(','), Qt::SkipEmptyParts);

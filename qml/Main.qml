@@ -85,6 +85,7 @@ ApplicationWindow {
         case "workouts-export": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("export"); break
         case "history": showPage("history"); screenshotMenu = historyPage.openScreenshotMenu(); break
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
+        case "music": showPage("dashboard"); musicLibrary.open(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
         // show the keyboard highlight (the destructive entry on the calendar menu)
@@ -92,6 +93,8 @@ ApplicationWindow {
             screenshotMenu.currentIndex = name === "calendar" ? screenshotMenu.count - 1 : 0
     }
     function closeScreenshotMenu() {
+        if (musicLibrary.visible)
+            musicLibrary.close()
         if (screenshotMenu)
             screenshotMenu.close()
         screenshotMenu = null

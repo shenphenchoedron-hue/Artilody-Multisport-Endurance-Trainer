@@ -45,17 +45,24 @@ AppDialog {
             clip: true
             model: Music.playlists
             spacing: 4
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {
+                id: playlistsBar
+                policy: playlists.contentHeight > playlists.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
             delegate: Rectangle {
-                width: ListView.view.width
+                width: playlists.width - (playlistsBar.visible ? playlistsBar.width + 2 : 0)
                 height: 44
                 radius: 8
                 readonly property bool current: modelData.id === Music.currentPlaylistId
                 color: current ? Theme.navSelected : (plMouse.containsMouse ? Theme.hover : "transparent")
                 Row {
                     x: 10
+                    width: parent.width - 10 - 44
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 10
                     Icon {
+                        id: plIcon
                         name: modelData.name === "Favorites" ? "heart" : "playlist"
                         size: 20
                         color: modelData.name === "Favorites" ? Theme.heartRate : Theme.text
@@ -65,7 +72,7 @@ AppDialog {
                         text: modelData.name
                         color: current ? Theme.accentLight : Theme.text
                         font.pixelSize: 15
-                        width: 150
+                        width: parent.width - plIcon.width - parent.spacing
                         elide: Text.ElideRight
                         anchors.verticalCenter: parent.verticalCenter
                     }
@@ -149,6 +156,9 @@ AppDialog {
                 border.color: Theme.accentLight
             }
             onEditingFinished: Music.renamePlaylist(Music.currentPlaylistId, text)
+            // long names: show the beginning, not the end, while not editing
+            onTextChanged: if (!activeFocus) cursorPosition = 0
+            onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
         }
         Row {
             anchors.right: parent.right
@@ -200,9 +210,12 @@ AppDialog {
             model: Music.tracks
             spacing: 2
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: ScrollBar {
+                id: tracksBar
+                policy: tracks.contentHeight > tracks.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
             delegate: Rectangle {
-                width: ListView.view.width
+                width: tracks.width - (tracksBar.visible ? tracksBar.width + 4 : 0)
                 height: 52
                 radius: 8
                 color: isCurrent ? Theme.navSelected : (trMouse.containsMouse ? Theme.hover : "transparent")
@@ -267,7 +280,9 @@ AppDialog {
         x: 304
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 8
+        width: dlg.panelWidth - 304 - 24
         text: Music.errorText
+        elide: Text.ElideMiddle
         color: Theme.danger
         font.pixelSize: 13
     }
