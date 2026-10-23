@@ -224,6 +224,7 @@ void TrainingSession::start()
     clearRecording();
     m_lastIndex = -2;
     m_lastRideId = -1;
+    m_lastCompleted = false;
     m_startedAt = QDateTime::currentDateTime();
     m_engine.start();
     if (w.id >= 0)
@@ -328,16 +329,19 @@ qint64 TrainingSession::stop()
         process(int(m_clock.restart()));
     if (!active())
         return m_lastRideId;   // process() just completed and saved the workout
-    return finishAndSave();
+    return finishAndSave(false);
 }
 
-qint64 TrainingSession::finishAndSave()
+qint64 TrainingSession::finishAndSave(bool completed)
 {
     m_timer.stop();
     m_engine.finish();
     m_hub->requestFreeRide();
     m_lastSentTarget = -1;
+    m_lastCompleted = completed;
     const qint64 id = saveRide();
+    if (id >= 0 && completed)
+        emit workoutCompleted(id, m_engine.workout().id);
     emit stateChanged();
     emit finished();
     if (id >= 0)
@@ -354,6 +358,7 @@ void TrainingSession::discard()
     if (!active())
         return;
     m_timer.stop();
+    m_lastCompleted = false;
     m_engine.finish();
     m_hub->requestFreeRide();
     m_lastSentTarget = -1;
@@ -370,7 +375,7 @@ void TrainingSession::skipInterval()
     emit targetChanged();
     emit tick();
     if (m_engine.state() == WorkoutEngine::State::Finished) {
-        finishAndSave();
+        finishAndSave(true);   // skipped to the end: the workout is done
         return;
     }
     applyTarget();
@@ -412,7 +417,7 @@ void TrainingSession::process(int ms)
     emit tick();
 
     if (m_engine.state() == WorkoutEngine::State::Finished)
-        finishAndSave();   // workout completed: store it automatically
+        finishAndSave(true);   // workout completed: store it automatically
 }
 
 void TrainingSession::recordUpTo(int second)

@@ -26,6 +26,7 @@ MenuItem {
     rightPadding: 14
     spacing: 12
     font.pixelSize: Theme.menuFontSize
+    font.weight: Font.Medium
 
     indicator: null   // the check mark is drawn in the leading icon slot
 
@@ -61,7 +62,7 @@ MenuItem {
             anchors.verticalCenter: parent.verticalCenter
             text: item.text
             font.pixelSize: item.font.pixelSize
-            font.weight: item.checked ? Font.DemiBold : Font.Medium
+            font.weight: item.checked ? Font.DemiBold : item.font.weight
             color: item.textColor
             elide: Text.ElideRight
         }

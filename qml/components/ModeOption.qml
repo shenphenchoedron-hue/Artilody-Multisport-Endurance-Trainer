@@ -1,6 +1,8 @@
 import QtQuick
 
-// Radio-style option card (rowing mode selector).
+// Radio-style option card (rowing mode selector). Uses Item.enabled (not a
+// redeclared property) so disabling also blocks input of the children.
+// Keyboard: Tab to focus, Space / Enter to choose.
 Rectangle {
     id: opt
     property string title
@@ -8,15 +10,25 @@ Rectangle {
     property string iconName
     property color iconColor: Theme.cyan
     property bool checked: false
-    property bool enabled: true
     signal clicked()
+
+    activeFocusOnTab: true
+    Accessible.role: Accessible.RadioButton
+    Accessible.name: title
+    Accessible.description: subtitle
+    Accessible.checkable: true
+    Accessible.checked: checked
+    Accessible.onPressAction: if (enabled) clicked()
+    Keys.onSpacePressed: if (enabled) clicked()
+    Keys.onReturnPressed: if (enabled) clicked()
+    Keys.onEnterPressed: if (enabled) clicked()
 
     implicitHeight: 56
     radius: 10
     opacity: enabled || checked ? 1 : 0.5
     color: checked ? Theme.navSelected : (mouse.containsMouse && enabled ? Theme.hover : Theme.cardStrong)
-    border.width: 1
-    border.color: checked ? Theme.accentLight : Theme.cardBorder
+    border.color: checked || activeFocus ? Theme.accentLight : Theme.cardBorder
+    border.width: activeFocus ? 2 : 1
 
     // radio
     Rectangle {
@@ -73,6 +85,6 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: opt.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: if (opt.enabled) opt.clicked()
+        onClicked: opt.clicked()   // a disabled item gets no mouse events
     }
 }

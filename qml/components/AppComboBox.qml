@@ -80,6 +80,11 @@ ComboBox {
     }
 
     popup: Popup {
+        // the popup lives in the unscaled window overlay: apply the UI scale
+        // (Main.qml uiScale) so it matches the scaled combo box
+        readonly property var appWindow: combo.Window.window
+        scale: appWindow && appWindow.uiScale > 0 ? appWindow.uiScale : 1
+        transformOrigin: Popup.TopLeft
         y: combo.height + 4
         width: combo.width
         implicitHeight: Math.min(contentItem.implicitHeight + 12, 360)

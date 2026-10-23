@@ -16,9 +16,12 @@ Item {
     function paceText(sec) {
         if (!(sec > 0) || sec > 3600)
             return "–"
-        var m = Math.floor(sec / 60)
-        var s = sec - m * 60
-        return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1)
+        // round to tenths first, so 119.97 s reads "2:00.0" (not "1:60.0")
+        var tenths = Math.round(sec * 10)
+        var m = Math.floor(tenths / 600)
+        var t = tenths - m * 600            // tenths of a second within the minute
+        var s = Math.floor(t / 10)
+        return m + ":" + (s < 10 ? "0" : "") + s + "." + (t % 10)
     }
 
     PageHeader {
@@ -325,14 +328,25 @@ Item {
                                         x: section.kindName === "hr" ? 360 : 286
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 14
+                                        // static model; the live values are bindings inside
+                                        // the delegate (no delegate rebuild per sensor update)
                                         Repeater {
-                                            model: section.kindName === "hr"
-                                                   ? [{ c: "Heart Rate", v: Sensors.heartRate + " BPM" }]
-                                                   : [{ c: "Power", v: Sensors.power + " W" }, { c: "Cadence", v: Sensors.cadence + " RPM" }]
+                                            model: section.kindName === "hr" ? ["hr"] : ["power", "cadence"]
                                             Column {
                                                 spacing: 2
-                                                Text { text: modelData.c; color: Theme.textSecondary; font.pixelSize: 13 }
-                                                Text { text: modelData.v; color: Theme.text; font.pixelSize: 17; font.weight: Font.Bold }
+                                                Text {
+                                                    text: modelData === "hr" ? "Heart Rate" : modelData === "power" ? "Power" : "Cadence"
+                                                    color: Theme.textSecondary
+                                                    font.pixelSize: 13
+                                                }
+                                                Text {
+                                                    text: modelData === "hr" ? Sensors.heartRate + " BPM"
+                                                          : modelData === "power" ? Sensors.power + " W"
+                                                          : Sensors.cadence + " RPM"
+                                                    color: Theme.text
+                                                    font.pixelSize: 17
+                                                    font.weight: Font.Bold
+                                                }
                                             }
                                         }
                                     }
@@ -343,12 +357,8 @@ Item {
                                         y: 92
                                         spacing: 8
                                         Repeater {
-                                            model: [
-                                                { c: "Power", v: Devices.rowerWatts + " W" },
-                                                { c: "Stroke rate", v: Devices.rowerStrokesPerMinute + " SPM" },
-                                                { c: "Pace /500m", v: page.paceText(Devices.rowerPace500) },
-                                                { c: "Distance", v: Theme.thousands(Devices.rowerDistance) + " m" }
-                                            ]
+                                            // static captions; values bound in the delegate
+                                            model: ["Power", "Stroke rate", "Pace /500m", "Distance"]
                                             Rectangle {
                                                 width: (listCol.width - 24 - 3 * 8) / 4
                                                 height: 56
@@ -358,8 +368,16 @@ Item {
                                                     x: 10
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     spacing: 2
-                                                    Text { text: modelData.c; color: Theme.textSecondary; font.pixelSize: 12 }
-                                                    Text { text: modelData.v; color: Theme.text; font.pixelSize: 17; font.weight: Font.Bold }
+                                                    Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 12 }
+                                                    Text {
+                                                        text: index === 0 ? Devices.rowerWatts + " W"
+                                                              : index === 1 ? Devices.rowerStrokesPerMinute + " SPM"
+                                                              : index === 2 ? page.paceText(Devices.rowerPace500)
+                                                              : Theme.thousands(Devices.rowerDistance) + " m"
+                                                        color: Theme.text
+                                                        font.pixelSize: 17
+                                                        font.weight: Font.Bold
+                                                    }
                                                 }
                                             }
                                         }

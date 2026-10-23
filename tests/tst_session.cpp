@@ -545,6 +545,59 @@ private slots:
         QVERIFY(session->running());
         QVERIFY(session->freeRide());
     }
+
+    // Plan entries are only ticked off for completed workouts.
+    void workoutCompletedOnlyWhenFinished()
+    {
+        const qint64 id = db->saveWorkout(shortWorkout());
+        QVERIFY(id >= 0);
+        QSignalSpy completed(session, &TrainingSession::workoutCompleted);
+        QSignalSpy saved(session, &TrainingSession::rideSaved);
+
+        // stopped early: saved, but not completed
+        QVERIFY(session->loadWorkout(id));
+        session->start();
+        ride(40, 150);
+        QVERIFY(session->stop() >= 0);
+        QCOMPARE(saved.size(), 1);
+        QCOMPARE(completed.size(), 0);
+        QVERIFY(!session->lastWorkoutCompleted());
+
+        // ridden to the end: completed, emitted after rideSaved
+        QVERIFY(session->loadWorkout(id));
+        session->start();
+        ride(121, 150);
+        QCOMPARE(session->state(), int(TrainingSession::Finished));
+        QCOMPARE(saved.size(), 2);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.at(0).at(0).toLongLong(), saved.at(1).at(0).toLongLong());
+        QCOMPARE(completed.at(0).at(1).toLongLong(), id);
+        QVERIFY(session->lastWorkoutCompleted());
+
+        // discarded: nothing
+        QVERIFY(session->loadWorkout(id));
+        session->start();
+        ride(40, 150);
+        session->discard();
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!session->lastWorkoutCompleted());
+    }
+
+    void historySelectsNewRideOnlyWhenVisible()
+    {
+        HistoryManager history(db, profiles);
+        history.setSportFilter(QStringLiteral("rowing"));
+        session->loadWorkout(shortWorkout());
+        session->start();
+        ride(40, 150);
+        const qint64 id = session->stop();
+        QVERIFY(id >= 0);
+        history.showNewRide(id);   // cycling ride, rowing filter: not shown, not selected
+        QVERIFY(history.selectedRide().isEmpty());
+        history.setSportFilter(QStringLiteral("all"));
+        history.showNewRide(id);
+        QCOMPARE(history.selectedRide().value(QStringLiteral("rideId")).toLongLong(), id);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSession)

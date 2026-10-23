@@ -196,6 +196,58 @@ private slots:
         QCOMPARE(db2.setting(QStringLiteral("k")).toInt(), 42);
         QCOMPARE(db2.setting(QStringLiteral("missing"), 7).toInt(), 7);
     }
+
+    void deletingRideReopensPlanEntry()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        const qint64 profileId = db.profiles().first().id;
+        const qint64 workoutId = db.workouts().first().id;
+        const qint64 entry = db.addPlannedWorkout(profileId, QDate::currentDate(), workoutId);
+        RideRecord r;
+        r.profileId = profileId;
+        r.workoutId = workoutId;
+        r.startedAt = QDateTime::currentDateTime();
+        const qint64 rideId = db.saveRide(r, { { 0, 100, 0, 80, 0 } });
+        QCOMPARE(db.completePlannedWorkout(profileId, workoutId, QDate::currentDate(), rideId), entry);
+        QVERIFY(db.plannedWorkout(entry)->completed);
+        QCOMPARE(db.plannedWorkout(entry)->rideId, rideId);
+
+        QVERIFY(db.deleteRide(rideId));
+        QVERIFY(!db.ride(rideId));
+        QVERIFY(!db.plannedWorkout(entry)->completed);
+        QCOMPARE(db.plannedWorkout(entry)->rideId, qint64(-1));
+        QVERIFY(!db.deleteRide(rideId));   // unknown id
+    }
+
+    void deletingWorkoutRemovesPlanEntriesAtomically()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        const qint64 profileId = db.profiles().first().id;
+        Workout w;
+        w.name = QStringLiteral("Temp");
+        Interval i; i.durationSec = 60;
+        w.intervals = { i };
+        const qint64 id = db.saveWorkout(w);
+        const qint64 entry = db.addPlannedWorkout(profileId, QDate::currentDate(), id);
+        QVERIFY(entry > 0);
+        QVERIFY(!db.deleteWorkout(999999));
+        QVERIFY(db.plannedWorkout(entry));
+        QVERIFY(db.deleteWorkout(id));
+        QVERIFY(!db.workout(id));
+        QVERIFY(!db.plannedWorkout(entry));
+        // the built-in FTP test stays protected, its plan entries too
+        qint64 ftp = -1;
+        for (const Workout &x : db.workouts())
+            if (x.isProtected())
+                ftp = x.id;
+        const qint64 ftpEntry = db.addPlannedWorkout(profileId, QDate::currentDate(), ftp);
+        QVERIFY(!db.deleteWorkout(ftp));
+        QVERIFY(db.plannedWorkout(ftpEntry));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestDatabase)

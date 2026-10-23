@@ -244,6 +244,7 @@ private:
     Raw raw() const;
     void captureReady();
     void rebase();
+    void rebaseOrDefer();
     void setState(State s);
     void prepare(Mode mode);
     void clearRecording();
@@ -286,7 +287,10 @@ private:
 
     int m_targetDistance = 0;
     Raw m_ready;          // monitor values at the last update before start
+    bool m_readyValid = false;   // m_ready holds values the monitor reported
     Raw m_offset;         // subtracted from the monitor values while active
+    bool m_rebasePending = false;   // rebase on the next measurement (new device without data yet)
+    bool m_pausedDuringPiece = false;
     double m_distance = 0;
     int m_strokes = 0;
     int m_calories = 0;

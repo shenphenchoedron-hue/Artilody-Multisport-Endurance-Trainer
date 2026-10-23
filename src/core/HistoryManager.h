@@ -64,7 +64,10 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void selectRide(qint64 id);
-    Q_INVOKABLE bool deleteRide(qint64 id);
+    Q_INVOKABLE bool deleteRide(qint64 id);   // also reopens the plan entry it completed (rideDeleted())
+    // After a ride was saved: refreshes and selects the ride when it is shown
+    // with the current filters (otherwise the selection is kept).
+    void showNewRide(qint64 id);
     Q_INVOKABLE bool exportSelectedCsv(const QUrl &file);
     Q_INVOKABLE bool exportSummaryCsv(const QUrl &file);
     Q_INVOKABLE bool exportSelectedFit(const QUrl &file);
@@ -79,6 +82,7 @@ signals:
     void dataChanged();
     void selectionChanged();
     void lastMessageChanged();
+    void rideDeleted(qint64 id);
 
 private:
     void setMessage(const QString &m);

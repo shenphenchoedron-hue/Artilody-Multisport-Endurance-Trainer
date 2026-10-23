@@ -111,6 +111,36 @@ private slots:
         QVERIFY(profiles.selectProfile(first));
         QCOMPARE(rec.ghostDistance(2000, 240), 1200.0);
     }
+
+    void implausibleAndPerProfile()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        RowingRecords rec(&db, &profiles);
+
+        // faster than 1:00 /500 m: bad monitor data, never a record
+        QVERIFY(!RowingRecords::plausibleTime(500, 59.9));
+        QVERIFY(RowingRecords::plausibleTime(500, 60.0));
+        QVERIFY(!rec.saveIfBest(500, 30.0, QVector<TracePoint> {}));
+        QVERIFY(!rec.saveIfBest(2000, 200.0, QVariantList {}));
+        QVERIFY(rec.bestFor(500).isEmpty());
+
+        // a record for the rider of the piece, not the active profile
+        const qint64 first = profiles.profileId();
+        const qint64 other = profiles.createProfile(QStringLiteral("Other"));
+        QVERIFY(profiles.selectProfile(first));
+        QSignalSpy changed(&rec, &RowingRecords::recordsChanged);
+        QVERIFY(rec.saveIfBest(1000, 240.0, QVector<TracePoint> {}, -1, other));
+        QCOMPARE(changed.count(), 0);   // the active profile's records did not change
+        QVERIFY(!rec.best(1000).has_value());
+        QCOMPARE(rec.best(1000, other)->timeSec, 240.0);
+        QVERIFY(!rec.saveIfBest(1000, 250.0, QVector<TracePoint> {}, -1, other));
+        QVERIFY(rec.saveIfBest(1000, 250.0, QVector<TracePoint> {}));   // first record of `first`
+        QCOMPARE(rec.best(1000)->timeSec, 250.0);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestRowingRecords)

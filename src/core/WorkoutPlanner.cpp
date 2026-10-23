@@ -15,6 +15,51 @@ WorkoutPlanner::WorkoutPlanner(Database *db, ProfileManager *profiles, QObject *
     connect(m_profiles, &ProfileManager::profileChanged, this, &WorkoutPlanner::refresh);
 }
 
+void WorkoutPlanner::setActiveEntry(qint64 entryId)
+{
+    const auto e = entryId >= 0 ? m_db->plannedWorkout(entryId) : std::nullopt;
+    const qint64 id = e && e->profileId == m_profiles->profileId() ? entryId : -1;
+    if (m_activeEntryId == id)
+        return;
+    m_activeEntryId = id;
+    emit activeEntryChanged();
+}
+
+void WorkoutPlanner::clearActiveEntry()
+{
+    if (m_activeEntryId < 0)
+        return;
+    m_activeEntryId = -1;
+    emit activeEntryChanged();
+}
+
+qint64 WorkoutPlanner::completeForRide(qint64 workoutId, const QDate &date, qint64 rideId, qint64 profileId)
+{
+    if (workoutId < 0)
+        return -1;
+    const qint64 profile = profileId >= 0 ? profileId : m_profiles->profileId();
+    if (m_activeEntryId >= 0) {
+        const auto e = m_db->plannedWorkout(m_activeEntryId);
+        if (!e) {
+            clearActiveEntry();   // deleted meanwhile
+        } else if (e->workoutId == workoutId && e->profileId == profile) {
+            const qint64 id = m_activeEntryId;
+            const bool ok = m_db->setPlannedCompleted(id, true, rideId);
+            clearActiveEntry();
+            if (ok) {
+                refresh();
+                return id;
+            }
+        }
+        // else: a different workout was ridden; the active entry stays open.
+    }
+    const QDate d = date.isValid() ? date : QDate::currentDate();
+    const qint64 id = m_db->completePlannedWorkout(profile, workoutId, d, rideId);
+    if (id >= 0)
+        refresh();
+    return id;
+}
+
 void WorkoutPlanner::refresh()
 {
     ++m_revision;
@@ -35,13 +80,17 @@ QDate WorkoutPlanner::toDate(const QVariant &value)
         break;
     }
     const QString text = value.toString().trimmed();
-    QDate d = QDate::fromString(text.left(10), Qt::ISODate);
-    if (!d.isValid()) {
-        const QDateTime dt = QDateTime::fromString(text, Qt::ISODate);
+    // A full date-time (e.g. a JS Date serialized as "2026-03-14T23:30:00.000Z")
+    // names a moment: its local calendar day may differ from the first 10
+    // characters, so parse it as a date-time first.
+    if (text.size() > 10) {
+        QDateTime dt = QDateTime::fromString(text, Qt::ISODateWithMs);
+        if (!dt.isValid())
+            dt = QDateTime::fromString(text, Qt::ISODate);
         if (dt.isValid())
-            d = dt.toLocalTime().date();
+            return dt.toLocalTime().date();
     }
-    return d;
+    return QDate::fromString(text.left(10), Qt::ISODate);
 }
 
 QVariantMap WorkoutPlanner::toMap(const PlannedWorkout &e) const
@@ -195,12 +244,13 @@ bool WorkoutPlanner::isRowing(const QVariant &entryOrId) const
     return sportFor(entryOrId) == sport::rowing();
 }
 
-qint64 WorkoutPlanner::markCompletedForWorkout(qint64 workoutId, const QVariant &date, qint64 rideId)
+qint64 WorkoutPlanner::markCompletedForWorkout(qint64 workoutId, const QVariant &date, qint64 rideId, qint64 profileId)
 {
     QDate d = toDate(date);
     if (!d.isValid())
         d = QDate::currentDate();
-    const qint64 id = m_db->completePlannedWorkout(m_profiles->profileId(), workoutId, d, rideId);
+    const qint64 id = m_db->completePlannedWorkout(profileId >= 0 ? profileId : m_profiles->profileId(), workoutId, d,
+                                                   rideId);
     if (id >= 0)
         refresh();
     return id;

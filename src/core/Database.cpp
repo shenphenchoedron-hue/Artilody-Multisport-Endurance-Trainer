@@ -503,15 +503,39 @@ bool Database::deleteWorkout(qint64 id)
         return false;
     }
     // Plan entries of the workout would dangle (the FK cascade covers this too,
-    // but only when foreign keys are enabled on the connection).
-    QSqlQuery plan(db());
+    // but only when foreign keys are enabled on the connection). Both deletes
+    // succeed or neither does.
+    QSqlDatabase d = db();
+    if (!d.transaction()) {
+        setError(QStringLiteral("deleteWorkout"), d.lastError().text());
+        return false;
+    }
+    QSqlQuery plan(d);
     plan.prepare(QStringLiteral("DELETE FROM planned_workouts WHERE workout_id = ?"));
     plan.addBindValue(id);
-    plan.exec();
-    QSqlQuery q(db());
+    if (!plan.exec()) {
+        setError(QStringLiteral("deleteWorkout plan"), plan.lastError().text());
+        d.rollback();
+        return false;
+    }
+    QSqlQuery q(d);
     q.prepare(QStringLiteral("DELETE FROM workouts WHERE id = ?"));
     q.addBindValue(id);
-    return q.exec() && q.numRowsAffected() > 0;
+    if (!q.exec()) {
+        setError(QStringLiteral("deleteWorkout"), q.lastError().text());
+        d.rollback();
+        return false;
+    }
+    if (q.numRowsAffected() <= 0) {
+        d.rollback();   // unknown id: nothing changed
+        return false;
+    }
+    if (!d.commit()) {
+        setError(QStringLiteral("deleteWorkout commit"), d.lastError().text());
+        d.rollback();
+        return false;
+    }
+    return true;
 }
 
 bool Database::setWorkoutFavorite(qint64 id, bool favorite)
@@ -639,10 +663,38 @@ QVector<Sample> Database::rideSamples(qint64 rideId) const
 
 bool Database::deleteRide(qint64 id)
 {
-    QSqlQuery q(db());
+    // A plan entry ticked off by this ride is open again afterwards.
+    QSqlDatabase d = db();
+    if (!d.transaction()) {
+        setError(QStringLiteral("deleteRide"), d.lastError().text());
+        return false;
+    }
+    QSqlQuery plan(d);
+    plan.prepare(QStringLiteral("UPDATE planned_workouts SET completed = 0, ride_id = NULL WHERE ride_id = ?"));
+    plan.addBindValue(id);
+    if (!plan.exec()) {
+        setError(QStringLiteral("deleteRide plan"), plan.lastError().text());
+        d.rollback();
+        return false;
+    }
+    QSqlQuery q(d);
     q.prepare(QStringLiteral("DELETE FROM rides WHERE id = ?"));
     q.addBindValue(id);
-    return q.exec() && q.numRowsAffected() > 0;
+    if (!q.exec()) {
+        setError(QStringLiteral("deleteRide"), q.lastError().text());
+        d.rollback();
+        return false;
+    }
+    if (q.numRowsAffected() <= 0) {
+        d.rollback();
+        return false;
+    }
+    if (!d.commit()) {
+        setError(QStringLiteral("deleteRide commit"), d.lastError().text());
+        d.rollback();
+        return false;
+    }
+    return true;
 }
 
 // --- workout plan ----------------------------------------------------------

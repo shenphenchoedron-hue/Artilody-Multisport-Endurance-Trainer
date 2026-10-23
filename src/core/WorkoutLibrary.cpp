@@ -364,7 +364,8 @@ bool isDuplicate(const Workout &w, const QVector<Workout> &existing)
 {
     const QString base = baseImportName(w.name);
     for (const Workout &e : existing) {
-        if (e.intervals == w.intervals && baseImportName(e.name).compare(base, Qt::CaseInsensitive) == 0)
+        if (e.intervals == w.intervals && sport::normalize(e.sport) == sport::normalize(w.sport)
+            && baseImportName(e.name).compare(base, Qt::CaseInsensitive) == 0)
             return true;
     }
     return false;

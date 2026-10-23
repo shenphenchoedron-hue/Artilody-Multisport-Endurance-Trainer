@@ -4,6 +4,9 @@ import QtQuick.Controls
 // Themed context / drop-down menu. Use with AppMenuItem and AppMenuSeparator.
 // Sizes itself to the widest item (at least minWidth, at most the window width),
 // stays 8 px inside the window and fades in. Keyboard: arrows, Enter, Esc.
+// Popups live in the (unscaled) window overlay, so the menu applies the window's
+// uiScale itself to match the uniformly scaled UI on small screens; all sizes
+// below are in unscaled (design) units.
 Menu {
     id: menu
 
@@ -18,7 +21,14 @@ Menu {
         }
         return w
     }
-    readonly property real windowWidth: parent && parent.Window.window ? parent.Window.window.width : 100000
+    readonly property var appWindow: parent && parent.Window.window ? parent.Window.window : null
+    readonly property real uiScale: appWindow && appWindow.uiScale > 0 ? appWindow.uiScale : 1
+    // window size in the menu's own (design) units
+    readonly property real windowWidth: appWindow ? appWindow.width / uiScale : 100000
+    readonly property real windowHeight: appWindow ? appWindow.height / uiScale : 100000
+
+    scale: uiScale
+    transformOrigin: Popup.TopLeft
 
     margins: 8
     padding: 6
@@ -30,7 +40,7 @@ Menu {
     contentItem: ListView {
         implicitHeight: contentHeight
         model: menu.contentModel
-        interactive: Window.window ? contentHeight + menu.topPadding + menu.bottomPadding > Window.window.height : false
+        interactive: contentHeight + menu.topPadding + menu.bottomPadding > menu.windowHeight - 2 * menu.margins
         clip: true
         currentIndex: menu.currentIndex
         keyNavigationEnabled: false   // Menu handles the keys itself
@@ -63,7 +73,7 @@ Menu {
 
     enter: Transition {
         NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 120; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: 120; easing.type: Easing.OutCubic }
+        NumberAnimation { property: "scale"; from: 0.97 * menu.uiScale; to: menu.uiScale; duration: 120; easing.type: Easing.OutCubic }
     }
     exit: Transition {
         NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 90; easing.type: Easing.InCubic }

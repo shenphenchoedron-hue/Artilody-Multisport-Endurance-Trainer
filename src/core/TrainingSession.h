@@ -122,6 +122,9 @@ public:
     QVariantList heartRateSeries() const;
     int seriesStep() const;
     qint64 lastRideId() const { return m_lastRideId; }
+    // True when the last finished ride ran the workout to its end (also when
+    // the remaining intervals were skipped); false after stop()/discard().
+    bool lastWorkoutCompleted() const { return m_lastCompleted; }
     const QVector<Sample> &samples() const { return m_samples; }
     const WorkoutEngine &engine() const { return m_engine; }
 
@@ -160,6 +163,9 @@ signals:
     void tick();
     void seriesChanged();
     void rideSaved(qint64 id);
+    // Emitted right after rideSaved() when the saved ride completed its
+    // workout (not stopped early). Plan entries are only ticked off by this.
+    void workoutCompleted(qint64 rideId, qint64 workoutId);
     void finished();
     // start()/startWhenPedaling() was refused because another session (rowing) is active.
     void startRefused();
@@ -179,7 +185,7 @@ private:
     void applyTarget(bool force = false);
     void clearRecording();
     qint64 saveRide();
-    qint64 finishAndSave();
+    qint64 finishAndSave(bool completed);
     void checkFtpTest(qint64 rideId);
     QVariantList downsample(const QVector<int> &data, bool ignoreZero) const;
 
@@ -205,6 +211,7 @@ private:
     qint64 m_rideMs = 0;        // ridden time (excludes pauses and skipped intervals)
     Profile m_rideProfile;      // rider snapshot taken at start()
     qint64 m_lastRideId = -1;
+    bool m_lastCompleted = false;
     std::function<bool()> m_startBlocker;
 };
 

@@ -91,6 +91,11 @@ Item {
         return m + ":" + (ss < 10 ? "0" : "") + ss
     }
 
+    // QML color -> CSS string for the Canvas (keeps the alpha channel)
+    function css(c) {
+        return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + "," + Math.round(c.b * 255) + "," + c.a + ")"
+    }
+
     onPowerSeriesChanged: canvas.requestPaint()
     onXMaxChanged: canvas.requestPaint()
     onXModeChanged: canvas.requestPaint()
@@ -98,6 +103,11 @@ Item {
     onTargetsChanged: canvas.requestPaint()
     onWidthChanged: canvas.requestPaint()
     onHeightChanged: canvas.requestPaint()
+
+    Connections {
+        target: Theme
+        function onDarkChanged() { canvas.requestPaint() }
+    }
 
     Canvas {
         id: canvas
@@ -178,7 +188,7 @@ Item {
 
             // --- target power (plan) -----------------------------------------
             if (chart.targets.length > 0 && chart.xMode === "time") {
-                ctx.strokeStyle = "rgba(255,255,255,0.75)"
+                ctx.strokeStyle = chart.css(Theme.strongLine)
                 ctx.lineWidth = 2
                 ctx.setLineDash([6, 4])
                 ctx.beginPath()
@@ -260,7 +270,7 @@ Item {
             // --- cursor ---------------------------------------------------------
             if (chart.cursor >= 0) {
                 var cx = chart.px(chart.cursor)
-                ctx.strokeStyle = "rgba(255,255,255,0.9)"
+                ctx.strokeStyle = chart.css(Theme.strongLine)
                 ctx.lineWidth = 1.5
                 ctx.setLineDash([5, 4])
                 ctx.beginPath(); ctx.moveTo(cx, T); ctx.lineTo(cx, T + H); ctx.stroke()
@@ -284,7 +294,7 @@ Item {
     // axis titles
     Text {
         text: "Power (W)"
-        color: Theme.warning
+        color: Theme.warningText
         font.pixelSize: 15
         rotation: -90
         x: 6 - width / 2 + height / 2

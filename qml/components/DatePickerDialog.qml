@@ -11,7 +11,7 @@ AppDialog {
     property string selectedIso
     property int viewYear: 2026
     property int viewMonth: 1          // 1..12
-    readonly property string todayIso: dlg.isoOf(new Date())
+    property string todayIso: dlg.isoOf(new Date())   // refreshed by openFor() (app may stay open past midnight)
     signal picked(string iso)
 
     title: "Pick a date"
@@ -32,6 +32,7 @@ AppDialog {
     }
 
     function openFor(iso) {
+        todayIso = isoOf(new Date())
         selectedIso = iso && String(iso).length === 10 ? String(iso) : isoOf(new Date())
         var d = parseIso(selectedIso)
         viewYear = d.getFullYear()

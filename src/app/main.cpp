@@ -31,6 +31,7 @@
 #include <QTimer>
 #include <memory>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 
 using namespace watt;
 
@@ -57,7 +58,21 @@ int main(int argc, char *argv[])
 
     // --- back-end --------------------------------------------------------
     Database db;
+    // Screenshot mode (see below) writes demo data (rides, records, a demo
+    // workout): never into the user's real database. Without WATT_DB_PATH it
+    // runs on a throw-away database.
+    const QString shotDir = qEnvironmentVariable("WATT_SCREENSHOT_DIR");
+    std::unique_ptr<QTemporaryDir> shotDbDir;
     QString dbPath = qEnvironmentVariable("WATT_DB_PATH");
+    if (dbPath.isEmpty() && !shotDir.isEmpty()) {
+        shotDbDir = std::make_unique<QTemporaryDir>();
+        if (!shotDbDir->isValid()) {
+            qCritical("Screenshot mode: could not create a temporary database (set WATT_DB_PATH)");
+            return 1;
+        }
+        dbPath = shotDbDir->filePath(QStringLiteral("screenshot.sqlite"));
+        qInfo("Screenshot mode: using temporary database %s", qPrintable(dbPath));
+    }
     if (dbPath.isEmpty())
         dbPath = Database::defaultPath();
     if (!db.open(dbPath)) {
@@ -93,10 +108,7 @@ int main(int argc, char *argv[])
     rowing.setTrainingSession(&training);
     rowing.setRower(devices.rower());
     QObject::connect(&devices, &DeviceManager::rowerChanged, &rowing, &RowingSession::setRower);
-    QObject::connect(&rowing, &RowingSession::rideSaved, &history, [&](qint64 id) {
-        history.refresh();
-        history.selectRide(id);
-    });
+    QObject::connect(&rowing, &RowingSession::rideSaved, &history, &HistoryManager::showNewRide);
     devices.initialize();
 
     MusicPlayer music(&db);
@@ -114,17 +126,21 @@ int main(int argc, char *argv[])
         library.reload();
         library.setSelectedId(id);
     });
-    QObject::connect(&training, &TrainingSession::rideSaved, &history, [&](qint64 id) {
-        history.refresh();
-        history.selectRide(id);
-    });
-    // A finished ride of a planned workout ticks off that day's plan entry.
-    QObject::connect(&training, &TrainingSession::rideSaved, &planner, [&](qint64 id) {
-        if (const auto ride = db.ride(id); ride && ride->workoutId >= 0)
-            planner.markCompletedForWorkout(ride->workoutId, ride->startedAt.date(), id);
+    // Calendar entries show workout name/duration/sport: refresh after edits.
+    QObject::connect(&builder, &WorkoutBuilder::saved, &planner, &WorkoutPlanner::refresh);
+    QObject::connect(&training, &TrainingSession::rideSaved, &history, &HistoryManager::showNewRide);
+    // A completed (not stopped early) ride of a planned workout ticks off its
+    // plan entry: the one started from the calendar, else today's open entry.
+    QObject::connect(&training, &TrainingSession::workoutCompleted, &planner, [&](qint64 rideId, qint64 workoutId) {
+        if (workoutId < 0)
+            return;
+        if (const auto ride = db.ride(rideId))
+            planner.completeForRide(workoutId, ride->startedAt.date(), rideId, ride->profileId);
     });
     // Deleting/importing workouts changes plan entries (deleted ones vanish).
     QObject::connect(&library, &WorkoutLibrary::countChanged, &planner, &WorkoutPlanner::refresh);
+    // Deleting a ride reopens the plan entry it completed.
+    QObject::connect(&history, &HistoryManager::rideDeleted, &planner, &WorkoutPlanner::refresh);
 
     // Default workout on the (cycling) dashboard: the selected workout when it
     // is a cycling workout, else the first cycling workout. Rowing workouts
@@ -175,12 +191,15 @@ int main(int argc, char *argv[])
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
-    const QString shotDir = qEnvironmentVariable("WATT_SCREENSHOT_DIR");
     const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")
                                       .split(QLatin1Char(','), Qt::SkipEmptyParts);
     const bool shotRowing = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING") > 0;
-    if (!shotDir.isEmpty() && !engine.rootObjects().isEmpty()) {
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
+        ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
+    if (!shotDir.isEmpty() && !shotWindow)
+        qWarning("Screenshot mode: no window to capture");
+    if (shotWindow) {
+        QQuickWindow *window = shotWindow;
         QDir().mkpath(shotDir);
         QSize shotSize(1584, 992);
         const QStringList sz = qEnvironmentVariable("WATT_SCREENSHOT_SIZE").split(QLatin1Char('x'));
@@ -301,10 +320,15 @@ int main(int argc, char *argv[])
     }
 
     const int rc = app.exec();
-    if (training.active())
-        training.stop();   // never lose a ride on exit
+    // Never lose a ride on exit - except the demo sessions of screenshot mode.
+    if (training.armedOrActive()) {
+        if (shotDir.isEmpty())
+            training.stop();
+        else
+            training.discard();
+    }
     if (rowing.active())
-        rowing.finish(!shotRowing);   // screenshot rows are demo data
+        rowing.finish(shotDir.isEmpty());
 
     return rc;
 }

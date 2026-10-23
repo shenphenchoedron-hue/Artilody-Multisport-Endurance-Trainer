@@ -7,9 +7,11 @@ import QtQuick
 // tracks place it with x = tipX - tipOffset so the bow touches the line.
 Item {
     id: boat
-    property color hullColor: "white"
-    property color deckColor: "#16214f"
-    property color oarColor: "white"
+    // defaults follow the theme: a white hull on the dark water, a navy one on
+    // the pale light-theme water / cards
+    property color hullColor: Theme.dark ? "white" : "#1f3d9a"
+    property color deckColor: Theme.dark ? "#16214f" : "#dfe6f8"
+    property color oarColor: Theme.dark ? "white" : "#16214f"
     property color bladeColor: Theme.cyan
     property int strokeCount: 0
     property int strokeRate: 24          // strokes per minute (animation timing)

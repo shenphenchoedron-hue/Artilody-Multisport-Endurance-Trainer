@@ -249,7 +249,19 @@ bool HistoryManager::deleteRide(qint64 id)
     if (!m_db->deleteRide(id))
         return false;
     refresh();
+    emit rideDeleted(id);
     return true;
+}
+
+void HistoryManager::showNewRide(qint64 id)
+{
+    refresh();
+    for (const RideRecord &r : std::as_const(m_rides)) {
+        if (r.id == id) {
+            selectRide(id);
+            return;
+        }
+    }
 }
 
 void HistoryManager::setMessage(const QString &m)

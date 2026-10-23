@@ -332,7 +332,7 @@ AppDialog {
         anchors.bottomMargin: 22
         spacing: 12
         AppButton {
-            visible: !dlg.creating && Profiles.profiles.length > 1 && !Training.active
+            visible: !dlg.creating && Profiles.profiles.length > 1 && !Training.active && !Rowing.active
             height: 52
             kind: "secondary"
             iconName: "trash"

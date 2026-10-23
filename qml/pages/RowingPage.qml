@@ -20,6 +20,7 @@ Item {
     property int ghostDistance: 2000
     property int planWorkoutId: -1
     property var workouts: []
+    property bool showCustom: false          // custom distance entry open (solo / ghost)
     readonly property var bests: { RowingRecords.revision; return RowingRecords.allBests() }
     readonly property var standard: Rowing.standardDistances
     readonly property bool locked: Rowing.active
@@ -37,9 +38,14 @@ Item {
     function timeTenths(sec) {
         if (!(sec > 0))
             return "–"
-        var t = Math.round(sec * 10) / 10
-        var whole = Math.floor(t)
-        return Theme.clock(whole) + "." + Math.round((t - whole) * 10)
+        // integer tenths first, so 59.97 s reads "1:00.0" (never "0:59.10" / "1:60.0")
+        var tenths = Math.round(sec * 10)
+        return Theme.clock(Math.floor(tenths / 10)) + "." + (tenths % 10)
+    }
+    // a time difference: "4.3 s" below a minute, "1:02.5" (m:ss.s) above
+    function diffText(sec) {
+        sec = Math.abs(sec)
+        return Math.round(sec * 10) < 600 ? (Math.round(sec * 10) / 10).toFixed(1) + " s" : timeTenths(sec)
     }
     function bestFor(d) {
         for (var i = 0; i < bests.length; ++i)
@@ -66,6 +72,7 @@ Item {
         if (Rowing.active)
             return
         localMode = m
+        showCustom = false
         if (m === "plan")
             refreshWorkouts()
         applySetup()
@@ -96,9 +103,17 @@ Item {
         syncFromBackend()
         refreshWorkouts()
     }
+    property bool wasShown: false
     onVisibleChanged: {
-        if (!visible)
+        if (!visible) {
+            // Leaving the page with a row that is only set up ("ready"): forget it,
+            // so a stroke on the rower while another page is open cannot silently
+            // start a row. Coming back sets it up again from the page's selection.
+            if (wasShown && Rowing.state === "ready")
+                Rowing.clear()
             return
+        }
+        wasShown = true
         refreshWorkouts()
         // opening the page gets the rower ready: the row starts with the first stroke
         if (Rowing.state === "idle" && !Training.armedOrActive)
@@ -112,7 +127,7 @@ Item {
         function onNewRecordSet(d, t, prev) {
             page.message(prev > 0
                          ? "New " + Theme.thousands(d) + " m record: " + page.timeTenths(t)
-                           + " (" + page.timeTenths(prev - t).replace(/^0:/, "") + " s faster)"
+                           + " (" + page.diffText(prev - t) + " faster)"
                          : "First " + Theme.thousands(d) + " m record: " + page.timeTenths(t))
         }
         function onFinished() {
@@ -221,8 +236,8 @@ Item {
                     Layout.fillHeight: true
                     label: "Power"
                     iconName: "bolt"
-                    iconColor: Theme.warning
-                    valueColor: Theme.warning
+                    iconColor: Theme.warningText
+                    valueColor: Theme.warningText
                     value: Rowing.watts
                     unit: "W"
                     footer: Rowing.mode === "plan" && Rowing.targetWatts > 0
@@ -390,7 +405,7 @@ Item {
                                         + (ahead ? "ahead" : "behind") + "  ("
                                         + (Rowing.ghostGapSeconds >= 0 ? "+" : "−")
                                         + Math.abs(Rowing.ghostGapSeconds).toFixed(1) + " s)"
-                                color: !Rowing.hasGhost ? Theme.textSecondary : (ahead ? Theme.success : Theme.danger)
+                                color: !Rowing.hasGhost ? Theme.textSecondary : (ahead ? Theme.successText : Theme.danger)
                                 font.pixelSize: 16
                                 font.weight: Font.Bold
                             }
@@ -461,19 +476,10 @@ Item {
                         width: parent.width
                         height: 46
                         spacing: 10
+                        // static model (captions); the live values are bindings in
+                        // the delegate, so the tiles are not rebuilt 4× per second
                         Repeater {
-                            model: [
-                                { caption: "Target", value: Rowing.targetWatts > 0 ? Rowing.targetWatts + " W" : "–", color: Theme.text },
-                                { caption: "Current", value: Rowing.watts + " W",
-                                  color: Rowing.targetWatts <= 0 ? Theme.text
-                                         : Math.abs(Rowing.watts - Rowing.targetWatts) <= Rowing.targetWatts * 0.1 ? Theme.success
-                                         : (Rowing.watts < Rowing.targetWatts ? Theme.warning : Theme.danger) },
-                                { caption: "Interval left", value: Theme.clock(Rowing.intervalRemainingSec), color: Theme.text },
-                                { caption: "Next target", value: Rowing.nextTargetWatts > 0 ? Rowing.nextTargetWatts + " W" : "Finish", color: Theme.text },
-                                { caption: "Interval avg", value: Rowing.intervalAvgWatts + " W", color: Theme.text },
-                                { caption: "Compliance", value: Rowing.compliance + "%",
-                                  color: Rowing.compliance >= 80 ? Theme.success : (Rowing.compliance >= 50 ? Theme.warning : Theme.danger) }
-                            ]
+                            model: ["Target", "Current", "Interval left", "Next target", "Interval avg", "Compliance"]
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
@@ -484,15 +490,33 @@ Item {
                                     anchors.centerIn: parent
                                     spacing: 8
                                     Text {
-                                        text: modelData.caption
+                                        text: modelData
                                         color: Theme.textSecondary
                                         font.pixelSize: 14
                                         anchors.baseline: statValue.baseline
                                     }
                                     Text {
                                         id: statValue
-                                        text: modelData.value
-                                        color: modelData.color
+                                        text: {
+                                            switch (index) {
+                                            case 0: return Rowing.targetWatts > 0 ? Rowing.targetWatts + " W" : "–"
+                                            case 1: return Rowing.watts + " W"
+                                            case 2: return Theme.clock(Rowing.intervalRemainingSec)
+                                            case 3: return Rowing.nextTargetWatts > 0 ? Rowing.nextTargetWatts + " W" : "Finish"
+                                            case 4: return Rowing.intervalAvgWatts + " W"
+                                            default: return Rowing.compliance + "%"
+                                            }
+                                        }
+                                        color: {
+                                            if (index === 1)
+                                                return Rowing.targetWatts <= 0 ? Theme.text
+                                                     : Math.abs(Rowing.watts - Rowing.targetWatts) <= Rowing.targetWatts * 0.1 ? Theme.successText
+                                                     : (Rowing.watts < Rowing.targetWatts ? Theme.warningText : Theme.danger)
+                                            if (index === 5)
+                                                return Rowing.compliance >= 80 ? Theme.successText
+                                                     : (Rowing.compliance >= 50 ? Theme.warningText : Theme.danger)
+                                            return Theme.text
+                                        }
                                         font.pixelSize: 21
                                         font.weight: Font.Bold
                                     }
@@ -635,10 +659,10 @@ Item {
                         onActivated: (index) => {
                             var v = model[index].value
                             if (v === -1) {
-                                customRow.visible = true
+                                page.showCustom = true
                                 customField.forceActiveFocus()
                             } else {
-                                customRow.visible = false
+                                page.showCustom = false
                                 if (page.uiMode === "ghost")
                                     page.ghostDistance = v
                                 else
@@ -651,7 +675,7 @@ Item {
                     }
                     Row {
                         id: customRow
-                        visible: false
+                        visible: page.showCustom && page.uiMode !== "plan" && !page.locked
                         width: parent.width
                         spacing: 8
                         AppTextField {
@@ -679,7 +703,7 @@ Item {
                                 else
                                     page.soloDistance = v
                                 page.localMode = page.uiMode
-                                customRow.visible = false
+                                page.showCustom = false
                                 page.applySetup()
                             }
                         }
@@ -876,19 +900,19 @@ Item {
                             x: 12
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 10
-                            Icon { name: "trophy"; size: 24; color: Theme.warning; anchors.verticalCenter: parent.verticalCenter }
+                            Icon { name: "trophy"; size: 24; color: Theme.warningText; anchors.verticalCenter: parent.verticalCenter }
                             Column {
                                 anchors.verticalCenter: parent.verticalCenter
                                 Text {
                                     text: "New personal best!"
-                                    color: Theme.warning
+                                    color: Theme.warningText
                                     font.pixelSize: 15
                                     font.weight: Font.Bold
                                 }
                                 Text {
                                     text: Rowing.previousRecordSec > 0
                                           ? "Previous " + page.timeTenths(Rowing.previousRecordSec) + "  •  "
-                                            + (Rowing.previousRecordSec - Rowing.finishTimeSec).toFixed(1) + " s faster"
+                                            + page.diffText(Rowing.previousRecordSec - Rowing.finishTimeSec) + " faster"
                                           : "First record over " + page.meters(page.target) + " m"
                                     color: Theme.text
                                     font.pixelSize: 13
@@ -901,18 +925,25 @@ Item {
                         width: parent.width
                         rowSpacing: 8
                         Repeater {
-                            model: [
-                                { caption: "Time", value: page.timeTenths(Rowing.finishTimeSec > 0 ? Rowing.finishTimeSec : Rowing.elapsedSeconds) },
-                                { caption: "Distance", value: page.meters(page.distance) + " m" },
-                                { caption: "Avg power", value: Rowing.avgWatts + " W" },
-                                { caption: "Avg pace", value: page.paceText(Rowing.avgPace500) + " /500m" },
-                                { caption: "Avg stroke rate", value: Rowing.avgSpm > 0 ? Rowing.avgSpm + " SPM" : "–" },
-                                { caption: "Avg heart rate", value: Rowing.avgHeartRate > 0 ? Rowing.avgHeartRate + " BPM" : "–" }
-                            ]
+                            model: ["Time", "Distance", "Avg power", "Avg pace", "Avg stroke rate", "Avg heart rate"]
                             Column {
                                 width: summaryCol.width / 2
-                                Text { text: modelData.caption; color: Theme.textSecondary; font.pixelSize: 13 }
-                                Text { text: modelData.value; color: Theme.text; font.pixelSize: 19; font.weight: Font.Bold }
+                                Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 13 }
+                                Text {
+                                    text: {
+                                        switch (index) {
+                                        case 0: return page.timeTenths(Rowing.finishTimeSec > 0 ? Rowing.finishTimeSec : Rowing.elapsedSeconds)
+                                        case 1: return page.meters(page.distance) + " m"
+                                        case 2: return Rowing.avgWatts + " W"
+                                        case 3: return page.paceText(Rowing.avgPace500) + " /500m"
+                                        case 4: return Rowing.avgSpm > 0 ? Rowing.avgSpm + " SPM" : "–"
+                                        default: return Rowing.avgHeartRate > 0 ? Rowing.avgHeartRate + " BPM" : "–"
+                                        }
+                                    }
+                                    color: Theme.text
+                                    font.pixelSize: 19
+                                    font.weight: Font.Bold
+                                }
                             }
                         }
                     }

@@ -17,9 +17,17 @@ Item {
     property var upcomingList: []
     property var monthStats: ({ planned: 0, completed: 0, rowing: 0, cycling: 0, seconds: 0 })
 
+    property var selectedEntryId: -1          // chip selected with a single click (side panel highlight)
+
     // drag & drop of chips between days
     property var dragEntry: null
     property string dropIso: ""
+    property bool refreshPending: false       // a refresh() arrived while dragging
+
+    // Modal dialogs are hosted by Main.qml's scaled root so they cover the whole
+    // window (sidebar and top bar included), not just this page.
+    readonly property Item dialogHost: ApplicationWindow.window && ApplicationWindow.window.dialogHost
+                                       ? ApplicationWindow.window.dialogHost : page
 
     readonly property var monthNames: ["January", "February", "March", "April", "May", "June", "July",
                                        "August", "September", "October", "November", "December"]
@@ -74,6 +82,13 @@ Item {
 
     // --- data ------------------------------------------------------------------------------------
     function refresh() {
+        // Rebuilding the cells destroys the dragged chip (and with it the mouse
+        // grab that would end the drag): wait until the drop.
+        if (dragEntry !== null) {
+            refreshPending = true
+            return
+        }
+        refreshPending = false
         var now = new Date()
         todayIso = isoOf(now)
         if (!selectedDate)
@@ -109,7 +124,6 @@ Item {
                 inMonth: d.getMonth() === viewMonth - 1,
                 isToday: iso === todayIso,
                 isPast: iso < todayIso,
-                weekend: c % 7 >= 5,
                 entries: byDate[iso] || []
             })
         }
@@ -131,7 +145,25 @@ Item {
         selectedDate = isoOf(now)
         showMonth(now.getFullYear(), now.getMonth() + 1)
     }
+    // end a chip drag (drop, cancel, page hidden); runs a deferred refresh
+    function endDrag() {
+        dragEntry = null
+        dropIso = ""
+        if (refreshPending)
+            Qt.callLater(refresh)
+    }
+    // single click on a chip: show it in the side panel (no month switch, so a
+    // double-click on a chip of a neighbouring month still reaches the chip)
+    function selectEntry(e) {
+        if (!e)
+            return
+        selectedDate = e.date
+        selectedEntryId = e.id
+        dayEntries = Planner.entriesForDate(e.date)
+    }
     function selectDay(iso) {
+        if (iso !== selectedDate)
+            selectedEntryId = -1
         selectedDate = iso
         var d = parseIso(iso)
         if (d.getFullYear() !== viewYear || d.getMonth() + 1 !== viewMonth)
@@ -142,6 +174,16 @@ Item {
 
     // --- actions -----------------------------------------------------------------------------------
     // Rowing entries set up a rowing watt plan; cycling entries load the training page.
+    // The planned entry is handed to the Planner first, so the backend ticks off
+    // exactly this entry when the workout is completed (whatever its date).
+    function markActive(e) {
+        if (typeof Planner.setActiveEntry === "function")
+            Planner.setActiveEntry(e.id)
+    }
+    function clearActive() {
+        if (typeof Planner.clearActiveEntry === "function")
+            Planner.clearActiveEntry()
+    }
     function startEntry(e) {
         if (!e || e.workoutId === undefined)
             return
@@ -151,26 +193,40 @@ Item {
                 goTo("rowing")
                 return
             }
+            markActive(e)
             if (Rowing.setupPlan(e.workoutId))
                 goTo("rowing")
-            else
+            else {
+                clearActive()
                 toast("Could not load \"" + e.name + "\" as a rowing plan")
+            }
         } else {
             if (Training.active) {
                 toast("A workout is in progress – finish it first")
                 goTo("dashboard")
                 return
             }
+            markActive(e)
             if (Training.loadWorkout(e.workoutId))
                 goTo("dashboard")
-            else
+            else {
+                clearActive()
                 toast("Could not load \"" + e.name + "\"")
+            }
         }
     }
     function toggleCompleted(e) {
         Planner.setCompleted(e.id, !e.completed)
     }
+    // asks first (the removal cannot be undone)
     function removeEntry(e) {
+        if (!e || e.id === undefined)
+            return
+        removeConfirm.entry = e
+        removeConfirm.message = "Remove \"" + e.name + "\" from " + longDate(e.date) + "?"
+        removeConfirm.open()
+    }
+    function doRemoveEntry(e) {
         if (Planner.remove(e.id))
             toast("\"" + e.name + "\" removed from " + longDate(e.date))
     }
@@ -205,7 +261,19 @@ Item {
     }
 
     Component.onCompleted: goToday()
-    onVisibleChanged: if (visible) refresh()
+    onVisibleChanged: {
+        if (visible) {
+            refresh()
+            return
+        }
+        // leaving the page: nothing of it may stay open over another page
+        if (picker.visible) picker.close()
+        if (movePicker.visible) movePicker.close()
+        if (removeConfirm.visible) removeConfirm.close()
+        chipMenu.close()
+        if (dragEntry !== null)
+            endDrag()
+    }
 
     Connections {
         target: Planner
@@ -301,7 +369,7 @@ Item {
             }
             Row {
                 spacing: 6
-                Icon { name: "check"; size: 18; strokeWidth: 2.4; color: Theme.success; anchors.verticalCenter: parent.verticalCenter }
+                Icon { name: "check"; size: 18; strokeWidth: 2.4; color: Theme.successText; anchors.verticalCenter: parent.verticalCenter }
                 Text { text: "Done"; color: Theme.textSecondary; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
             }
         }
@@ -381,14 +449,11 @@ Item {
 
                         HoverHandler { id: hover }
 
+                        // click: select the day (side panel); double-click / "+": add a workout
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                page.selectDay(dayCell.iso)
-                                if (dayCell.entries.length === 0)
-                                    picker.openFor(dayCell.iso)
-                            }
+                            onClicked: page.selectDay(dayCell.iso)
                             onDoubleClicked: picker.openFor(dayCell.iso)
                         }
 
@@ -412,9 +477,9 @@ Item {
                             x: 40
                             y: 9
                             text: "Today"
-                            color: Theme.accentLight
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            color: Theme.accentText
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
                         }
 
                         IconButton {
@@ -442,14 +507,22 @@ Item {
                                     width: parent.width
                                     readonly property bool rowing: entry.sport === "rowing"
                                     readonly property color sportColor: Theme.sportColor(entry.sport)
+                                    readonly property bool done: entry.completed === true
+                                    readonly property bool chosen: entry.id === page.selectedEntryId
                                     property bool dragging: false
+                                    property bool suppressClick: false   // the click that ends a drag
                                     property real pressX: 0
                                     property real pressY: 0
 
                                     height: 36
                                     radius: 6
-                                    color: Qt.rgba(sportColor.r, sportColor.g, sportColor.b, chipMouse.containsMouse ? 0.42 : 0.26)
-                                    opacity: entry.completed ? 0.55 : (page.dragEntry && page.dragEntry.id === entry.id ? 0.35 : 1)
+                                    // completed: lighter fill + check + strike-through, but the
+                                    // text keeps full contrast (no dimming of the whole chip)
+                                    color: Qt.rgba(sportColor.r, sportColor.g, sportColor.b,
+                                                   chipMouse.containsMouse ? 0.42 : (done ? 0.13 : 0.26))
+                                    border.width: chosen ? 2 : 0
+                                    border.color: Theme.accent
+                                    opacity: page.dragEntry && page.dragEntry.id === entry.id ? 0.35 : 1
 
                                     Rectangle {
                                         width: 3
@@ -464,7 +537,7 @@ Item {
                                         name: chip.entry.completed ? "check" : (chip.rowing ? "rowing" : "bike")
                                         size: 14
                                         strokeWidth: chip.entry.completed ? 2.6 : 2
-                                        color: chip.entry.completed ? Theme.success : chip.sportColor
+                                        color: chip.done ? Theme.successText : chip.sportColor
                                     }
                                     Text {
                                         anchors.left: chipIcon.right
@@ -485,8 +558,8 @@ Item {
                                         y: 19
                                         width: parent.width - 13
                                         elide: Text.ElideRight
-                                        text: page.durationText(chip.entry.durationSec) + (chip.entry.completed ? " · done" : "")
-                                        color: Theme.textSecondary
+                                        text: page.durationText(chip.entry.durationSec) + (chip.done ? " · done" : "")
+                                        color: chip.done ? Theme.successText : Theme.textSecondary
                                         font.pixelSize: 11
                                     }
 
@@ -501,6 +574,7 @@ Item {
 
                                         onPressed: (mouse) => {
                                             chip.dragging = false
+                                            chip.suppressClick = false
                                             chip.pressX = mouse.x
                                             chip.pressY = mouse.y
                                         }
@@ -524,26 +598,34 @@ Item {
                                         }
                                         onReleased: {
                                             if (chip.dragging) {
+                                                chip.dragging = false
+                                                chip.suppressClick = true
                                                 var e = page.dragEntry
                                                 var iso = page.dropIso
-                                                page.dragEntry = null
-                                                page.dropIso = ""
-                                                page.moveEntry(e, iso)
+                                                page.endDrag()
+                                                // after this handler: the move rebuilds the cells (and this chip)
+                                                Qt.callLater(page.moveEntry, e, iso)
                                             }
                                         }
                                         onCanceled: {
-                                            chip.dragging = false
-                                            page.dragEntry = null
-                                            page.dropIso = ""
-                                        }
-                                        onClicked: (mouse) => {
                                             if (chip.dragging) {
                                                 chip.dragging = false
+                                                page.endDrag()
+                                            }
+                                        }
+                                        // click: select (side panel); double-click: ride / row it
+                                        onClicked: (mouse) => {
+                                            if (chip.suppressClick) {
+                                                chip.suppressClick = false
                                                 return
                                             }
                                             if (mouse.button === Qt.RightButton)
                                                 page.openMenu(chip.entry)
                                             else
+                                                page.selectEntry(chip.entry)
+                                        }
+                                        onDoubleClicked: (mouse) => {
+                                            if (mouse.button === Qt.LeftButton && !chip.suppressClick)
                                                 page.startEntry(chip.entry)
                                         }
                                         onPressAndHold: (mouse) => {
@@ -555,7 +637,8 @@ Item {
                                     ToolTip.visible: chipMouse.containsMouse && !chip.dragging && page.dragEntry === null
                                     ToolTip.delay: 700
                                     ToolTip.text: (chip.entry.name || "") + " · " + page.durationText(chip.entry.durationSec)
-                                                  + "\nClick to " + (chip.rowing ? "row" : "ride") + " · right-click for options · drag to move"
+                                                  + "\nClick to select · double-click to " + (chip.rowing ? "row" : "ride")
+                                                  + " · right-click for options · drag to move"
                                 }
                             }
                             Text {
@@ -565,7 +648,7 @@ Item {
                                 leftPadding: 4
                                 verticalAlignment: Text.AlignVCenter
                                 text: "+" + (dayCell.entries.length - dayCell.shownChips) + " more"
-                                color: Theme.accentLight
+                                color: Theme.accentText
                                 font.pixelSize: 13
                                 font.weight: Font.DemiBold
                             }
@@ -649,11 +732,20 @@ Item {
                     id: dayRow
                     readonly property var entry: modelData
                     readonly property color sportColor: Theme.sportColor(entry.sport)
+                    readonly property bool chosen: entry.id === page.selectedEntryId
                     width: ListView.view.width
                     height: 104
                     radius: 10
-                    color: Theme.cardStrong
-                    border.color: Theme.cardBorder
+                    color: chosen ? Theme.navSelected : Theme.cardStrong
+                    border.color: chosen ? Theme.accent : Theme.cardBorder
+                    border.width: chosen ? 2 : 1
+
+                    // click selects the entry; double-click starts it
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: page.selectedEntryId = dayRow.entry.id
+                        onDoubleClicked: page.startEntry(dayRow.entry)
+                    }
 
                     Rectangle {
                         x: 12
@@ -686,7 +778,7 @@ Item {
                         text: (dayRow.entry.sport === "rowing" ? "Rowing" : "Cycling") + "  •  " + dayRow.entry.category
                               + "  •  " + page.durationText(dayRow.entry.durationSec)
                               + (dayRow.entry.completed ? "  •  Done" : "")
-                        color: dayRow.entry.completed ? Theme.success : Theme.textSecondary
+                        color: dayRow.entry.completed ? Theme.successText : Theme.textSecondary
                         font.pixelSize: 14
                         elide: Text.ElideRight
                     }
@@ -710,7 +802,7 @@ Item {
                             width: 40; height: 36
                             iconName: "check"
                             iconSize: 18
-                            iconColor: dayRow.entry.completed ? Theme.success : Theme.text
+                            iconColor: dayRow.entry.completed ? Theme.successText : Theme.text
                             tooltip: dayRow.entry.completed ? "Mark as not completed" : "Mark as completed"
                             onClicked: page.toggleCompleted(dayRow.entry)
                         }
@@ -791,14 +883,19 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: page.selectDay(upRow.entry.date)
+                        // click: show it in the day panel; double-click: start it
+                        onClicked: {
+                            page.selectDay(upRow.entry.date)
+                            page.selectedEntryId = upRow.entry.id
+                        }
+                        onDoubleClicked: page.startEntry(upRow.entry)
                     }
                     Text {
                         x: 8
                         width: 86
                         anchors.verticalCenter: parent.verticalCenter
                         text: page.relativeDate(upRow.entry.date)
-                        color: upRow.entry.isToday ? Theme.accentLight : Theme.textSecondary
+                        color: upRow.entry.isToday ? Theme.accentText : Theme.textSecondary
                         font.pixelSize: 14
                         font.weight: upRow.entry.isToday ? Font.Bold : Font.Normal
                         elide: Text.ElideRight
@@ -838,7 +935,7 @@ Item {
                         flat: true
                         iconName: "play"
                         iconSize: 18
-                        iconColor: Theme.accentLight
+                        iconColor: Theme.accentText
                         tooltip: upRow.entry.sport === "rowing" ? "Row now" : "Ride now"
                         onClicked: page.startEntry(upRow.entry)
                     }
@@ -850,7 +947,7 @@ Item {
                     width: parent.width - 20
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
-                    text: "No upcoming workouts.\nClick a day to plan one."
+                    text: "No upcoming workouts.\nDouble-click a day to plan one."
                     color: Theme.textSecondary
                     font.pixelSize: 15
                 }
@@ -902,15 +999,28 @@ Item {
     // --- move dialog ---------------------------------------------------------------------------------------
     DatePickerDialog {
         id: movePicker
+        parent: page.dialogHost
         property var entry: ({})
         title: "Move workout"
         acceptText: "Move"
         onPicked: (iso) => page.moveEntry(movePicker.entry, iso)
     }
 
+    // --- remove confirmation ---------------------------------------------------------------------------------
+    ConfirmDialog {
+        id: removeConfirm
+        parent: page.dialogHost
+        property var entry: ({})
+        title: "Remove workout?"
+        acceptText: "Remove"
+        acceptKind: "danger"
+        onAccepted: page.doRemoveEntry(removeConfirm.entry)
+    }
+
     // --- add workout dialog ------------------------------------------------------------------------------------
     AppDialog {
         id: picker
+        parent: page.dialogHost
         property string targetIso
         property string sport: "all"
         property string search: ""

@@ -85,14 +85,22 @@ signals:
 //  * strokeMeasured(strokeCount, watts) fires once per new stroke.
 //  * powerMeasured(watts) fires whenever the normalized power changes value,
 //    including the decay to 0. "watts" is the power of the last stroke, held
-//    until the next stroke; it drops to 0 after powerHoldMs() (default 5 s)
-//    without a new stroke, or immediately when the monitor reports the rowing
-//    state as inactive.
+//    until the next stroke; it drops to 0 after effectivePowerHoldMs() (max of
+//    powerHoldMs(), default 5 s, and 1.5 stroke periods at the current rate)
+//    without a new stroke, or immediately when the monitor reports that rowing
+//    stopped (active -> inactive transition).
 //  * heartRateMeasured(bpm) only fires for valid readings (>0) reported by the
 //    rowing monitor itself (e.g. a strap paired to the PM5).
 //  * workoutReset() fires when elapsed time or distance jumps backwards, i.e.
-//    a new workout was started on the monitor. Values are NOT reset when the
-//    BLE link drops; a reconnect continues where the monitor is.
+//    a new workout was started on the monitor, or when the total work distance
+//    of the workout drops. A jump backwards while the monitor is in an
+//    interval state (PM5 restarts elapsed time/distance per interval) is not a
+//    reset. Values are NOT reset when the BLE link drops; a reconnect
+//    continues where the monitor is.
+//  * hasData() is false until this device object committed its first
+//    measurement (a new object never reuses the values of an older one).
+//    The cumulative values are only meaningful once it is true. hasData() is
+//    already true while the signals of that first measurement are emitted.
 //  * workoutState is the raw PM5 OBJ_WORKOUTSTATE_T value (see
 //    pm5::WorkoutState); rowingActive mirrors the PM5 rowing state.
 class RowerDevice : public SensorDevice
@@ -135,8 +143,13 @@ public:
     int workoutState() const { return m_workoutState; }
     bool rowingActive() const { return m_rowingActive; }
 
+    bool hasData() const { return m_hasData; }
+    int totalWorkDistance() const { return m_totalWork; }   // -1 = not reported
+
     int powerHoldMs() const { return m_holdMs; }
     void setPowerHoldMs(int ms) { m_holdMs = ms; }
+    // Hold time actually used: max(powerHoldMs(), 1.5 * 60000 / spm).
+    int effectivePowerHoldMs() const;
 
     // Decays held stroke power (called by an internal 250 ms timer; public so
     // tests can drive it with a fake clock). `msSinceLastStroke` < 0 means
@@ -171,6 +184,7 @@ protected:
     void applyCalories(int kcal);
     void applyDragFactor(int drag);
     void applyWorkoutState(int workoutState, bool rowingActive);
+    void applyTotalWorkDistance(int meters);         // PM5 total work distance of the workout
     void commitMeasurement();
     // Clears live (not cumulative) values, e.g. after the link dropped.
     void clearLiveValues();
@@ -188,10 +202,15 @@ private:
     double m_elapsed = 0, m_distance = 0, m_pace = 0, m_avgPace = 0, m_speed = 0;
     int m_watts = 0, m_avgWatts = 0, m_spm = 0, m_hr = 0, m_strokes = 0, m_calories = 0, m_drag = 0;
     int m_workoutState = 0;
+    int m_totalWork = -1;
     bool m_rowingActive = false;
     bool m_haveStroke = false;
     bool m_dirty = false;
-    bool m_pendingReset = false, m_pendingState = false, m_pendingActive = false, m_pendingStroke = false,
+    bool m_hasData = false;
+    bool m_clearing = false;
+    bool m_pendingDrop = false;        // elapsed/distance went backwards in this batch
+    bool m_pendingWorkDrop = false;    // total work distance went backwards in this batch
+    bool m_pendingState = false, m_pendingActive = false, m_pendingStroke = false,
          m_pendingPower = false, m_pendingHr = false;
     int m_holdMs = 5000;
     QElapsedTimer m_sinceStroke;

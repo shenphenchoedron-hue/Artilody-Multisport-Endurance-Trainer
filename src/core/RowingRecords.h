@@ -34,8 +34,11 @@ public:
     Q_INVOKABLE QVariantMap bestFor(int distanceM) const;
     // Saves the piece when it beats the stored best (or none exists). Returns true for a new record.
     // rideId: saved ride of the piece; unknown ids are stored as "no ride".
+    // profileId: rider of the piece (< 0 = active profile). Implausible times
+    // (faster than 1:00 /500 m, see plausibleTime()) are never saved.
     Q_INVOKABLE bool saveIfBest(int distanceM, double timeSec, const QVariantList &trace, qint64 rideId = -1);
-    bool saveIfBest(int distanceM, double timeSec, const QVector<TracePoint> &trace, qint64 rideId = -1);
+    bool saveIfBest(int distanceM, double timeSec, const QVector<TracePoint> &trace, qint64 rideId = -1,
+                    qint64 profileId = -1);
     // One map per standard distance (hasRecord false when not rowed yet) plus
     // every custom distance that has a record, ordered by distance:
     // { distanceM, hasRecord, timeSec, pace500Sec, rideId, createdAt, standard }
@@ -43,7 +46,15 @@ public:
     // Ghost position (m) of the best piece over distanceM after t seconds (0 when no record).
     Q_INVOKABLE double ghostDistance(int distanceM, double t) const;
 
-    std::optional<RowingRecord> best(int distanceM) const;
+    // Best piece of profileId (< 0 = active profile).
+    std::optional<RowingRecord> best(int distanceM, qint64 profileId = -1) const;
+
+    // False for a pace faster than 1:00 /500 m (0.12 s per metre), which no
+    // human rows: such a time comes from bad monitor data.
+    static bool plausibleTime(int distanceM, double timeSec)
+    {
+        return distanceM > 0 && timeSec >= distanceM * 0.12;
+    }
 
     // Linear interpolation of a trace (sorted by t). Before the first sample
     // it interpolates from [0, 0]; after the last sample it returns the final

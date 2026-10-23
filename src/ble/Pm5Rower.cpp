@@ -37,6 +37,7 @@ Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &lo
         if (s != LinkState::Connected) {
             m_multiplexed = false;
             m_gotData = false;
+            m_machineWarned = false;
             m_dataWatchdog.stop();
         }
         setState(s);
@@ -98,17 +99,22 @@ void Pm5Rower::onServiceReady()
 
     const bool general = subscribe(pm5::kGeneralStatus);
     const bool status1 = subscribe(pm5::kAdditionalStatus1);
-    subscribe(pm5::kAdditionalStatus2);   // optional (average power, calories)
+    const bool status2 = subscribe(pm5::kAdditionalStatus2);   // optional (average power, calories)
     const bool stroke = subscribe(pm5::kAdditionalStrokeData);
 
-    if (general && status1 && stroke) {
+    // Every id whose own notification is not enabled (e.g. a failed
+    // subscription) is delivered over 0x0080, so a partial failure is covered.
+    if (canNotify(pmUuid(pm5::kMultiplexed)))
+        enableMultiplexed();
+
+    if (general && status1 && status2 && stroke) {
         emit logMessage(QStringLiteral("Rower connected (%1)").arg(m_name), true);
         m_dataWatchdog.start();
-    } else if (canNotify(pmUuid(pm5::kMultiplexed))) {
-        // Remaining ids are delivered over 0x0080 as long as their own
-        // notification is not enabled.
-        enableMultiplexed();
+    } else if (m_multiplexed) {
         emit logMessage(QStringLiteral("Rower connected (%1, multiplexed data)").arg(m_name), true);
+    } else if (general || status1 || stroke) {
+        emit logMessage(QStringLiteral("Rower connected (%1, partial data)").arg(m_name), true);
+        m_dataWatchdog.start();
     } else {
         emit logMessage(QStringLiteral("%1 does not offer rowing data notifications").arg(m_name), false);
     }
@@ -145,12 +151,21 @@ void Pm5Rower::onNotification(const QBluetoothUuid &uuid, const QByteArray &valu
     // Elapsed time is taken from general status only: the other packets carry
     // slightly different timestamps and would make the value jitter.
     if (general) {
+        // State first: whether a jump backwards is a new workout depends on it.
+        applyWorkoutState(general->workoutState, general->rowingActive());
+        applyTotalWorkDistance(general->totalWorkDistance);
         applyElapsed(general->elapsedSeconds);
         applyDistance(general->distanceMeters);
         applyDragFactor(general->dragFactor);
-        applyWorkoutState(general->workoutState, general->rowingActive());
     }
     if (status1) {
+        if (!m_machineWarned && pm5::machineKind(status1->ergMachineType) != pm5::MachineKind::Rower) {
+            m_machineWarned = true;
+            emit logMessage(QStringLiteral("%1 is a %2, not a rowing machine – rowing values may be wrong")
+                                .arg(m_name, pm5::machineKind(status1->ergMachineType) == pm5::MachineKind::SkiErg
+                                                 ? QStringLiteral("SkiErg") : QStringLiteral("BikeErg")),
+                            false);
+        }
         applySpeed(status1->speedMps);
         applyStrokeRate(status1->strokesPerMinute);
         applyHeartRate(status1->heartRateBpm);

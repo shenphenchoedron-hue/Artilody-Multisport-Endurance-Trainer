@@ -191,13 +191,18 @@ quint64 fitTime(qint64 unixSecs)
 // proportion to power^(1/3): on an air-braked rower (Concept2) power grows
 // with the cube of boat speed (P = 2.80 * v^3), so speed ~ P^(1/3) and each
 // second covers a share of the distance proportional to that. If no sample
-// has power, the distance is spread evenly. The last value equals totalM.
+// has power, the distance is spread evenly.
+//
+// A sample at second t describes the second [t, t+1) and is stamped with time
+// t, so its record holds the distance covered *before* t: out[0] = 0 and
+// out[i] = distance after i seconds. The returned vector has one extra element
+// (size + 1) holding totalM, the distance at the end of the last second.
 std::vector<double> derivedDistance(const QVector<Sample> &samples, double totalM)
 {
-    std::vector<double> out(size_t(samples.size()), 0.0);
+    std::vector<double> out(size_t(samples.size()) + 1, 0.0);
     if (samples.isEmpty() || !(totalM > 0))
         return out;
-    std::vector<double> w(out.size());
+    std::vector<double> w(size_t(samples.size()));
     double sum = 0;
     for (size_t i = 0; i < w.size(); ++i) {
         w[i] = std::cbrt(double(std::max(0, samples[int(i)].power)));
@@ -209,8 +214,8 @@ std::vector<double> derivedDistance(const QVector<Sample> &samples, double total
     }
     double acc = 0;
     for (size_t i = 0; i < w.size(); ++i) {
-        acc += w[i];
         out[i] = totalM * acc / sum;
+        acc += w[i];
     }
     out.back() = totalM;
     return out;
@@ -294,6 +299,17 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
                 { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) } };
         if (recordDistance)
             rec.push_back({ 5, UInt32, u32(distances[size_t(i)] * 100.0) });   // distance: m, scale 100
+        e.write(LRecord, MesgRecord, rec);
+    }
+    if (recordDistance) {
+        // closing record at the end of the last second carries the full distance
+        const Sample &s = samples.constLast();
+        const qint64 tEnd = std::max<qint64>(qint64(std::max(0, s.t)) + 1, elapsedSec);
+        rec = { { kFieldTimestamp, UInt32, fitTime(startUnix + tEnd) },
+                { 7, UInt16, u16(s.power) },
+                { 3, UInt8, u8OrInvalid(s.heartRate) },
+                { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) },
+                { 5, UInt32, u32(distances.back() * 100.0) } };
         e.write(LRecord, MesgRecord, rec);
     }
 

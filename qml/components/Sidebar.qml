@@ -55,8 +55,10 @@ Rectangle {
     // Live ride / row indicator at the bottom of the sidebar
     Rectangle {
         id: live
-        // A cycling ride wins; otherwise a set-up or running row is shown.
-        readonly property bool rowing: !Training.armedOrActive && (Rowing.active || Rowing.state === "ready")
+        // A cycling ride wins; otherwise a running row, or a set-up row that a
+        // stroke on the connected rower would start, is shown.
+        readonly property bool rowing: !Training.armedOrActive
+                                       && (Rowing.active || (Rowing.state === "ready" && Rowing.rowerConnected))
         readonly property bool waiting: rowing ? Rowing.state === "ready" : Training.waiting
         readonly property bool paused: rowing ? Rowing.paused : Training.paused
         readonly property bool moving: rowing ? Rowing.running : Training.running

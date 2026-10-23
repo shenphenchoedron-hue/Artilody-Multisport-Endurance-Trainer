@@ -62,11 +62,21 @@ Item {
         return (h > 0 ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (ss < 10 ? "0" : "") + ss
     }
 
+    // QML color -> CSS string for the Canvas (keeps the alpha channel)
+    function css(c) {
+        return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + "," + Math.round(c.b * 255) + "," + c.a + ")"
+    }
+
     onIntervalsChanged: canvas.requestPaint()
     onPowerSeriesChanged: canvas.requestPaint()
     onCurrentIndexChanged: canvas.requestPaint()
     onWidthChanged: canvas.requestPaint()
     onHeightChanged: canvas.requestPaint()
+
+    Connections {
+        target: Theme
+        function onDarkChanged() { canvas.requestPaint() }
+    }
 
     Canvas {
         id: canvas
@@ -110,7 +120,7 @@ Item {
                 ctx.fill()
                 if (i === chart.currentIndex) {
                     ctx.globalAlpha = 1
-                    ctx.strokeStyle = "white"
+                    ctx.strokeStyle = chart.css(Theme.strongLine)
                     ctx.lineWidth = 2.5
                     ctx.stroke()
                     ctx.lineWidth = 1
@@ -120,7 +130,7 @@ Item {
             // rowed power
             var n = chart.powerSeries.length
             if (n > 1) {
-                ctx.strokeStyle = "white"
+                ctx.strokeStyle = chart.css(Theme.text)
                 ctx.lineWidth = 2
                 ctx.beginPath()
                 for (var k = 0; k < n; ++k) {
@@ -142,19 +152,21 @@ Item {
                 ctx.fillText(chart.clockText(t), chart.px(t), B + 6)
             // course line
             var ly = chart.laneY
-            ctx.strokeStyle = "rgba(255,255,255,0.45)"
+            ctx.strokeStyle = chart.css(Theme.softLine)
             ctx.setLineDash([7, 6])
             ctx.lineWidth = 2
             ctx.beginPath(); ctx.moveTo(L, ly); ctx.lineTo(L + W, ly); ctx.stroke()
             ctx.setLineDash([])
             // start / finish posts
-            ctx.fillStyle = "white"
+            var post = chart.css(Theme.strongLine)
+            var dark = Theme.dark ? "#111a40" : "#ffffff"
+            ctx.fillStyle = post
             ctx.fillRect(L - 1, ly - 14, 2.5, 28)
             ctx.fillRect(L + W - 1, ly - 14, 2.5, 28)
             var s = 5
             for (var r = 0; r < 3; ++r)
                 for (var cc = 0; cc < 4; ++cc) {
-                    ctx.fillStyle = (r + cc) % 2 === 0 ? "white" : "#111a40"
+                    ctx.fillStyle = (r + cc) % 2 === 0 ? post : dark
                     ctx.fillRect(L + W + 2 + cc * s, ly - 14 + r * s, s, s)
                 }
         }
@@ -195,8 +207,7 @@ Item {
         y: chart.blocksTop
         width: 2
         height: chart.laneY - chart.blocksTop
-        color: "white"
-        opacity: 0.8
+        color: Theme.strongLine
     }
 
     // the boat on the course line

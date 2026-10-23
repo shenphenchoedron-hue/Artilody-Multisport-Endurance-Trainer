@@ -35,16 +35,20 @@ Rectangle {
                                                           - (tile.large ? 54 : tile.iconSize) - 10)
             spacing: tile.large ? 2 : 6
             Text {
+                width: textCol.maxWidth
                 text: tile.caption
                 color: Theme.textSecondary
                 font.pixelSize: tile.large ? 17 : 15
+                elide: Text.ElideRight
             }
             Text {
+                // fixed width (not implicitWidth-based: with HorizontalFit that is a
+                // binding loop); the font shrinks only when the value does not fit
+                width: textCol.maxWidth
                 text: tile.value
                 color: Theme.text
                 font.pixelSize: tile.large ? 36 : tile.valueSize
                 font.weight: Font.Bold
-                width: Math.min(implicitWidth, textCol.maxWidth)
                 fontSizeMode: Text.HorizontalFit
                 minimumPixelSize: 12
             }

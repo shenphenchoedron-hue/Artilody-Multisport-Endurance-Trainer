@@ -295,12 +295,18 @@ private slots:
         QCOMPARE(laps[0].fields.value(13), quint64(4115));
 
         const auto rec = f.of(20);
-        QCOMPARE(rec.size(), 300);
+        // one record per second plus a closing record at the end time
+        QCOMPARE(rec.size(), 301);
         QCOMPARE(rec[0].fields.value(4), quint64(24));   // strokes/min
+        // record at second t holds the distance covered before t
         // 150 pairs of (1 + 2) weight units -> 450 units total
-        QCOMPARE(rec[0].fields.value(5), quint64(std::llround(123456.0 * 1 / 450)));
-        QCOMPARE(rec[1].fields.value(5), quint64(std::llround(123456.0 * 3 / 450)));
-        QCOMPARE(rec[2].fields.value(5), quint64(std::llround(123456.0 * 4 / 450)));
+        QCOMPARE(rec[0].fields.value(253), kStartFit);
+        QCOMPARE(rec[0].fields.value(5), quint64(0));
+        QCOMPARE(rec[1].fields.value(5), quint64(std::llround(123456.0 * 1 / 450)));
+        QCOMPARE(rec[2].fields.value(5), quint64(std::llround(123456.0 * 3 / 450)));
+        QCOMPARE(rec[3].fields.value(5), quint64(std::llround(123456.0 * 4 / 450)));
+        QCOMPARE(rec[299].fields.value(253), kStartFit + 299);
+        QCOMPARE(rec.last().fields.value(253), kStartFit + 300);
         QCOMPARE(rec.last().fields.value(5), quint64(123456));
         for (int i = 1; i < rec.size(); ++i)
             QVERIFY(rec[i].fields.value(5) >= rec[i - 1].fields.value(5));
@@ -328,8 +334,12 @@ private slots:
         const FitFile f = parse(fit::encodeActivity(r, s));
         QVERIFY2(f.ok, qPrintable(f.error));
         const auto rec = f.of(20);
-        QCOMPARE(rec[0].fields.value(5), quint64(1000));
-        QCOMPARE(rec[3].fields.value(5), quint64(4000));
+        QCOMPARE(rec.size(), 5);
+        QCOMPARE(rec[0].fields.value(5), quint64(0));
+        QCOMPARE(rec[1].fields.value(5), quint64(1000));
+        QCOMPARE(rec[3].fields.value(5), quint64(3000));
+        QCOMPARE(rec[4].fields.value(5), quint64(4000));
+        QCOMPARE(rec[4].fields.value(253), kStartFit + 4);
     }
 
     void emptySamples()

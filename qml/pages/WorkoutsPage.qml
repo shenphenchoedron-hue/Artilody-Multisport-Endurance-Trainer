@@ -158,10 +158,9 @@ Item {
             bold: false
             text: "Export"
             iconName: "export"
-            onClicked: exportMenu.popup()
+            onClicked: exportMenu.popup(0, exportButton.height + 4)   // drop down below the button
             AppMenu {
                 id: exportMenu
-                y: exportButton.height + 4
                 AppMenuItem {
                     text: "Export selected workout…"
                     iconName: "export"
@@ -184,10 +183,9 @@ Item {
             iconSpacing: 8
             text: "New Workout"
             iconName: "plus"
-            onClicked: newMenu.popup()
+            onClicked: newMenu.popup(newButton.width - newMenu.implicitWidth, newButton.height + 4)   // right-aligned drop-down
             AppMenu {
                 id: newMenu
-                y: newButton.height + 4
                 minWidth: 260
                 AppMenuItem {
                     text: "New cycling workout"

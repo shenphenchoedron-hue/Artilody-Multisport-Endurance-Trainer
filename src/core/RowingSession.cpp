@@ -92,9 +92,11 @@ void RowingSession::setRower(RowerDevice *rower)
                                   emit metricsChanged();
                               });
     }
-    // A different monitor has different counters: continue seamlessly.
+    // A different monitor has different counters: continue seamlessly. A
+    // brand-new device object has not reported anything yet (all zeros), so
+    // the rebase waits for its first measurement.
     if (active())
-        rebase();
+        rebaseOrDefer();
     else
         captureReady();
     if (running())
@@ -217,6 +219,10 @@ int RowingSession::spm() const { return m_rower ? m_rower->strokesPerMinute() : 
 
 int RowingSession::heartRate() const
 {
+    // Same priority as DeviceManager: a dedicated heart rate sensor wins over
+    // a strap paired to the rowing monitor.
+    if (m_hub && m_hub->heartRateConnected() && m_hub->heartRate() > 0)
+        return m_hub->heartRate();
     if (m_rower && m_rower->heartRateBpm() > 0)
         return m_rower->heartRateBpm();
     return m_hub ? m_hub->heartRate() : 0;
@@ -417,6 +423,8 @@ RowingSession::Raw RowingSession::raw() const
 void RowingSession::captureReady()
 {
     m_ready = raw();
+    // Only values the monitor actually reported are a usable baseline.
+    m_readyValid = m_rower && m_rower->hasData();
 }
 
 void RowingSession::rebase()
@@ -425,6 +433,15 @@ void RowingSession::rebase()
     m_offset.distance = r.distance - m_distance;
     m_offset.strokes = r.strokes - m_strokes;
     m_offset.calories = r.calories - m_calories;
+    m_rebasePending = false;
+}
+
+void RowingSession::rebaseOrDefer()
+{
+    if (m_rower && m_rower->hasData())
+        rebase();
+    else
+        m_rebasePending = true;   // done by the first measurement of the device
 }
 
 void RowingSession::setState(State s)
@@ -451,6 +468,8 @@ void RowingSession::clearRecording()
     m_strokes = 0;
     m_calories = 0;
     m_prevT = m_prevD = 0;
+    m_rebasePending = false;
+    m_pausedDuringPiece = false;
     m_targetSec = m_inRangeSec = 0;
     m_intervalPowerSum = 0;
     m_intervalSec = 0;
@@ -603,12 +622,19 @@ bool RowingSession::start()
         emit startRefused(QStringLiteral("A cycling session is running. Stop it before rowing."));
         return false;
     }
+    if (m_mode == Mode::Plan && !m_db->workout(m_planWorkoutId)) {
+        // Checked before reset(): the results of a finished row stay visible.
+        emit startRefused(QStringLiteral("This rowing workout no longer exists. Choose another workout."));
+        return false;
+    }
     if (m_state == State::Finished)
         reset();
     if (m_mode == Mode::None)
         setupSolo(0);
-    if (m_mode == Mode::Plan && m_engine.isFreeRide())
+    if (m_mode == Mode::Plan && m_engine.isFreeRide()) {
+        emit startRefused(QStringLiteral("This rowing workout cannot be started."));
         return false;
+    }
     if (m_training && m_training->waiting())
         m_training->stop();   // only armed: nothing ridden yet
 
@@ -616,8 +642,18 @@ bool RowingSession::start()
     clearRecording();
     clearResults();
     // Values from the last update before the start; for a start triggered by
-    // the first stroke this keeps the distance of that stroke.
-    m_offset = m_rower ? m_ready : Raw {};
+    // the first stroke this keeps the distance of that stroke. Without such a
+    // reported baseline (e.g. the very first packet of the monitor starts the
+    // row) the current values are used, and without any data yet the
+    // baseline is taken from the first measurement.
+    if (m_rower && m_readyValid) {
+        m_offset = m_ready;
+    } else if (m_rower && m_rower->hasData()) {
+        m_offset = raw();
+    } else {
+        m_offset = Raw {};
+        m_rebasePending = true;
+    }
     m_trace.append({ 0, 0 });
     m_startedAt = QDateTime::currentDateTime();
     if (m_mode == Mode::Plan) {
@@ -654,6 +690,7 @@ void RowingSession::pause()
     releaseTarget();
     if (m_mode == Mode::Plan)
         m_engine.pause();
+    m_pausedDuringPiece = true;
     setState(State::Paused);
     emit metricsChanged();
 }
@@ -663,7 +700,8 @@ void RowingSession::resume()
     if (!paused())
         return;
     // Metres rowed while paused do not count.
-    rebase();
+    if (!m_rebasePending)
+        rebaseOrDefer();
     m_prevT = m_activeMs / 1000.0;
     m_prevD = m_distance;
     if (m_mode == Mode::Plan)
@@ -808,16 +846,27 @@ void RowingSession::onMeasurement()
         emit metricsChanged();   // rebased on resume
         return;
     }
+    if (m_rebasePending)
+        rebase();   // first values of a new monitor / of the row: continue from here
     const Raw r = raw();
+    // Each counter is bridged on its own: after a reset on the monitor the
+    // stroke count and calories may restart later than the distance.
     double d = r.distance - m_offset.distance;
     if (d + 1.0 < m_distance) {
-        // Counters went backwards without a reset notice: bridge it.
-        rebase();
+        m_offset.distance = r.distance - m_distance;
         d = m_distance;
     }
-    m_strokes = std::max(m_strokes, r.strokes - m_offset.strokes);
-    m_calories = std::max(m_calories, r.calories - m_offset.calories);
+    if (r.strokes - m_offset.strokes < m_strokes)
+        m_offset.strokes = r.strokes - m_strokes;
+    m_strokes = r.strokes - m_offset.strokes;
+    if (r.calories - m_offset.calories < m_calories)
+        m_offset.calories = r.calories - m_calories;
+    m_calories = r.calories - m_offset.calories;
     const double now = nowSec();
+    // After a gap without movement the boat stood still until (at most) a
+    // second before this update: interpolate from there, not over the gap.
+    if (d > m_prevD)
+        m_prevT = std::max(m_prevT, now - 1.0);
     if (m_mode != Mode::Plan && m_targetDistance > 0 && d >= m_targetDistance) {
         // Finish time interpolated between the last two updates.
         double t = now;
@@ -825,7 +874,8 @@ void RowingSession::onMeasurement()
             t = m_prevT + (m_targetDistance - m_prevD) / (d - m_prevD) * (now - m_prevT);
         t = std::clamp(t, m_prevT, now);
         extendTrace(t, m_targetDistance);
-        m_distance = d;
+        // Seconds up to the finish still see the distance before it (never
+        // more than the target).
         recordUpTo(int(std::floor(t)));
         completeDistance(t);
         return;
@@ -888,11 +938,14 @@ void RowingSession::maybeAutoStart()
 
 void RowingSession::onWorkoutReset()
 {
-    // New workout on the monitor: counters restart from 0.
-    if (active())
-        rebase();
-    else
+    // New workout on the monitor: counters restart from 0. Counters that
+    // restart later are bridged in onMeasurement().
+    if (active()) {
+        if (!m_rebasePending)
+            rebaseOrDefer();
+    } else {
         captureReady();
+    }
 }
 
 // --- targets --------------------------------------------------------------------
@@ -932,14 +985,20 @@ qint64 RowingSession::finishInternal(bool save, bool completed, double finishTim
     const qint64 rideId = save ? saveRide() : -1;
 
     if (completed && m_mode != Mode::Plan && m_targetDistance > 0 && m_records) {
-        const auto prev = m_records->best(m_targetDistance);
+        const qint64 profileId = m_rideProfile.id;
+        const auto prev = m_records->best(m_targetDistance, profileId);
         m_previousRecord = prev ? prev->timeSec : 0.0;
-        m_newRecord = m_records->saveIfBest(m_targetDistance, finishTime, m_trace, rideId);
-        if (m_newRecord)
-            emit newRecordSet(m_targetDistance, finishTime, m_previousRecord);
+        // No personal best from a piece with a pause in it, or with an
+        // impossible pace (faster than 1:00 /500 m: bad monitor data).
+        if (!m_pausedDuringPiece && RowingRecords::plausibleTime(m_targetDistance, finishTime)) {
+            m_newRecord = m_records->saveIfBest(m_targetDistance, finishTime, m_trace, rideId, profileId);
+            if (m_newRecord)
+                emit newRecordSet(m_targetDistance, finishTime, m_previousRecord);
+        }
     }
-    if (m_mode == Mode::Plan && rideId >= 0 && m_planner)
-        m_planner->markCompletedForWorkout(m_engine.workout().id, m_startedAt.date(), rideId);
+    // Only a completed plan workout ticks off its calendar entry.
+    if (m_mode == Mode::Plan && completed && rideId >= 0 && m_planner)
+        m_planner->completeForRide(m_engine.workout().id, m_startedAt.date(), rideId, m_rideProfile.id);
 
     emit resultChanged();
     emit stateChanged();

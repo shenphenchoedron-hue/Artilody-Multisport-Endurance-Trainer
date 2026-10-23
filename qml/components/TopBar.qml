@@ -84,11 +84,15 @@ Item {
                 Instantiator {
                     model: Profiles.profiles
                     delegate: AppMenuItem {
+                        // not checkable (a click must not toggle a check state): the
+                        // active profile just shows the check icon
+                        readonly property bool current: modelData.id === Profiles.profileId
                         text: modelData.name + "  ·  FTP " + modelData.ftp
-                        checkable: true
-                        checked: modelData.id === Profiles.profileId
-                        enabled: !Training.active   // no profile switching mid-ride
-                        onTriggered: Profiles.selectProfile(modelData.id)
+                        iconName: current ? "check" : "user"
+                        iconColor: current ? Theme.accentLight : "transparent"
+                        font.weight: current ? Font.DemiBold : Font.Medium
+                        enabled: !Training.active && !Rowing.active   // no profile switching mid-ride / mid-row
+                        onTriggered: if (!current) Profiles.selectProfile(modelData.id)
                     }
                     onObjectAdded: (index, object) => profileMenu.insertItem(index, object)
                     onObjectRemoved: (index, object) => profileMenu.removeItem(object)
@@ -102,7 +106,7 @@ Item {
                 AppMenuItem {
                     text: "New profile…"
                     iconName: "plus"
-                    enabled: !Training.active
+                    enabled: !Training.active && !Rowing.active
                     onTriggered: bar.newProfileRequested()
                 }
             }

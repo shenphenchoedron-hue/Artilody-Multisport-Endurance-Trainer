@@ -296,6 +296,24 @@ private slots:
         QCOMPARE(pm5::pace500FromWatts(0), 0.0);
         QCOMPARE(pm5::wattsFromPace500(0), 0.0);
     }
+
+    void machineKinds()
+    {
+        QCOMPARE(pm5::machineKind(0), pm5::MachineKind::Rower);       // static D
+        QCOMPARE(pm5::machineKind(16), pm5::MachineKind::Rower);      // slides
+        QCOMPARE(pm5::machineKind(64), pm5::MachineKind::Rower);      // dyno
+        QCOMPARE(pm5::machineKind(224), pm5::MachineKind::Rower);     // MultiErg row
+        QCOMPARE(pm5::machineKind(128), pm5::MachineKind::SkiErg);
+        QCOMPARE(pm5::machineKind(143), pm5::MachineKind::SkiErg);
+        QCOMPARE(pm5::machineKind(225), pm5::MachineKind::SkiErg);
+        QCOMPARE(pm5::machineKind(192), pm5::MachineKind::BikeErg);
+        QCOMPARE(pm5::machineKind(207), pm5::MachineKind::BikeErg);
+        QCOMPARE(pm5::machineKind(226), pm5::MachineKind::BikeErg);
+        QCOMPARE(pm5::machineKindFromName(QStringLiteral("PM5 430012345 Row")), pm5::MachineKind::Rower);
+        QCOMPARE(pm5::machineKindFromName(QStringLiteral("PM5 430012345 Ski")), pm5::MachineKind::SkiErg);
+        QCOMPARE(pm5::machineKindFromName(QStringLiteral("PM5 430012345 Bike")), pm5::MachineKind::BikeErg);
+        QCOMPARE(pm5::machineKindFromName(QStringLiteral("PM5 430012345")), pm5::MachineKind::Rower);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestPm5Protocol)

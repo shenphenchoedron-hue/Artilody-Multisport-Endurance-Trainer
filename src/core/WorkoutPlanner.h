@@ -24,10 +24,27 @@ class WorkoutPlanner : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int revision READ revision NOTIFY planChanged)   // bumps on every change (for QML bindings)
+    // Plan entry started from the calendar (-1 = none), see setActiveEntry().
+    Q_PROPERTY(qint64 activeEntryId READ activeEntryId NOTIFY activeEntryChanged)
 public:
     WorkoutPlanner(Database *db, ProfileManager *profiles, QObject *parent = nullptr);
 
     int revision() const { return m_revision; }
+    qint64 activeEntryId() const { return m_activeEntryId; }
+
+    // Call right before Training.loadWorkout()/Rowing.setupPlan() when a plan
+    // entry is started from the calendar (any day: past, today or future).
+    // When a completed ride of that entry's workout is saved, exactly this
+    // entry is ticked off (whatever its date) and the active entry is cleared.
+    // Rides of other workouts never complete it. Unknown ids clear it.
+    Q_INVOKABLE void setActiveEntry(qint64 entryId);
+    Q_INVOKABLE void clearActiveEntry();
+
+    // Completion hook for a saved ride of a *completed* workout (not for
+    // aborted ones): ticks off the active entry when it belongs to workoutId,
+    // otherwise the first open entry of workoutId on date. profileId is the
+    // rider of the ride (< 0 = active profile). Returns the entry id or -1.
+    qint64 completeForRide(qint64 workoutId, const QDate &date, qint64 rideId, qint64 profileId = -1);
 
     Q_INVOKABLE qint64 addWorkout(const QVariant &date, qint64 workoutId, const QString &notes = QString());   // id or -1
     Q_INVOKABLE bool remove(qint64 id);
@@ -44,7 +61,9 @@ public:
     Q_INVOKABLE QVariantList upcoming(int n = 5) const;
     // Marks the first open entry of workoutId on date (default: today) completed.
     // Returns the entry id or -1 when nothing was planned.
-    Q_INVOKABLE qint64 markCompletedForWorkout(qint64 workoutId, const QVariant &date = QVariant(), qint64 rideId = -1);
+    // profileId: rider of the ride (< 0 = active profile).
+    Q_INVOKABLE qint64 markCompletedForWorkout(qint64 workoutId, const QVariant &date = QVariant(), qint64 rideId = -1,
+                                               qint64 profileId = -1);
 
     // Routing helper for "start planned workout": the sport of a plan entry
     // ("cycling" or "rowing"). Accepts an entry map (as returned above, uses
@@ -63,12 +82,14 @@ public slots:
 
 signals:
     void planChanged();
+    void activeEntryChanged();
 
 private:
     QVariantList toList(const QVector<PlannedWorkout> &entries) const;
     Database *m_db;
     ProfileManager *m_profiles;
     int m_revision = 0;
+    qint64 m_activeEntryId = -1;
 };
 
 } // namespace watt

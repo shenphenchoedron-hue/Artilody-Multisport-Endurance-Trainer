@@ -1,5 +1,10 @@
+#include "DeviceManager.h"
+#include "FtmsProtocol.h"
+#include "Pm5Protocol.h"
 #include "SimulatedDevices.h"
 
+#include <QBluetoothDeviceInfo>
+#include <QBluetoothUuid>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -18,8 +23,33 @@ public:
     void stroke(int count, int watts) { applyStroke(count, watts); commitMeasurement(); }
     void status(int ws, bool active) { applyWorkoutState(ws, active); commitMeasurement(); }
     void progress(double t, double d) { applyElapsed(t); applyDistance(d); commitMeasurement(); }
+    // general status as the PM5 sends it: state first, then counters
+    void general(int ws, double t, double d, int totalWork)
+    {
+        applyWorkoutState(ws, true);
+        applyTotalWorkDistance(totalWork);
+        applyElapsed(t);
+        applyDistance(d);
+        commitMeasurement();
+    }
     void hr(int bpm) { applyHeartRate(bpm); commitMeasurement(); }
+    void rate(int spm) { applyStrokeRate(spm); commitMeasurement(); }
+    void applyBatch(double t, double d, int strokeCount, int watts)
+    {
+        applyElapsed(t);
+        applyDistance(d);
+        applyStroke(strokeCount, watts);
+        commitMeasurement();
+    }
 };
+
+static QBluetoothDeviceInfo leDevice(const QString &name, const QList<QBluetoothUuid> &uuids)
+{
+    QBluetoothDeviceInfo info(QBluetoothUuid(QUuid::createUuid()), name, 0);
+    info.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
+    info.setServiceUuids(uuids);
+    return info;
+}
 
 class TestRowerDevice : public QObject
 {
@@ -118,6 +148,115 @@ private slots:
         QVERIFY(!r.rowingActive());
         QCOMPARE(r.watts(), 0);
         QCOMPARE(r.strokesPerMinute(), 0);
+    }
+
+    void hasDataAndValuesBeforeSignals()
+    {
+        FakeRower r;
+        r.connectDevice();
+        QVERIFY(!r.hasData());
+        double distAtStroke = -1;
+        bool dataAtStroke = false;
+        connect(&r, &RowerDevice::strokeMeasured, &r, [&] {
+            distAtStroke = r.distanceMeters();
+            dataAtStroke = r.hasData();
+        });
+        r.disconnectDevice();   // clearing live values is no measurement
+        QVERIFY(!r.hasData());
+        r.connectDevice();
+        // one batch: distance and a stroke; handlers see the complete values
+        r.applyBatch(12.0, 340.0, 3, 180);
+        QVERIFY(r.hasData());
+        QVERIFY(dataAtStroke);
+        QCOMPARE(distAtStroke, 340.0);
+    }
+
+    void intervalRestartIsNoReset()
+    {
+        FakeRower r;
+        r.connectDevice();
+        QSignalSpy reset(&r, &RowerDevice::workoutReset);
+        // interval workout: elapsed/distance restart per interval, total work grows
+        r.general(int(pm5::WorkoutState::IntervalWorkDistance), 100, 500, 0);
+        r.general(int(pm5::WorkoutState::IntervalWorkDistanceToRest), 101, 500, 500);
+        r.general(int(pm5::WorkoutState::IntervalRest), 1, 0, 500);
+        r.general(int(pm5::WorkoutState::IntervalRestEndToWorkDistance), 60, 0, 500);
+        r.general(int(pm5::WorkoutState::IntervalWorkDistance), 0.5, 2, 500);
+        QCOMPARE(reset.count(), 0);
+        // total work distance drops: a new workout even in an interval state
+        r.general(int(pm5::WorkoutState::IntervalWorkDistance), 0.5, 1, 0);
+        QCOMPARE(reset.count(), 1);
+        // a plain row: a jump backwards is a new workout
+        r.general(int(pm5::WorkoutState::WorkoutRow), 300, 1200, 0);
+        r.general(int(pm5::WorkoutState::WaitToBegin), 0, 0, 0);
+        QCOMPARE(reset.count(), 2);
+    }
+
+    void firstStrokeBeforeActiveKeepsPower()
+    {
+        FakeRower r;
+        r.connectDevice();
+        r.status(int(pm5::WorkoutState::WaitToBegin), false);
+        r.stroke(1, 210);              // stroke data arrives before general status says "active"
+        r.status(int(pm5::WorkoutState::WaitToBegin), false);
+        QCOMPARE(r.watts(), 210);      // only active -> inactive drops it
+        r.status(int(pm5::WorkoutState::WorkoutRow), true);
+        QCOMPARE(r.watts(), 210);
+        r.status(int(pm5::WorkoutState::WorkoutRow), false);
+        QCOMPARE(r.watts(), 0);
+    }
+
+    void powerHoldFollowsStrokeRate()
+    {
+        FakeRower r;
+        r.connectDevice();
+        QCOMPARE(r.effectivePowerHoldMs(), 5000);
+        r.rate(16);                    // 3.75 s per stroke -> hold 5.625 s
+        QCOMPARE(r.effectivePowerHoldMs(), 5625);
+        r.stroke(1, 150);
+        r.checkPowerHold(5500);
+        QCOMPARE(r.watts(), 150);
+        r.checkPowerHold(5700);
+        QCOMPARE(r.watts(), 0);
+        r.rate(30);
+        QCOMPARE(r.effectivePowerHoldMs(), 5000);
+    }
+
+    void strokeAfterResetWithSameCountIsNew()
+    {
+        FakeRower r;
+        r.connectDevice();
+        QSignalSpy strokes(&r, &RowerDevice::strokeMeasured);
+        r.progress(100, 400);
+        r.stroke(5, 200);
+        QCOMPARE(strokes.count(), 1);
+        r.progress(0.5, 1);            // new workout on the monitor (separate packet)
+        r.stroke(0, 0);                // count 0: no stroke yet
+        QCOMPARE(strokes.count(), 1);
+        r.stroke(1, 120);
+        QCOMPARE(strokes.count(), 2);
+        r.progress(30, 100);
+        r.progress(0.5, 2);            // another reset; stroke count of the old workout == 1
+        r.stroke(1, 130);              // first stroke of the new workout, same count
+        QCOMPARE(strokes.count(), 3);
+        QCOMPARE(r.watts(), 130);
+    }
+
+    void classifyDevices()
+    {
+        using K = DeviceManager::Kind;
+        const QBluetoothUuid rowing(pm5::uuid(pm5::kRowingService));
+        const QBluetoothUuid info(pm5::uuid(pm5::kDeviceInfoService));
+        const QBluetoothUuid ftms(ftms::kServiceUuid);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("Something"), { rowing })), K::Rower);
+        // any Concept2 CE06xxxx service identifies a PM5
+        QCOMPARE(DeviceManager::classify(leDevice(QString(), { info })), K::Rower);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Row"), { ftms })), K::Rower);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345"), {})), K::Rower);
+        // SkiErg / BikeErg monitors are not offered (also not as FTMS trainer)
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Ski"), { rowing })), K::Unknown);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Bike"), { ftms })), K::Unknown);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("KICKR CORE"), { ftms })), K::Trainer);
     }
 };
 

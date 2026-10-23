@@ -47,6 +47,33 @@ ApplicationWindow {
 
     readonly property string currentPage: pageNames[sidebar.currentIndex] || ""
 
+    // Scaled item that hosts every modal AppDialog (pages parent theirs here so
+    // they cover the whole window, sidebar included).
+    readonly property Item dialogHost: root
+
+    // True while the keyboard belongs to something else: an AppDialog, a popup /
+    // menu (they live in the overlay) or a text field. Global shortcuts such as
+    // Space (pause) must not fire then.
+    readonly property bool keyboardBusy: {
+        var it = window.activeFocusItem
+        while (it) {
+            if (it === window.overlay)
+                return true
+            if (it.cursorPosition !== undefined && it.readOnly !== true)   // TextInput / TextEdit
+                return true
+            if (it.panelWidth !== undefined && it.closable !== undefined && it.visible)   // AppDialog
+                return true
+            it = it.parent
+        }
+        return false
+    }
+    readonly property bool anyDialogOpen: keyboardBusy || profileDialog.visible || musicLibrary.visible
+                                          || settingsDialog.visible || workoutDetails.visible || stopDialog.visible
+                                          || rowingFinishDialog.visible || ftpResultDialog.visible
+
+    // Developer aid: start with "--light" to open in the light theme (screenshots).
+    Component.onCompleted: if (Qt.application.arguments.indexOf("--light") >= 0) Theme.dark = false
+
     // Screenshot aid (WATT_SCREENSHOT_MENU, see main.cpp): open one of the menus.
     property var screenshotMenu: null
     function openScreenshotMenu(name) {
@@ -257,13 +284,12 @@ ApplicationWindow {
     // keyboard shortcuts for the trainer room
     Shortcut {
         sequence: "Space"
-        enabled: window.currentPage === "dashboard" && !profileDialog.visible && !ftpResultDialog.visible
+        enabled: window.currentPage === "dashboard" && !window.anyDialogOpen
         onActivated: Training.togglePause()
     }
     Shortcut {
         sequence: "Space"
-        enabled: window.currentPage === "rowing" && Rowing.active && !profileDialog.visible
-                 && !rowingFinishDialog.visible
+        enabled: window.currentPage === "rowing" && Rowing.active && !window.anyDialogOpen
         onActivated: Rowing.togglePause()
     }
 }

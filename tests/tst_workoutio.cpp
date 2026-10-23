@@ -496,6 +496,37 @@ private slots:
         QVERIFY(lib.suggestedExportUrl(builtInId, QStringLiteral("zwo")).toLocalFile().endsWith(QStringLiteral("Sweet Spot 3 × 12.zwo")));
         QVERIFY(lib.suggestedExportUrl(-1, QStringLiteral("all")).toLocalFile().endsWith(QStringLiteral("My workouts.awt")));
     }
+
+    void duplicateCheckComparesSport()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        WorkoutLibrary lib(&db, &profiles);
+        lib.reload();
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        Workout row = Workout::builtInLibrary().first();
+        row.builtIn = false;
+        row.name = QStringLiteral("Same Blocks");
+        row.sport = sport::rowing();
+        const qint64 id = db.saveWorkout(row);
+        lib.reload();
+        const QString path = dir.filePath(QStringLiteral("row.awt"));
+        QVERIFY(lib.exportWorkout(id, QUrl::fromLocalFile(path)));
+        QCOMPARE(lib.importFile(QUrl::fromLocalFile(path)), 0);   // same sport: duplicate
+
+        // the same name and blocks as a cycling workout is a different workout
+        row.id = id;
+        row.sport = sport::cycling();
+        QVERIFY(db.saveWorkout(row) == id);
+        lib.reload();
+        QCOMPARE(lib.importFile(QUrl::fromLocalFile(path)), 1);
+        QCOMPARE(lib.workout(lib.selectedId())->sport, sport::rowing());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestWorkoutIO)

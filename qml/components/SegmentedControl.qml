@@ -7,6 +7,7 @@ import QtQuick
 //       value: Workouts.sportFilter
 //       onActivated: (v) => Workouts.sportFilter = v
 //   }
+// Keyboard: Tab to focus, Left / Right to step through the options.
 Rectangle {
     id: seg
     property var options: []
@@ -16,11 +17,33 @@ Rectangle {
     property real iconSize: 18
     signal activated(string value)
 
+    function indexOfValue(v) {
+        for (var i = 0; i < options.length; ++i)
+            if (options[i].value === v)
+                return i
+        return -1
+    }
+    function step(delta) {
+        if (options.length === 0)
+            return
+        var i = indexOfValue(value)
+        var n = i < 0 ? (delta > 0 ? 0 : options.length - 1) : Math.max(0, Math.min(options.length - 1, i + delta))
+        if (n !== i)
+            activated(options[n].value)
+    }
+
+    activeFocusOnTab: true
+    Keys.onLeftPressed: step(-1)
+    Keys.onRightPressed: step(1)
+    Accessible.role: Accessible.PageTabList
+    Accessible.name: { var i = indexOfValue(value); return i >= 0 ? options[i].label : "" }
+
     implicitWidth: segRow.implicitWidth + 8
     implicitHeight: 50
     radius: 10
     color: Theme.card
-    border.color: Theme.cardBorder
+    border.color: activeFocus ? Theme.accentLight : Theme.cardBorder
+    border.width: activeFocus ? 2 : 1
 
     Row {
         id: segRow
@@ -35,6 +58,11 @@ Rectangle {
                 width: segContent.implicitWidth + 2 * seg.segmentPadding
                 height: seg.height - 8
                 radius: 8
+                Accessible.role: Accessible.PageTab
+                Accessible.name: modelData.label
+                Accessible.selectable: true
+                Accessible.selected: active
+                Accessible.onPressAction: seg.activated(modelData.value)
                 color: active ? tint : (segMouse.containsMouse ? Theme.hover : "transparent")
                 Row {
                     id: segContent

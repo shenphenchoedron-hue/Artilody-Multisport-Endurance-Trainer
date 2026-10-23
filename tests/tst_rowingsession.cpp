@@ -26,6 +26,24 @@ public:
 
     void stroke(int watts) { applyStroke(++strokes, watts); applyStrokeRate(24); commitMeasurement(); }
     void progress(double t, double d) { applyElapsed(t); applyDistance(d); commitMeasurement(); }
+    // One packet with counters, stroke and rowing state (the PM5's first packet).
+    void packet(double t, double d, int strokeCount, int watts)
+    {
+        applyWorkoutState(1, true);
+        applyElapsed(t);
+        applyDistance(d);
+        strokes = strokeCount;
+        applyStroke(strokeCount, watts);
+        commitMeasurement();
+    }
+    void counters(int strokeCount, int kcal)
+    {
+        strokes = strokeCount;
+        applyStroke(strokeCount, 150);
+        applyCalories(kcal);
+        commitMeasurement();
+    }
+    void hr(int bpm) { applyHeartRate(bpm); commitMeasurement(); }
 
     int strokes = 0;
     int lastTarget = -1;
@@ -453,6 +471,293 @@ private slots:
         QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
         QVERIFY(rowRefused.count() >= 1);
         training.discard();
+    }
+
+    void newRowerMidSessionWaitsForData()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.rowing->setAutoStart(false);
+        f.rower.progress(10, 1000);
+        QVERIFY(f.rowing->setupSolo(0));
+        QVERIFY(f.rowing->start());
+        f.rowing->advanceClock(10000);
+        f.rower.progress(20, 1040);
+        QCOMPARE(f.rowing->distanceMeters(), 40.0);
+
+        // a brand-new device object has no values yet (all zeros)
+        FakeRower fresh;
+        fresh.connectDevice();
+        QVERIFY(!fresh.hasData());
+        f.rowing->setRower(&fresh);
+        QCOMPARE(f.rowing->distanceMeters(), 40.0);
+        fresh.progress(500, 3000);   // its first values: no jump
+        QCOMPARE(f.rowing->distanceMeters(), 40.0);
+        f.rowing->advanceClock(2000);
+        fresh.progress(502, 3010);
+        QCOMPARE(f.rowing->distanceMeters(), 50.0);
+        f.rowing->setRower(&f.rower);
+        f.rowing->finish(false);
+    }
+
+    void autoStartOnFirstPacketUsesItsValues()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        FakeRower fresh;   // never reported anything
+        fresh.connectDevice();
+        f.rowing->setRower(&fresh);
+        QVERIFY(f.rowing->setupSolo(500));
+        // The very first packet already shows 5000 m of an earlier piece; its
+        // stroke starts the row. Baseline: that packet, not zeros.
+        fresh.packet(600, 5000, 400, 200);
+        QCOMPARE(f.rowing->state(), QStringLiteral("running"));
+        QCOMPARE(f.rowing->distanceMeters(), 0.0);
+        QCOMPARE(f.rowing->strokeCount(), 0);
+        f.rowing->advanceClock(1000);
+        fresh.progress(601, 5004);
+        QCOMPARE(f.rowing->distanceMeters(), 4.0);
+        QCOMPARE(f.rowing->state(), QStringLiteral("running"));
+        f.rowing->setRower(&f.rower);
+        f.rowing->finish(false);
+
+        // Started by hand before the monitor sent anything: first values are the baseline.
+        FakeRower silent;
+        silent.connectDevice();
+        f.rowing->setRower(&silent);
+        QVERIFY(f.rowing->setupSolo(500));
+        QVERIFY(f.rowing->start());
+        silent.progress(900, 7000);
+        QCOMPARE(f.rowing->distanceMeters(), 0.0);
+        QCOMPARE(f.rowing->state(), QStringLiteral("running"));
+        silent.progress(901, 7005);
+        QCOMPARE(f.rowing->distanceMeters(), 5.0);
+        f.rowing->setRower(&f.rower);
+        f.rowing->finish(false);
+    }
+
+    void countersRebaseIndependently()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.rowing->setAutoStart(false);
+        f.rower.progress(10, 100);
+        f.rower.counters(50, 20);
+        QVERIFY(f.rowing->setupSolo(0));
+        QVERIFY(f.rowing->start());
+        f.rowing->advanceClock(10000);
+        f.rower.progress(20, 150);
+        f.rower.counters(60, 25);
+        QCOMPARE(f.rowing->strokeCount(), 10);
+        QCOMPARE(f.rowing->calories(), 5);
+
+        // reset on the monitor: distance first ...
+        f.rower.progress(0.5, 1);
+        QCOMPARE(f.rowing->distanceMeters(), 50.0);
+        f.rower.counters(61, 25);   // late packet of the old workout
+        QCOMPARE(f.rowing->strokeCount(), 11);
+        // ... strokes and calories restart later: they continue, not freeze
+        f.rower.counters(1, 0);
+        QCOMPARE(f.rowing->strokeCount(), 11);
+        QCOMPARE(f.rowing->calories(), 5);
+        f.rower.counters(3, 2);
+        QCOMPARE(f.rowing->strokeCount(), 13);
+        QCOMPARE(f.rowing->calories(), 7);
+        f.rower.progress(2, 9);
+        QCOMPARE(f.rowing->distanceMeters(), 58.0);
+        f.rowing->finish(false);
+    }
+
+    void noRecordWithPauseOrImpossiblePace()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QSignalSpy record(f.rowing.get(), &RowingSession::newRecordSet);
+        // paused during the piece: completed and saved, but no personal best
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->setupSolo(500));
+        QVERIFY(f.rowing->start());
+        for (int k = 1; k <= 60; ++k) {
+            f.rowing->advanceClock(1000);
+            f.rower.progress(k, 4.0 * k);
+            if (k == 20) {
+                f.rowing->pause();
+                f.rowing->resume();
+            }
+        }
+        for (int k = 61; f.rowing->running() && k < 400; ++k) {
+            f.rowing->advanceClock(1000);
+            f.rower.progress(k, 4.0 * k);
+        }
+        QVERIFY(f.rowing->completed());
+        QVERIFY(f.rowing->lastRideId() >= 0);
+        QVERIFY(!f.rowing->newRecord());
+        QCOMPARE(record.count(), 0);
+        QVERIFY(!f.records->best(500).has_value());
+
+        // 500 m in 20 s (bad data): no record
+        QVERIFY(f.rowing->setupSolo(500));
+        QVERIFY(f.rowing->start());
+        for (int k = 1; f.rowing->running() && k < 100; ++k) {
+            f.rowing->advanceClock(1000);
+            f.rower.progress(1000 + k, 1000 + 25.0 * k);
+        }
+        QVERIFY(f.rowing->completed());
+        QVERIFY(!f.rowing->newRecord());
+        QVERIFY(!f.records->best(500).has_value());
+    }
+
+    void recordBelongsToTheRider()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const qint64 rider = f.profiles->profileId();
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->setupSolo(500));
+        QVERIFY(f.rowing->start());
+        const qint64 other = f.profiles->createProfile(QStringLiteral("Other"));   // switches the profile mid-row
+        QVERIFY(other != rider);
+        for (int k = 1; f.rowing->running() && k < 400; ++k) {
+            f.rowing->advanceClock(1000);
+            f.rower.progress(k, 4.0 * k);
+        }
+        QVERIFY(f.rowing->newRecord());
+        QVERIFY(f.records->best(500, rider).has_value());
+        QVERIFY(!f.records->best(500, other).has_value());
+        QCOMPARE(f.db.ride(f.rowing->lastRideId())->profileId, rider);
+    }
+
+    void dedicatedHeartRateSensorWins()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.hub->setStaleTimeoutMs(600000);
+        f.rower.hr(120);
+        QCOMPARE(f.rowing->heartRate(), 120);   // only the PM5 strap
+        f.hub->setHeartRateConnected(true);
+        f.hub->updateHeartRate(150);
+        QCOMPARE(f.rowing->heartRate(), 150);   // dedicated sensor
+        f.hub->setHeartRateConnected(false);
+        QCOMPARE(f.rowing->heartRate(), 120);
+    }
+
+    void finishTimeIgnoresIdleGap()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->setupSolo(100));
+        QVERIFY(f.rowing->start());
+        for (int k = 1; k <= 24; ++k) {
+            f.rowing->advanceClock(1000);
+            f.rower.progress(k, 4.0 * k);   // 96 m after 24 s
+        }
+        f.rowing->advanceClock(30000);      // standing still for 30 s
+        f.rower.progress(54, 96);           // packets without movement
+        f.rowing->advanceClock(1000);
+        f.rower.progress(55, 104);          // 8 m in the last second
+        QCOMPARE(f.rowing->state(), QStringLiteral("finished"));
+        QCOMPARE(f.rowing->finishTimeSec(), 54.5);
+        // the recorded distances never exceed the target
+        for (const QVariant &v : f.rowing->distanceSeries())
+            QVERIFY(v.toDouble() <= 100.0);
+        QCOMPARE(f.rowing->trace().last().d, 100.0);
+    }
+
+    void planCompletionOnlyWhenCompleted()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        Workout w;
+        w.name = QStringLiteral("Short Row");
+        w.sport = sport::rowing();
+        Interval a; a.name = QStringLiteral("Row"); a.durationSec = 30; a.startPercent = a.endPercent = 0.5;
+        w.intervals = { a };
+        const qint64 id = f.db.saveWorkout(w);
+        const QDate today = QDate::currentDate();
+        const qint64 past = f.planner->addWorkout(today.addDays(-2), id);
+        const qint64 todays = f.planner->addWorkout(today, id);
+        auto done = [&](qint64 e) { return f.planner->entry(e).value(QStringLiteral("completed")).toBool(); };
+        auto row = [&](int seconds) {
+            for (int i = 0; i < seconds && f.rowing->running(); ++i) {
+                f.rowing->advanceClock(1000);
+                f.rower.stroke(100);
+            }
+        };
+
+        // aborted (stopped early): saved, but the entry stays open
+        f.planner->setActiveEntry(past);
+        QVERIFY(f.rowing->setupPlan(id));
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->start());
+        row(15);
+        QVERIFY(f.rowing->finish(true) >= 0);
+        QVERIFY(!f.rowing->completed());
+        QVERIFY(!done(past));
+        QVERIFY(!done(todays));
+        QCOMPARE(f.planner->activeEntryId(), past);
+
+        // completed: exactly the entry started from the calendar (two days ago)
+        QVERIFY(f.rowing->setupPlan(id));
+        QVERIFY(f.rowing->start());
+        row(40);
+        QVERIFY(f.rowing->completed());
+        QVERIFY(done(past));
+        QCOMPARE(f.planner->entry(past).value(QStringLiteral("rideId")).toLongLong(), f.rowing->lastRideId());
+        QVERIFY(!done(todays));
+        QCOMPARE(f.planner->activeEntryId(), qint64(-1));
+
+        // no active entry: today's open entry
+        QVERIFY(f.rowing->setupPlan(id));
+        QVERIFY(f.rowing->start());
+        row(40);
+        QVERIFY(done(todays));
+    }
+
+    void startAfterWorkoutDeletedIsRefused()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        Workout w;
+        w.name = QStringLiteral("Gone Row");
+        w.sport = sport::rowing();
+        Interval a; a.durationSec = 20; a.startPercent = a.endPercent = 0.5;
+        w.intervals = { a };
+        const qint64 id = f.db.saveWorkout(w);
+        QVERIFY(f.rowing->setupPlan(id));
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->start());
+        for (int i = 0; i < 25 && f.rowing->running(); ++i) {
+            f.rowing->advanceClock(1000);
+            f.rower.stroke(100);
+        }
+        QCOMPARE(f.rowing->state(), QStringLiteral("finished"));
+        const qint64 rideId = f.rowing->lastRideId();
+        QVERIFY(rideId >= 0);
+        QVERIFY(f.db.deleteWorkout(id));
+
+        QSignalSpy refused(f.rowing.get(), &RowingSession::startRefused);
+        QVERIFY(!f.rowing->start());
+        QCOMPARE(refused.count(), 1);
+        // the results of the finished row are still there
+        QCOMPARE(f.rowing->state(), QStringLiteral("finished"));
+        QCOMPARE(f.rowing->lastRideId(), rideId);
+        QVERIFY(f.rowing->completed());
+    }
+
+    void clearFromReadyIsSafe()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.rowing->setupGhost(1000));
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+        f.rowing->clear();
+        QCOMPARE(f.rowing->state(), QStringLiteral("idle"));
+        QCOMPARE(f.rowing->mode(), QStringLiteral("none"));
+        f.rower.stroke(200);   // no auto start without a setup
+        QCOMPARE(f.rowing->state(), QStringLiteral("idle"));
+        f.rowing->clear();     // twice: harmless
+        QCOMPARE(f.rower.targetRequests, 0);
     }
 };
 

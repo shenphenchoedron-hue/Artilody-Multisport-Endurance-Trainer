@@ -65,7 +65,7 @@ public:
     QVector<RideRecord> rides(qint64 profileId, const QDateTime &from = {}, int limit = -1) const;
     std::optional<RideRecord> ride(qint64 id) const;
     QVector<Sample> rideSamples(qint64 rideId) const;
-    bool deleteRide(qint64 id);
+    bool deleteRide(qint64 id);   // reopens plan entries completed by the ride
 
     // Workout plan (calendar). Entries whose workout no longer exists are
     // never returned (inner join) and are deleted together with the workout.

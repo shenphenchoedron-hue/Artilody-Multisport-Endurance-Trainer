@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QString>
 #include <QUuid>
 #include <optional>
 
@@ -74,6 +75,15 @@ enum class RowingState : quint8 { Inactive = 0, Active = 1 };
 // True for workout states in which the athlete is actually working
 // (rowing or in a work interval; not waiting, resting or finished).
 bool isWorkingState(int workoutState);
+
+// OBJ_ERGMACHINETYPE_T: rowers are the static/slides/dyno types (< 128) and
+// the MultiErg row type (224). SkiErg (128..143, 225) and BikeErg (192..207,
+// 226) report no rowing data in the sense of this app.
+enum class MachineKind { Rower, SkiErg, BikeErg };
+MachineKind machineKind(int ergMachineType);
+// Advertised name hint: PM5 names end in "Row", "Ski" or "Bike"
+// (e.g. "PM5 430012345 Ski"). Unknown suffix -> Rower.
+MachineKind machineKindFromName(const QString &name);
 
 // 0x0031 – identical in both layouts (19 bytes).
 struct GeneralStatus

@@ -165,9 +165,12 @@ signals:
     void rowerChanged(watt::RowerDevice *rower);   // active rower object replaced (may be null)
     void rowerDataChanged();                        // live rower values updated
 
-private:
+public:
     enum class Kind { Unknown, Trainer, HeartRate, Rower };
+    // Device kind from a scan result (public for tests).
     static Kind classify(const QBluetoothDeviceInfo &info);
+
+private:
     static QString idFor(const QBluetoothDeviceInfo &info);
 
     void onDiscovered(const QBluetoothDeviceInfo &info);

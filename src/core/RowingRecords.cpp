@@ -72,11 +72,11 @@ QVariantList RowingRecords::traceToVariant(const QVector<TracePoint> &trace)
     return list;
 }
 
-std::optional<RowingRecord> RowingRecords::best(int distanceM) const
+std::optional<RowingRecord> RowingRecords::best(int distanceM, qint64 profileId) const
 {
     if (distanceM <= 0)
         return std::nullopt;
-    return m_db->bestRowingRecord(m_profiles->profileId(), distanceM);
+    return m_db->bestRowingRecord(profileId >= 0 ? profileId : m_profiles->profileId(), distanceM);
 }
 
 QVariantMap RowingRecords::bestFor(int distanceM) const
@@ -100,15 +100,19 @@ bool RowingRecords::saveIfBest(int distanceM, double timeSec, const QVariantList
     return saveIfBest(distanceM, timeSec, traceFromVariant(trace), rideId);
 }
 
-bool RowingRecords::saveIfBest(int distanceM, double timeSec, const QVector<TracePoint> &trace, qint64 rideId)
+bool RowingRecords::saveIfBest(int distanceM, double timeSec, const QVector<TracePoint> &trace, qint64 rideId,
+                               qint64 profileId)
 {
-    if (distanceM <= 0 || !std::isfinite(timeSec) || timeSec <= 0 || m_profiles->profileId() < 0)
+    const qint64 profile = profileId >= 0 ? profileId : m_profiles->profileId();
+    if (distanceM <= 0 || !std::isfinite(timeSec) || timeSec <= 0 || profile < 0)
         return false;
-    const auto previous = best(distanceM);
+    if (!plausibleTime(distanceM, timeSec))
+        return false;
+    const auto previous = best(distanceM, profile);
     if (previous && previous->timeSec <= timeSec)
         return false;
     RowingRecord r;
-    r.profileId = m_profiles->profileId();
+    r.profileId = profile;
     r.distanceM = distanceM;
     r.timeSec = timeSec;
     // ride_id is a foreign key: a record must never be lost for an unknown/unsaved ride
@@ -117,6 +121,8 @@ bool RowingRecords::saveIfBest(int distanceM, double timeSec, const QVector<Trac
     r.trace = trace;
     if (m_db->saveRowingRecord(r) < 0)
         return false;
+    if (profile != m_profiles->profileId())
+        return true;   // another rider's record: the active profile's view is unchanged
     m_traceCache.remove(distanceM);
     ++m_revision;
     emit newRecord(distanceM, timeSec, previous ? previous->timeSec : 0.0);

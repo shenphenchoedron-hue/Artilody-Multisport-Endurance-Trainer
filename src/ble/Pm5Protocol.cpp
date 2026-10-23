@@ -49,6 +49,25 @@ SampleRate sampleRateForInterval(int intervalMs)
     return SampleRate::Ms1000;
 }
 
+MachineKind machineKind(int t)
+{
+    if (t == 225 || (t >= 128 && t < 192))
+        return MachineKind::SkiErg;
+    if (t == 226 || (t >= 192 && t < 224))
+        return MachineKind::BikeErg;
+    return MachineKind::Rower;
+}
+
+MachineKind machineKindFromName(const QString &name)
+{
+    const QString n = name.trimmed();
+    if (n.endsWith(QLatin1String(" Ski"), Qt::CaseInsensitive) || n.endsWith(QLatin1String("SkiErg"), Qt::CaseInsensitive))
+        return MachineKind::SkiErg;
+    if (n.endsWith(QLatin1String(" Bike"), Qt::CaseInsensitive) || n.endsWith(QLatin1String("BikeErg"), Qt::CaseInsensitive))
+        return MachineKind::BikeErg;
+    return MachineKind::Rower;
+}
+
 bool isWorkingState(int s)
 {
     switch (WorkoutState(s)) {

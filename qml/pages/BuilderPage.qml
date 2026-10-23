@@ -544,7 +544,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 20
             anchors.baseline: summaryTitle.baseline
-            text: Builder.intensity + "% FTP  •  TSS " + Builder.tss
+            text: Builder.intensity + "% " + page.ftpLabel + "  •  TSS " + Builder.tss
             color: Theme.textSecondary
             font.pixelSize: 14
         }
@@ -597,7 +597,7 @@ Item {
             x: 28
             y: 72
             text: Math.round(Builder.totalDurationSec / 60) + " min  •  " + Builder.blockCount + " blocks  •  "
-                  + Builder.intensity + "% FTP  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " " + Builder.ftp + " W"
+                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " " + Builder.ftp + " W"
             color: Theme.textSecondary
             font.pixelSize: 17
         }

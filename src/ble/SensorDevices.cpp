@@ -22,6 +22,15 @@ void SensorDevice::setRssi(int rssi)
 
 // --- RowerDevice ------------------------------------------------------------
 
+namespace {
+// PM5 OBJ_WORKOUTSTATE_T values 3..9: inside an interval workout, where the
+// monitor restarts elapsed time and distance for every interval.
+bool isIntervalState(int workoutState)
+{
+    return workoutState >= 3 && workoutState <= 9;
+}
+} // namespace
+
 RowerDevice::RowerDevice(QObject *parent)
     : SensorDevice(parent)
 {
@@ -40,14 +49,23 @@ RowerDevice::RowerDevice(QObject *parent)
     });
 }
 
+int RowerDevice::effectivePowerHoldMs() const
+{
+    // A slow rate (e.g. 16 spm = 3.75 s per stroke) must not drop the power
+    // between two strokes.
+    const int strokeHold = m_spm > 0 ? int(90000 / m_spm) : 0;
+    return std::max(m_holdMs, strokeHold);
+}
+
 void RowerDevice::checkPowerHold(qint64 msSinceLastStroke)
 {
     if (m_watts == 0)
         return;
     qint64 age = msSinceLastStroke;
+    const int hold = effectivePowerHoldMs();
     if (age < 0)
-        age = m_sinceStroke.isValid() ? m_sinceStroke.elapsed() : m_holdMs;
-    if (age >= m_holdMs) {
+        age = m_sinceStroke.isValid() ? m_sinceStroke.elapsed() : hold;
+    if (age >= hold) {
         setWatts(0);
         commitMeasurement();
     }
@@ -57,9 +75,9 @@ void RowerDevice::applyElapsed(double seconds)
 {
     seconds = std::max(0.0, seconds);
     // Different characteristics carry slightly different timestamps; only a
-    // clear jump backwards means the monitor started a new workout.
+    // clear jump backwards means the monitor started a new workout/interval.
     if (seconds + 1.0 < m_elapsed)
-        m_pendingReset = true;
+        m_pendingDrop = true;
     assign(m_elapsed, seconds);
 }
 
@@ -67,18 +85,32 @@ void RowerDevice::applyDistance(double meters)
 {
     meters = std::max(0.0, meters);
     if (meters + 1.0 < m_distance)
-        m_pendingReset = true;
+        m_pendingDrop = true;
     assign(m_distance, meters);
+}
+
+void RowerDevice::applyTotalWorkDistance(int meters)
+{
+    meters = std::max(0, meters);
+    if (m_totalWork >= 0 && meters < m_totalWork)
+        m_pendingWorkDrop = true;
+    m_totalWork = meters;
 }
 
 void RowerDevice::applyStroke(int strokeCount, int watts)
 {
-    if (m_pendingReset && strokeCount < m_strokes)
+    strokeCount = std::max(0, strokeCount);
+    if (strokeCount == 0) {
+        // No stroke yet in this workout (e.g. right after a reset): nothing to
+        // report, and the next counted stroke is new whatever its number.
+        assign(m_strokes, 0);
         m_haveStroke = false;
+        return;
+    }
     if (m_haveStroke && strokeCount == m_strokes)
         return;   // repeated packet for a stroke we already handled
     m_haveStroke = true;
-    assign(m_strokes, std::max(0, strokeCount));
+    assign(m_strokes, strokeCount);
     setWatts(std::max(0, watts));
     m_sinceStroke.start();
     m_pendingStroke = true;
@@ -108,12 +140,15 @@ void RowerDevice::applyWorkoutState(int workoutState, bool rowingActive)
         m_dirty = true;
     }
     if (m_rowingActive != rowingActive) {
+        // Only the transition to "not rowing" drops the held power: the first
+        // stroke may arrive (on another characteristic) before the general
+        // status reports rowing as active.
+        if (m_rowingActive && !rowingActive)
+            setWatts(0);
         m_rowingActive = rowingActive;
         m_pendingActive = true;
         m_dirty = true;
     }
-    if (!rowingActive)
-        setWatts(0);
 }
 
 void RowerDevice::setWatts(int w)
@@ -137,13 +172,25 @@ void RowerDevice::clearLiveValues()
         m_pendingActive = true;
         m_dirty = true;
     }
+    m_clearing = true;
     commitMeasurement();
+    m_clearing = false;
 }
 
 void RowerDevice::commitMeasurement()
 {
-    if (m_pendingReset) {
-        m_pendingReset = false;
+    // Values are complete before any signal is emitted, so every handler sees
+    // the measurement of this batch.
+    if (!m_clearing)
+        m_hasData = true;
+    // Elapsed/distance restart per interval inside an interval workout; that is
+    // only a new workout when the total work distance dropped as well.
+    const bool reset = m_pendingWorkDrop || (m_pendingDrop && !isIntervalState(m_workoutState));
+    m_pendingDrop = false;
+    m_pendingWorkDrop = false;
+    if (reset) {
+        if (!m_pendingStroke)
+            m_haveStroke = false;   // the next stroke packet belongs to the new workout
         emit workoutReset();
     }
     if (m_pendingState) {

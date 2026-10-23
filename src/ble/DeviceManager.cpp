@@ -71,19 +71,15 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
 {
     qRegisterMetaType<watt::LinkState>();
 
-    // Route ERG requests from the training session to the trainer.
+    // Route ERG requests from the (cycling) training session to the trainer.
+    // The rower only follows RowingSession (RowerDevice::requestTargetPower()).
     connect(m_hub, &SensorHub::targetPowerRequested, this, [this](int watts) {
         if (m_trainer && !m_ergTest)
             m_trainer->setTargetPower(watts);
-        // the virtual athlete on the simulated rower follows the plan as well
-        if (auto *sim = qobject_cast<SimulatedRower *>(m_rower.data()))
-            sim->setTargetPower(watts);
     });
     connect(m_hub, &SensorHub::freeRideRequested, this, [this] {
         if (m_trainer && !m_ergTest)
             m_trainer->setFreeRide();
-        if (auto *sim = qobject_cast<SimulatedRower *>(m_rower.data()))
-            sim->setTargetPower(0);
     });
 
     // keeps "Last scan: x min ago" fresh
@@ -313,9 +309,19 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
         return Kind::Unknown;
     const auto uuids = info.serviceUuids();
     // Rowers first: newer PM5 firmware may also advertise FTMS (rower data),
-    // which must not be treated as an indoor-bike trainer.
-    if (uuids.contains(QBluetoothUuid(pm5::uuid(pm5::kRowingService))) || nameLooksLikeRower(info.name()))
+    // which must not be treated as an indoor-bike trainer. Any Concept2
+    // CE06xxxx service (the PM5 may advertise only e.g. its device
+    // information or control service) or a "PM5" name identifies a PM.
+    bool concept2 = nameLooksLikeRower(info.name());
+    for (const QBluetoothUuid &u : uuids)
+        concept2 = concept2 || pm5::shortId(QUuid(u)).has_value();
+    if (concept2) {
+        // A SkiErg/BikeErg PM5 ("PM5 430012345 Ski") is no rower; it is not
+        // offered at all (neither as rower nor as FTMS trainer).
+        if (pm5::machineKindFromName(info.name()) != pm5::MachineKind::Rower)
+            return Kind::Unknown;
         return Kind::Rower;
+    }
     if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)))
         return Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
@@ -335,6 +341,15 @@ void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
     const QString id = idFor(info);
     const bool isNew = !m_infos.contains(id);
     m_infos.insert(id, info);
+
+    // A device belongs to exactly one list: its classification may change
+    // between advertisements (e.g. name or services arrive later).
+    if (kind != Kind::Trainer && m_trainers.contains(id) && !(m_trainer && m_trainer->id() == id))
+        m_trainers.remove(id);
+    if (kind != Kind::HeartRate && m_hrSensors.contains(id) && !(m_hr && m_hr->id() == id))
+        m_hrSensors.remove(id);
+    if (kind != Kind::Rower && m_rowers.contains(id) && !(m_rower && m_rower->id() == id))
+        m_rowers.remove(id);
 
     DeviceEntry e;
     e.id = id;
@@ -431,7 +446,23 @@ void DeviceManager::connectDevice(const QString &id)
             releaseRower();
     }
 
-    if (m_trainers.contains(id)) {
+    // The driver follows the entry kind; an id is only in one list (see
+    // onDiscovered), the connected kind wins if it ever is in more.
+    QString kind;
+    if (m_rower && m_rower->id() == id)
+        kind = kKindRower;
+    else if (m_trainer && m_trainer->id() == id)
+        kind = kKindTrainer;
+    else if (m_hr && m_hr->id() == id)
+        kind = kKindHeartRate;
+    else if (m_rowers.contains(id))
+        kind = kKindRower;
+    else if (m_trainers.contains(id))
+        kind = kKindTrainer;
+    else if (m_hrSensors.contains(id))
+        kind = kKindHeartRate;
+
+    if (kind == kKindTrainer) {
         if (m_trainer && m_trainer->id() == id) {
             if (m_trainer->state() == LinkState::Disconnected)
                 m_trainer->connectDevice();
@@ -449,7 +480,7 @@ void DeviceManager::connectDevice(const QString &id)
         m_knownTrainer = id;
         m_db->setSetting(QStringLiteral("ble/knownTrainer"), id);
         t->connectDevice();
-    } else if (m_hrSensors.contains(id)) {
+    } else if (kind == kKindHeartRate) {
         if (m_hr && m_hr->id() == id) {
             if (m_hr->state() == LinkState::Disconnected)
                 m_hr->connectDevice();
@@ -470,7 +501,7 @@ void DeviceManager::connectDevice(const QString &id)
         m_knownHr = id;
         m_db->setSetting(QStringLiteral("ble/knownHr"), id);
         h->connectDevice();
-    } else if (m_rowers.contains(id)) {
+    } else if (kind == kKindRower) {
         if (m_rower && m_rower->id() == id) {
             if (m_rower->state() == LinkState::Disconnected)
                 m_rower->connectDevice();
@@ -479,9 +510,7 @@ void DeviceManager::connectDevice(const QString &id)
         releaseRower();
         RowerDevice *r = nullptr;
         if (id == kSimRower) {
-            auto *sim = new SimulatedRower(this);
-            sim->setTargetPower(m_hub->requestedTarget());
-            r = sim;
+            r = new SimulatedRower(this);   // rows freely until RowingSession sends a target
         } else if (m_infos.contains(id)) {
             r = new Pm5Rower(m_infos.value(id), adapter, this);
         }

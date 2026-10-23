@@ -43,6 +43,17 @@ QtObject {
     readonly property color rowingColor: "#22d6e6"  // rowing sport accent
     readonly property color cyclingColor: accent    // cycling sport accent
 
+    // Text-safe variants of the accents: the bright accents suit the dark
+    // surfaces but are too pale for (small) text on the white light-theme cards.
+    readonly property color warningText: dark ? warning : "#8a6400"
+    readonly property color successText: dark ? success : "#17803a"
+    readonly property color accentText: dark ? accentLight : "#1a5fd6"
+    // Canvas strokes that are plain white on the dark theme (cursor, target line,
+    // start / finish posts, lane markers): strong foreground on either theme.
+    readonly property color strongLine: dark ? Qt.rgba(1, 1, 1, 0.9) : Qt.rgba(0.09, 0.13, 0.31, 0.85)
+    readonly property color softLine: dark ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(0.09, 0.13, 0.31, 0.4)
+    readonly property color faintLine: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0.09, 0.13, 0.31, 0.2)
+
     function sportColor(s) {
         return s === "rowing" ? rowingColor : cyclingColor
     }

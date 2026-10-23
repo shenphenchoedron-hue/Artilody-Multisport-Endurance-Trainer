@@ -17,9 +17,11 @@ class BleLink;
 // After service discovery the sample rate (0x0034) is set to 250 ms and
 // notifications are enabled on 0x0031, 0x0032, 0x0033 and 0x0036. If those
 // characteristics are not notifiable, the multiplexed characteristic 0x0080 is
-// used instead. If no data arrives within a few seconds of subscribing, 0x0080
-// is enabled additionally (the PM5 only multiplexes ids whose dedicated
-// notification is off, so this never duplicates data).
+// used instead. 0x0080 is always enabled as well when it is available: the
+// PM5 only multiplexes ids whose dedicated notification is off, so it never
+// duplicates data but covers every id whose direct subscription failed.
+// (Duplicates would be harmless anyway: values are absolute and strokes are
+// de-duplicated by their count.)
 class Pm5Rower : public RowerDevice
 {
     Q_OBJECT
@@ -46,6 +48,7 @@ private:
     BleLink *m_link;
     bool m_multiplexed = false;
     bool m_gotData = false;
+    bool m_machineWarned = false;
     QTimer m_dataWatchdog;
 };
 

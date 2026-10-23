@@ -139,7 +139,10 @@ Item {
         spacing: Theme.spacing
         StatTile {
             Layout.fillWidth: true; Layout.fillHeight: true; large: true
-            iconName: "bike"; iconColor: Theme.accentLight; caption: "Total Rides"; value: History.totalRides
+            iconName: History.sportFilter === "rowing" ? "rowing" : History.sportFilter === "cycling" ? "bike" : "pulse"
+            iconColor: History.sportFilter === "rowing" ? Theme.rowingColor : Theme.accentLight
+            caption: History.sportFilter === "rowing" ? "Total Rows" : History.sportFilter === "cycling" ? "Total Rides" : "Total Sessions"
+            value: History.totalRides
         }
         StatTile {
             Layout.fillWidth: true; Layout.fillHeight: true; large: true
@@ -215,7 +218,7 @@ Item {
             powerSeries: History.selectedPower
             hrSeries: History.selectedHeartRate
             showActualLine: true
-            ftp: page.ride.ftp || Profiles.ftp
+            ftp: page.ride.ftp || (page.rideRowing ? Profiles.rowingFtp : Profiles.ftp)
             minPowerAxis: 400
             hrMin: Math.max(40, Math.floor((Profiles.restHr + 10) / 20) * 20)
             hrMax: Math.ceil(Profiles.maxHr / 20) * 20
@@ -518,7 +521,10 @@ Item {
         Text {
             x: 28; y: 72
             text: (page.ride.date || "") + " at " + (page.ride.time || "") + "  •  " + Theme.clock(page.ride.durationSec || 0)
-                  + "  •  " + (page.ride.mode || "") + "  •  FTP " + (page.ride.ftp || 0) + " W"
+                  + (page.rideRowing ? "  •  Rowing" + (page.ride.distanceM > 0 ? " " + Theme.thousands(page.ride.distanceM) + " m" : "")
+                                     : (page.ride.mode ? "  •  " + page.ride.mode : ""))
+                  + "  •  " + (page.rideRowing ? "Rowing FTP " : "FTP ")
+                  + (page.ride.ftp || (page.rideRowing ? Profiles.rowingFtp : Profiles.ftp)) + " W"
             color: Theme.textSecondary
             font.pixelSize: 16
         }
@@ -538,7 +544,8 @@ Item {
                     { c: "Intensity (IF)", v: (page.ride.if || 0).toFixed(2), i: "trendUp" },
                     { c: "TSS", v: "" + (page.ride.tss || 0), i: "chart" },
                     { c: "Avg / Max HR", v: (page.ride.avgHr || 0) + " / " + (page.ride.maxHr || 0), i: "heart" },
-                    { c: "Avg Cadence", v: (page.ride.cadence || 0) + " RPM", i: "cadence" }
+                    page.rideRowing ? { c: "Avg Stroke Rate", v: (page.ride.cadence || 0) + " SPM", i: "waves" }
+                                    : { c: "Avg Cadence", v: (page.ride.cadence || 0) + " RPM", i: "cadence" }
                 ].concat(page.ride.isFtpTest ? [
                     { c: "Best 1 min", v: (page.ride.best1min || 0) + " W", i: "bolt" },
                     { c: "Estimated FTP", v: page.ride.estimatedFtp > 0 ? page.ride.estimatedFtp + " W" : "–", i: "target" }

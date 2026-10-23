@@ -2,6 +2,7 @@
 #include "ProfileManager.h"
 #include "WorkoutPlanner.h"
 
+#include <QTimeZone>
 #include <QtTest>
 
 using namespace watt;
@@ -142,6 +143,83 @@ private slots:
         const qint64 otherEntry = planner.entriesForMonth(2026, 10).first().toMap().value(QStringLiteral("id")).toLongLong();
         QVERIFY(profiles.selectProfile(first));
         QVERIFY(!planner.remove(otherEntry));
+    }
+
+    void isoDateTimeUsesLocalDay()
+    {
+        // A moment in UTC names the local calendar day of that moment.
+        const QDateTime utc(QDate(2026, 3, 14), QTime(23, 30), QTimeZone::utc());
+        const QString text = utc.toString(Qt::ISODateWithMs);   // "2026-03-14T23:30:00.000Z"
+        QCOMPARE(WorkoutPlanner::toDate(text), utc.toLocalTime().date());
+        QCOMPARE(WorkoutPlanner::toDate(QStringLiteral("2026-03-14T23:30:00Z")), utc.toLocalTime().date());
+        QCOMPARE(WorkoutPlanner::toDate(QStringLiteral("2026-03-14T10:00:00")), QDate(2026, 3, 14));
+        QCOMPARE(WorkoutPlanner::toDate(QStringLiteral("2026-03-14")), QDate(2026, 3, 14));
+        QVERIFY(!WorkoutPlanner::toDate(QStringLiteral("garbage")).isValid());
+    }
+
+    void activeEntryIsCompletedByItsWorkout()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        WorkoutPlanner planner(&db, &profiles);
+        QSignalSpy activeChanged(&planner, &WorkoutPlanner::activeEntryChanged);
+        const qint64 w0 = workoutId(db, 0), w1 = workoutId(db, 1);
+        const QDate today = QDate::currentDate();
+        const qint64 past = planner.addWorkout(today.addDays(-3), w0);
+        const qint64 todays = planner.addWorkout(today, w0);
+        const qint64 future = planner.addWorkout(today.addDays(5), w1);
+        auto ride = [&](qint64 workout) {
+            RideRecord r;
+            r.profileId = profiles.profileId();
+            r.workoutId = workout;
+            r.workoutName = QStringLiteral("x");
+            r.startedAt = QDateTime::currentDateTime();
+            return db.saveRide(r, {});
+        };
+        auto done = [&](qint64 entry) { return planner.entry(entry).value(QStringLiteral("completed")).toBool(); };
+
+        QCOMPARE(planner.activeEntryId(), qint64(-1));
+        planner.setActiveEntry(999999);   // unknown: stays cleared
+        QCOMPARE(planner.activeEntryId(), qint64(-1));
+        QCOMPARE(activeChanged.count(), 0);
+
+        // past entry started from the calendar: exactly that one is ticked off
+        planner.setActiveEntry(past);
+        QCOMPARE(planner.activeEntryId(), past);
+        QCOMPARE(activeChanged.count(), 1);
+        const qint64 r1 = ride(w0);
+        QCOMPARE(planner.completeForRide(w0, today, r1, profiles.profileId()), past);
+        QVERIFY(done(past));
+        QCOMPARE(planner.entry(past).value(QStringLiteral("rideId")).toLongLong(), r1);
+        QVERIFY(!done(todays));
+        QCOMPARE(planner.activeEntryId(), qint64(-1));
+
+        // a different workout never completes the active entry
+        planner.setActiveEntry(future);
+        const qint64 r2 = ride(w0);
+        QCOMPARE(planner.completeForRide(w0, today, r2), todays);   // fallback: today's open entry of w0
+        QVERIFY(!done(future));
+        QCOMPARE(planner.activeEntryId(), future);
+        const qint64 r3 = ride(w1);
+        QCOMPARE(planner.completeForRide(w1, today, r3), future);   // future entry, ridden today
+        QVERIFY(done(future));
+        QCOMPARE(planner.activeEntryId(), qint64(-1));
+
+        // no active entry, nothing planned today for w1: nothing changes
+        QCOMPARE(planner.completeForRide(w1, today, ride(w1)), qint64(-1));
+        planner.setActiveEntry(todays);
+        planner.clearActiveEntry();
+        QCOMPARE(planner.activeEntryId(), qint64(-1));
+
+        // markCompletedForWorkout with an explicit rider
+        const qint64 other = profiles.createProfile(QStringLiteral("Other"));
+        QVERIFY(other > 0);
+        const qint64 otherEntry = db.addPlannedWorkout(other, today, w1);
+        QCOMPARE(planner.markCompletedForWorkout(w1, QVariant(), -1, other), otherEntry);
+        QVERIFY(db.plannedWorkout(otherEntry)->completed);
     }
 };
 

@@ -69,6 +69,18 @@ Item {
     Component.onCompleted: snap()
     NumberAnimation { id: youGlide; target: track; property: "youShown"; duration: track.glideMs; easing.type: Easing.Linear }
     NumberAnimation { id: ghostGlide; target: track; property: "ghostShown"; duration: track.glideMs; easing.type: Easing.Linear }
+    // QML color -> CSS string for the Canvas (keeps the alpha channel)
+    function css(c) {
+        return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + "," + Math.round(c.b * 255) + "," + c.a + ")"
+    }
+    Connections {
+        target: Theme
+        function onDarkChanged() {
+            water.requestPaint()
+            flag.requestPaint()
+            separator.requestPaint()
+        }
+    }
     function laneCenter(i) {
         return laneTop + laneH * (i + 0.5)
     }
@@ -102,7 +114,7 @@ Item {
             onPaint: {
                 var ctx = getContext("2d")
                 ctx.reset()
-                ctx.strokeStyle = "rgba(120,170,255,0.10)"
+                ctx.strokeStyle = Theme.dark ? "rgba(120,170,255,0.10)" : "rgba(40,90,200,0.10)"
                 ctx.lineWidth = 1.2
                 for (var y = 70; y < height; y += 17) {
                     ctx.beginPath()
@@ -136,7 +148,7 @@ Item {
                 spacing: 5
                 Repeater {
                     model: Math.max(0, Math.floor((track.height - 62) / 11))
-                    Rectangle { width: 1; height: 6; color: Qt.rgba(1, 1, 1, 0.22) }
+                    Rectangle { width: 1; height: 6; color: Theme.faintLine }
                 }
             }
         }
@@ -149,7 +161,7 @@ Item {
         spacing: 4
         Repeater {
             model: Math.max(0, Math.floor((track.height - 50) / 12))
-            Rectangle { width: 2.5; height: 8; color: "white"; opacity: 0.85 }
+            Rectangle { width: 2.5; height: 8; color: Theme.strongLine }
         }
     }
 
@@ -170,12 +182,14 @@ Item {
             onPaint: {
                 var ctx = getContext("2d")
                 ctx.reset()
-                ctx.fillStyle = "white"
+                var pole = track.css(Theme.strongLine)
+                var other = Theme.dark ? "#111a40" : "#ffffff"
+                ctx.fillStyle = pole
                 ctx.fillRect(0, 0, 2.5, height)
                 var s = 5
                 for (var r = 0; r < 4; ++r)
                     for (var c = 0; c < 5; ++c) {
-                        ctx.fillStyle = (r + c) % 2 === 0 ? "white" : "#111a40"
+                        ctx.fillStyle = (r + c) % 2 === 0 ? pole : other
                         ctx.fillRect(2.5 + c * s, 1 + r * s, s, s)
                     }
             }
@@ -186,13 +200,14 @@ Item {
             spacing: 4
             Repeater {
                 model: Math.max(0, Math.floor((track.height - 50) / 12))
-                Rectangle { width: 2.5; height: 8; color: "white" }
+                Rectangle { width: 2.5; height: 8; color: Theme.strongLine }
             }
         }
     }
 
     // lane separator
     Canvas {
+        id: separator
         visible: track.showGhost
         x: track.x0
         y: track.laneTop + track.laneH - 1
@@ -202,7 +217,7 @@ Item {
         onPaint: {
             var ctx = getContext("2d")
             ctx.reset()
-            ctx.strokeStyle = "rgba(255,255,255,0.45)"
+            ctx.strokeStyle = track.css(Theme.softLine)
             ctx.setLineDash([6, 5])
             ctx.beginPath(); ctx.moveTo(0, 1); ctx.lineTo(width, 1); ctx.stroke()
         }
@@ -260,9 +275,9 @@ Item {
                 y: -height / 2
                 boatLength: track.boatLength
                 opacity: lane.ghost ? 0.78 : 1
-                hullColor: lane.ghost ? Theme.ghost : "white"
-                deckColor: lane.ghost ? "#5a1050" : "#16214f"
-                oarColor: lane.ghost ? "#ffb3ea" : "white"
+                hullColor: lane.ghost ? Theme.ghost : (Theme.dark ? "white" : "#1f3d9a")
+                deckColor: lane.ghost ? "#5a1050" : (Theme.dark ? "#16214f" : "#dfe6f8")
+                oarColor: lane.ghost ? (Theme.dark ? "#ffb3ea" : "#a8237f") : (Theme.dark ? "white" : "#16214f")
                 bladeColor: lane.ghost ? Theme.ghost : Theme.cyan
                 strokeRate: track.strokeRate
                 strokeCount: lane.ghost ? ghostStrokes.count : track.strokeCount
@@ -277,7 +292,7 @@ Item {
                 font.pixelSize: 16
                 font.weight: Font.Bold
                 style: Text.Outline
-                styleColor: Qt.rgba(0.05, 0.08, 0.3, 0.6)
+                styleColor: Theme.dark ? Qt.rgba(0.05, 0.08, 0.3, 0.6) : Qt.rgba(1, 1, 1, 0.8)
             }
 
             Text {
