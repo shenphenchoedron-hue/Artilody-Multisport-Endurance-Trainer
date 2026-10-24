@@ -3,10 +3,10 @@
 #   cmake -S "Artilody Workout Creator" -B build-creator -DCMAKE_PREFIX_PATH=<Qt>/6.x/<platform>
 #   cmake --build build-creator && ctest --test-dir build-creator
 #
-# A standalone project inside the Artilody Watts Trainer repository: it
-# compiles the workout model, the Builder back-end and the .awt/.zwo code
-# straight from ../src/core and reuses the Builder page and UI components from
-# ../qml, so both apps edit workouts the same way and write identical files.
+# It compiles the workout model, the Builder back-end and the .awt/.zwo code
+# from Artilody Watts Trainer's src/core and reuses its Builder page and UI
+# components (qml/), so both apps edit workouts the same way and write
+# identical files. See ARTILODY_SHARED_DIR below for where they come from.
 cmake_minimum_required(VERSION 3.21)
 
 project(ArtilodyWorkoutCreator
@@ -27,7 +27,22 @@ if(QT_KNOWN_POLICY_QTP0001)   # Qt >= 6.5: modules live under qrc:/qt/qml/
     qt_policy(SET QTP0001 NEW)
 endif()
 
-get_filename_component(WATT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+# Shared sources (src/core + qml) from Artilody Watts Trainer. Inside the
+# Artilody Watts Trainer repository they are used straight from the parent
+# folder; the standalone repository (Artilody-Workout-Creator) carries a copy
+# in shared/ that is refreshed with tools/sync_shared.sh.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/core/WorkoutIO.h")
+    get_filename_component(_awc_default_shared "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+else()
+    set(_awc_default_shared "${CMAKE_CURRENT_SOURCE_DIR}/shared")
+endif()
+set(ARTILODY_SHARED_DIR "${_awc_default_shared}" CACHE PATH
+    "Directory containing the shared src/core and qml folders of Artilody Watts Trainer")
+if(NOT EXISTS "${ARTILODY_SHARED_DIR}/src/core/WorkoutIO.h")
+    message(FATAL_ERROR "Shared Artilody sources not found in ARTILODY_SHARED_DIR=${ARTILODY_SHARED_DIR}")
+endif()
+message(STATUS "Artilody shared sources: ${ARTILODY_SHARED_DIR}")
+set(WATT_ROOT ${ARTILODY_SHARED_DIR})
 set(WATT_CORE ${WATT_ROOT}/src/core)
 set(WATT_QML ${WATT_ROOT}/qml)
 set(AWC_QML ${CMAKE_CURRENT_SOURCE_DIR}/qml)
@@ -153,6 +168,10 @@ if(UNIX AND NOT APPLE)
         install(FILES packaging/linux/icons/${icon_size}x${icon_size}/artilody-workout-creator.png
                 DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${icon_size}x${icon_size}/apps)
     endforeach()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include(packaging/linux/CPackDeb.cmake)
 endif()
 
 # --- tests -------------------------------------------------------------------------

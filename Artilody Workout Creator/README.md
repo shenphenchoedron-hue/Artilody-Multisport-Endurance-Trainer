@@ -94,6 +94,21 @@ possible with the app, so both edit workouts the same way and write the same fil
 (`src/core/BuilderBackend.h`). The app uses `AppBuilderBackend` (SQLite database + profile), and the creator uses
 `CreatorBackend` (files + settings). No database code is compiled into the creator.
 
+### Standalone repository
+
+The creator is also published as its own repository,
+[Artilody-Workout-Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator), with release
+builds for Windows, macOS and Linux. That repository carries a copy of the shared files above in `shared/`
+(same relative layout: `shared/src/core/...`, `shared/qml/...`). CMake finds them automatically: the
+`ARTILODY_SHARED_DIR` cache variable defaults to the parent folder when `../src/core/WorkoutIO.h` exists (this
+repository) and to `shared/` otherwise. After changing shared code here, refresh the standalone checkout with
+
+```bash
+"Artilody Workout Creator/tools/sync_shared.sh" <path to Artilody-Workout-Creator checkout>
+```
+
+The shared code is part of Artilody Watts Trainer and licensed under GPL-3.0.
+
 ## Building
 
 You need CMake ≥ 3.21, a C++17 compiler and **Qt ≥ 6.4** (Core, Gui, Qml, Quick, QuickControls2; Qt Test for the
