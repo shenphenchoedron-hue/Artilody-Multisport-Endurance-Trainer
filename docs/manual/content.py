@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.1.3 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
+Written against the v1.1.4 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -402,8 +402,12 @@ def build(s, env):
     s.p(f"{UI('Bluetooth Diagnostics')} shows the adapter name, the connection mode (Bluetooth Low Energy), the "
         "trainer signal (<i>Stable</i> at −75 dBm or better, otherwise <i>Weak</i>) and the time of the last "
         f"scan. {UI('Refresh')} re-reads the Bluetooth adapter. {UI('Details…')} opens a full report – adapter, "
-        "Qt version, every device seen with signal, service UUIDs and how the app classified it, scan errors and "
-        f"the log – that you can {UI('Copy')} into a bug report. With {UI('Show all devices')} (top of "
+        "Qt version, every device seen with signal, service UUIDs and how the app classified it, scan errors, "
+        "the live rower data (which source is active – Concept2 rowing service, the 0x0080 multiplexed channel or "
+        "FTMS Rower Data –, packet counters and the last raw bytes of every subscribed characteristic, the last "
+        "decoded stroke rate and whether the stroke rate comes from the monitor or is computed from the stroke "
+        f"timing) and the log – that you can {UI('Copy')} into a bug report. The row {UI('Rower data')} shows the "
+        "active rower data source and stroke rate at a glance. With {UI('Show all devices')} (top of "
         f"{UI('Available Devices')}) the list gets an extra section {UI('Other Bluetooth devices')} with every "
         f"unrecognised Bluetooth LE device and a {UI('Connect as rower')} button (section 11.2). Scan problems "
         "(Bluetooth off, adapter error, missing permission) appear in red above the device list.")
@@ -1074,6 +1078,11 @@ def build(s, env):
         "Scan errors (Bluetooth off, adapter error, missing permission) are shown in red at the top of the device "
         "list. If Bluetooth is off, the app tries to switch it on.",
         "Update the PM5 firmware with Concept2 Utility if the monitor is old.",
+        "Stroke rate missing while power, pace and distance work: the stroke rate comes from the PM5's "
+        "<i>Additional Status 1</i> (0x0032). Since 1.1.4 the app re-enables that channel or moves it to the "
+        "multiplexed channel when it stays silent, and otherwise computes the stroke rate from the time between "
+        "strokes (shown with a ≈ sign on the Devices page). The <i>[Rower data]</i> section of the diagnostics "
+        "report shows the packet counters and raw bytes per characteristic – please include it in a bug report.",
     ])
     s.p("<b>Raspberry Pi / Linux:</b> check the Bluetooth stack in a terminal:")
     s.code("bluetoothctl show            # Powered: yes\n"
@@ -1459,7 +1468,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.1.3",
+  "app": "Artilody Watts Trainer 1.1.4",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

@@ -26,6 +26,12 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
+## What's new in 1.1.4
+
+- **Concept2 PM5: stroke rate fixed** – the stroke rate stayed empty on some PM5 connections (Raspberry Pi / BlueZ) while power, pace and distance worked: it comes only from the PM5's *Additional Status 1* (0x0032), and when that channel stayed silent or arrived shortened on the multiplexed channel, nothing noticed (pace is also derived from power). Shortened 0x0032 packets are now decoded, a silent 0x0032 is re-enabled and then moved to the multiplexed channel 0x0080, and failed notification subscriptions are detected.
+- **Stroke rate fallback** – if a rowing machine reports no stroke rate for more than ~6 s while strokes come in, the stroke rate is computed from the time between the last strokes (smoothed over 4 strokes, 5–80 SPM) and falls back to 0 after 6 s without a stroke; the monitor's own value is preferred. Averages and the saved cadence samples use it too.
+- **Richer Bluetooth diagnostics** – a *Rower data* row shows the active data source (Concept2 rowing service, 0x0080 multiplex or FTMS Rower Data) and stroke rate; the report adds a *[Rower data]* section with packet counters, subscription state and last raw bytes per characteristic (0x31/0x32/0x33/0x36/0x80/0x2AD1) and the last decoded stroke rate. See the [1.1.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.4).
+
 ## What's new in 1.1.3
 
 - **Concept2 PM5 found on Raspberry Pi / Linux** – current PM5 firmware advertises the standard Bluetooth fitness-machine service (FTMS) as a *Rower*; the app now reads that advertisement and lists the PM5 under **Rowers** even when its name arrives late (BlueZ). A rowing machine connected as trainer is moved to Rowers automatically, and every trainer entry has a **Connect as rower** button. Discovery on BlueZ is more robust (longer 60 s scans, late names and services are picked up).
@@ -56,6 +62,7 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 
 ## Contents
 
+- [What's new in 1.1.4](#whats-new-in-114)
 - [What's new in 1.1.3](#whats-new-in-113)
 - [What's new in 1.1.2](#whats-new-in-112)
 - [What's new in 1.1.1](#whats-new-in-111)
@@ -176,18 +183,18 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 
 ## Download & install
 
-The current version is **1.1.3**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.1.4**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.1.3-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/ArtilodyWattsTrainer-1.1.3-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.1.3-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/ArtilodyWattsTrainer-1.1.3-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.1.3-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/ArtilodyWattsTrainer-1.1.3-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.1.3_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/artilody-watts-trainer_1.1.3_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.1.3_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/artilody-watts-trainer_1.1.3_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.1.3_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/artilody-watts-trainer_1.1.3_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.3/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.1.4-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/ArtilodyWattsTrainer-1.1.4-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.1.4-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/ArtilodyWattsTrainer-1.1.4-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.1.4-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/ArtilodyWattsTrainer-1.1.4-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.1.4_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/artilody-watts-trainer_1.1.4_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.1.4_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/artilody-watts-trainer_1.1.4_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.1.4_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/artilody-watts-trainer_1.1.4_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.1.4/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -197,7 +204,7 @@ The current version is **1.1.3**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.1.3-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.1.4-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -223,8 +230,8 @@ The current version is **1.1.3**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.1.3_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.1.3_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.1.4_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.1.4_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -240,7 +247,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.1.3_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.1.4_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -283,7 +290,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.1.3",
+  "app": "Artilody Watts Trainer 1.1.4",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -322,6 +329,7 @@ An `.awt` file is plain UTF-8 JSON:
 - The PM5 accepts **one app at a time** – disconnect ErgData, the Concept2 app or any phone/watch connected to it.
 - Current PM5 firmware advertises the standard **FTMS** fitness-machine service (0x1826) with the *Rower* machine type, not only the Concept2 services. Since 1.1.3 the app reads that FTMS advertisement and lists the PM5 under **Rowers** even before its name arrives. Older versions could list it under **Smart Trainers** – if a rowing machine still shows up there, press the **rowing button** next to it (*Connect as rower*). A device connected as trainer that turns out to offer rowing data (Concept2 rowing service or FTMS Rower Data) is moved to Rowers automatically and remembered.
 - If the PM5 has no Concept2 rowing service (CE060030), the app uses its standard **FTMS Rower Data** instead – this also makes other FTMS rowing machines work.
+- **Stroke rate missing** while power/pace/distance work: the stroke rate comes from the PM5's *Additional Status 1* (0x0032). Since 1.1.4 a silent 0x0032 is re-enabled and moved to the multiplexed channel, and otherwise the stroke rate is computed from the stroke timing (shown with ≈ on the Devices page). The *[Rower data]* section of the diagnostics report lists packet counters and raw bytes per characteristic – please include it in bug reports.
 - Turn on **Show all devices** in *Available Devices*: unrecognised Bluetooth LE devices are listed under **Other Bluetooth devices** with a **Connect as rower** button.
 - **Bluetooth Diagnostics → Details…** shows (and **Copy** copies) a report with the adapter, Qt version, every device seen with its service UUIDs, service data, parsed FTMS advertisement (machine type) and classification, the GATT services/characteristics found after each connection attempt, and any scan errors. Please attach it to bug reports. Scan errors are also shown in red above the device list.
 - **Raspberry Pi / Linux:** `bluetoothctl show` must say `Powered: yes` (otherwise `bluetoothctl power on`, `sudo rfkill unblock bluetooth`), `bluetoothctl scan le` should list `PM5 430…` within a few seconds, and your user should be in the `bluetooth` group (`groups`). For a detailed log start the app from a terminal: `QT_LOGGING_RULES="qt.bluetooth*=true" artilody-watts-trainer 2>&1 | tee ~/artilody-bt.log` – lines starting with `artilody.ble:` show every device seen and how it was classified.

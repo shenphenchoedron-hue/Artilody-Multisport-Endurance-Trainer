@@ -1,6 +1,15 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.1.3
+## What's new in 1.1.4
+
+A Concept2 PM5 fix release on top of 1.1.3 – the **stroke rate is shown again** when power, pace and distance already worked (reported on a Raspberry Pi with BlueZ):
+
+- **Root cause**: the PM5 sends the stroke rate only in *Additional Status 1* (0x0032, byte 5). When that channel stayed silent (a rejected/lost notification subscription on BlueZ) or arrived on the multiplexed channel 0x0080 shorter than the documented 19 bytes, the whole packet was dropped – and nothing noticed, because pace is also derived from power and distance/time/power come from 0x0031/0x0036.
+- **Fixes**: shortened 0x0032 packets (17/18 bytes, direct or multiplexed) are decoded; failed notification subscriptions are detected and the multiplexed channel is used instead; if data flows but 0x0032 stays silent for 5 s, its notifications are enabled again and then moved to the multiplexed channel. The FTMS rower path (split *Rower Data* records, stroke rate only when the *More Data* bit is 0, 0.5 SPM units) keeps the last stroke rate across packets without it.
+- **Stroke rate fallback**: if a rowing machine reports no stroke rate for more than ~6 s while strokes come in, the stroke rate is computed from the time between the last strokes (smoothed over up to 4 strokes, 60 / mean interval, 5–80 SPM, missed stroke packets accounted for), decays when you slow down and drops to 0 after 6 s without a stroke. The monitor's own value is preferred whenever it reports one. Live display, average stroke rate and the saved cadence samples all use it.
+- **Richer Bluetooth diagnostics**: a *Rower data* row on the Devices page shows the active data source (Concept2 rowing service with the direct channels in use, 0x0080 multiplex or FTMS Rower Data) and the stroke rate (≈ when computed). *Details…* adds a *[Rower data]* section: subscription state, packet counter, undecoded packets and the last raw payload (hex) per characteristic (0x31/0x32/0x33/0x36/0x80 incl. each multiplexed id, 0x2AD1), how *Additional Status 1* arrives, the last decoded stroke rate and where the shown stroke rate comes from. Please copy it into a bug report if anything is still wrong.
+
+## Includes everything from 1.1.3
 
 A Bluetooth release on top of 1.1.2 – the **Concept2 PM5 is now found and connected on Raspberry Pi / Linux** (BlueZ):
 
@@ -51,7 +60,7 @@ A small usability release on top of 1.1.1 – reordering and deleting intervals 
 
 ## Upgrade notes
 
-- Install 1.1.3 over 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
+- Install 1.1.4 over 1.1.3, 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations
