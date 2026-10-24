@@ -40,6 +40,7 @@ signals:
     void characteristicChanged(const QBluetoothUuid &uuid, const QByteArray &value);
     void characteristicRead(const QBluetoothUuid &uuid, const QByteArray &value);
     void writeFailed();   // a characteristic write was rejected by the peripheral
+    void serviceMissing(); // connected, but the peripheral lacks the required service
     void rssiChanged(int rssi);
     void logMessage(const QString &text, bool ok);
 
@@ -48,6 +49,7 @@ private:
     void cleanup();
     void onServiceState(QLowEnergyService::ServiceState s);
     void scheduleReconnect();
+    QString displayName() const;
 
     QBluetoothDeviceInfo m_info;
     QBluetoothUuid m_serviceUuid;
@@ -59,6 +61,10 @@ private:
     bool m_userDisconnect = false;
     bool m_autoReconnect = true;
     int m_reconnectAttempts = 0;
+    bool m_everConnected = false;
+    // Only used by Qt's kernel ATT backend (BlueZ < 5.42); BlueZ D-Bus and
+    // CoreBluetooth resolve the address type themselves.
+    QLowEnergyController::RemoteAddressType m_addressType = QLowEnergyController::PublicAddress;
     QTimer m_reconnectTimer;
     QTimer m_rssiTimer;
 };

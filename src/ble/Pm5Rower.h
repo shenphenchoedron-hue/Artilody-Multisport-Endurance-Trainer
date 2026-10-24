@@ -36,6 +36,10 @@ public:
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
 
+signals:
+    // Connected, but the device has no PM5 rowing service (0x0030).
+    void rowingServiceMissing();
+
 private:
     void onServiceReady();
     void onNotification(const QBluetoothUuid &uuid, const QByteArray &value);

@@ -9,9 +9,11 @@ Item {
     property bool trainersOpen: true
     property bool hrOpen: true
     property bool rowersOpen: true
+    property bool othersOpen: true
     readonly property var sectionTrainer: ({ title: "Smart Trainers", icon: "bike", kind: "trainer" })
     readonly property var sectionHr: ({ title: "Heart Rate Sensors", icon: "heart", kind: "hr" })
     readonly property var sectionRower: ({ title: "Rowers (Concept2 PM5)", icon: "rowing", kind: "rower" })
+    readonly property var sectionOther: ({ title: "Other Bluetooth devices", icon: "bluetooth", kind: "other" })
 
     function paceText(sec) {
         if (!(sec > 0) || sec > 3600)
@@ -56,8 +58,9 @@ Item {
                 Text { text: "Bluetooth"; color: Theme.textSecondary; font.pixelSize: 17 }
                 Text { text: Devices.adapterStatus; color: Theme.text; font.pixelSize: 32; font.weight: Font.Bold }
                 Text {
-                    text: Devices.scanning ? "Scanning for nearby devices…" : (Devices.scanStatus || (Devices.bluetoothAvailable ? "Ready to scan" : "Virtual devices available"))
-                    color: Theme.textSecondary
+                    text: Devices.scanError.length > 0 && !Devices.scanning ? Devices.scanStatus || "Bluetooth problem"
+                          : Devices.scanning ? "Scanning for nearby devices…" : (Devices.scanStatus || (Devices.bluetoothAvailable ? "Ready to scan" : "Virtual devices available"))
+                    color: Devices.scanError.length > 0 && !Devices.scanning ? Theme.danger : Theme.textSecondary
                     font.pixelSize: 15
                     width: 300
                     elide: Text.ElideRight
@@ -132,19 +135,42 @@ Item {
         title: "Available Devices"
         titleSize: 22
         headerRight: [
-            Item {
-                width: rescanRow.width
-                height: rescanRow.height
+            Row {
+                spacing: 8
                 Row {
-                    id: rescanRow
                     spacing: 8
-                    Icon { name: "refresh"; size: 20; color: Theme.accentLight; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "Rescan"; color: Theme.accentLight; font.pixelSize: 16; anchors.verticalCenter: parent.verticalCenter }
+                    height: 26
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        text: "Show all devices"
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    ToggleSwitch {
+                        width: 42; height: 24
+                        anchors.verticalCenter: parent.verticalCenter
+                        onColor: Theme.accent
+                        checked: Devices.showAllDevices
+                        onToggled: (on) => Devices.showAllDevices = on
+                    }
+                    Item { width: 10; height: 1 }
                 }
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Devices.startScan()
+                Item {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: rescanRow.width
+                    height: rescanRow.height
+                    Row {
+                        id: rescanRow
+                        spacing: 8
+                        Icon { name: "refresh"; size: 20; color: Theme.accentLight; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: "Rescan"; color: Theme.accentLight; font.pixelSize: 16; anchors.verticalCenter: parent.verticalCenter }
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Devices.startScan()
+                    }
                 }
             }
         ]
@@ -164,19 +190,56 @@ Item {
                 width: parent.width
                 spacing: 12
 
+                // Bluetooth problem (scan error, adapter off, not a PM5, ...)
+                Rectangle {
+                    visible: Devices.scanError.length > 0
+                    width: devCol.width
+                    height: visible ? errText.implicitHeight + 24 : 0
+                    radius: 10
+                    color: Qt.rgba(0.95, 0.3, 0.35, 0.12)
+                    border.color: Theme.danger
+                    Icon { x: 12; y: 12; name: "info"; size: 20; color: Theme.danger }
+                    Text {
+                        id: errText
+                        x: 42; y: 12
+                        width: parent.width - 42 - 40
+                        text: Devices.scanError
+                        color: Theme.text
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        y: 10
+                        text: "✕"
+                        color: Theme.textSecondary
+                        font.pixelSize: 16
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -8
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Devices.clearScanError()
+                        }
+                    }
+                }
+
                 Repeater {
                     // Rowers right after the trainers (heart rate sensors serve
                     // both); a connected rower without a trainer comes first.
-                    model: Devices.rowerConnected && Devices.trainerState !== 2
-                           ? [page.sectionRower, page.sectionTrainer, page.sectionHr]
-                           : [page.sectionTrainer, page.sectionRower, page.sectionHr]
+                    model: (Devices.rowerConnected && Devices.trainerState !== 2
+                            ? [page.sectionRower, page.sectionTrainer, page.sectionHr]
+                            : [page.sectionTrainer, page.sectionRower, page.sectionHr])
+                           .concat(Devices.showAllDevices ? [page.sectionOther] : [])
                     Rectangle {
                         id: section
                         readonly property string kindName: modelData.kind
                         readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen
-                                                   : modelData.kind === "rower" ? page.rowersOpen : page.hrOpen
+                                                   : modelData.kind === "rower" ? page.rowersOpen
+                                                   : modelData.kind === "other" ? page.othersOpen : page.hrOpen
                         readonly property var listModel: modelData.kind === "trainer" ? Devices.trainers
-                                                       : modelData.kind === "rower" ? Devices.rowers : Devices.heartRateSensors
+                                                       : modelData.kind === "rower" ? Devices.rowers
+                                                       : modelData.kind === "other" ? Devices.otherDevices : Devices.heartRateSensors
                         width: devCol.width
                         height: 50 + (open ? listCol.height + 8 : 0)
                         radius: 10
@@ -192,7 +255,8 @@ Item {
                                 name: modelData.icon
                                 size: 28
                                 color: modelData.kind === "hr" ? Theme.danger
-                                     : modelData.kind === "rower" ? Theme.rowingColor : Theme.accentLight
+                                     : modelData.kind === "rower" ? Theme.rowingColor
+                                     : modelData.kind === "other" ? Theme.textSecondary : Theme.accentLight
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
@@ -252,6 +316,8 @@ Item {
                                     page.trainersOpen = !page.trainersOpen
                                 else if (modelData.kind === "rower")
                                     page.rowersOpen = !page.rowersOpen
+                                else if (modelData.kind === "other")
+                                    page.othersOpen = !page.othersOpen
                                 else
                                     page.hrOpen = !page.hrOpen
                             }
@@ -281,10 +347,12 @@ Item {
                                         color: Theme.field
                                         Icon {
                                             anchors.centerIn: parent
-                                            name: section.kindName === "hr" ? "heartPulse" : section.kindName === "rower" ? "rowing" : "trainer"
+                                            name: section.kindName === "hr" ? "heartPulse" : section.kindName === "rower" ? "rowing"
+                                                : section.kindName === "other" ? "bluetooth" : "trainer"
                                             size: 44
                                             strokeWidth: 1.6
-                                            color: section.kindName === "hr" ? "#ff6b8a" : section.kindName === "rower" ? Theme.rowingColor : Theme.text
+                                            color: section.kindName === "hr" ? "#ff6b8a" : section.kindName === "rower" ? Theme.rowingColor
+                                                 : section.kindName === "other" ? Theme.textSecondary : Theme.text
                                         }
                                         Text {
                                             visible: simulated
@@ -309,7 +377,16 @@ Item {
                                             width: 170
                                             elide: Text.ElideRight
                                         }
-                                        StatusDot { linkState: model.linkState; fontSize: 15 }
+                                        StatusDot {
+                                            visible: section.kindName !== "other"
+                                            linkState: model.linkState; fontSize: 15
+                                        }
+                                        Text {
+                                            visible: section.kindName === "other"
+                                            text: Devices.signalText(rssi)
+                                            color: Theme.textSecondary
+                                            font.pixelSize: 14
+                                        }
                                         Row {
                                             spacing: 8
                                             Rectangle { width: 12; height: 12; radius: 6; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
@@ -317,7 +394,8 @@ Item {
                                                 text: protocol
                                                 color: Theme.textSecondary
                                                 font.pixelSize: 14
-                                                width: section.kindName === "hr" ? 230 : section.kindName === "rower" ? 270 : 150
+                                                width: section.kindName === "hr" ? 230 : section.kindName === "rower" ? 270
+                                                     : section.kindName === "other" ? 210 : 150
                                                 elide: Text.ElideRight
                                             }
                                         }
@@ -388,6 +466,7 @@ Item {
                                         y: 46 - height / 2
                                         spacing: 10
                                         AppButton {
+                                            visible: section.kindName !== "other"
                                             width: 112
                                             height: 44
                                             fontSize: 16
@@ -395,6 +474,21 @@ Item {
                                             kind: linkState === 0 ? "primary" : "secondary"
                                             text: linkState === 0 ? "Connect" : (linkState === 1 ? "Cancel" : "Disconnect")
                                             onClicked: linkState === 0 ? Devices.connectDevice(deviceId) : Devices.disconnectDevice(deviceId)
+                                        }
+                                        // fallback when a PM5 is not recognised from its advertisement
+                                        AppButton {
+                                            visible: section.kindName === "other"
+                                            width: 170
+                                            height: 44
+                                            fontSize: 15
+                                            bold: false
+                                            kind: "secondary"
+                                            iconName: "rowing"
+                                            iconSize: 18
+                                            iconSpacing: 8
+                                            horizontalPadding: 12
+                                            text: "Connect as rower"
+                                            onClicked: Devices.connectAsRower(deviceId)
                                         }
                                         IconButton {
                                             width: 44; height: 44
@@ -414,11 +508,13 @@ Item {
                                 height: 40
                                 verticalAlignment: Text.AlignVCenter
                                 text: Devices.scanning ? "Searching…" : "No devices found – press Scan for Devices"
+                                elide: Text.ElideRight
+                                width: listCol.width - 32
                                 color: Theme.textSecondary
                                 font.pixelSize: 15
                             }
                             Row {
-                                visible: section.kindName === "rower"
+                                visible: section.kindName === "rower" || section.kindName === "other"
                                 x: 16
                                 height: 34
                                 spacing: 8
@@ -426,7 +522,9 @@ Item {
                                 Text {
                                     width: listCol.width - 60
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: "On the PM5: More Options → Turn Wireless ON → Connect Device"
+                                    text: section.kindName === "other"
+                                          ? "Unrecognised Bluetooth LE devices – is your PM5 here? Use Connect as rower."
+                                          : "On the PM5: More Options → Turn Wireless ON → Connect Device"
                                     color: Theme.textSecondary
                                     font.pixelSize: 14
                                     elide: Text.ElideRight
@@ -452,6 +550,7 @@ Item {
             Text { text: "Bluetooth Diagnostics"; color: Theme.text; font.pixelSize: 22; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
         }
         AppButton {
+            id: refreshAdapterButton
             anchors.right: parent.right
             anchors.rightMargin: 18
             y: 16
@@ -463,6 +562,19 @@ Item {
             fontSize: 16
             bold: false
             onClicked: Devices.refreshAdapter()
+        }
+        AppButton {
+            anchors.right: refreshAdapterButton.left
+            anchors.rightMargin: 10
+            y: 16
+            height: 44
+            width: 130
+            kind: "secondary"
+            iconName: "info"
+            text: "Details…"
+            fontSize: 16
+            bold: false
+            onClicked: diagDialog.show()
         }
         Column {
             x: 18
@@ -817,6 +929,97 @@ Item {
                     elide: Text.ElideRight
                     anchors.verticalCenter: parent.verticalCenter
                 }
+            }
+        }
+    }
+
+    // --- Bluetooth diagnostics report ---------------------------------------------------
+    AppDialog {
+        id: diagDialog
+        title: "Bluetooth diagnostics"
+        panelWidth: 960
+        panelHeight: 760
+        function show() {
+            reportArea.text = Devices.diagnosticsReport()
+            copiedHint.visible = false
+            open()
+        }
+        Text {
+            x: 28; y: 72
+            width: diagDialog.panelWidth - 56
+            text: "Everything the app saw during Bluetooth scans. Put the PM5 on its Connect screen, press Scan, wait 20 s, then Refresh and Copy – paste it into a bug report."
+            color: Theme.textSecondary
+            font.pixelSize: 14
+            wrapMode: Text.WordWrap
+        }
+        Rectangle {
+            x: 28; y: 118
+            width: diagDialog.panelWidth - 56
+            height: diagDialog.panelHeight - 118 - 92
+            radius: 10
+            color: Theme.field
+            border.color: Theme.fieldBorder
+            ScrollView {
+                anchors.fill: parent
+                anchors.margins: 6
+                clip: true
+                TextArea {
+                    id: reportArea
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.NoWrap
+                    color: Theme.text
+                    selectionColor: Theme.accent
+                    font.family: "monospace"
+                    font.pixelSize: 13
+                    background: null
+                }
+            }
+        }
+        Row {
+            x: 28
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 24
+            spacing: 12
+            AppButton {
+                kind: "secondary"
+                iconName: "refresh"
+                text: "Refresh"
+                fontSize: 16
+                bold: false
+                onClicked: { reportArea.text = Devices.diagnosticsReport(); copiedHint.visible = false }
+            }
+            AppButton {
+                kind: "secondary"
+                iconName: "search"
+                text: Devices.scanning ? "Scanning…" : "Scan"
+                fontSize: 16
+                bold: false
+                onClicked: if (!Devices.scanning) Devices.startScan()
+            }
+            Text {
+                id: copiedHint
+                visible: false
+                text: "Copied to clipboard"
+                color: Theme.success
+                font.pixelSize: 15
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+        Row {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            spacing: 12
+            AppButton {
+                text: "Copy"
+                iconName: "copy"
+                onClicked: { Devices.copyToClipboard(reportArea.text); copiedHint.visible = true }
+            }
+            AppButton {
+                kind: "secondary"
+                text: "Close"
+                onClicked: diagDialog.close()
             }
         }
     }

@@ -11,13 +11,23 @@
 #include "SimulatedDevices.h"
 
 #include <QBluetoothLocalDevice>
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QRegularExpression>
+#include <QSysInfo>
+#include <QTextStream>
 #include <QTime>
 #include <QVariantMap>
+
+#include <algorithm>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QPermissions>
 #endif
+
+// Visible in a terminal / journalctl; silence with QT_LOGGING_RULES="artilody.ble.info=false".
+Q_LOGGING_CATEGORY(lcBle, "artilody.ble")
 
 namespace watt {
 
@@ -28,11 +38,60 @@ const QString kSimRower = QStringLiteral("sim:rower");
 const QString kKindTrainer = QStringLiteral("trainer");
 const QString kKindHeartRate = QStringLiteral("heartRate");
 const QString kKindRower = QStringLiteral("rower");
+const QString kKindOther = QStringLiteral("other");
 
-bool nameLooksLikeRower(const QString &n)
+bool nameLooksLikeConcept2(const QString &n)
 {
-    // PM5 advertises as e.g. "PM5 430012345 Row" / "PM5 430012345 Ski".
-    return n.trimmed().startsWith(QStringLiteral("PM5"), Qt::CaseInsensitive);
+    // PM5 advertises as "PM5 430012345", newer firmware may append " Row",
+    // " Ski" or " Bike". Accept any case and an explicit "Concept2" name.
+    const QString t = n.trimmed();
+    return t.startsWith(QLatin1String("PM5"), Qt::CaseInsensitive)
+           || t.contains(QLatin1String("Concept2"), Qt::CaseInsensitive)
+           || t.contains(QLatin1String("Concept 2"), Qt::CaseInsensitive);
+}
+
+bool hasConcept2Uuid(const QBluetoothDeviceInfo &info)
+{
+    // Any CE06xxxx-43E5-11E4-916C-0800200C9A66 service: 0x0000 (discovery,
+    // the one the PM5 advertises), 0x0010 (info), 0x0020 (control), 0x0030 (rowing).
+    const auto uuids = info.serviceUuids();
+    for (const QBluetoothUuid &u : uuids) {
+        if (pm5::shortId(QUuid(u)).has_value())
+            return true;
+    }
+    return false;
+}
+
+QString uuidText(const QBluetoothUuid &u)
+{
+    bool ok = false;
+    const quint16 s16 = u.toUInt16(&ok);
+    if (ok)
+        return QStringLiteral("0x%1").arg(s16, 4, 16, QLatin1Char('0'));
+    return u.toString(QUuid::WithoutBraces).toUpper();
+}
+
+QString coreConfigText(QBluetoothDeviceInfo::CoreConfigurations c)
+{
+    if (c == QBluetoothDeviceInfo::UnknownCoreConfiguration)
+        return QStringLiteral("unknown");
+    QStringList parts;
+    if (c & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
+        parts << QStringLiteral("LE");
+    if (c & QBluetoothDeviceInfo::BaseRateCoreConfiguration)
+        parts << QStringLiteral("BR/EDR");
+    return parts.join(QLatin1Char('+'));
+}
+
+QString hostModeText(QBluetoothLocalDevice::HostMode m)
+{
+    switch (m) {
+    case QBluetoothLocalDevice::HostPoweredOff: return QStringLiteral("powered off");
+    case QBluetoothLocalDevice::HostConnectable: return QStringLiteral("on (connectable)");
+    case QBluetoothLocalDevice::HostDiscoverable: return QStringLiteral("on (discoverable)");
+    case QBluetoothLocalDevice::HostDiscoverableLimitedInquiry: return QStringLiteral("on (limited discoverable)");
+    }
+    return QStringLiteral("unknown");
 }
 
 bool nameLooksLikeTrainer(const QString &n)
@@ -86,6 +145,15 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
     m_uiTimer.setInterval(30000);
     connect(&m_uiTimer, &QTimer::timeout, this, &DeviceManager::scanningChanged);
     m_uiTimer.start();
+
+    // One "Scan" press scans for this long. The agent itself runs without a
+    // timeout (see doStartScan()), this timer ends the window.
+    m_scanWindow.setSingleShot(true);
+    m_scanWindow.setInterval(kScanWindowMs);
+    connect(&m_scanWindow, &QTimer::timeout, this, [this] {
+        if (m_agent && m_agent->isActive())
+            m_agent->stop();   // -> canceled() -> onScanWindowEnded()
+    });
 }
 
 DeviceManager::~DeviceManager()
@@ -108,6 +176,7 @@ void DeviceManager::initialize()
     m_knownTrainer = m_db->setting(QStringLiteral("ble/knownTrainer")).toString();
     m_knownHr = m_db->setting(QStringLiteral("ble/knownHr")).toString();
     m_knownRower = m_db->setting(QStringLiteral("ble/knownRower")).toString();
+    m_showAll = m_db->setting(QStringLiteral("ble/showAll"), false).toBool();
 
     addLog(QStringLiteral("Application started"), true);
     refreshAdapter();
@@ -124,8 +193,10 @@ void DeviceManager::initialize()
         const bool needsScan = (!m_knownTrainer.isEmpty() && m_knownTrainer != kSimTrainer)
                                || (!m_knownHr.isEmpty() && m_knownHr != kSimHr)
                                || (!m_knownRower.isEmpty() && m_knownRower != kSimRower);
-        if (needsScan && bluetoothAvailable())
+        if (needsScan && bluetoothAvailable()) {
+            m_autoRescans = 4;   // keep looking for a known device for ~5 min
             QTimer::singleShot(500, this, &DeviceManager::startScan);
+        }
     }
 }
 
@@ -148,15 +219,27 @@ void DeviceManager::refreshAdapter()
         address = hosts.at(m_selectedAdapter - 1).address();
     delete m_local;
     m_local = address.isNull() ? new QBluetoothLocalDevice(this) : new QBluetoothLocalDevice(address, this);
-    connect(m_local, &QBluetoothLocalDevice::hostModeStateChanged, this, [this] {
+    connect(m_local, &QBluetoothLocalDevice::hostModeStateChanged, this, [this](QBluetoothLocalDevice::HostMode m) {
         addLog(bluetoothAvailable() ? QStringLiteral("Bluetooth ready") : QStringLiteral("Bluetooth turned off"),
                bluetoothAvailable());
+        addDiag(QStringLiteral("Adapter host mode: %1").arg(hostModeText(m)));
+        if (bluetoothAvailable() && m_scanAfterPowerOn) {
+            m_scanAfterPowerOn = false;
+            setScanError(QString());
+            doStartScan();
+        }
         emit adapterChanged();
     });
-    if (bluetoothAvailable())
+    if (bluetoothAvailable()) {
         addLog(QStringLiteral("Bluetooth ready"), true);
-    else
+    } else {
         addLog(QStringLiteral("No Bluetooth adapter available – simulator only"), false);
+    }
+    if (m_local->isValid())
+        addDiag(QStringLiteral("Adapter %1 (%2), host mode: %3")
+                    .arg(m_local->name(), m_local->address().toString(), hostModeText(m_local->hostMode())));
+    else
+        addDiag(QStringLiteral("No valid Bluetooth adapter (QBluetoothLocalDevice invalid)"));
     emit adapterChanged();
 }
 
@@ -247,12 +330,27 @@ void DeviceManager::startScan()
     doStartScan();
 }
 
-void DeviceManager::doStartScan()
+void DeviceManager::doStartScan(bool clearLists)
 {
     addSimulatedEntries();
-    if (!bluetoothAvailable()) {
+    m_userStop = false;
+    if (!m_local || !m_local->isValid()) {
         m_scanStatus = QStringLiteral("Bluetooth unavailable – simulator only");
+        setScanError(QStringLiteral("No Bluetooth adapter found. Check that Bluetooth is enabled "
+                                    "(Raspberry Pi: `bluetoothctl show`, `systemctl status bluetooth`)."));
         addLog(m_scanStatus, false);
+        emit scanningChanged();
+        return;
+    }
+    if (m_local->hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+        // Try to switch the adapter on; the scan starts from hostModeStateChanged.
+        m_scanAfterPowerOn = true;
+        m_scanStatus = QStringLiteral("Bluetooth is off");
+        setScanError(QStringLiteral("Bluetooth is turned off – trying to switch it on. If nothing happens, turn it on "
+                                    "in the system settings (Raspberry Pi: `bluetoothctl power on`, "
+                                    "`sudo rfkill unblock bluetooth`)."));
+        addLog(QStringLiteral("Bluetooth is off – requesting power on"), false);
+        m_local->powerOn();
         emit scanningChanged();
         return;
     }
@@ -262,40 +360,168 @@ void DeviceManager::doStartScan()
             m_agent = new QBluetoothDeviceDiscoveryAgent(hosts.at(m_selectedAdapter - 1).address(), this);
         else
             m_agent = new QBluetoothDeviceDiscoveryAgent(this);
-        m_agent->setLowEnergyDiscoveryTimeout(12000);
-        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered, this, &DeviceManager::onDiscovered);
+        // No agent timeout: with Qt's BlueZ backend (Qt <= 6.5) a device whose
+        // name arrives after its first report (scan response) is only ever
+        // re-reported when the timeout is 0 – with a timeout the update is
+        // dropped as an "almost duplicate" (qbluetoothdevicediscoveryagent_bluez.cpp,
+        // _q_PropertiesChanged). m_scanWindow ends the scan instead.
+        m_agent->setLowEnergyDiscoveryTimeout(0);
+        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered, this,
+                [this](const QBluetoothDeviceInfo &info) { handleDeviceInfo(info, false); });
         connect(m_agent, &QBluetoothDeviceDiscoveryAgent::deviceUpdated, this,
-                [this](const QBluetoothDeviceInfo &info, QBluetoothDeviceInfo::Fields) { onDiscovered(info); });
-        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::finished, this, [this] {
-            m_scanStatus = QStringLiteral("Scan finished");
-            m_lastScan = QDateTime::currentDateTime();
-            emit scanningChanged();
-        });
-        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::canceled, this, &DeviceManager::scanningChanged);
+                [this](const QBluetoothDeviceInfo &info, QBluetoothDeviceInfo::Fields) { handleDeviceInfo(info, true); });
+        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::finished, this,
+                [this] { onScanWindowEnded(QStringLiteral("finished")); });
+        connect(m_agent, &QBluetoothDeviceDiscoveryAgent::canceled, this,
+                [this] { onScanWindowEnded(QStringLiteral("stopped")); });
         connect(m_agent, &QBluetoothDeviceDiscoveryAgent::errorOccurred, this,
-                [this](QBluetoothDeviceDiscoveryAgent::Error) {
-                    m_scanStatus = QStringLiteral("Scan error: %1").arg(m_agent->errorString());
-                    addLog(m_scanStatus, false);
+                [this](QBluetoothDeviceDiscoveryAgent::Error e) {
+                    m_scanWindow.stop();
+                    const QString text = scanErrorText(int(e), m_agent->errorString());
+                    m_scanStatus = QStringLiteral("Scan failed");
+                    setScanError(text);
+                    addLog(text, false);
+                    addDiag(QStringLiteral("Discovery error %1: %2").arg(int(e)).arg(m_agent->errorString()));
+                    qCWarning(lcBle) << "Discovery error" << e << m_agent->errorString();
+                    // An I/O error is also what BlueZ reports when another
+                    // program (e.g. bluetoothctl) interrupted the discovery.
+                    if (e == QBluetoothDeviceDiscoveryAgent::InputOutputError && m_ioRetries < 2 && !m_userStop) {
+                        ++m_ioRetries;
+                        QTimer::singleShot(3000, this, [this] {
+                            if (!scanning())
+                                doStartScan(false);
+                        });
+                    }
                     emit scanningChanged();
                 });
     }
-    if (m_agent->isActive())
+    if (m_agent->isActive()) {
+        m_userStop = true;   // restart, not a finished window
         m_agent->stop();
-    m_trainers.removeDisconnected();
-    m_hrSensors.removeDisconnected();
-    m_rowers.removeDisconnected();
+        m_userStop = false;
+    }
+    if (clearLists) {
+        m_trainers.removeDisconnected();
+        m_hrSensors.removeDisconnected();
+        m_rowers.removeDisconnected();
+        m_others.removeDisconnected();
+    }
     addSimulatedEntries();
+    setScanError(QString());
     m_scanStatus = QStringLiteral("Scanning for nearby devices…");
     addLog(QStringLiteral("Scanning for devices…"), true);
+    addDiag(QStringLiteral("Scan started (LowEnergyMethod, %1 s window)").arg(kScanWindowMs / 1000));
+    qCInfo(lcBle) << "Scan started on adapter" << (m_local ? m_local->address().toString() : QString());
+    m_scanStartedAt = QDateTime::currentDateTime();
     m_agent->start(QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
+    if (m_agent->isActive())
+        m_scanWindow.start();
+    emit scanningChanged();
+}
+
+void DeviceManager::ensureScanning()
+{
+    // BlueZ forgets unpaired devices ~30 s after it last saw them; Qt then
+    // fails to connect with UnknownRemoteDeviceError. Scanning keeps the
+    // device object alive (and re-creates it) while a connection is tried.
+    if (!scanning() && bluetoothAvailable())
+        doStartScan(false);
+}
+
+void DeviceManager::onScanWindowEnded(const QString &how)
+{
+    if (m_agent && m_agent->isActive()) {   // late signal of a restarted scan
+        emit scanningChanged();
+        return;
+    }
+    m_scanWindow.stop();
+    m_lastScan = QDateTime::currentDateTime();
+    if (m_userStop) {
+        emit scanningChanged();
+        return;
+    }
+    int real = 0;
+    for (const DiagEntry &d : std::as_const(m_diag)) {
+        if (d.lastSeen >= m_scanStartedAt)
+            ++real;
+    }
+    m_ioRetries = 0;
+    m_scanStatus = QStringLiteral("Scan %1 – %2 Bluetooth device(s) seen").arg(how).arg(real);
+    addDiag(QStringLiteral("Scan %1, %2 device(s) seen").arg(how).arg(real));
+    qCInfo(lcBle) << "Scan" << how << "-" << real << "device(s) seen";
+
+    auto missing = [](const QString &known, const QString &sim, const auto &dev) {
+        return !known.isEmpty() && known != sim && !(dev && dev->state() != LinkState::Disconnected);
+    };
+    const bool knownMissing = missing(m_knownTrainer, kSimTrainer, m_trainer) || missing(m_knownHr, kSimHr, m_hr)
+                              || missing(m_knownRower, kSimRower, m_rower);
+    if (m_autoConnect && knownMissing && m_autoRescans > 0) {
+        --m_autoRescans;
+        QTimer::singleShot(1000, this, [this] {
+            if (!scanning())
+                doStartScan(false);
+        });
+    }
     emit scanningChanged();
 }
 
 void DeviceManager::stopScan()
 {
-    if (m_agent && m_agent->isActive())
+    m_scanWindow.stop();
+    m_autoRescans = 0;
+    m_scanAfterPowerOn = false;
+    if (m_agent && m_agent->isActive()) {
+        m_userStop = true;
         m_agent->stop();
+        m_lastScan = QDateTime::currentDateTime();
+        m_scanStatus = QStringLiteral("Scan stopped");
+    }
     emit scanningChanged();
+}
+
+void DeviceManager::setScanError(const QString &text)
+{
+    if (m_scanError == text)
+        return;
+    m_scanError = text;
+    emit scanningChanged();
+}
+
+void DeviceManager::clearScanError()
+{
+    setScanError(QString());
+}
+
+QString DeviceManager::scanErrorText(int error, const QString &qtText)
+{
+    using A = QBluetoothDeviceDiscoveryAgent;
+    switch (A::Error(error)) {
+    case A::NoError:
+        return QString();
+    case A::PoweredOffError:
+        return QStringLiteral("Bluetooth is turned off. Turn it on and scan again "
+                              "(Raspberry Pi: `bluetoothctl power on`; if it is blocked: `sudo rfkill unblock bluetooth`).");
+    case A::InputOutputError:
+        return QStringLiteral("Bluetooth adapter error (%1). Another program may have interrupted the scan, or the "
+                              "bluetooth service is not running (Raspberry Pi: `sudo systemctl restart bluetooth`).")
+            .arg(qtText.isEmpty() ? QStringLiteral("I/O error") : qtText);
+    case A::InvalidBluetoothAdapterError:
+        return QStringLiteral("The selected Bluetooth adapter was not found – choose another one under Connection Preferences.");
+    case A::UnsupportedPlatformError:
+        return QStringLiteral("Bluetooth scanning is not supported on this system.");
+    case A::UnsupportedDiscoveryMethod:
+        return QStringLiteral("This Bluetooth adapter does not support Bluetooth Low Energy scanning "
+                              "(a Bluetooth 4.0+ adapter and BlueZ 5 are required).");
+    case A::LocationServiceTurnedOffError:
+        return QStringLiteral("Location services are turned off – they are required for Bluetooth scanning on this system.");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    case A::MissingPermissionsError:
+        return QStringLiteral("Bluetooth permission missing – allow Bluetooth for Artilody Watts Trainer in the system settings.");
+#endif
+    default:
+        break;
+    }
+    return QStringLiteral("Bluetooth scan error: %1").arg(qtText.isEmpty() ? QString::number(error) : qtText);
 }
 
 QString DeviceManager::idFor(const QBluetoothDeviceInfo &info)
@@ -303,65 +529,159 @@ QString DeviceManager::idFor(const QBluetoothDeviceInfo &info)
     return info.address().isNull() ? info.deviceUuid().toString() : info.address().toString();
 }
 
+QString DeviceManager::effectiveName(const QBluetoothDeviceInfo &info)
+{
+    // BlueZ reports Device1.Alias, which is the address with dashes until the
+    // real name (usually in the scan response) has been received.
+    static const QRegularExpression addressLike(QStringLiteral("^([0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}$"));
+    const QString n = info.name().trimmed();
+    if (n.isEmpty() || addressLike.match(n).hasMatch())
+        return QString();
+    return n;
+}
+
+DeviceManager::Kind DeviceManager::classifyName(const QString &name)
+{
+    if (!nameLooksLikeConcept2(name))
+        return Kind::Unknown;
+    // A SkiErg/BikeErg PM5 ("PM5 430012345 Ski") is no rower.
+    return pm5::machineKindFromName(name) == pm5::MachineKind::Rower ? Kind::Rower : Kind::Unknown;
+}
+
 DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
 {
-    if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
-        return Kind::Unknown;
-    const auto uuids = info.serviceUuids();
+    const QString name = effectiveName(info);
     // Rowers first: newer PM5 firmware may also advertise FTMS (rower data),
     // which must not be treated as an indoor-bike trainer. Any Concept2
-    // CE06xxxx service (the PM5 may advertise only e.g. its device
-    // information or control service) or a "PM5" name identifies a PM.
-    bool concept2 = nameLooksLikeRower(info.name());
-    for (const QBluetoothUuid &u : uuids)
-        concept2 = concept2 || pm5::shortId(QUuid(u)).has_value();
-    if (concept2) {
-        // A SkiErg/BikeErg PM5 ("PM5 430012345 Ski") is no rower; it is not
-        // offered at all (neither as rower nor as FTMS trainer).
-        if (pm5::machineKindFromName(info.name()) != pm5::MachineKind::Rower)
+    // CE06xxxx service or a "PM5"/"Concept2" name identifies a PM. No core
+    // configuration check here: BlueZ derives it from the Class property and
+    // cached device objects may report it oddly.
+    if (hasConcept2Uuid(info) || nameLooksLikeConcept2(name)) {
+        // SkiErg/BikeErg monitors are not offered (neither as rower nor as
+        // FTMS trainer); they are listed under "Other devices".
+        if (pm5::machineKindFromName(name) != pm5::MachineKind::Rower)
             return Kind::Unknown;
         return Kind::Rower;
     }
+    if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
+        return Kind::Unknown;
+    const auto uuids = info.serviceUuids();
     if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)))
         return Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
         return Kind::HeartRate;
-    if (nameLooksLikeTrainer(info.name()))
+    if (nameLooksLikeTrainer(name))
         return Kind::Trainer;
-    if (nameLooksLikeHr(info.name()))
+    if (nameLooksLikeHr(name))
         return Kind::HeartRate;
     return Kind::Unknown;
 }
 
-void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
+QString DeviceManager::kindName(Kind k)
 {
-    const Kind kind = classify(info);
-    if (kind == Kind::Unknown)
+    switch (k) {
+    case Kind::Trainer: return QStringLiteral("Trainer");
+    case Kind::HeartRate: return QStringLiteral("HeartRate");
+    case Kind::Rower: return QStringLiteral("Rower");
+    case Kind::Unknown: break;
+    }
+    return QStringLiteral("Unknown");
+}
+
+void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool updated)
+{
+    const QString id = idFor(incoming);
+    if (id.isEmpty())
         return;
-    const QString id = idFor(info);
-    const bool isNew = !m_infos.contains(id);
+
+    // Merge with what we already know: later reports may lack the name
+    // (BlueZ alias placeholder) or carry fewer service UUIDs.
+    QBluetoothDeviceInfo info = incoming;
+    const auto old = m_infos.constFind(id);
+    if (old != m_infos.constEnd()) {
+        if (effectiveName(info).isEmpty() && !effectiveName(*old).isEmpty())
+            info.setName(old->name());
+        QList<QBluetoothUuid> uuids = info.serviceUuids();
+        for (const QBluetoothUuid &u : old->serviceUuids()) {
+            if (!uuids.contains(u))
+                uuids.append(u);
+        }
+        info.setServiceUuids(uuids);
+        if (info.rssi() == 0 && old->rssi() != 0)
+            info.setRssi(old->rssi());
+        const auto oldMfr = old->manufacturerData();
+        for (auto it = oldMfr.cbegin(); it != oldMfr.cend(); ++it) {
+            if (!info.manufacturerData().contains(it.key()))
+                info.setManufacturerData(it.key(), it.value());
+        }
+        info.setCoreConfigurations(info.coreConfigurations() | old->coreConfigurations());
+    }
     m_infos.insert(id, info);
 
+    const Kind kind = m_forcedRowers.contains(id) ? Kind::Rower : classify(info);
+    const auto prevIt = m_kinds.constFind(id);
+    const bool isNew = prevIt == m_kinds.constEnd();
+    const Kind prev = isNew ? Kind::Unknown : *prevIt;
+    m_kinds.insert(id, kind);
+    recordDiag(id, info, kind);
+
+    const QString name = effectiveName(info);
+    if (isNew || prev != kind) {
+        QStringList uuids;
+        for (const QBluetoothUuid &u : info.serviceUuids())
+            uuids << uuidText(u);
+        qCInfo(lcBle).noquote() << (isNew ? "Discovered" : "Reclassified") << id << "name:" << (name.isEmpty() ? QStringLiteral("<none>") : name)
+                                << "rssi:" << info.rssi() << "uuids:" << uuids.join(QLatin1Char(','))
+                                << "core:" << coreConfigText(info.coreConfigurations())
+                                << "->" << kindName(kind) << (isNew ? "" : QStringLiteral("(was %1)").arg(kindName(prev)))
+                                << (updated ? "[update]" : "");
+        if (!isNew)
+            addDiag(QStringLiteral("%1 reclassified %2 -> %3").arg(name.isEmpty() ? id : name, kindName(prev), kindName(kind)));
+    }
+
     // A device belongs to exactly one list: its classification may change
-    // between advertisements (e.g. name or services arrive later).
-    if (kind != Kind::Trainer && m_trainers.contains(id) && !(m_trainer && m_trainer->id() == id))
+    // between advertisements (e.g. name or services arrive later). The
+    // connected/connecting device stays where it is.
+    const bool activeTrainer = m_trainer && m_trainer->id() == id;
+    const bool activeHr = m_hr && m_hr->id() == id;
+    const bool activeRower = m_rower && m_rower->id() == id;
+    if (kind != Kind::Trainer && m_trainers.contains(id) && !activeTrainer)
         m_trainers.remove(id);
-    if (kind != Kind::HeartRate && m_hrSensors.contains(id) && !(m_hr && m_hr->id() == id))
+    if (kind != Kind::HeartRate && m_hrSensors.contains(id) && !activeHr)
         m_hrSensors.remove(id);
-    if (kind != Kind::Rower && m_rowers.contains(id) && !(m_rower && m_rower->id() == id))
+    if (kind != Kind::Rower && m_rowers.contains(id) && !activeRower)
         m_rowers.remove(id);
+    if (kind != Kind::Unknown && m_others.contains(id))
+        m_others.remove(id);
 
     DeviceEntry e;
     e.id = id;
-    e.name = info.name().isEmpty() ? id : info.name();
+    e.name = name.isEmpty() ? (info.name().trimmed().isEmpty() ? id : info.name().trimmed()) : name;
     e.rssi = info.rssi();
+    if (kind == Kind::Unknown) {
+        // Fallback list ("Show all Bluetooth devices"); LE devices only –
+        // BlueZ also reports cached classic devices such as headphones.
+        if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
+            && info.coreConfigurations() != QBluetoothDeviceInfo::UnknownCoreConfiguration)
+            return;
+        if (activeTrainer || activeHr || activeRower)
+            return;
+        e.kind = kKindOther;
+        e.protocol = info.serviceUuids().isEmpty()
+                         ? QStringLiteral("Bluetooth LE · %1").arg(id)
+                         : QStringLiteral("Bluetooth LE · %1 service(s) · %2").arg(info.serviceUuids().size()).arg(id);
+        m_others.upsert(e);
+        return;
+    }
     if (kind == Kind::Trainer) {
         e.protocol = QStringLiteral("Bluetooth FTMS");
         e.kind = kKindTrainer;
         e.known = id == m_knownTrainer;
         m_trainers.upsert(e);
     } else if (kind == Kind::Rower) {
-        e.protocol = QStringLiteral("Concept2 PM5 Bluetooth");
+        e.protocol = m_forcedRowers.contains(id) && !hasConcept2Uuid(info) && classifyName(name) != Kind::Rower
+                         ? QStringLiteral("Concept2 PM5 Bluetooth (manual)")
+                         : QStringLiteral("Concept2 PM5 Bluetooth");
         e.kind = kKindRower;
         e.known = id == m_knownRower;
         m_rowers.upsert(e);
@@ -371,7 +691,7 @@ void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
         e.known = id == m_knownHr;
         m_hrSensors.upsert(e);
     }
-    if (isNew)
+    if (isNew || prev != kind)
         addLog(QStringLiteral("Found %1").arg(e.name), true);
 
     if (m_autoConnect && e.known) {
@@ -384,12 +704,137 @@ void DeviceManager::onDiscovered(const QBluetoothDeviceInfo &info)
             if (otherBusy)
                 return;
         }
-        const bool trainerFree = kind == Kind::Trainer && (!m_trainer || m_trainer->id() != id);
-        const bool hrFree = kind == Kind::HeartRate && (!m_hr || m_hr->id() != id);
-        const bool rowerFree = kind == Kind::Rower && (!m_rower || m_rower->id() != id);
+        const bool trainerFree = kind == Kind::Trainer && !activeTrainer;
+        const bool hrFree = kind == Kind::HeartRate && !activeHr;
+        const bool rowerFree = kind == Kind::Rower && !activeRower;
         if (trainerFree || hrFree || rowerFree)
             connectDevice(id);
     }
+}
+
+void DeviceManager::recordDiag(const QString &id, const QBluetoothDeviceInfo &info, Kind kind)
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    if (!m_diag.contains(id) && m_diag.size() >= 300)
+        return;   // enough for a report
+    DiagEntry &d = m_diag[id];
+    if (d.reports == 0)
+        d.firstSeen = now;
+    d.id = id;
+    d.lastSeen = now;
+    ++d.reports;
+    d.name = info.name();
+    d.address = info.address().isNull() ? info.deviceUuid().toString() : info.address().toString();
+    d.rssi = info.rssi();
+    d.uuids.clear();
+    for (const QBluetoothUuid &u : info.serviceUuids())
+        d.uuids << uuidText(u);
+    d.manufacturerIds.clear();
+    for (quint16 k : info.manufacturerIds())
+        d.manufacturerIds << QStringLiteral("0x%1").arg(k, 4, 16, QLatin1Char('0'));
+    d.coreConfig = coreConfigText(info.coreConfigurations());
+    d.kind = kind;
+}
+
+void DeviceManager::addDiag(const QString &text)
+{
+    m_diagEvents.append(QStringLiteral("%1  %2").arg(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")), text));
+    while (m_diagEvents.size() > 300)
+        m_diagEvents.removeFirst();
+}
+
+QString DeviceManager::diagnosticsReport() const
+{
+    QString r;
+    QTextStream out(&r);
+    out << "Artilody Watts Trainer – Bluetooth diagnostics\n";
+    out << "Generated: " << QDateTime::currentDateTime().toString(Qt::ISODate) << "\n";
+    out << "App: " << QCoreApplication::applicationVersion() << "  Qt: " << qVersion() << " (built with " << QT_VERSION_STR << ")\n";
+    out << "OS: " << QSysInfo::prettyProductName() << "  kernel " << QSysInfo::kernelVersion() << "  " << QSysInfo::currentCpuArchitecture() << "\n";
+    out << "\n[Adapter]\n";
+    if (m_local && m_local->isValid()) {
+        out << "Selected: " << m_local->name() << "  " << m_local->address().toString() << "  host mode: " << hostModeText(m_local->hostMode()) << "\n";
+    } else {
+        out << "Selected: none / invalid\n";
+    }
+    if (m_local) {   // adapter not queried yet (e.g. unit tests): do not touch the OS
+        const auto hosts = QBluetoothLocalDevice::allDevices();
+        out << "Adapters found: " << hosts.size() << "\n";
+        for (const QBluetoothHostInfo &h : hosts)
+            out << "  - " << h.name() << "  " << h.address().toString() << "\n";
+    }
+    out << "Supported discovery: "
+        << ((QBluetoothDeviceDiscoveryAgent::supportedDiscoveryMethods() & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod) ? "LE " : "")
+        << ((QBluetoothDeviceDiscoveryAgent::supportedDiscoveryMethods() & QBluetoothDeviceDiscoveryAgent::ClassicMethod) ? "Classic" : "") << "\n";
+    out << "\n[Scan]\n";
+    out << "Scanning: " << (scanning() ? "yes" : "no") << "  last scan: " << lastScanText() << "  status: " << m_scanStatus << "\n";
+    if (!m_scanError.isEmpty())
+        out << "Problem: " << m_scanError << "\n";
+    if (m_agent && m_agent->error() != QBluetoothDeviceDiscoveryAgent::NoError)
+        out << "Agent error: " << int(m_agent->error()) << " " << m_agent->errorString() << "\n";
+    out << "Known rower: " << (m_knownRower.isEmpty() ? QStringLiteral("-") : m_knownRower)
+        << "  known trainer: " << (m_knownTrainer.isEmpty() ? QStringLiteral("-") : m_knownTrainer)
+        << "  known HR: " << (m_knownHr.isEmpty() ? QStringLiteral("-") : m_knownHr) << "\n";
+    out << "Auto-connect: " << (m_autoConnect ? "on" : "off") << "  multiple sensors: " << (m_allowMultiple ? "on" : "off")
+        << "  virtual devices: " << (m_simulatorEnabled ? "on" : "off") << "\n";
+    if (m_rower)
+        out << "Active rower: " << m_rower->name() << " " << m_rower->id() << " state " << int(m_rower->state()) << "\n";
+
+    out << "\n[Devices seen: " << m_diag.size() << "]\n";
+    QList<DiagEntry> list = m_diag.values();
+    std::sort(list.begin(), list.end(), [](const DiagEntry &a, const DiagEntry &b) {
+        if ((a.kind == Kind::Rower) != (b.kind == Kind::Rower))
+            return a.kind == Kind::Rower;
+        return a.rssi > b.rssi;
+    });
+    for (const DiagEntry &d : list) {
+        out << "- " << (d.name.isEmpty() ? QStringLiteral("<no name>") : d.name) << "  [" << d.address << "]\n";
+        out << "    class: " << kindName(d.kind) << (m_forcedRowers.contains(d.id) ? " (manual)" : "")
+            << "  rssi: " << d.rssi << " dBm  core: " << d.coreConfig << "  reports: " << d.reports
+            << "  seen: " << d.firstSeen.toString(QStringLiteral("HH:mm:ss")) << "-" << d.lastSeen.toString(QStringLiteral("HH:mm:ss")) << "\n";
+        out << "    services: " << (d.uuids.isEmpty() ? QStringLiteral("-") : d.uuids.join(QStringLiteral(", "))) << "\n";
+        if (!d.manufacturerIds.isEmpty())
+            out << "    manufacturer data: " << d.manufacturerIds.join(QStringLiteral(", ")) << "\n";
+    }
+    out << "\n[Events]\n";
+    for (const QString &e : m_diagEvents)
+        out << e << "\n";
+    out << "\n[Connection log]\n";
+    for (int i = m_log.size() - 1; i >= 0; --i) {
+        const QVariantMap e = m_log.at(i).toMap();
+        out << e.value(QStringLiteral("time")).toString() << "  " << (e.value(QStringLiteral("ok")).toBool() ? "" : "! ")
+            << e.value(QStringLiteral("text")).toString() << "\n";
+    }
+    return r;
+}
+
+void DeviceManager::copyToClipboard(const QString &text) const
+{
+    if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
+        app->clipboard()->setText(text);
+}
+
+void DeviceManager::setShowAllDevices(bool on)
+{
+    if (m_showAll == on)
+        return;
+    m_showAll = on;
+    m_db->setSetting(QStringLiteral("ble/showAll"), on);
+    emit preferencesChanged();
+}
+
+void DeviceManager::connectAsRower(const QString &id)
+{
+    if (!m_infos.contains(id)) {
+        setScanError(QStringLiteral("This device is no longer available – scan again."));
+        return;
+    }
+    m_forcedRowers.insert(id);
+    addLog(QStringLiteral("Connecting %1 as rower (manual)").arg(m_others.find(id) ? m_others.find(id)->name : id), true);
+    addDiag(QStringLiteral("Connect as rower: %1").arg(id));
+    m_others.remove(id);
+    handleDeviceInfo(m_infos.value(id), true);   // moves it to the rowers list
+    connectDevice(id);
 }
 
 void DeviceManager::addSimulatedEntries()
@@ -512,7 +957,14 @@ void DeviceManager::connectDevice(const QString &id)
         if (id == kSimRower) {
             r = new SimulatedRower(this);   // rows freely until RowingSession sends a target
         } else if (m_infos.contains(id)) {
-            r = new Pm5Rower(m_infos.value(id), adapter, this);
+            auto *pm = new Pm5Rower(m_infos.value(id), adapter, this);
+            connect(pm, &Pm5Rower::rowingServiceMissing, this, [this, id, name = pm->name()] {
+                m_forcedRowers.remove(id);
+                setScanError(QStringLiteral("%1 does not offer the Concept2 rowing service (CE060030). It is not a "
+                                            "PM5 rowing monitor, or the PM5 is busy with another app.").arg(name));
+                addDiag(QStringLiteral("%1: rowing service 0x0030 not found").arg(id));
+            });
+            r = pm;
         }
         if (!r)
             return;
@@ -521,6 +973,9 @@ void DeviceManager::connectDevice(const QString &id)
         m_db->setSetting(QStringLiteral("ble/knownRower"), id);
         r->connectDevice();
     }
+    // Real BLE device: keep BlueZ's device object alive while connecting.
+    if (!id.startsWith(QLatin1String("sim:")) && !kind.isEmpty())
+        ensureScanning();
     emit devicesChanged();
 }
 

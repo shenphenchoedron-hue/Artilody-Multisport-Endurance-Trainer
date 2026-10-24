@@ -30,6 +30,12 @@ BleLink::~BleLink()
     cleanup();
 }
 
+QString BleLink::displayName() const
+{
+    const QString n = m_info.name().trimmed();
+    return n.isEmpty() ? m_info.address().toString() : n;
+}
+
 void BleLink::setState(LinkState s)
 {
     if (m_state == s)
@@ -68,14 +74,16 @@ void BleLink::connectToDevice()
     m_reconnectTimer.stop();
     cleanup();
     setState(LinkState::Connecting);
-    emit logMessage(QStringLiteral("Connecting to %1…").arg(m_info.name()), true);
+    emit logMessage(QStringLiteral("Connecting to %1…").arg(displayName()), true);
 
     m_controller = m_localAdapter.isNull() ? QLowEnergyController::createCentral(m_info, this)
                                            : QLowEnergyController::createCentral(m_info, m_localAdapter, this);
     QLowEnergyController *c = m_controller;
+    c->setRemoteAddressType(m_addressType);
 
     connect(c, &QLowEnergyController::connected, this, [this] {
-        emit logMessage(QStringLiteral("Connected to %1, discovering services").arg(m_info.name()), true);
+        m_everConnected = true;
+        emit logMessage(QStringLiteral("Connected to %1, discovering services").arg(displayName()), true);
         m_controller->discoverServices();
     });
     connect(c, &QLowEnergyController::serviceDiscovered, this, [this](const QBluetoothUuid &uuid) {
@@ -84,8 +92,10 @@ void BleLink::connectToDevice()
     });
     connect(c, &QLowEnergyController::discoveryFinished, this, [this] {
         if (!m_serviceFound) {
-            emit logMessage(QStringLiteral("%1 does not offer the required service").arg(m_info.name()), false);
+            emit logMessage(QStringLiteral("%1 does not offer the required service (%2)")
+                                .arg(displayName(), m_serviceUuid.toString(QUuid::WithoutBraces).toUpper()), false);
             m_userDisconnect = true;   // do not loop on an incompatible device
+            emit serviceMissing();
             m_controller->disconnectFromDevice();
             return;
         }
@@ -108,12 +118,20 @@ void BleLink::connectToDevice()
         m_service->discoverDetails();
     });
     connect(c, &QLowEnergyController::disconnected, this, [this] {
-        emit logMessage(QStringLiteral("%1 disconnected").arg(m_info.name()), false);
+        emit logMessage(QStringLiteral("%1 disconnected").arg(displayName()), false);
         setState(LinkState::Disconnected);
         scheduleReconnect();
     });
     connect(c, &QLowEnergyController::errorOccurred, this, [this](QLowEnergyController::Error e) {
         emit logMessage(QStringLiteral("Bluetooth error (%1): %2").arg(int(e)).arg(m_controller ? m_controller->errorString() : QString()), false);
+        if (e == QLowEnergyController::UnknownRemoteDeviceError)
+            emit logMessage(QStringLiteral("%1 is not known to the Bluetooth stack any more – it must be advertising "
+                                           "(PM5: Connect screen) while scanning").arg(displayName()), false);
+        // Kernel ATT backend only: an unanswered connection may mean the
+        // peripheral uses the other address type, so alternate it.
+        if (e == QLowEnergyController::ConnectionError && !m_everConnected)
+            m_addressType = m_addressType == QLowEnergyController::PublicAddress ? QLowEnergyController::RandomAddress
+                                                                                 : QLowEnergyController::PublicAddress;
         if (m_state == LinkState::Connecting) {
             setState(LinkState::Disconnected);
             scheduleReconnect();
@@ -148,7 +166,7 @@ void BleLink::scheduleReconnect()
         return;
     ++m_reconnectAttempts;
     const int delay = qMin(30000, 2000 * m_reconnectAttempts);
-    emit logMessage(QStringLiteral("Reconnecting to %1 in %2 s").arg(m_info.name()).arg(delay / 1000), true);
+    emit logMessage(QStringLiteral("Reconnecting to %1 in %2 s").arg(displayName()).arg(delay / 1000), true);
     // The controller must be recreated from the event loop, not inside its own signal.
     QTimer::singleShot(0, this, [this] { cleanup(); });
     m_reconnectTimer.start(delay);
@@ -181,6 +199,12 @@ bool BleLink::write(const QBluetoothUuid &characteristic, const QByteArray &data
     const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
     if (!ch.isValid())
         return false;
+    // Use a write type the characteristic actually supports.
+    const auto props = ch.properties();
+    if (withResponse && !(props & QLowEnergyCharacteristic::Write) && (props & QLowEnergyCharacteristic::WriteNoResponse))
+        withResponse = false;
+    else if (!withResponse && !(props & QLowEnergyCharacteristic::WriteNoResponse) && (props & QLowEnergyCharacteristic::Write))
+        withResponse = true;
     m_service->writeCharacteristic(ch, data, withResponse ? QLowEnergyService::WriteWithResponse
                                                           : QLowEnergyService::WriteWithoutResponse);
     return true;

@@ -266,7 +266,7 @@ def build(s, env):
         ["Weight", "30 – 200 kg, steps of 0.5", "Used for W/kg (shown under the FTP field)."],
         ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all cycling workout targets."],
         ["Rowing FTP", "50 – 600 W, steps of 5", "Used for rowing workouts and rows (default 150 W, "
-         "section 11.6)."],
+         "section 11.7)."],
         ["Max heart rate", "100 – 230 BPM", "Must be more than 20 BPM above the resting heart rate."],
         ["Resting heart rate", "30 – 110 BPM", "Used together with max HR for the Karvonen zones."],
         ["Preferred cadence", "50 – 130 RPM",
@@ -401,7 +401,12 @@ def build(s, env):
     s.section("Bluetooth diagnostics and connection log")
     s.p(f"{UI('Bluetooth Diagnostics')} shows the adapter name, the connection mode (Bluetooth Low Energy), the "
         "trainer signal (<i>Stable</i> at −75 dBm or better, otherwise <i>Weak</i>) and the time of the last "
-        f"scan. {UI('Refresh')} starts a new scan.")
+        f"scan. {UI('Refresh')} re-reads the Bluetooth adapter. {UI('Details…')} opens a full report – adapter, "
+        "Qt version, every device seen with signal, service UUIDs and how the app classified it, scan errors and "
+        f"the log – that you can {UI('Copy')} into a bug report. With {UI('Show all devices')} (top of "
+        f"{UI('Available Devices')}) the list gets an extra section {UI('Other Bluetooth devices')} with every "
+        f"unrecognised Bluetooth LE device and a {UI('Connect as rower')} button (section 11.2). Scan problems "
+        "(Bluetooth off, adapter error, missing permission) appear in red above the device list.")
     s.p(f"The {UI('Connection Log')} lists time-stamped events with a green (OK) or red (problem) dot – for "
         "example <i>Bluetooth ready</i>, <i>Found …</i>, <i>FTMS capabilities detected</i>, <i>Trainer control "
         "granted</i>, <i>Reconnecting to … in 4 s</i> or <i>Bluetooth permission denied</i>. "
@@ -437,7 +442,7 @@ def build(s, env):
     s.section("The workout library")
     s.bullets([
         f"{UI('Search')} – filters by name, focus and category as you type.",
-        f"{UI('Sport')} – <i>All sports</i>, <i>Cycling</i> or <i>Rowing</i> (section 11.8).",
+        f"{UI('Sport')} – <i>All sports</i>, <i>Cycling</i> or <i>Rowing</i> (section 11.9).",
         f"{UI('Category')} – <i>All</i>, <i>Endurance</i>, <i>Intervals</i>, <i>Recovery</i>, <i>FTP Tests</i> or "
         "<i>Custom</i>. Custom shows all your own workouts, whatever their category.",
         f"{UI('Sort')} – <i>Most Popular</i> (most often started first; default), <i>Name A–Z</i>, "
@@ -655,7 +660,7 @@ def build(s, env):
     ])
     s.p("At the top of the page you enter the <b>workout name</b> and choose the <b>category</b> (Endurance, "
         "Intervals, Recovery or FTP Tests). The <b>Cycling / Rowing</b> selector sets the sport; rowing "
-        "workouts use your rowing FTP and stroke rate (SPM) instead of cadence (section 11.8).")
+        "workouts use your rowing FTP and stroke rate (SPM) instead of cadence (section 11.9).")
     s.note("A workout in the <i>FTP Tests</i> category is treated as an FTP test: when you finish it, the app "
            "estimates your FTP (chapter 8).")
 
@@ -797,7 +802,7 @@ def build(s, env):
         "<i>Last 90 days</i>, <i>Last 12 months</i> or <i>All time</i>. Periods count whole days including today. "
         f"The tiles show {UI('Total Rides')}, {UI('Training Time')}, {UI('Avg Power')} and "
         f"{UI('Total Energy')} (kJ) for that period. The {UI('All')} / {UI('Cycling')} / {UI('Rowing')} "
-        "selector limits the page to one sport (rows are described in section 11.7).")
+        "selector limits the page to one sport (rows are described in section 11.8).")
     s.section("Selected ride, ride list and charts")
     s.bullets([
         f"{UI('Selected Workout')} – a chart of the selected ride with <i>Target Power</i>, <i>Actual Power</i> and "
@@ -1041,6 +1046,37 @@ def build(s, env):
            "BikeErg and SkiErg are <b>not supported</b> – they advertise the same way, but the app only handles "
            "rowing data. PM3/PM4 monitors have no Bluetooth. The PM5 accepts one "
            "Bluetooth app at a time – disconnect ErgData or other apps first.")
+
+    s.section("Rowing machine not found")
+    s.bullets([
+        f"The PM5 only advertises while it shows the {UI('Connect Device')} screen. Open it "
+        f"({UI('More Options')} → {UI('Turn Wireless ON')} → {UI('Connect Device')}), then press "
+        f"{UI('Scan for Devices')}. A scan runs for 60 seconds.",
+        "The PM5 can be connected to <b>one app at a time</b>. Disconnect ErgData, the Concept2 app or any phone "
+        "or watch that is connected to it (turning off Bluetooth on the phone is the quickest way).",
+        f"Turn on {UI('Show all devices')} in {UI('Available Devices')}. The section "
+        f"{UI('Other Bluetooth devices')} lists every Bluetooth LE device the app did not recognise, with name, "
+        f"address and signal. If your PM5 is there, press {UI('Connect as rower')}. If the device has no Concept2 "
+        "rowing service, a red message says so.",
+        f"Press {UI('Details…')} under {UI('Bluetooth Diagnostics')}. The report lists the adapter, the Qt "
+        f"version, every device seen (name, address, signal, service UUIDs, classification) and any scan errors. "
+        f"{UI('Copy')} puts it on the clipboard for a bug report. A PM5 shows the service "
+        + C("CE060000-43E5-11E4-916C-0800200C9A66") + ".",
+        "Scan errors (Bluetooth off, adapter error, missing permission) are shown in red at the top of the device "
+        "list. If Bluetooth is off, the app tries to switch it on.",
+        "Update the PM5 firmware with Concept2 Utility if the monitor is old.",
+    ])
+    s.p("<b>Raspberry Pi / Linux:</b> check the Bluetooth stack in a terminal:")
+    s.code("bluetoothctl show            # Powered: yes\n"
+           "bluetoothctl power on        # if it says no\n"
+           "sudo rfkill unblock bluetooth\n"
+           "bluetoothctl scan le         # lists \"PM5 430...\" (Ctrl+C stops)\n"
+           "groups                       # should include \"bluetooth\"")
+    s.p("If " + C("bluetoothctl scan le") + " does not list the PM5 either, the PM5 is not advertising (not on the "
+        "Connect screen, or connected to another device). If it lists the PM5 but the app does not, start the app "
+        "from a terminal and send the output together with the diagnostics report:")
+    s.code("QT_LOGGING_RULES=\"qt.bluetooth*=true\" artilody-watts-trainer 2>&1 | tee ~/artilody-bt.log")
+    s.p("Lines starting with " + C("artilody.ble:") + " show every device the app saw and how it was classified.")
 
     s.section("The Rowing page")
     s.p(f"Open {UI('Rowing')} in the sidebar. If no rower is connected, the Session panel shows "
@@ -1305,8 +1341,10 @@ def build(s, env):
          "you like. If nothing was imported at all, the workout was already in your library."),
         ("My Concept2 PM5 is not found.",
          "On the PM5 choose More Options → Turn Wireless ON → Connect Device and scan again while the monitor "
-         "shows the waiting screen. Close ErgData and other apps that may be connected to the PM5, and keep the "
-         "computer within a few metres."),
+         "shows the Connect screen. Close ErgData and other apps that may be connected to the PM5 (it accepts "
+         "one app at a time), and keep the computer within a few metres. Turn on Show all devices and use "
+         "Connect as rower if the PM5 is listed under Other Bluetooth devices, and check Bluetooth Diagnostics → "
+         "Details… (see “Rowing machine not found” in chapter 11, including the Raspberry Pi commands)."),
         ("The rower does not follow the watt plan targets.",
          "That is expected: the PM5 has no ERG mode. Follow the target power by pulling harder or easier; "
          "the Current value turns green within ±10 % of the target."),

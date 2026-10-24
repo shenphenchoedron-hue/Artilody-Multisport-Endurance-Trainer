@@ -20,7 +20,7 @@ QString deviceId(const QBluetoothDeviceInfo &info)
 Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &localAdapter, QObject *parent)
     : RowerDevice(parent)
     , m_id(deviceId(info))
-    , m_name(info.name().isEmpty() ? QStringLiteral("Concept2 PM5") : info.name())
+    , m_name(info.name().trimmed().isEmpty() ? QStringLiteral("Concept2 PM5") : info.name().trimmed())
     , m_link(new BleLink(info, pmUuid(pm5::kRowingService), localAdapter, this))
 {
     setRssi(info.rssi());
@@ -47,6 +47,10 @@ Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &lo
     connect(m_link, &BleLink::characteristicRead, this, &Pm5Rower::onNotification);
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
     connect(m_link, &BleLink::logMessage, this, &Pm5Rower::logMessage);
+    connect(m_link, &BleLink::serviceMissing, this, [this] {
+        emit logMessage(QStringLiteral("%1 has no Concept2 rowing service – not a PM5 rowing monitor").arg(m_name), false);
+        emit rowingServiceMissing();
+    });
 }
 
 void Pm5Rower::connectDevice()

@@ -19,4 +19,4 @@ qt_add_library(watt_ble STATIC
     DeviceManager.h DeviceManager.cpp
 )
 target_include_directories(watt_ble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(watt_ble PUBLIC watt_bleprotocol watt_core Qt6::Bluetooth)
+target_link_libraries(watt_ble PUBLIC watt_bleprotocol watt_core Qt6::Bluetooth Qt6::Gui)

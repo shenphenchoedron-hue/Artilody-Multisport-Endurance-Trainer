@@ -1,11 +1,14 @@
+#include "Database.h"
 #include "DeviceManager.h"
 #include "FtmsProtocol.h"
+#include "SensorHub.h"
 #include "Pm5Protocol.h"
 #include "SimulatedDevices.h"
 
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace watt;
@@ -50,6 +53,29 @@ static QBluetoothDeviceInfo leDevice(const QString &name, const QList<QBluetooth
     info.setServiceUuids(uuids);
     return info;
 }
+
+// As reported by Qt's BlueZ backend: address-based, LE (no Class property).
+static QBluetoothDeviceInfo bluezDevice(const QString &address, const QString &name, const QList<QBluetoothUuid> &uuids,
+                                        int rssi = -60)
+{
+    QBluetoothDeviceInfo info(QBluetoothAddress(address), name, 0);
+    info.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
+    info.setServiceUuids(uuids);
+    info.setRssi(qint16(rssi));
+    return info;
+}
+
+// DeviceManager without Bluetooth: initialize() is not called, so no adapter
+// is opened and no simulated entries are added; scan results are fed through
+// handleDeviceInfo().
+struct ManagerFixture
+{
+    QTemporaryDir dir;
+    Database db;
+    SensorHub hub;
+    DeviceManager mgr { &db, &hub };
+    ManagerFixture() { db.open(dir.filePath(QStringLiteral("t.db"))); }
+};
 
 class TestRowerDevice : public QObject
 {
@@ -257,6 +283,139 @@ private slots:
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Ski"), { rowing })), K::Unknown);
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Bike"), { ftms })), K::Unknown);
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("KICKR CORE"), { ftms })), K::Trainer);
+    }
+
+    void classifyPm5Names_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<bool>("rower");
+        QTest::newRow("plain") << "PM5 430123456" << true;
+        QTest::newRow("row suffix") << "PM5 430123456 Row" << true;
+        QTest::newRow("lower case") << "pm5 1234" << true;
+        QTest::newRow("concept2") << "Concept2 PM5" << true;
+        QTest::newRow("concept2 lower") << "concept2 rower" << true;
+        QTest::newRow("padded") << "  PM5 430123456 Row  " << true;
+        QTest::newRow("ski") << "PM5 430123456 Ski" << false;
+        QTest::newRow("bike") << "PM5 430123456 Bike" << false;
+        QTest::newRow("skierg") << "PM5 SkiErg" << false;
+        QTest::newRow("bikeerg") << "PM5 BikeErg" << false;
+        QTest::newRow("other") << "Galaxy Watch" << false;
+        QTest::newRow("empty") << "" << false;
+        // "Ski"/"Bike" inside the name must not exclude a rower
+        QTest::newRow("skip word") << "PM5 Skipper Row" << true;
+        QTest::newRow("bikeshed") << "PM5 Bikeshed" << true;
+    }
+
+    void classifyPm5Names()
+    {
+        QFETCH(QString, name);
+        QFETCH(bool, rower);
+        const auto expected = rower ? DeviceManager::Kind::Rower : DeviceManager::Kind::Unknown;
+        QCOMPARE(DeviceManager::classifyName(name), expected);
+        QCOMPARE(DeviceManager::classify(bluezDevice(QStringLiteral("D4:36:39:AA:BB:01"), name, {})), expected);
+    }
+
+    void classifyPm5Uuids()
+    {
+        using K = DeviceManager::Kind;
+        // The PM5 advertises its discovery service CE060000-...; base must accept 0x0000.
+        const QBluetoothUuid discovery(QUuid(QStringLiteral("{CE060000-43E5-11E4-916C-0800200C9A66}")));
+        const QBluetoothUuid rowing(QUuid(QStringLiteral("{ce060030-43e5-11e4-916c-0800200c9a66}")));
+        QCOMPARE(pm5::shortId(QUuid(discovery)), std::optional<quint16>(0x0000));
+        QCOMPARE(pm5::shortId(QUuid(rowing)), std::optional<quint16>(0x0030));
+        QVERIFY(!pm5::shortId(QUuid(QStringLiteral("{CE060030-43E5-11E4-916C-0800200C9A67}"))).has_value());
+        QCOMPARE(DeviceManager::classify(bluezDevice(QStringLiteral("D4:36:39:AA:BB:02"), QString(), { discovery })), K::Rower);
+        QCOMPARE(DeviceManager::classify(bluezDevice(QStringLiteral("D4:36:39:AA:BB:03"), QString(), { rowing })), K::Rower);
+        // BlueZ alias placeholder (address) is not a name
+        QCOMPARE(DeviceManager::classify(bluezDevice(QStringLiteral("D4:36:39:AA:BB:04"), QStringLiteral("D4-36-39-AA-BB-04"),
+                                                     { discovery })), K::Rower);
+        // 16-bit-only data (e.g. GAP/GATT, battery) is no rower
+        QCOMPARE(DeviceManager::classify(bluezDevice(QStringLiteral("D4:36:39:AA:BB:05"), QString(),
+                                                     { QBluetoothUuid(quint16(0x180F)) })), K::Unknown);
+        // also without a core configuration flag (cached BlueZ objects)
+        QBluetoothDeviceInfo noCore(QBluetoothAddress(QStringLiteral("D4:36:39:AA:BB:06")), QStringLiteral("PM5 1"), 0);
+        QCOMPARE(DeviceManager::classify(noCore), K::Rower);
+    }
+
+    void effectiveNameIgnoresBluezAlias()
+    {
+        QCOMPARE(DeviceManager::effectiveName(bluezDevice(QStringLiteral("D4:36:39:AA:BB:07"), QStringLiteral("D4-36-39-AA-BB-07"), {})),
+                 QString());
+        QCOMPARE(DeviceManager::effectiveName(bluezDevice(QStringLiteral("D4:36:39:AA:BB:07"), QStringLiteral(" PM5 430123456 "), {})),
+                 QStringLiteral("PM5 430123456"));
+    }
+
+    void reclassifiesWhenNameArrives()
+    {
+        ManagerFixture f;
+        const QString addr = QStringLiteral("D4:36:39:AA:BB:10");
+        // first report: no scan response yet -> BlueZ alias, no services
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QStringLiteral("D4-36-39-AA-BB-10"), {}), false);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 0);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 1);
+        // later report (deviceUpdated / re-discovery) carries the name
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QStringLiteral("PM5 430123456 Row"), {}, -55), true);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 0);
+        QCOMPARE(f.mgr.rowers()->find(addr)->name, QStringLiteral("PM5 430123456 Row"));
+        // an RSSI-only update with the stale alias keeps the name and the class
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QStringLiteral("D4-36-39-AA-BB-10"), {}, -70), true);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QCOMPARE(f.mgr.rowers()->find(addr)->name, QStringLiteral("PM5 430123456 Row"));
+        QCOMPARE(f.mgr.rowers()->find(addr)->rssi, -70);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 0);
+    }
+
+    void reclassifiesWhenServiceArrives()
+    {
+        ManagerFixture f;
+        const QString addr = QStringLiteral("D4:36:39:AA:BB:11");
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QString(), {}), false);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 1);
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QString(), { QBluetoothUuid(pm5::uuid(0x0000)) }), true);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 0);
+        // a later report without services keeps the merged UUIDs
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QString(), {}), true);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+    }
+
+    void skiErgStaysOther()
+    {
+        ManagerFixture f;
+        f.mgr.handleDeviceInfo(bluezDevice(QStringLiteral("D4:36:39:AA:BB:12"), QStringLiteral("PM5 430123456 Ski"),
+                                           { QBluetoothUuid(pm5::uuid(0x0000)) }), false);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 0);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 1);
+        f.mgr.handleDeviceInfo(bluezDevice(QStringLiteral("C0:00:00:00:00:01"), QStringLiteral("KICKR CORE"),
+                                           { QBluetoothUuid(ftms::kServiceUuid) }), false);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 1);
+        QCOMPARE(f.mgr.otherDevices()->rowCount(), 1);
+    }
+
+    void diagnosticsAndErrors()
+    {
+        ManagerFixture f;
+        f.mgr.handleDeviceInfo(bluezDevice(QStringLiteral("D4:36:39:AA:BB:13"), QStringLiteral("PM5 430123456"),
+                                           { QBluetoothUuid(pm5::uuid(0x0000)) }), false);
+        const QString report = f.mgr.diagnosticsReport();
+        QVERIFY(report.contains(QStringLiteral("PM5 430123456")));
+        QVERIFY(report.contains(QStringLiteral("class: Rower")));
+        QVERIFY(report.contains(QStringLiteral("CE060000-43E5-11E4-916C-0800200C9A66")));
+        QVERIFY(report.contains(QStringLiteral("Qt: ")));
+
+        QVERIFY(DeviceManager::scanErrorText(int(QBluetoothDeviceDiscoveryAgent::PoweredOffError), {})
+                    .contains(QStringLiteral("bluetoothctl power on")));
+        QVERIFY(!DeviceManager::scanErrorText(int(QBluetoothDeviceDiscoveryAgent::InputOutputError), QStringLiteral("x")).isEmpty());
+        QVERIFY(!DeviceManager::scanErrorText(int(QBluetoothDeviceDiscoveryAgent::UnsupportedDiscoveryMethod), {}).isEmpty());
+        QVERIFY(!DeviceManager::scanErrorText(int(QBluetoothDeviceDiscoveryAgent::MissingPermissionsError), {}).isEmpty());
+        QVERIFY(DeviceManager::scanErrorText(int(QBluetoothDeviceDiscoveryAgent::NoError), {}).isEmpty());
+
+        QVERIFY(f.mgr.scanError().isEmpty());
+        f.mgr.connectAsRower(QStringLiteral("00:00:00:00:00:00"));   // unknown device
+        QVERIFY(!f.mgr.scanError().isEmpty());
+        f.mgr.clearScanError();
+        QVERIFY(f.mgr.scanError().isEmpty());
     }
 };
 

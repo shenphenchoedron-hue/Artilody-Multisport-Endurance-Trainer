@@ -7,13 +7,17 @@
 #include <QBluetoothDeviceInfo>
 #include <QDateTime>
 #include <QHash>
+#include <QLoggingCategory>
 #include <QObject>
+#include <QSet>
 #include <QPointer>
 #include <QTimer>
 #include <QVariantList>
 #include <memory>
 
 class QBluetoothLocalDevice;
+
+Q_DECLARE_LOGGING_CATEGORY(lcBle)
 
 namespace watt {
 
@@ -34,10 +38,16 @@ class DeviceManager : public QObject
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(QString lastScanText READ lastScanText NOTIFY scanningChanged)
     Q_PROPERTY(QString scanStatus READ scanStatus NOTIFY scanningChanged)
+    // User-facing Bluetooth problem (scan error, adapter off, "not a PM5", ...);
+    // empty when everything is fine.
+    Q_PROPERTY(QString scanError READ scanError NOTIFY scanningChanged)
+    // Show unclassified Bluetooth LE devices ("Other devices") on the Devices page.
+    Q_PROPERTY(bool showAllDevices READ showAllDevices WRITE setShowAllDevices NOTIFY preferencesChanged)
 
     Q_PROPERTY(DeviceListModel *trainers READ trainers CONSTANT)
     Q_PROPERTY(DeviceListModel *heartRateSensors READ heartRateSensors CONSTANT)
     Q_PROPERTY(DeviceListModel *rowers READ rowers CONSTANT)
+    Q_PROPERTY(DeviceListModel *otherDevices READ otherDevices CONSTANT)
 
     Q_PROPERTY(int connectedCount READ connectedCount NOTIFY devicesChanged)
     Q_PROPERTY(QString connectedSummary READ connectedSummary NOTIFY devicesChanged)
@@ -97,10 +107,14 @@ public:
     bool scanning() const;
     QString lastScanText() const;
     QString scanStatus() const { return m_scanStatus; }
+    QString scanError() const { return m_scanError; }
+    bool showAllDevices() const { return m_showAll; }
+    void setShowAllDevices(bool on);
 
     DeviceListModel *trainers() { return &m_trainers; }
     DeviceListModel *heartRateSensors() { return &m_hrSensors; }
     DeviceListModel *rowers() { return &m_rowers; }
+    DeviceListModel *otherDevices() { return &m_others; }
 
     int connectedCount() const;
     QString connectedSummary() const;
@@ -154,6 +168,20 @@ public:
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void refreshAdapter();
     Q_INVOKABLE QString signalText(int rssi) const;   // "Strong Signal (-52 dBm)"
+    // Connects an unclassified device with the Concept2 PM5 driver (fallback
+    // when the PM5 is not recognised from its advertisement).
+    Q_INVOKABLE void connectAsRower(const QString &id);
+    // Plain-text Bluetooth report (adapter, Qt version, every device seen,
+    // classification, errors) for the diagnostics dialog / bug reports.
+    Q_INVOKABLE QString diagnosticsReport() const;
+    Q_INVOKABLE void copyToClipboard(const QString &text) const;
+    Q_INVOKABLE void clearScanError();
+
+public slots:
+    // Entry point for every scan result (deviceDiscovered and deviceUpdated).
+    // Merges it with what is already known about the device, (re)classifies
+    // it and moves it between the lists. Public so tests can feed it.
+    void handleDeviceInfo(const QBluetoothDeviceInfo &info, bool updated = false);
 
 signals:
     void adapterChanged();
@@ -169,12 +197,40 @@ public:
     enum class Kind { Unknown, Trainer, HeartRate, Rower };
     // Device kind from a scan result (public for tests).
     static Kind classify(const QBluetoothDeviceInfo &info);
+    // Name-only rower check: "PM5 ..." (any case) or containing "Concept2",
+    // excluding SkiErg/BikeErg monitors ("PM5 430123456 Ski"/" Bike").
+    static Kind classifyName(const QString &name);
+    // Device name without BlueZ's placeholder alias: when BlueZ has not
+    // received a name yet, Device1.Alias is the address ("D4-36-39-AA-BB-CC").
+    static QString effectiveName(const QBluetoothDeviceInfo &info);
+    // User-facing text for a QBluetoothDeviceDiscoveryAgent::Error.
+    static QString scanErrorText(int error, const QString &qtText);
+    static QString kindName(Kind k);
+    static constexpr int kScanWindowMs = 60000;   // one Scan press
 
 private:
+    struct DiagEntry
+    {
+        QString id;
+        QString name;
+        QString address;
+        int rssi = 0;
+        QStringList uuids;
+        QStringList manufacturerIds;
+        QString coreConfig;
+        Kind kind = Kind::Unknown;
+        int reports = 0;
+        QDateTime firstSeen, lastSeen;
+    };
+
     static QString idFor(const QBluetoothDeviceInfo &info);
 
-    void onDiscovered(const QBluetoothDeviceInfo &info);
-    void doStartScan();
+    void doStartScan(bool clearLists = true);
+    void ensureScanning();
+    void onScanWindowEnded(const QString &how);
+    void setScanError(const QString &text);
+    void addDiag(const QString &text);
+    void recordDiag(const QString &id, const QBluetoothDeviceInfo &info, Kind kind);
     void addLog(const QString &text, bool ok);
     void addSimulatedEntries();
     void attachTrainer(TrainerDevice *t);
@@ -192,7 +248,20 @@ private:
     DeviceListModel m_trainers;
     DeviceListModel m_hrSensors;
     DeviceListModel m_rowers;
+    DeviceListModel m_others;
     QHash<QString, QBluetoothDeviceInfo> m_infos;
+    QHash<QString, Kind> m_kinds;          // last classification per device id
+    QSet<QString> m_forcedRowers;          // "Connect as rower"
+    QHash<QString, DiagEntry> m_diag;
+    QStringList m_diagEvents;
+    QTimer m_scanWindow;
+    QDateTime m_scanStartedAt;
+    QString m_scanError;
+    bool m_showAll = false;
+    bool m_scanAfterPowerOn = false;
+    bool m_userStop = false;
+    int m_autoRescans = 0;                 // extra scan windows while a known device is missing
+    int m_ioRetries = 0;
     QPointer<TrainerDevice> m_trainer;
     QPointer<HeartRateDevice> m_hr;
     QPointer<RowerDevice> m_rower;
