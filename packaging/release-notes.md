@@ -1,6 +1,20 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.1.2
+## What's new in 1.1.3
+
+A Bluetooth release on top of 1.1.2 – the **Concept2 PM5 is now found and connected on Raspberry Pi / Linux** (BlueZ):
+
+- **PM5 detected from its FTMS advertisement**: current PM5 firmware advertises the standard Bluetooth fitness-machine service (FTMS, 0x1826) with the machine type *Rower* rather than only the Concept2 services. The app reads the FTMS advertisement data and lists the PM5 under **Rowers** – also when its name arrives late or not at all, as often happens with BlueZ. Before, such a PM5 could end up under *Smart Trainers* or not be listed.
+- **Automatic trainer → rower switch**: a device connected as trainer that offers rowing data (Concept2 rowing service, or FTMS Rower Data without Indoor Bike Data) is moved to **Rowers**, connected with the rower driver and remembered. Every trainer entry also has a **Connect as rower** button.
+- **FTMS rower support**: if the Concept2 rowing service (CE060030) is missing, the standard **FTMS Rower Data** (stroke rate and count, distance, pace, power, calories, heart rate, elapsed time; multi-packet records are merged) is used instead. This also makes other FTMS rowing machines work.
+- **More robust PM5 connection**: notifications are enabled only after the service details are known plus a short settle time (as Concept2 recommends), missing characteristics are tolerated, service discovery that hangs is retried, and longer packets from newer firmware (average power in the 19-byte *Additional Status 1*, work per stroke) are parsed.
+- **More robust discovery on BlueZ**: scans run for 60 s, devices whose name or services arrive later are re-classified, the scan keeps running while connecting, Bluetooth that is off is switched on, and scan errors are shown in red with a hint.
+- **Bluetooth diagnostics**: *Bluetooth Diagnostics → Details…* opens a report you can **Copy** – adapter, Qt version, every device seen with signal, service UUIDs, service data, parsed FTMS machine type and classification, the GATT services/characteristics found after each connection attempt, scan errors and the log. Start the app with `QT_LOGGING_RULES="qt.bluetooth*=true"` for a detailed terminal log.
+- **Show all devices / Connect as rower**: a switch on the Devices page lists every unrecognised Bluetooth LE device under *Other Bluetooth devices*, with a **Connect as rower** button.
+- **macOS launch hardening**: the app no longer fails to start when a `QT_QPA_PLATFORM` value (e.g. from a development shell) is inherited whose platform plugin is not in the app bundle.
+- Raspberry Pi / Debian / Ubuntu packages now list `libqt6bluetooth6`, `bluez` and `dbus` explicitly; updated user manual (section *Rowing machine not found* with Raspberry Pi commands).
+
+## Includes everything from 1.1.2
 
 A small usability release on top of 1.1.1 – reordering and deleting intervals in the **Workout Builder** is now obvious:
 
@@ -37,7 +51,7 @@ A small usability release on top of 1.1.1 – reordering and deleting intervals 
 
 ## Upgrade notes
 
-- Install 1.1.2 over 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
+- Install 1.1.3 over 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations

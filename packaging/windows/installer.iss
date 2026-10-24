@@ -1,13 +1,13 @@
 ; Inno Setup script for Artilody Watts Trainer (Windows x64).
 ;
 ; Built in CI (.github/workflows/release.yml):
-;   iscc /DAppVersion=1.1.2 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
+;   iscc /DAppVersion=1.1.3 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
 ;
 ; SourceDir must contain the windeployqt'ed application:
 ;   "Artilody Watts Trainer.exe", Qt DLLs, plugins, qml\, music\ ...
 
 #ifndef AppVersion
-  #define AppVersion "1.1.2"
+  #define AppVersion "1.1.3"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\windows\Artilody Watts Trainer"
