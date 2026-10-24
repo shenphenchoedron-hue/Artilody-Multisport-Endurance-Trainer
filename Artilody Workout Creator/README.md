@@ -151,7 +151,7 @@ sudo cmake --install build-creator     # /usr/local/bin/artilody-workout-creator
   never touches your own settings or files.
 - `AWC_SETTINGS_FILE=<file.ini>` and `AWC_WORKOUTS_DIR=<dir>` override where settings are stored and which
   Workouts folder is used.
-- `tools/make_icon.py` (needs Pillow) rebuilds the icon set from `../assets/icons/app-icon.png`.
+- `tools/make_icon.py` (needs Pillow) rebuilds the icon set (`.icns`, `.ico`, Linux PNGs, in-app PNG) from `assets/icons/creator-icon-source.png`.
 
 ## License
 
