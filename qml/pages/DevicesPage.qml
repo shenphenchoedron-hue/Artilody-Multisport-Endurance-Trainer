@@ -490,6 +490,15 @@ Item {
                                             text: "Connect as rower"
                                             onClicked: Devices.connectAsRower(deviceId)
                                         }
+                                        // A PM5 (or other FTMS rowing machine) that was listed
+                                        // as trainer: connect it with the rower driver instead.
+                                        IconButton {
+                                            visible: section.kindName === "trainer" && !simulated && linkState === 0
+                                            width: 44; height: 44
+                                            iconName: "rowing"
+                                            tooltip: "Connect as rower"
+                                            onClicked: Devices.connectAsRower(deviceId)
+                                        }
                                         IconButton {
                                             width: 44; height: 44
                                             iconName: "settings"
@@ -515,6 +524,7 @@ Item {
                             }
                             Row {
                                 visible: section.kindName === "rower" || section.kindName === "other"
+                                         || (section.kindName === "trainer" && section.listModel.count > (Devices.simulatorEnabled ? 1 : 0))
                                 x: 16
                                 height: 34
                                 spacing: 8
@@ -524,6 +534,8 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: section.kindName === "other"
                                           ? "Unrecognised Bluetooth LE devices – is your PM5 here? Use Connect as rower."
+                                          : section.kindName === "trainer"
+                                          ? "A rowing machine (Concept2 PM5) listed here? Use the rowing button to connect it as rower."
                                           : "On the PM5: More Options → Turn Wireless ON → Connect Device"
                                     color: Theme.textSecondary
                                     font.pixelSize: 14

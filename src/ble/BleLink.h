@@ -25,10 +25,24 @@ public:
     void connectToDevice();
     void disconnectFromDevice();
     void setAutoReconnect(bool on) { m_autoReconnect = on; }
+    // Services tried (in this order) when the primary service is missing.
+    void setFallbackServices(const QList<QBluetoothUuid> &uuids) { m_fallbacks = uuids; }
+    // Delay between "service details discovered" and serviceReady(): BlueZ
+    // and some peripherals (Concept2 PM5) drop CCCD writes issued right after
+    // service discovery.
+    void setSettleDelayMs(int ms) { m_settleMs = ms; }
 
     LinkState state() const { return m_state; }
     QLowEnergyService *service() const { return m_service; }
     bool hasCharacteristic(const QBluetoothUuid &uuid) const;
+    // Service actually used (primary or a fallback); null before discovery.
+    QBluetoothUuid activeService() const { return m_activeUuid; }
+    // Every primary service the peripheral reported in the last discovery.
+    QList<QBluetoothUuid> discoveredServices() const { return m_discovered; }
+    // Human-readable list of the discovered services and the characteristics
+    // (with properties) of the active service.
+    QString gattSummary() const;
+    static QString uuidText(const QBluetoothUuid &uuid);
 
     bool enableNotifications(const QBluetoothUuid &characteristic, bool indicate = false);
     bool write(const QBluetoothUuid &characteristic, const QByteArray &data, bool withResponse = true);
@@ -41,6 +55,7 @@ signals:
     void characteristicRead(const QBluetoothUuid &uuid, const QByteArray &value);
     void writeFailed();   // a characteristic write was rejected by the peripheral
     void serviceMissing(); // connected, but the peripheral lacks the required service
+    void gattDiscovered(const QString &summary);   // after every (re)discovery
     void rssiChanged(int rssi);
     void logMessage(const QString &text, bool ok);
 
@@ -50,14 +65,18 @@ private:
     void onServiceState(QLowEnergyService::ServiceState s);
     void scheduleReconnect();
     QString displayName() const;
+    void onDiscoveryFinished();
 
     QBluetoothDeviceInfo m_info;
     QBluetoothUuid m_serviceUuid;
+    QList<QBluetoothUuid> m_fallbacks;
+    QBluetoothUuid m_activeUuid;
+    QList<QBluetoothUuid> m_discovered;
+    int m_settleMs = 0;
     QBluetoothAddress m_localAdapter;
     QPointer<QLowEnergyController> m_controller;
     QPointer<QLowEnergyService> m_service;
     LinkState m_state = LinkState::Disconnected;
-    bool m_serviceFound = false;
     bool m_userDisconnect = false;
     bool m_autoReconnect = true;
     int m_reconnectAttempts = 0;
@@ -67,6 +86,8 @@ private:
     QLowEnergyController::RemoteAddressType m_addressType = QLowEnergyController::PublicAddress;
     QTimer m_reconnectTimer;
     QTimer m_rssiTimer;
+    QTimer m_settleTimer;
+    QTimer m_detailsTimeout;
 };
 
 } // namespace watt

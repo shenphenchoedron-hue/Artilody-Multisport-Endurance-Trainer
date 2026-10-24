@@ -15,6 +15,25 @@ BleLink::BleLink(const QBluetoothDeviceInfo &info, const QBluetoothUuid &service
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &BleLink::connectToDevice);
 
+    m_settleTimer.setSingleShot(true);
+    connect(&m_settleTimer, &QTimer::timeout, this, [this] {
+        if (!m_service || m_service->state() != QLowEnergyService::RemoteServiceDiscovered)
+            return;
+        setState(LinkState::Connected);
+        emit serviceReady();
+    });
+
+    // Detail discovery that never finishes (seen with BlueZ when the
+    // peripheral is busy): drop the link and let the reconnect logic retry.
+    m_detailsTimeout.setSingleShot(true);
+    m_detailsTimeout.setInterval(20000);
+    connect(&m_detailsTimeout, &QTimer::timeout, this, [this] {
+        if (m_state != LinkState::Connecting || !m_controller)
+            return;
+        emit logMessage(QStringLiteral("%1: service discovery timed out").arg(displayName()), false);
+        m_controller->disconnectFromDevice();
+    });
+
     m_rssiTimer.setInterval(5000);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     connect(&m_rssiTimer, &QTimer::timeout, this, [this] {
@@ -52,6 +71,8 @@ void BleLink::setState(LinkState s)
 
 void BleLink::cleanup()
 {
+    m_settleTimer.stop();
+    m_detailsTimeout.stop();
     if (m_service) {
         m_service->disconnect(this);
         m_service->deleteLater();
@@ -63,7 +84,6 @@ void BleLink::cleanup()
         m_controller->deleteLater();
     }
     m_controller = nullptr;
-    m_serviceFound = false;
 }
 
 void BleLink::connectToDevice()
@@ -84,39 +104,10 @@ void BleLink::connectToDevice()
     connect(c, &QLowEnergyController::connected, this, [this] {
         m_everConnected = true;
         emit logMessage(QStringLiteral("Connected to %1, discovering services").arg(displayName()), true);
+        m_detailsTimeout.start();
         m_controller->discoverServices();
     });
-    connect(c, &QLowEnergyController::serviceDiscovered, this, [this](const QBluetoothUuid &uuid) {
-        if (uuid == m_serviceUuid)
-            m_serviceFound = true;
-    });
-    connect(c, &QLowEnergyController::discoveryFinished, this, [this] {
-        if (!m_serviceFound) {
-            emit logMessage(QStringLiteral("%1 does not offer the required service (%2)")
-                                .arg(displayName(), m_serviceUuid.toString(QUuid::WithoutBraces).toUpper()), false);
-            m_userDisconnect = true;   // do not loop on an incompatible device
-            emit serviceMissing();
-            m_controller->disconnectFromDevice();
-            return;
-        }
-        m_service = m_controller->createServiceObject(m_serviceUuid, this);
-        if (!m_service) {
-            emit logMessage(QStringLiteral("Could not create service object"), false);
-            m_controller->disconnectFromDevice();
-            return;
-        }
-        connect(m_service, &QLowEnergyService::stateChanged, this, &BleLink::onServiceState);
-        connect(m_service, &QLowEnergyService::characteristicChanged, this,
-                [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicChanged(ch.uuid(), v); });
-        connect(m_service, &QLowEnergyService::characteristicRead, this,
-                [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicRead(ch.uuid(), v); });
-        connect(m_service, &QLowEnergyService::errorOccurred, this, [this](QLowEnergyService::ServiceError e) {
-            if (e == QLowEnergyService::CharacteristicWriteError)
-                emit writeFailed();
-            emit logMessage(QStringLiteral("GATT error %1").arg(int(e)), false);
-        });
-        m_service->discoverDetails();
-    });
+    connect(c, &QLowEnergyController::discoveryFinished, this, &BleLink::onDiscoveryFinished);
     connect(c, &QLowEnergyController::disconnected, this, [this] {
         emit logMessage(QStringLiteral("%1 disconnected").arg(displayName()), false);
         setState(LinkState::Disconnected);
@@ -144,12 +135,106 @@ void BleLink::connectToDevice()
     c->connectToDevice();
 }
 
+void BleLink::onDiscoveryFinished()
+{
+    if (!m_controller)
+        return;
+    m_discovered = m_controller->services();
+    m_activeUuid = QBluetoothUuid();
+    QList<QBluetoothUuid> wanted { m_serviceUuid };
+    wanted += m_fallbacks;
+    for (const QBluetoothUuid &u : std::as_const(wanted)) {
+        if (m_discovered.contains(u)) {
+            m_activeUuid = u;
+            break;
+        }
+    }
+    if (m_activeUuid.isNull()) {
+        m_detailsTimeout.stop();
+        emit gattDiscovered(gattSummary());
+        emit logMessage(QStringLiteral("%1 does not offer the required service (%2)")
+                            .arg(displayName(), uuidText(m_serviceUuid)), false);
+        m_userDisconnect = true;   // do not loop on an incompatible device
+        emit serviceMissing();
+        if (m_controller)
+            m_controller->disconnectFromDevice();
+        return;
+    }
+    if (m_activeUuid != m_serviceUuid)
+        emit logMessage(QStringLiteral("%1: %2 not found, using %3").arg(displayName(), uuidText(m_serviceUuid), uuidText(m_activeUuid)), true);
+    m_service = m_controller->createServiceObject(m_activeUuid, this);
+    if (!m_service) {
+        emit logMessage(QStringLiteral("Could not create service object"), false);
+        m_controller->disconnectFromDevice();
+        return;
+    }
+    connect(m_service, &QLowEnergyService::stateChanged, this, &BleLink::onServiceState);
+    connect(m_service, &QLowEnergyService::characteristicChanged, this,
+            [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicChanged(ch.uuid(), v); });
+    connect(m_service, &QLowEnergyService::characteristicRead, this,
+            [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicRead(ch.uuid(), v); });
+    connect(m_service, &QLowEnergyService::errorOccurred, this, [this](QLowEnergyService::ServiceError e) {
+        if (e == QLowEnergyService::CharacteristicWriteError)
+            emit writeFailed();
+        emit logMessage(QStringLiteral("GATT error %1").arg(int(e)), false);
+    });
+    m_service->discoverDetails();
+}
+
 void BleLink::onServiceState(QLowEnergyService::ServiceState s)
 {
-    if (s == QLowEnergyService::RemoteServiceDiscovered) {
+    if (s != QLowEnergyService::RemoteServiceDiscovered)
+        return;
+    m_detailsTimeout.stop();
+    emit gattDiscovered(gattSummary());
+    // Subscribe only once every characteristic/descriptor is known, after an
+    // optional settle delay.
+    if (m_settleMs > 0) {
+        m_settleTimer.start(m_settleMs);
+    } else {
         setState(LinkState::Connected);
         emit serviceReady();
     }
+}
+
+QString BleLink::uuidText(const QBluetoothUuid &u)
+{
+    bool ok = false;
+    const quint16 s16 = u.toUInt16(&ok);
+    if (ok)
+        return QStringLiteral("0x%1").arg(s16, 4, 16, QLatin1Char('0'));
+    return u.toString(QUuid::WithoutBraces).toUpper();
+}
+
+QString BleLink::gattSummary() const
+{
+    QStringList lines;
+    QStringList services;
+    for (const QBluetoothUuid &u : m_discovered)
+        services << uuidText(u);
+    lines << QStringLiteral("services: %1").arg(services.isEmpty() ? QStringLiteral("-") : services.join(QStringLiteral(", ")));
+    if (m_service) {
+        lines << QStringLiteral("using %1 (%2)")
+                     .arg(uuidText(m_service->serviceUuid()),
+                          m_service->state() == QLowEnergyService::RemoteServiceDiscovered ? QStringLiteral("details discovered")
+                                                                                            : QStringLiteral("details pending"));
+        const auto chars = m_service->characteristics();
+        for (const QLowEnergyCharacteristic &ch : chars) {
+            QStringList props;
+            const auto p = ch.properties();
+            if (p & QLowEnergyCharacteristic::Read) props << QStringLiteral("read");
+            if (p & QLowEnergyCharacteristic::Write) props << QStringLiteral("write");
+            if (p & QLowEnergyCharacteristic::WriteNoResponse) props << QStringLiteral("write-no-resp");
+            if (p & QLowEnergyCharacteristic::Notify) props << QStringLiteral("notify");
+            if (p & QLowEnergyCharacteristic::Indicate) props << QStringLiteral("indicate");
+            const bool cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration).isValid();
+            lines << QStringLiteral("  char %1 [%2]%3").arg(uuidText(ch.uuid()), props.join(QLatin1Char(' ')),
+                                                            cccd ? QStringLiteral(" cccd") : QString());
+        }
+    } else if (!m_discovered.isEmpty()) {
+        lines << QStringLiteral("required service %1 not found").arg(uuidText(m_serviceUuid));
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 void BleLink::disconnectFromDevice()

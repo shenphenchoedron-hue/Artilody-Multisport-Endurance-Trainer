@@ -62,6 +62,31 @@ bool hasConcept2Uuid(const QBluetoothDeviceInfo &info)
     return false;
 }
 
+// FTMS advertising service data (Flags + Fitness Machine Type), if any.
+std::optional<ftms::ServiceData> ftmsServiceData(const QBluetoothDeviceInfo &info)
+{
+    const QByteArray raw = info.serviceData(QBluetoothUuid(ftms::kServiceUuid));
+    if (raw.isEmpty())
+        return std::nullopt;
+    return ftms::parseServiceData(raw);
+}
+
+QString ftmsServiceDataText(const QBluetoothDeviceInfo &info)
+{
+    const QByteArray raw = info.serviceData(QBluetoothUuid(ftms::kServiceUuid));
+    if (raw.isEmpty())
+        return QString();
+    const auto d = ftms::parseServiceData(raw);
+    if (!d)
+        return QStringLiteral("malformed (%1)").arg(QString::fromLatin1(raw.toHex(' ')));
+    return QStringLiteral("machine %1, type 0x%2 (%3) -> %4  [raw %5]")
+        .arg(d->available ? QStringLiteral("available") : QStringLiteral("not available"))
+        .arg(d->machineType, 4, 16, QLatin1Char('0'))
+        .arg(ftms::machineTypeText(d->machineType),
+             d->rowerOnly() ? QStringLiteral("rower") : d->indoorBike() ? QStringLiteral("indoor bike") : QStringLiteral("other"),
+             QString::fromLatin1(raw.toHex(' ')));
+}
+
 QString uuidText(const QBluetoothUuid &u)
 {
     bool ok = false;
@@ -177,6 +202,8 @@ void DeviceManager::initialize()
     m_knownHr = m_db->setting(QStringLiteral("ble/knownHr")).toString();
     m_knownRower = m_db->setting(QStringLiteral("ble/knownRower")).toString();
     m_showAll = m_db->setting(QStringLiteral("ble/showAll"), false).toBool();
+    const QStringList rowers = m_db->setting(QStringLiteral("ble/rowerIds")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    m_forcedRowers = QSet<QString>(rowers.cbegin(), rowers.cend());
 
     addLog(QStringLiteral("Application started"), true);
     refreshAdapter();
@@ -563,10 +590,19 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
             return Kind::Unknown;
         return Kind::Rower;
     }
+    // FTMS advertising service data tells the machine type (FTMS v1.0 §3.1):
+    // current PM5 firmware advertises FTMS 0x1826 with the Rower bit, and its
+    // name may arrive late (or never) on BlueZ.
+    if (const auto sd = ftmsServiceData(info)) {
+        if (sd->rowerOnly())
+            return Kind::Rower;
+        if (sd->machineType != 0 && !sd->indoorBike())
+            return Kind::Unknown;   // treadmill, cross trainer, ... – not supported
+    }
     if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
         return Kind::Unknown;
     const auto uuids = info.serviceUuids();
-    if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)))
+    if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)) || !info.serviceData(QBluetoothUuid(ftms::kServiceUuid)).isEmpty())
         return Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
         return Kind::HeartRate;
@@ -615,6 +651,10 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
                 info.setManufacturerData(it.key(), it.value());
         }
         info.setCoreConfigurations(info.coreConfigurations() | old->coreConfigurations());
+        for (const QBluetoothUuid &sid : old->serviceIds()) {
+            if (info.serviceData(sid).isEmpty())
+                info.setServiceData(sid, old->serviceData(sid));
+        }
     }
     m_infos.insert(id, info);
 
@@ -679,9 +719,16 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         e.known = id == m_knownTrainer;
         m_trainers.upsert(e);
     } else if (kind == Kind::Rower) {
-        e.protocol = m_forcedRowers.contains(id) && !hasConcept2Uuid(info) && classifyName(name) != Kind::Rower
-                         ? QStringLiteral("Concept2 PM5 Bluetooth (manual)")
-                         : QStringLiteral("Concept2 PM5 Bluetooth");
+        const bool concept2 = hasConcept2Uuid(info) || classifyName(name) == Kind::Rower;
+        const auto sd = ftmsServiceData(info);
+        if (activeRower && m_rower->state() == LinkState::Connected)
+            e.protocol = m_rower->protocol();
+        else if (concept2)
+            e.protocol = QStringLiteral("Concept2 PM5 Bluetooth");
+        else if (sd && sd->rowerOnly())
+            e.protocol = QStringLiteral("Bluetooth FTMS rower");
+        else
+            e.protocol = QStringLiteral("Rower (detected after connecting)");
         e.kind = kKindRower;
         e.known = id == m_knownRower;
         m_rowers.upsert(e);
@@ -733,6 +780,10 @@ void DeviceManager::recordDiag(const QString &id, const QBluetoothDeviceInfo &in
     for (quint16 k : info.manufacturerIds())
         d.manufacturerIds << QStringLiteral("0x%1").arg(k, 4, 16, QLatin1Char('0'));
     d.coreConfig = coreConfigText(info.coreConfigurations());
+    d.ftmsServiceData = ftmsServiceDataText(info);
+    d.serviceDataIds.clear();
+    for (const QBluetoothUuid &u : info.serviceIds())
+        d.serviceDataIds << QStringLiteral("%1=%2").arg(uuidText(u), QString::fromLatin1(info.serviceData(u).toHex(' ')));
     d.kind = kind;
 }
 
@@ -789,12 +840,30 @@ QString DeviceManager::diagnosticsReport() const
     });
     for (const DiagEntry &d : list) {
         out << "- " << (d.name.isEmpty() ? QStringLiteral("<no name>") : d.name) << "  [" << d.address << "]\n";
-        out << "    class: " << kindName(d.kind) << (m_forcedRowers.contains(d.id) ? " (manual)" : "")
+        out << "    class: " << kindName(d.kind) << (m_forcedRowers.contains(d.id) ? " (remembered rower)" : "")
             << "  rssi: " << d.rssi << " dBm  core: " << d.coreConfig << "  reports: " << d.reports
             << "  seen: " << d.firstSeen.toString(QStringLiteral("HH:mm:ss")) << "-" << d.lastSeen.toString(QStringLiteral("HH:mm:ss")) << "\n";
         out << "    services: " << (d.uuids.isEmpty() ? QStringLiteral("-") : d.uuids.join(QStringLiteral(", "))) << "\n";
         if (!d.manufacturerIds.isEmpty())
             out << "    manufacturer data: " << d.manufacturerIds.join(QStringLiteral(", ")) << "\n";
+        if (!d.serviceDataIds.isEmpty())
+            out << "    service data: " << d.serviceDataIds.join(QStringLiteral(", ")) << "\n";
+        if (!d.ftmsServiceData.isEmpty())
+            out << "    FTMS advertisement: " << d.ftmsServiceData << "\n";
+        const auto g = m_gatt.constFind(d.id);
+        if (g != m_gatt.constEnd()) {
+            out << "    GATT (" << g->first.toString(QStringLiteral("HH:mm:ss")) << "):\n";
+            for (const QString &line : g->second.split(QLatin1Char('\n')))
+                out << "      " << line << "\n";
+        }
+    }
+    // GATT results of devices that are not in the scan list (e.g. cleared)
+    for (auto it = m_gatt.cbegin(); it != m_gatt.cend(); ++it) {
+        if (m_diag.contains(it.key()))
+            continue;
+        out << "- GATT of " << it.key() << " (" << it->first.toString(QStringLiteral("HH:mm:ss")) << "):\n";
+        for (const QString &line : it->second.split(QLatin1Char('\n')))
+            out << "      " << line << "\n";
     }
     out << "\n[Events]\n";
     for (const QString &e : m_diagEvents)
@@ -829,12 +898,66 @@ void DeviceManager::connectAsRower(const QString &id)
         setScanError(QStringLiteral("This device is no longer available – scan again."));
         return;
     }
-    m_forcedRowers.insert(id);
-    addLog(QStringLiteral("Connecting %1 as rower (manual)").arg(m_others.find(id) ? m_others.find(id)->name : id), true);
+    QString name = id;
+    if (const DeviceEntry *e = m_others.find(id))
+        name = e->name;
+    else if (const DeviceEntry *t = m_trainers.find(id))
+        name = t->name;
+    addLog(QStringLiteral("Connecting %1 as rower (manual)").arg(name), true);
     addDiag(QStringLiteral("Connect as rower: %1").arg(id));
-    m_others.remove(id);
-    handleDeviceInfo(m_infos.value(id), true);   // moves it to the rowers list
+    moveToRowers(id);
     connectDevice(id);
+}
+
+void DeviceManager::moveToRowers(const QString &id)
+{
+    // A trainer connection to the same device must go first.
+    if (m_trainer && m_trainer->id() == id)
+        releaseTrainer();
+    if (m_knownTrainer == id) {
+        m_knownTrainer.clear();
+        m_db->setSetting(QStringLiteral("ble/knownTrainer"), QString());
+    }
+    rememberRower(id, true);
+    m_others.remove(id);
+    m_trainers.remove(id);
+    if (m_infos.contains(id))
+        handleDeviceInfo(m_infos.value(id), true);   // re-lists it under rowers
+    emit devicesChanged();
+}
+
+void DeviceManager::rememberRower(const QString &id, bool on)
+{
+    const bool changed = on ? !m_forcedRowers.contains(id) : m_forcedRowers.remove(id);
+    if (on)
+        m_forcedRowers.insert(id);
+    if (!changed)
+        return;
+    QStringList list(m_forcedRowers.cbegin(), m_forcedRowers.cend());
+    list.sort();
+    m_db->setSetting(QStringLiteral("ble/rowerIds"), list.join(QLatin1Char(';')));
+}
+
+void DeviceManager::onTrainerIsRower(const QString &id)
+{
+    if (!m_trainer || m_trainer->id() != id)
+        return;
+    addLog(QStringLiteral("%1 is a rowing machine – moved to Rowers").arg(m_trainer->name()), true);
+    addDiag(QStringLiteral("%1: trainer connection found rowing services, switching to rower").arg(id));
+    qCInfo(lcBle) << "Trainer" << id << "exposes rowing services - switching to the rower driver";
+    moveToRowers(id);
+    // Give the peripheral a moment after the trainer link was closed.
+    QTimer::singleShot(1500, this, [this, id] {
+        if (!(m_rower && m_rower->id() == id))
+            connectDevice(id);
+    });
+}
+
+void DeviceManager::recordGatt(const QString &id, const QString &summary)
+{
+    m_gatt[id] = qMakePair(QDateTime::currentDateTime(), summary);
+    addDiag(QStringLiteral("GATT %1: %2").arg(id, summary.section(QLatin1Char('\n'), 0, 1).replace(QLatin1Char('\n'), QStringLiteral(" | "))));
+    qCInfo(lcBle).noquote() << "GATT" << id << summary;
 }
 
 void DeviceManager::addSimulatedEntries()
@@ -959,10 +1082,18 @@ void DeviceManager::connectDevice(const QString &id)
         } else if (m_infos.contains(id)) {
             auto *pm = new Pm5Rower(m_infos.value(id), adapter, this);
             connect(pm, &Pm5Rower::rowingServiceMissing, this, [this, id, name = pm->name()] {
-                m_forcedRowers.remove(id);
-                setScanError(QStringLiteral("%1 does not offer the Concept2 rowing service (CE060030). It is not a "
-                                            "PM5 rowing monitor, or the PM5 is busy with another app.").arg(name));
-                addDiag(QStringLiteral("%1: rowing service 0x0030 not found").arg(id));
+                rememberRower(id, false);
+                setScanError(QStringLiteral("%1 offers neither the Concept2 rowing service (CE060030) nor FTMS rower "
+                                            "data. It is not a rowing monitor, or the PM5 is busy with another app.").arg(name));
+                addDiag(QStringLiteral("%1: no rowing service (0x0030 / FTMS 0x2AD1) found").arg(id));
+            });
+            connect(pm, &Pm5Rower::protocolChanged, this, [this, pm] {
+                if (const DeviceEntry *e = m_rowers.find(pm->id())) {
+                    DeviceEntry copy = *e;
+                    copy.protocol = pm->protocol();
+                    m_rowers.upsert(copy);
+                }
+                emit devicesChanged();
             });
             r = pm;
         }
@@ -1020,6 +1151,11 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
         emit devicesChanged();
     });
     connect(t, &TrainerDevice::logMessage, this, &DeviceManager::addLog);
+    connect(t, &TrainerDevice::gattReport, this, [this, id = t->id()](const QString &g) { recordGatt(id, g); });
+    connect(t, &TrainerDevice::rowerDetected, this, [this, id = t->id()] {
+        // Not inside the trainer's own signal: it is deleted on the switch.
+        QTimer::singleShot(0, this, [this, id] { onTrainerIsRower(id); });
+    });
     connect(t, &TrainerDevice::stateChanged, this, [this, t](LinkState s) {
         m_trainers.setState(t->id(), int(s));
         m_hub->setTrainerConnected(s == LinkState::Connected);
@@ -1038,6 +1174,7 @@ void DeviceManager::attachHeartRate(HeartRateDevice *h)
     m_hrSensors.setState(h->id(), int(LinkState::Connecting));
     connect(h, &HeartRateDevice::heartRateMeasured, m_hub, &SensorHub::updateHeartRate);
     connect(h, &HeartRateDevice::logMessage, this, &DeviceManager::addLog);
+    connect(h, &HeartRateDevice::gattReport, this, [this, id = h->id()](const QString &g) { recordGatt(id, g); });
     connect(h, &HeartRateDevice::rssiChanged, this, [this, h](int rssi) { m_hrSensors.setRssi(h->id(), rssi); });
     connect(h, &HeartRateDevice::stateChanged, this, [this, h](LinkState s) {
         m_hrSensors.setState(h->id(), int(s));
@@ -1069,6 +1206,7 @@ void DeviceManager::attachRower(RowerDevice *r)
         emit devicesChanged();
     });
     connect(r, &RowerDevice::logMessage, this, &DeviceManager::addLog);
+    connect(r, &RowerDevice::gattReport, this, [this, id = r->id()](const QString &g) { recordGatt(id, g); });
     connect(r, &RowerDevice::stateChanged, this, [this, r](LinkState s) {
         m_rowers.setState(r->id(), int(s));
         emit devicesChanged();

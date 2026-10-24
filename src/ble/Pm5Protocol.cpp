@@ -127,9 +127,15 @@ std::optional<AdditionalStatus1> parseAdditionalStatus1(const QByteArray &d, Lay
     s.heartRateBpm = s.heartRateValid ? hr : 0;
     s.currentPace500Seconds = u16(d, 7) * 0.01;
     s.averagePace500Seconds = u16(d, 9) * 0.01;
+    // Rest distance: UInt16 in metres per the interface definition (rev. 1.30,
+    // "Rest Distance Lo/Hi, 1 m LSB"). Some third-party code scales it by 0.1;
+    // the PDF value is kept.
     s.restDistanceMeters = int(u16(d, 11));
     s.restTimeSeconds = u24(d, 13) * 0.01;
-    if (layout == Layout::Multiplexed) {
+    // Average power is part of the multiplexed packet. Current firmware also
+    // sends the direct 0x0032 with 19 bytes in that layout (average power at
+    // 16-17, machine type at 18), so the length decides.
+    if (layout == Layout::Multiplexed || d.size() >= 19) {
         s.averagePowerW = int(u16(d, 16));
         s.ergMachineType = int(u8(d, 18));
     } else {
@@ -140,13 +146,16 @@ std::optional<AdditionalStatus1> parseAdditionalStatus1(const QByteArray &d, Lay
 
 std::optional<AdditionalStatus2> parseAdditionalStatus2(const QByteArray &d, Layout layout)
 {
-    if (d.size() < expectedLength(kAdditionalStatus2, layout))
+    // Direct: 20 bytes with average power at 4-5. A direct packet of 18/19
+    // bytes is taken as the shorter layout without average power (as
+    // multiplexed); calories etc. then start at byte 4.
+    if (d.size() < expectedLength(kAdditionalStatus2, Layout::Multiplexed))
         return std::nullopt;
     AdditionalStatus2 s;
     s.elapsedSeconds = u24(d, 0) * 0.01;
     s.intervalCount = int(u8(d, 3));
     int p = 4;
-    if (layout == Layout::Direct) {
+    if (layout == Layout::Direct && d.size() >= expectedLength(kAdditionalStatus2, Layout::Direct)) {
         s.averagePowerW = int(u16(d, p));
         p += 2;
     }
@@ -161,8 +170,10 @@ std::optional<AdditionalStatus2> parseAdditionalStatus2(const QByteArray &d, Lay
 
 std::optional<AdditionalStrokeData> parseAdditionalStrokeData(const QByteArray &d, Layout layout)
 {
-    // The work-per-stroke field of the multiplexed packet is optional on the
-    // input side; the 15 common bytes are required in both layouts.
+    Q_UNUSED(layout)
+    // The 15 common bytes are required in both layouts; work per stroke
+    // (15-16, 0.1 J) is read whenever present (multiplexed, newer firmware
+    // also in the direct characteristic).
     if (d.size() < 15)
         return std::nullopt;
     AdditionalStrokeData s;
@@ -172,7 +183,7 @@ std::optional<AdditionalStrokeData> parseAdditionalStrokeData(const QByteArray &
     s.strokeCount = int(u16(d, 7));
     s.projectedWorkTimeSeconds = int(u24(d, 9));
     s.projectedWorkDistanceMeters = int(u24(d, 12));
-    if (layout == Layout::Multiplexed && d.size() >= 17)
+    if (d.size() >= 17)
         s.workPerStrokeJoules = u16(d, 15) * 0.1;
     return s;
 }

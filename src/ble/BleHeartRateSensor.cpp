@@ -16,6 +16,7 @@ BleHeartRateSensor::BleHeartRateSensor(const QBluetoothDeviceInfo &info, const Q
     connect(m_link, &BleLink::stateChanged, this, [this](LinkState s) { setState(s); });
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
     connect(m_link, &BleLink::logMessage, this, &BleHeartRateSensor::logMessage);
+    connect(m_link, &BleLink::gattDiscovered, this, &BleHeartRateSensor::gattReport);
     connect(m_link, &BleLink::serviceReady, this, [this] {
         if (!m_link->enableNotifications(QBluetoothUuid(hrs::kMeasurementUuid)))
             emit logMessage(QStringLiteral("Heart rate measurement not available on %1").arg(m_name), false);

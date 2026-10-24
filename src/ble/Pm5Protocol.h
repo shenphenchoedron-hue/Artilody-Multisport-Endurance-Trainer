@@ -103,7 +103,8 @@ struct GeneralStatus
 };
 
 // 0x0032 – direct 17 bytes; multiplexed 19 bytes (average power inserted
-// before erg machine type).
+// before erg machine type). A direct packet of >= 19 bytes (current firmware)
+// is parsed in the 19-byte layout.
 struct AdditionalStatus1
 {
     double elapsedSeconds = 0;
@@ -116,15 +117,16 @@ struct AdditionalStatus1
     int restDistanceMeters = 0;
     double restTimeSeconds = 0;     // 0.01 s
     int ergMachineType = 0;
-    std::optional<int> averagePowerW;   // multiplexed layout only
+    std::optional<int> averagePowerW;   // multiplexed layout / 19-byte direct packet
 };
 
-// 0x0033 – direct 20 bytes; multiplexed 18 bytes (no average power).
+// 0x0033 – direct 20 bytes; multiplexed 18 bytes (no average power). A direct
+// packet of 18/19 bytes is parsed in the 18-byte layout (no average power).
 struct AdditionalStatus2
 {
     double elapsedSeconds = 0;
     int intervalCount = 0;
-    std::optional<int> averagePowerW;   // direct layout only
+    std::optional<int> averagePowerW;   // 20-byte direct layout only
     int totalCalories = 0;
     double splitAveragePace500Seconds = 0;
     int splitAveragePowerW = 0;
@@ -133,7 +135,8 @@ struct AdditionalStatus2
     int lastSplitDistanceMeters = 0;
 };
 
-// 0x0036 – direct 15 bytes; multiplexed 17 bytes (work per stroke appended).
+// 0x0036 – direct 15 bytes; multiplexed 17 bytes (work per stroke appended;
+// read from any packet of >= 17 bytes).
 struct AdditionalStrokeData
 {
     double elapsedSeconds = 0;
@@ -142,7 +145,7 @@ struct AdditionalStrokeData
     int strokeCount = 0;
     int projectedWorkTimeSeconds = 0;
     int projectedWorkDistanceMeters = 0;
-    std::optional<double> workPerStrokeJoules;   // multiplexed layout only (0.1 J)
+    std::optional<double> workPerStrokeJoules;   // when >= 17 bytes (0.1 J)
 };
 
 int expectedLength(quint16 shortId, Layout layout);   // 0 = unknown id

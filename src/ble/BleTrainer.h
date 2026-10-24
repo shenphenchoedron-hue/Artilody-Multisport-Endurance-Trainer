@@ -5,6 +5,7 @@
 
 #include <QBluetoothAddress>
 #include <QBluetoothDeviceInfo>
+#include <QBluetoothUuid>
 #include <QQueue>
 #include <QTimer>
 
@@ -31,6 +32,9 @@ public:
     void setFreeRide() override;
     QStringList capabilities() const override;
     bool supportsControl() const override;
+
+    // Rowing machine check after service discovery (public for tests).
+    static bool looksLikeRower(const QList<QBluetoothUuid> &services, bool hasRowerData, bool hasIndoorBikeData);
 
 private:
     void onServiceReady();

@@ -168,8 +168,10 @@ public:
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void refreshAdapter();
     Q_INVOKABLE QString signalText(int rssi) const;   // "Strong Signal (-52 dBm)"
-    // Connects an unclassified device with the Concept2 PM5 driver (fallback
-    // when the PM5 is not recognised from its advertisement).
+    // Connects an unclassified device or a trainer-list entry with the rower
+    // driver (Concept2 PM5 service, FTMS rower data as fallback) and remembers
+    // it as a rower (fallback when the PM5 is not recognised from its
+    // advertisement).
     Q_INVOKABLE void connectAsRower(const QString &id);
     // Plain-text Bluetooth report (adapter, Qt version, every device seen,
     // classification, errors) for the diagnostics dialog / bug reports.
@@ -207,6 +209,11 @@ public:
     static QString scanErrorText(int error, const QString &qtText);
     static QString kindName(Kind k);
     static constexpr int kScanWindowMs = 60000;   // one Scan press
+    // Moves a device to the rowers list and remembers it as a rower (releases
+    // a trainer connection to it, clears it as known trainer). Used by
+    // connectAsRower() and when a trainer connection finds rowing services.
+    // Public for tests.
+    void moveToRowers(const QString &id);
 
 private:
     struct DiagEntry
@@ -218,6 +225,8 @@ private:
         QStringList uuids;
         QStringList manufacturerIds;
         QString coreConfig;
+        QString ftmsServiceData;       // parsed FTMS advertisement, empty if none
+        QStringList serviceDataIds;    // "0x1826=01 10 00"
         Kind kind = Kind::Unknown;
         int reports = 0;
         QDateTime firstSeen, lastSeen;
@@ -231,6 +240,9 @@ private:
     void setScanError(const QString &text);
     void addDiag(const QString &text);
     void recordDiag(const QString &id, const QBluetoothDeviceInfo &info, Kind kind);
+    void recordGatt(const QString &id, const QString &summary);
+    void rememberRower(const QString &id, bool on);
+    void onTrainerIsRower(const QString &id);
     void addLog(const QString &text, bool ok);
     void addSimulatedEntries();
     void attachTrainer(TrainerDevice *t);
@@ -251,7 +263,8 @@ private:
     DeviceListModel m_others;
     QHash<QString, QBluetoothDeviceInfo> m_infos;
     QHash<QString, Kind> m_kinds;          // last classification per device id
-    QSet<QString> m_forcedRowers;          // "Connect as rower"
+    QSet<QString> m_forcedRowers;          // "Connect as rower" / detected after connecting (persisted)
+    QHash<QString, QPair<QDateTime, QString>> m_gatt;   // last GATT summary per device
     QHash<QString, DiagEntry> m_diag;
     QStringList m_diagEvents;
     QTimer m_scanWindow;

@@ -32,6 +32,8 @@ signals:
     void stateChanged(watt::LinkState state);
     void rssiChanged(int rssi);
     void logMessage(const QString &text, bool ok);
+    // GATT services/characteristics found after connecting (diagnostics).
+    void gattReport(const QString &summary);
 
 protected:
     void setState(LinkState s);
@@ -62,6 +64,9 @@ signals:
     void speedMeasured(double kmh);
     void heartRateMeasured(int bpm);         // some trainers forward HR
     void capabilitiesChanged();
+    // The connected device turned out to be a rowing machine (Concept2 rowing
+    // service, or FTMS Rower Data without Indoor Bike Data).
+    void rowerDetected();
 };
 
 class HeartRateDevice : public SensorDevice

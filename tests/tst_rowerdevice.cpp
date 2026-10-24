@@ -2,7 +2,9 @@
 #include "DeviceManager.h"
 #include "FtmsProtocol.h"
 #include "SensorHub.h"
+#include "BleTrainer.h"
 #include "Pm5Protocol.h"
+#include "Pm5Rower.h"
 #include "SimulatedDevices.h"
 
 #include <QBluetoothDeviceInfo>
@@ -62,6 +64,25 @@ static QBluetoothDeviceInfo bluezDevice(const QString &address, const QString &n
     info.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
     info.setServiceUuids(uuids);
     info.setRssi(qint16(rssi));
+    return info;
+}
+
+static QByteArray bytes(std::initializer_list<int> values)
+{
+    QByteArray b;
+    for (int v : values)
+        b.append(char(quint8(v)));
+    return b;
+}
+
+// FTMS advertisement: 0x1826 service data = flags + machine type (LE).
+static QBluetoothDeviceInfo ftmsDevice(const QString &address, const QString &name, quint16 machineType,
+                                       bool listUuid = true)
+{
+    QBluetoothDeviceInfo info = bluezDevice(address, name, listUuid ? QList<QBluetoothUuid> { QBluetoothUuid(ftms::kServiceUuid) }
+                                                                     : QList<QBluetoothUuid> {});
+    info.setServiceData(QBluetoothUuid(ftms::kServiceUuid),
+                        bytes({ 0x01, machineType & 0xFF, (machineType >> 8) & 0xFF }));
     return info;
 }
 
@@ -416,6 +437,148 @@ private slots:
         QVERIFY(!f.mgr.scanError().isEmpty());
         f.mgr.clearScanError();
         QVERIFY(f.mgr.scanError().isEmpty());
+    }
+
+    // --- FTMS advertisement classification -----------------------------------
+
+    void classifyFtmsServiceData()
+    {
+        using K = DeviceManager::Kind;
+        // PM5 advertising only FTMS with the Rower bit, no name yet
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:01"), QString(), 0x0010)), K::Rower);
+        // service data without the UUID in the service list (BlueZ ServiceData only)
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:02"), QString(), 0x0010, false)), K::Rower);
+        // indoor bike
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:03"), QStringLiteral("KICKR"), 0x0020)), K::Trainer);
+        // rower + bike bits: ambiguous, stays a trainer
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:04"), QString(), 0x0030)), K::Trainer);
+        // treadmill only: not offered
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:05"), QString(), 0x0001)), K::Unknown);
+        // type 0 (not filled in): falls back to the UUID -> trainer
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:06"), QString(), 0x0000)), K::Trainer);
+        // malformed service data: falls back to the UUID -> trainer
+        QBluetoothDeviceInfo bad = bluezDevice(QStringLiteral("D4:36:39:AA:CC:07"), QString(), { QBluetoothUuid(ftms::kServiceUuid) });
+        bad.setServiceData(QBluetoothUuid(ftms::kServiceUuid), bytes({ 0x01 }));
+        QCOMPARE(DeviceManager::classify(bad), K::Trainer);
+        // the PM5 name wins over bike bits (FTMS present)
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:08"), QStringLiteral("PM5 430123456 Row"), 0x0020)), K::Rower);
+        // a SkiErg PM5 with the rower bit is still not a rower
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:09"), QStringLiteral("PM5 430123456 Ski"), 0x0010)), K::Unknown);
+    }
+
+    void ftmsRowerListedUnderRowers()
+    {
+        ManagerFixture f;
+        const QString addr = QStringLiteral("D4:36:39:AA:CC:10");
+        // first report: FTMS UUID only -> trainer
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QString(), { QBluetoothUuid(ftms::kServiceUuid) }), false);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 1);
+        // service data arrives -> moves to the rowers
+        f.mgr.handleDeviceInfo(ftmsDevice(addr, QString(), 0x0010), true);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 0);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QCOMPARE(f.mgr.rowers()->find(addr)->protocol, QStringLiteral("Bluetooth FTMS rower"));
+        // a later report without service data keeps the merged value
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QString(), {}), true);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        // diagnostics show the parsed advertisement
+        const QString report = f.mgr.diagnosticsReport();
+        QVERIFY2(report.contains(QStringLiteral("FTMS advertisement: machine available, type 0x0010 (Rower) -> rower")), qPrintable(report));
+        QVERIFY(report.contains(QStringLiteral("service data: 0x1826=01 10 00")));
+    }
+
+    void trainerMovedToRowers()
+    {
+        ManagerFixture f;
+        const QString addr = QStringLiteral("D4:36:39:AA:CC:11");
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QStringLiteral("Unknown FTMS"), { QBluetoothUuid(ftms::kServiceUuid) }), false);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 1);
+        f.db.setSetting(QStringLiteral("ble/knownTrainer"), addr);
+        f.mgr.moveToRowers(addr);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 0);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QCOMPARE(f.db.setting(QStringLiteral("ble/rowerIds")).toString(), addr);
+        // further advertisements keep it among the rowers
+        f.mgr.handleDeviceInfo(bluezDevice(addr, QStringLiteral("Unknown FTMS"), { QBluetoothUuid(ftms::kServiceUuid) }, -50), true);
+        QCOMPARE(f.mgr.trainers()->rowCount(), 0);
+        QCOMPARE(f.mgr.rowers()->rowCount(), 1);
+        QVERIFY(f.mgr.diagnosticsReport().contains(QStringLiteral("remembered rower")));
+    }
+
+    void trainerRowerDetection()
+    {
+        const QBluetoothUuid rowing(pm5::uuid(pm5::kRowingService));
+        const QBluetoothUuid ftmsSvc(ftms::kServiceUuid);
+        QVERIFY(BleTrainer::looksLikeRower({ ftmsSvc }, true, false));       // FTMS Rower Data only
+        QVERIFY(!BleTrainer::looksLikeRower({ ftmsSvc }, true, true));       // also Indoor Bike Data
+        QVERIFY(!BleTrainer::looksLikeRower({ ftmsSvc }, false, true));      // a trainer
+        QVERIFY(BleTrainer::looksLikeRower({ ftmsSvc, rowing }, false, true));   // Concept2 rowing service
+        QVERIFY(BleTrainer::looksLikeRower({ rowing }, false, false));
+        QVERIFY(!BleTrainer::looksLikeRower({}, false, false));
+    }
+
+    // --- Pm5Rower data paths ---------------------------------------------------
+
+    void pm5RowerFtmsRowerData()
+    {
+        QBluetoothDeviceInfo info = ftmsDevice(QStringLiteral("D4:36:39:AA:CC:20"), QStringLiteral("PM5 430123456"), 0x0010);
+        Pm5Rower r(info);
+        QSignalSpy strokes(&r, &RowerDevice::strokeMeasured);
+        QSignalSpy active(&r, &RowerDevice::rowingActiveChanged);
+        const QBluetoothUuid rowerData(ftms::kRowerDataUuid);
+        // split record: More Data packet first, then stroke rate/count
+        r.processNotification(rowerData, bytes({ 0x2D, 0x08, 0x88, 0x13, 0x00, 0x78, 0x00, 0xCB, 0x00, 0x2C, 0x01 }));
+        QVERIFY(!r.hasData());
+        r.processNotification(rowerData, bytes({ 0x00, 0x01, 48, 0x10, 0x00, 0x2A, 0x00, 0x20, 0x03, 0x0E }));
+        QVERIFY(r.hasData());
+        QCOMPARE(r.distanceMeters(), 5000.0);
+        QCOMPARE(r.pace500Seconds(), 120.0);
+        QCOMPARE(r.speedMetersPerSecond(), 500.0 / 120.0);
+        QCOMPARE(r.elapsedSeconds(), 300.0);
+        QCOMPARE(r.strokesPerMinute(), 24);
+        QCOMPARE(r.strokeCount(), 16);
+        QCOMPARE(r.watts(), 203);
+        QCOMPARE(r.calories(), 42);
+        QVERIFY(r.rowingActive());
+        QCOMPARE(strokes.count(), 1);
+        QCOMPARE(active.count(), 1);
+        // single-packet record without power: power from pace
+        r.processNotification(rowerData, bytes({ 0x08, 0x00, 48, 0x11, 0x00, 0x78, 0x00 }));
+        QCOMPARE(r.strokeCount(), 17);
+        QCOMPARE(r.watts(), 203);   // 2.80 / (120/500)^3 = 202.5
+        // stroke rate 0, power 0: rowing stopped
+        r.processNotification(rowerData, bytes({ 0x20, 0x00, 0, 0x11, 0x00, 0x00, 0x00 }));
+        QVERIFY(!r.rowingActive());
+        QCOMPARE(r.watts(), 0);
+    }
+
+    void pm5RowerLenientConcept2Packets()
+    {
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:CC:21"), QStringLiteral("PM5 430123456"), {}));
+        // direct 0x0032 with 19 bytes (current firmware): average power at 16-17
+        QByteArray s1;
+        s1 += bytes({ 0x70, 0x17, 0x00 });   // 60.00 s
+        s1 += bytes({ 0x9A, 0x10 });         // 4.250 m/s
+        s1 += bytes({ 24, 142 });            // spm, hr
+        s1 += bytes({ 0xF5, 0x2D });         // 117.65 s
+        s1 += bytes({ 0xEA, 0x2E });         // 120.10 s
+        s1 += bytes({ 0x2C, 0x01 });         // rest distance 300 m
+        s1 += bytes({ 0x94, 0x11, 0x00 });   // rest time 45.00 s
+        s1 += bytes({ 0xBB, 0x00 });         // avg power 187
+        s1 += bytes({ 0x00 });               // machine type
+        QCOMPARE(s1.size(), 19);
+        r.processNotification(QBluetoothUuid(pm5::uuid(pm5::kAdditionalStatus1)), s1);
+        QVERIFY(r.hasData());
+        QCOMPARE(r.averageWatts(), 187);
+        QCOMPARE(r.strokesPerMinute(), 24);
+        QCOMPARE(r.heartRateBpm(), 142);
+        // direct 0x0036 with 17 bytes (work per stroke appended)
+        QByteArray st;
+        st += bytes({ 0x58, 0x1B, 0x00, 0xD4, 0x00, 0x4C, 0x04, 0x39, 0x00, 0x08, 0x07, 0x00, 0x64, 0x19, 0x00, 0xD7, 0x11 });
+        r.processNotification(QBluetoothUuid(pm5::uuid(pm5::kAdditionalStrokeData)), st);
+        QCOMPARE(r.strokeCount(), 57);
+        QCOMPARE(r.watts(), 212);
+        QCOMPARE(r.protocol(), QStringLiteral("Concept2 PM5 Bluetooth"));
     }
 };
 

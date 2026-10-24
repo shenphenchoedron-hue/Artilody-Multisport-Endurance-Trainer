@@ -5,10 +5,14 @@
 
 #include <QLowEnergyCharacteristic>
 
+#include <cmath>
+
 namespace watt {
 
 namespace {
 QBluetoothUuid pmUuid(quint16 id) { return QBluetoothUuid(pm5::uuid(id)); }
+const QBluetoothUuid kFtmsService { quint16(ftms::kServiceUuid) };
+const QBluetoothUuid kFtmsRowerData { quint16(ftms::kRowerDataUuid) };
 
 QString deviceId(const QBluetoothDeviceInfo &info)
 {
@@ -24,10 +28,17 @@ Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &lo
     , m_link(new BleLink(info, pmUuid(pm5::kRowingService), localAdapter, this))
 {
     setRssi(info.rssi());
+    // Current PM5 firmware advertises (and serves) the standard FTMS service;
+    // its rowing data is used when the Concept2 rowing service is missing.
+    // Any other FTMS rowing machine works the same way.
+    m_link->setFallbackServices({ kFtmsService });
+    // Like Concept2's own Web Bluetooth sample: give the PM5 ~1 s after
+    // discovery before enabling notifications (BlueZ drops early CCCD writes).
+    m_link->setSettleDelayMs(1000);
     m_dataWatchdog.setSingleShot(true);
     m_dataWatchdog.setInterval(4000);
     connect(&m_dataWatchdog, &QTimer::timeout, this, [this] {
-        if (!m_gotData && !m_multiplexed && canNotify(pmUuid(pm5::kMultiplexed))) {
+        if (m_source == Source::Concept2 && !m_gotData && !m_multiplexed && canNotify(pmUuid(pm5::kMultiplexed))) {
             emit logMessage(QStringLiteral("No rowing data from %1 yet – enabling multiplexed channel").arg(m_name), true);
             enableMultiplexed();
         }
@@ -39,16 +50,18 @@ Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &lo
             m_gotData = false;
             m_machineWarned = false;
             m_dataWatchdog.stop();
+            m_ftmsAssembler.reset();
         }
         setState(s);
     });
     connect(m_link, &BleLink::serviceReady, this, &Pm5Rower::onServiceReady);
-    connect(m_link, &BleLink::characteristicChanged, this, &Pm5Rower::onNotification);
-    connect(m_link, &BleLink::characteristicRead, this, &Pm5Rower::onNotification);
+    connect(m_link, &BleLink::characteristicChanged, this, &Pm5Rower::processNotification);
+    connect(m_link, &BleLink::characteristicRead, this, &Pm5Rower::processNotification);
+    connect(m_link, &BleLink::gattDiscovered, this, &Pm5Rower::gattReport);
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
     connect(m_link, &BleLink::logMessage, this, &Pm5Rower::logMessage);
     connect(m_link, &BleLink::serviceMissing, this, [this] {
-        emit logMessage(QStringLiteral("%1 has no Concept2 rowing service – not a PM5 rowing monitor").arg(m_name), false);
+        emit logMessage(QStringLiteral("%1 has neither the Concept2 rowing service nor FTMS – not a rowing monitor").arg(m_name), false);
         emit rowingServiceMissing();
     });
 }
@@ -69,6 +82,11 @@ void Pm5Rower::setAutoReconnect(bool on)
 {
     RowerDevice::setAutoReconnect(on);
     m_link->setAutoReconnect(on);
+}
+
+QString Pm5Rower::protocol() const
+{
+    return m_source == Source::Ftms ? QStringLiteral("Bluetooth FTMS rower") : QStringLiteral("Concept2 PM5 Bluetooth");
 }
 
 bool Pm5Rower::canNotify(const QBluetoothUuid &uuid) const
@@ -96,6 +114,25 @@ void Pm5Rower::onServiceReady()
 {
     m_gotData = false;
     m_multiplexed = false;
+    m_ftmsAssembler.reset();
+
+    if (m_link->activeService() == kFtmsService) {
+        m_source = Source::Ftms;
+        const QLowEnergyCharacteristic ch = m_link->service() ? m_link->service()->characteristic(kFtmsRowerData)
+                                                              : QLowEnergyCharacteristic();
+        const bool notify = ch.isValid() && (ch.properties() & QLowEnergyCharacteristic::Notify);
+        if (!notify || !m_link->enableNotifications(kFtmsRowerData)) {
+            emit logMessage(QStringLiteral("%1 offers FTMS but no Rower Data (0x2AD1) – not a rowing machine").arg(m_name), false);
+            emit rowingServiceMissing();
+            m_link->disconnectFromDevice();
+            return;
+        }
+        emit logMessage(QStringLiteral("Rower connected (%1, FTMS rower data)").arg(m_name), true);
+        emit protocolChanged();
+        return;
+    }
+    m_source = Source::Concept2;
+    emit protocolChanged();
 
     // 250 ms updates for general/additional status (default would be 500 ms).
     if (!m_link->write(pmUuid(pm5::kSampleRate), pm5::sampleRateCommand(pm5::SampleRate::Ms250)))
@@ -124,8 +161,13 @@ void Pm5Rower::onServiceReady()
     }
 }
 
-void Pm5Rower::onNotification(const QBluetoothUuid &uuid, const QByteArray &value)
+void Pm5Rower::processNotification(const QBluetoothUuid &uuid, const QByteArray &value)
 {
+    if (uuid == kFtmsRowerData) {
+        if (const auto d = m_ftmsAssembler.feed(value))
+            applyFtmsRowerData(*d);
+        return;
+    }
     const auto id = pm5::shortId(uuid);
     if (!id)
         return;
@@ -190,6 +232,46 @@ void Pm5Rower::onNotification(const QBluetoothUuid &uuid, const QByteArray &valu
         m_gotData = true;
         commitMeasurement();
     }
+}
+
+void Pm5Rower::applyFtmsRowerData(const ftms::RowerData &d)
+{
+    if (d.isEmpty())
+        return;
+    if (d.elapsedTimeS)
+        applyElapsed(*d.elapsedTimeS);
+    if (d.totalDistanceM)
+        applyDistance(*d.totalDistanceM);
+    if (d.strokeRateSpm)
+        applyStrokeRate(int(std::lround(*d.strokeRateSpm)));
+    if (d.pace500S) {
+        applyPace(*d.pace500S);
+        applySpeed(*d.pace500S > 0 ? 500.0 / *d.pace500S : 0.0);
+    }
+    if (d.averagePace500S)
+        applyAveragePace(*d.averagePace500S);
+    if (d.averagePowerW)
+        applyAverageWatts(*d.averagePowerW);
+    if (d.totalEnergyKcal)
+        applyCalories(*d.totalEnergyKcal);
+    if (d.heartRateBpm)
+        applyHeartRate(*d.heartRateBpm);
+
+    // FTMS has no workout state: rowing is active while strokes/power come in.
+    if (d.strokeRateSpm || d.powerW) {
+        const bool active = (d.strokeRateSpm && *d.strokeRateSpm > 0) || (d.powerW && *d.powerW > 0);
+        applyWorkoutState(int(active ? pm5::WorkoutState::WorkoutRow : pm5::WorkoutState::WaitToBegin), active);
+    }
+    if (d.strokeCount) {
+        int watts = 0;
+        if (d.powerW)
+            watts = std::max(0, *d.powerW);
+        else if (d.pace500S)
+            watts = int(std::lround(pm5::wattsFromPace500(*d.pace500S)));
+        applyStroke(*d.strokeCount, watts);
+    }
+    m_gotData = true;
+    commitMeasurement();
 }
 
 } // namespace watt

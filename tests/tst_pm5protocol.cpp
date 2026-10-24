@@ -191,7 +191,54 @@ private slots:
         QCOMPARE(s->splitAverageCalories, 950);
         QCOMPARE(s->lastSplitTimeSeconds, 123.4);
         QCOMPARE(s->lastSplitDistanceMeters, 500);
-        QVERIFY(!pm5::parseAdditionalStatus2(status2(false).left(19)));
+        // a 20-byte direct packet carries average power; shorter ones are
+        // taken as the 18-byte layout (see additionalStatus2DirectShort)
+        QVERIFY(!pm5::parseAdditionalStatus2(status2(false).left(17)));
+    }
+
+    void additionalStatus2DirectShort()
+    {
+        // direct 0x0033 in the 18-byte layout (no average power): calories at 4-5
+        const auto s = pm5::parseAdditionalStatus2(status2(true));
+        QVERIFY(s);
+        QVERIFY(!s->averagePowerW);
+        QCOMPARE(s->totalCalories, 42);
+        QCOMPARE(s->splitAveragePowerW, 180);
+        QCOMPARE(s->lastSplitDistanceMeters, 500);
+        // 19 bytes (one trailing byte): still the short layout
+        const auto t = pm5::parseAdditionalStatus2(QByteArray(status2(true)) + QByteArray(1, '\x07'));
+        QVERIFY(t && !t->averagePowerW);
+        QCOMPARE(t->totalCalories, 42);
+    }
+
+    void additionalStatus1Direct19Bytes()
+    {
+        // current firmware: direct 0x0032 with 19 bytes = average power at
+        // 16-17, machine type at 18
+        QByteArray d = status1(true);
+        QCOMPARE(d.size(), 19);
+        d[18] = char(2);
+        const auto s = pm5::parseAdditionalStatus1(d);
+        QVERIFY(s);
+        QCOMPARE(*s->averagePowerW, 187);
+        QCOMPARE(s->ergMachineType, 2);
+        QCOMPARE(s->strokesPerMinute, 24);
+        QCOMPARE(s->restDistanceMeters, 300);   // metres per the interface definition
+        QCOMPARE(s->restTimeSeconds, 45.0);
+        // 18 bytes: machine type at 16, no average power
+        const auto e = pm5::parseAdditionalStatus1(QByteArray(status1(false)) + QByteArray(1, '\0'));
+        QVERIFY(e && !e->averagePowerW);
+        QCOMPARE(e->ergMachineType, 0);
+    }
+
+    void additionalStrokeDataDirect17Bytes()
+    {
+        const auto s = pm5::parseAdditionalStrokeData(stroke(true));   // direct layout, 17 bytes
+        QVERIFY(s);
+        QCOMPARE(s->strokeCount, 57);
+        QCOMPARE(*s->workPerStrokeJoules, 456.7);
+        const auto t = pm5::parseAdditionalStrokeData(QByteArray(stroke(false)) + QByteArray(1, '\x01'));   // 16 bytes
+        QVERIFY(t && !t->workPerStrokeJoules);
     }
 
     void additionalStatus2Multiplexed()

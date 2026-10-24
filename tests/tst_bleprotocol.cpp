@@ -134,6 +134,190 @@ private slots:
         QVERIFY(!hrs::parseMeasurement(bytes({ 0x00 })));
         QVERIFY(!hrs::parseMeasurement(bytes({ 0x01, 0x50 })));
     }
+
+    // --- FTMS advertising service data (FTMS v1.0 §3.1) ---------------------
+
+    void serviceDataRower()
+    {
+        // Flags: machine available; type: Rower (bit 4)
+        const auto d = ftms::parseServiceData(bytes({ 0x01, 0x10, 0x00 }));
+        QVERIFY(d);
+        QVERIFY(d->available);
+        QCOMPARE(d->machineType, quint16(0x0010));
+        QVERIFY(d->rower());
+        QVERIFY(!d->indoorBike());
+        QVERIFY(d->rowerOnly());
+        QCOMPARE(ftms::machineTypeText(d->machineType), QStringLiteral("Rower"));
+    }
+
+    void serviceDataBike()
+    {
+        const auto d = ftms::parseServiceData(bytes({ 0x01, 0x20, 0x00 }));
+        QVERIFY(d);
+        QVERIFY(d->indoorBike());
+        QVERIFY(!d->rower());
+        QVERIFY(!d->rowerOnly());
+        QCOMPARE(ftms::machineTypeText(0x0020), QStringLiteral("Indoor Bike"));
+    }
+
+    void serviceDataBothAndOthers()
+    {
+        const auto both = ftms::parseServiceData(bytes({ 0x00, 0x30, 0x00 }));
+        QVERIFY(both);
+        QVERIFY(!both->available);
+        QVERIFY(both->rower() && both->indoorBike());
+        QVERIFY(!both->rowerOnly());   // ambiguous: stays a trainer
+        QCOMPARE(ftms::machineTypeText(0x0030), QStringLiteral("Rower, Indoor Bike"));
+        const auto treadmill = ftms::parseServiceData(bytes({ 0x01, 0x01, 0x00 }));
+        QVERIFY(treadmill && !treadmill->rower() && !treadmill->indoorBike());
+        QCOMPARE(ftms::machineTypeText(0), QStringLiteral("none"));
+        QVERIFY(ftms::machineTypeText(0x0110).contains(QStringLiteral("RFU")));
+        // high byte of the little-endian type is read
+        const auto hi = ftms::parseServiceData(bytes({ 0x01, 0x10, 0x01 }));
+        QCOMPARE(hi->machineType, quint16(0x0110));
+        QVERIFY(hi->rowerOnly());
+    }
+
+    void serviceDataWithUuidPrefixAndMalformed()
+    {
+        // value still starting with the 16-bit UUID (26 18)
+        const auto d = ftms::parseServiceData(bytes({ 0x26, 0x18, 0x01, 0x10, 0x00 }));
+        QVERIFY(d && d->rowerOnly());
+        QVERIFY(!ftms::parseServiceData(QByteArray()));
+        QVERIFY(!ftms::parseServiceData(bytes({ 0x01 })));
+        QVERIFY(!ftms::parseServiceData(bytes({ 0x01, 0x10 })));
+    }
+
+    // --- FTMS Rower Data (FTMS v1.0 §4.8) -------------------------------------
+
+    void rowerDataStrokeOnly()
+    {
+        // flags 0x0000: stroke rate (0.5/min) + stroke count present
+        const auto d = ftms::parseRowerData(bytes({ 0x00, 0x00, 49, 0x2A, 0x00 }));
+        QVERIFY(d);
+        QVERIFY(!d->moreData);
+        QCOMPARE(*d->strokeRateSpm, 24.5);
+        QCOMPARE(*d->strokeCount, 42);
+        QVERIFY(!d->powerW && !d->totalDistanceM && !d->pace500S);
+    }
+
+    void rowerDataTypicalPm5()
+    {
+        // bits 2 (distance), 3 (pace), 5 (power), 8 (energy), 11 (elapsed) = 0x092C
+        const auto d = ftms::parseRowerData(bytes({ 0x2C, 0x09,
+                                                    48, 0x10, 0x00,           // 24 spm, 16 strokes
+                                                    0x88, 0x13, 0x00,         // 5000 m
+                                                    0x78, 0x00,               // 120 s / 500 m
+                                                    0xCB, 0x00,               // 203 W
+                                                    0x2A, 0x00, 0x20, 0x03, 0x0E,   // 42 kcal, 800/h, 14/min
+                                                    0x2C, 0x01 }));           // 300 s
+        QVERIFY(d);
+        QCOMPARE(*d->strokeRateSpm, 24.0);
+        QCOMPARE(*d->strokeCount, 16);
+        QCOMPARE(*d->totalDistanceM, 5000);
+        QCOMPARE(*d->pace500S, 120);
+        QCOMPARE(*d->powerW, 203);
+        QCOMPARE(*d->totalEnergyKcal, 42);
+        QCOMPARE(*d->energyPerHourKcal, 800);
+        QCOMPARE(*d->energyPerMinuteKcal, 14);
+        QCOMPARE(*d->elapsedTimeS, 300);
+        QVERIFY(!d->averagePowerW && !d->heartRateBpm && !d->remainingTimeS);
+    }
+
+    void rowerDataAllFields()
+    {
+        // every flag 1..12 set, More Data clear
+        const auto d = ftms::parseRowerData(bytes({ 0xFE, 0x1F,
+                                                    40, 0x05, 0x00,           // 20 spm, 5 strokes
+                                                    41,                       // avg 20.5 spm
+                                                    0x10, 0x27, 0x00,         // 10000 m
+                                                    0x7D, 0x00,               // pace 125 s
+                                                    0x82, 0x00,               // avg pace 130 s
+                                                    0xFF, 0xFF,               // power -1 (SInt16)
+                                                    0x96, 0x00,               // avg power 150
+                                                    0x0A, 0x00,               // resistance 10
+                                                    0x64, 0x00, 0x58, 0x02, 0x0A,   // 100 kcal, 600/h, 10/min
+                                                    0x8C,                     // HR 140
+                                                    0x55,                     // MET 8.5
+                                                    0x10, 0x0E,               // elapsed 3600 s
+                                                    0x3C, 0x00 }));           // remaining 60 s
+        QVERIFY(d);
+        QCOMPARE(*d->strokeRateSpm, 20.0);
+        QCOMPARE(*d->strokeCount, 5);
+        QCOMPARE(*d->averageStrokeRateSpm, 20.5);
+        QCOMPARE(*d->totalDistanceM, 10000);
+        QCOMPARE(*d->pace500S, 125);
+        QCOMPARE(*d->averagePace500S, 130);
+        QCOMPARE(*d->powerW, -1);
+        QCOMPARE(*d->averagePowerW, 150);
+        QCOMPARE(*d->resistanceLevel, 10);
+        QCOMPARE(*d->totalEnergyKcal, 100);
+        QCOMPARE(*d->heartRateBpm, 140);
+        QCOMPARE(*d->metabolicEquivalent, 8.5);
+        QCOMPARE(*d->elapsedTimeS, 3600);
+        QCOMPARE(*d->remainingTimeS, 60);
+    }
+
+    void rowerDataMoreDataAndMalformed()
+    {
+        // More Data set: no stroke rate/count, power follows the flags directly
+        const auto d = ftms::parseRowerData(bytes({ 0x21, 0x00, 0xC8, 0x00 }));
+        QVERIFY(d);
+        QVERIFY(d->moreData);
+        QVERIFY(!d->strokeRateSpm && !d->strokeCount);
+        QCOMPARE(*d->powerW, 200);
+        QVERIFY(!ftms::parseRowerData(QByteArray()));
+        QVERIFY(!ftms::parseRowerData(bytes({ 0x00 })));
+        QVERIFY(!ftms::parseRowerData(bytes({ 0x00, 0x00, 40, 0x05 })));    // stroke count cut
+        QVERIFY(!ftms::parseRowerData(bytes({ 0x2C, 0x09, 48, 0x10, 0x00, 0x88, 0x13 })));
+    }
+
+    void rowerDataAssemblerMergesSplitRecord()
+    {
+        ftms::RowerDataAssembler a;
+        // packet 1: More Data, distance + pace
+        QVERIFY(!a.feed(bytes({ 0x0D, 0x00, 0xE8, 0x03, 0x00, 0x78, 0x00 })));
+        // packet 2: More Data, power + elapsed
+        QVERIFY(!a.feed(bytes({ 0x21, 0x08, 0xCB, 0x00, 0x3C, 0x00 })));
+        // packet 3: last one, stroke rate + count
+        const auto d = a.feed(bytes({ 0x00, 0x00, 50, 0x07, 0x00 }));
+        QVERIFY(d);
+        QVERIFY(!d->moreData);
+        QCOMPARE(*d->totalDistanceM, 1000);
+        QCOMPARE(*d->pace500S, 120);
+        QCOMPARE(*d->powerW, 203);
+        QCOMPARE(*d->elapsedTimeS, 60);
+        QCOMPARE(*d->strokeRateSpm, 25.0);
+        QCOMPARE(*d->strokeCount, 7);
+        // the buffer is empty again
+        const auto next = a.feed(bytes({ 0x00, 0x00, 50, 0x08, 0x00 }));
+        QVERIFY(next && !next->totalDistanceM);
+        QCOMPARE(*next->strokeCount, 8);
+        // malformed packet: ignored
+        QVERIFY(!a.feed(bytes({ 0x00 })));
+    }
+
+    void rowerDataAssemblerReleasesNeverEndingRecord()
+    {
+        // a device that always sets More Data: the record is released when
+        // the next packet repeats a field
+        ftms::RowerDataAssembler a;
+        QVERIFY(!a.feed(bytes({ 0x21, 0x00, 0xC8, 0x00 })));
+        const auto d = a.feed(bytes({ 0x21, 0x00, 0xD2, 0x00 }));
+        QVERIFY(d);
+        QCOMPARE(*d->powerW, 200);
+        a.reset();
+        QVERIFY(!a.feed(bytes({ 0x21, 0x00, 0xD2, 0x00 })));
+        const auto e = a.feed(bytes({ 0x00, 0x00, 40, 0x01, 0x00 }));
+        QCOMPARE(*e->powerW, 210);
+        QCOMPARE(*e->strokeCount, 1);
+
+        ftms::RowerData empty;
+        QVERIFY(empty.isEmpty());
+        QVERIFY(!e->isEmpty());
+        QVERIFY(e->overlaps(*e));
+        QVERIFY(!empty.overlaps(*e));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestBleProtocol)

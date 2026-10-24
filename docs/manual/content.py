@@ -1054,14 +1054,23 @@ def build(s, env):
         f"{UI('Scan for Devices')}. A scan runs for 60 seconds.",
         "The PM5 can be connected to <b>one app at a time</b>. Disconnect ErgData, the Concept2 app or any phone "
         "or watch that is connected to it (turning off Bluetooth on the phone is the quickest way).",
+        "Current PM5 firmware advertises the standard Bluetooth fitness-machine service (FTMS, "
+        + C("0x1826") + ") with the machine type <i>Rower</i>. The app reads this advertisement and lists the PM5 "
+        f"under {UI('Rowers')}, even before its name arrives. Older app versions could list it under "
+        f"{UI('Smart Trainers')}. If a rowing machine is still listed there, press the rowing button next to it "
+        f"({UI('Connect as rower')}). A device connected as trainer that turns out to offer rowing data is moved "
+        "to the rowers automatically and remembered.",
+        "If the PM5 does not offer the Concept2 rowing service, the app uses the standard FTMS rower data "
+        "instead. Other FTMS rowing machines work the same way.",
         f"Turn on {UI('Show all devices')} in {UI('Available Devices')}. The section "
         f"{UI('Other Bluetooth devices')} lists every Bluetooth LE device the app did not recognise, with name, "
         f"address and signal. If your PM5 is there, press {UI('Connect as rower')}. If the device has no Concept2 "
-        "rowing service, a red message says so.",
+        "rowing service or FTMS rower data, a red message says so.",
         f"Press {UI('Details…')} under {UI('Bluetooth Diagnostics')}. The report lists the adapter, the Qt "
         f"version, every device seen (name, address, signal, service UUIDs, classification) and any scan errors. "
+        "After a connection attempt it also lists the GATT services and characteristics the device offered. "
         f"{UI('Copy')} puts it on the clipboard for a bug report. A PM5 shows the service "
-        + C("CE060000-43E5-11E4-916C-0800200C9A66") + ".",
+        + C("CE060000-43E5-11E4-916C-0800200C9A66") + " or an <i>FTMS advertisement</i> with type <i>Rower</i>.",
         "Scan errors (Bluetooth off, adapter error, missing permission) are shown in red at the top of the device "
         "list. If Bluetooth is off, the app tries to switch it on.",
         "Update the PM5 firmware with Concept2 Utility if the monitor is old.",
@@ -1343,7 +1352,7 @@ def build(s, env):
          "On the PM5 choose More Options → Turn Wireless ON → Connect Device and scan again while the monitor "
          "shows the Connect screen. Close ErgData and other apps that may be connected to the PM5 (it accepts "
          "one app at a time), and keep the computer within a few metres. Turn on Show all devices and use "
-         "Connect as rower if the PM5 is listed under Other Bluetooth devices, and check Bluetooth Diagnostics → "
+         "Connect as rower if the PM5 is listed under Other Bluetooth devices or under Smart Trainers, and check Bluetooth Diagnostics → "
          "Details… (see “Rowing machine not found” in chapter 11, including the Raspberry Pi commands)."),
         ("The rower does not follow the watt plan targets.",
          "That is expected: the PM5 has no ERG mode. Follow the target power by pulling harder or easier; "

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FtmsProtocol.h"
 #include "SensorDevices.h"
 
 #include <QBluetoothAddress>
@@ -12,8 +13,11 @@ namespace watt {
 class BleLink;
 
 // Concept2 PM5 rowing monitor over its proprietary rowing service
-// (CE060030-43E5-11E4-916C-0800200C9A66).
+// (CE060030-43E5-11E4-916C-0800200C9A66), with the standard FTMS Rower Data
+// (0x1826 / 0x2AD1) as fallback when the peripheral has no Concept2 rowing
+// service (also makes other FTMS rowing machines work).
 //
+// Notifications are enabled ~1 s after the service details were discovered.
 // After service discovery the sample rate (0x0034) is set to 250 ms and
 // notifications are enabled on 0x0031, 0x0032, 0x0033 and 0x0036. If those
 // characteristics are not notifiable, the multiplexed characteristic 0x0080 is
@@ -31,18 +35,26 @@ public:
 
     QString id() const override { return m_id; }
     QString name() const override { return m_name; }
-    QString protocol() const override { return QStringLiteral("Concept2 PM5 Bluetooth"); }
+    QString protocol() const override;
     void connectDevice() override;
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
 
+    enum class Source { Unknown, Concept2, Ftms };
+    Source source() const { return m_source; }
+
+    // Handles one notification/read value (public so tests can feed packets).
+    void processNotification(const QBluetoothUuid &uuid, const QByteArray &value);
+
 signals:
-    // Connected, but the device has no PM5 rowing service (0x0030).
+    // Connected, but the device has neither the PM5 rowing service (0x0030)
+    // nor FTMS Rower Data.
     void rowingServiceMissing();
+    void protocolChanged();
 
 private:
     void onServiceReady();
-    void onNotification(const QBluetoothUuid &uuid, const QByteArray &value);
+    void applyFtmsRowerData(const ftms::RowerData &d);
     bool canNotify(const QBluetoothUuid &uuid) const;
     bool subscribe(quint16 shortId);
     void enableMultiplexed();
@@ -54,6 +66,8 @@ private:
     bool m_gotData = false;
     bool m_machineWarned = false;
     QTimer m_dataWatchdog;
+    Source m_source = Source::Unknown;
+    ftms::RowerDataAssembler m_ftmsAssembler;
 };
 
 } // namespace watt

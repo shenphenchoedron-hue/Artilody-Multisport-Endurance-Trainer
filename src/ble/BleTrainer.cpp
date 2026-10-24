@@ -1,6 +1,7 @@
 #include "BleTrainer.h"
 
 #include "BleLink.h"
+#include "Pm5Protocol.h"
 
 namespace watt {
 
@@ -61,6 +62,20 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     });
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
     connect(m_link, &BleLink::logMessage, this, &BleTrainer::logMessage);
+    connect(m_link, &BleLink::gattDiscovered, this, &BleTrainer::gattReport);
+    connect(m_link, &BleLink::serviceMissing, this, [this] {
+        if (looksLikeRower(m_link->discoveredServices(), false, false)) {
+            emit logMessage(QStringLiteral("%1 is a rowing machine (Concept2 rowing service)").arg(m_name), true);
+            emit rowerDetected();
+        }
+    });
+}
+
+bool BleTrainer::looksLikeRower(const QList<QBluetoothUuid> &services, bool hasRowerData, bool hasIndoorBikeData)
+{
+    if (services.contains(QBluetoothUuid(pm5::uuid(pm5::kRowingService))))
+        return true;
+    return hasRowerData && !hasIndoorBikeData;
 }
 
 void BleTrainer::connectDevice()
@@ -104,6 +119,12 @@ bool BleTrainer::supportsControl() const
 
 void BleTrainer::onServiceReady()
 {
+    if (looksLikeRower(m_link->discoveredServices(), m_link->hasCharacteristic(uuid16(ftms::kRowerDataUuid)),
+                       m_link->hasCharacteristic(uuid16(ftms::kIndoorBikeDataUuid)))) {
+        emit logMessage(QStringLiteral("%1 is a rowing machine, not a smart trainer – switching to the rower driver").arg(m_name), true);
+        emit rowerDetected();
+        return;
+    }
     emit logMessage(QStringLiteral("FTMS service ready on %1").arg(m_name), true);
     m_link->read(uuid16(ftms::kFeatureUuid));
     if (!m_link->enableNotifications(uuid16(ftms::kIndoorBikeDataUuid)))
