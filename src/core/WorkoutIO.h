@@ -50,8 +50,10 @@ struct ImportResult
     bool ok() const { return error.isEmpty() && !workouts.isEmpty(); }
 };
 
-QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion);
-QByteArray toZwo(const Workout &workout);
+// appName: written to the informational "app" field (.awt) / <author> (.zwo);
+// empty = "Artilody Watts Trainer". It does not affect importing.
+QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion, const QString &appName = QString());
+QByteArray toZwo(const Workout &workout, const QString &appName = QString());
 
 ImportResult parseAwt(const QByteArray &data);
 ImportResult parseZwo(const QByteArray &data);

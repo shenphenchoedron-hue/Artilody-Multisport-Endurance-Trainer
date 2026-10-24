@@ -360,7 +360,7 @@ bool writeFile(const QString &path, const QByteArray &data, QString *error)
 }
 
 // --- export ------------------------------------------------------------------
-QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion)
+QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion, const QString &appName)
 {
     QJsonArray list;
     for (const Workout &w : workouts) {
@@ -377,7 +377,7 @@ QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion)
     root.insert(QStringLiteral("format"), QString::fromLatin1(kFormatId));
     root.insert(QStringLiteral("version"), kFormatVersion);
     root.insert(QStringLiteral("exportedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    QString app = QStringLiteral("Artilody Watts Trainer");
+    QString app = appName.isEmpty() ? QStringLiteral("Artilody Watts Trainer") : appName;
     if (!appVersion.isEmpty())
         app += QLatin1Char(' ') + appVersion;
     root.insert(QStringLiteral("app"), app);
@@ -385,7 +385,7 @@ QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion)
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
-QByteArray toZwo(const Workout &w)
+QByteArray toZwo(const Workout &w, const QString &appName)
 {
     QByteArray out;
     QXmlStreamWriter xml(&out);
@@ -393,7 +393,8 @@ QByteArray toZwo(const Workout &w)
     xml.setAutoFormattingIndent(4);
     xml.writeStartDocument();
     xml.writeStartElement(QStringLiteral("workout_file"));
-    xml.writeTextElement(QStringLiteral("author"), QStringLiteral("Artilody Watts Trainer"));
+    xml.writeTextElement(QStringLiteral("author"),
+                        appName.isEmpty() ? QStringLiteral("Artilody Watts Trainer") : appName);
     xml.writeTextElement(QStringLiteral("name"), w.name);
     xml.writeTextElement(QStringLiteral("description"), w.description);
     // Zwift has no rowing sport type; see WorkoutIO.h.

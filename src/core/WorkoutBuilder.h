@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BuilderBackend.h"
 #include "Workout.h"
 
 #include <QAbstractListModel>
@@ -21,7 +22,7 @@ public:
         EndWattsRole, PercentRole, EndPercentRole, CadenceRole, RpeRole, ZoneRole, RampRole
     };
 
-    explicit IntervalModel(ProfileManager *profiles, QObject *parent = nullptr);
+    explicit IntervalModel(BuilderBackend *backend, QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -39,7 +40,7 @@ public:
 
 private:
     int ftp() const;
-    ProfileManager *m_profiles;
+    BuilderBackend *m_backend;
     QVector<Interval> m_items;
     QString m_sport = sport::cycling();
 };
@@ -72,6 +73,10 @@ class WorkoutBuilder : public QObject
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:
+    // backend: settings + workout storage (not owned). The Watts Trainer app
+    // uses the convenience constructor below (AppBuilderBackend, defined in
+    // AppBuilderBackend.cpp); the Workout Creator passes its file backend.
+    explicit WorkoutBuilder(BuilderBackend *backend, QObject *parent = nullptr);
     WorkoutBuilder(Database *db, ProfileManager *profiles, QObject *parent = nullptr);
 
     qint64 workoutId() const { return m_workout.id; }
@@ -140,8 +145,7 @@ private:
     void markDirty();
     void setError(const QString &e);
 
-    Database *m_db;
-    ProfileManager *m_profiles;
+    BuilderBackend *m_backend;
     IntervalModel m_model;
     Workout m_workout;
     int m_selected = -1;

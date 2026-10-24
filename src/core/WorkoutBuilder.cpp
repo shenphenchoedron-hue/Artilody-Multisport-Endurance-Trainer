@@ -1,7 +1,5 @@
 #include "WorkoutBuilder.h"
 
-#include "Database.h"
-#include "ProfileManager.h"
 #include "TimeFormat.h"
 
 #include <algorithm>
@@ -13,9 +11,9 @@ namespace watt {
 // IntervalModel
 // ---------------------------------------------------------------------------
 
-IntervalModel::IntervalModel(ProfileManager *profiles, QObject *parent)
+IntervalModel::IntervalModel(BuilderBackend *backend, QObject *parent)
     : QAbstractListModel(parent)
-    , m_profiles(profiles)
+    , m_backend(backend)
 {
 }
 
@@ -42,7 +40,7 @@ QVariant IntervalModel::data(const QModelIndex &index, int role) const
     case EndPercentRole: return int(std::lround(i.endPercent * 100));
     case CadenceRole: return i.cadence;
     case RpeRole: return i.rpeZone;
-    case ZoneRole: return zoneForInterval(i, i.averagePercent(), m_profiles->current().zones);
+    case ZoneRole: return zoneForInterval(i, i.averagePercent(), m_backend->zones());
     case RampRole: return i.isRamp();
     default: return {};
     }
@@ -104,7 +102,7 @@ void IntervalModel::move(int from, int to)
 
 int IntervalModel::ftp() const
 {
-    return m_profiles->current().ftpFor(m_sport);
+    return m_backend->ftpFor(m_sport);
 }
 
 void IntervalModel::setSport(const QString &sport)
@@ -126,13 +124,12 @@ void IntervalModel::refreshAll()
 // WorkoutBuilder
 // ---------------------------------------------------------------------------
 
-WorkoutBuilder::WorkoutBuilder(Database *db, ProfileManager *profiles, QObject *parent)
+WorkoutBuilder::WorkoutBuilder(BuilderBackend *backend, QObject *parent)
     : QObject(parent)
-    , m_db(db)
-    , m_profiles(profiles)
-    , m_model(profiles)
+    , m_backend(backend)
+    , m_model(backend)
 {
-    connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
+    connect(m_backend, &BuilderBackend::profileChanged, this, [this] {
         m_model.refreshAll();
         emit ftpChanged();
         emit contentChanged();
@@ -210,7 +207,7 @@ void WorkoutBuilder::setSport(const QString &value)
 
 int WorkoutBuilder::ftp() const
 {
-    return m_profiles->current().ftpFor(m_workout.sport);
+    return m_backend->ftpFor(m_workout.sport);
 }
 
 void WorkoutBuilder::setSelectedIndex(int index)
@@ -249,7 +246,7 @@ int WorkoutBuilder::totalDurationSec() const
 
 QVariantList WorkoutBuilder::segments() const
 {
-    return Workout::segmentsToVariant(currentWorkout().segments(ftp(), m_profiles->current().zones));
+    return Workout::segmentsToVariant(currentWorkout().segments(ftp(), m_backend->zones()));
 }
 
 int WorkoutBuilder::intensity() const
@@ -295,7 +292,7 @@ void WorkoutBuilder::newWorkout(const QString &sport)
 
 bool WorkoutBuilder::loadWorkout(qint64 id)
 {
-    auto w = m_db->workout(id);
+    auto w = m_backend->workout(id);
     if (!w) {
         setError(QStringLiteral("Workout not found"));
         return false;
@@ -332,14 +329,14 @@ qint64 WorkoutBuilder::save()
     } else if (w.id >= 0) {
         // Favourite flag and usage count may have changed in the library since
         // the workout was opened here – keep the stored values.
-        if (const auto stored = m_db->workout(w.id)) {
+        if (const auto stored = m_backend->workout(w.id)) {
             w.favorite = stored->favorite;
             w.timesUsed = stored->timesUsed;
         }
     }
-    const qint64 id = m_db->saveWorkout(w);
+    const qint64 id = m_backend->saveWorkout(w);
     if (id < 0) {
-        setError(m_db->lastError());
+        setError(m_backend->lastError());
         return -1;
     }
     m_workout = w;
@@ -378,7 +375,7 @@ void WorkoutBuilder::addBlock(const QString &type)
     } else {
         Interval i = Interval::defaultFor(t);
         if (t == BlockType::Steady)
-            i.cadence = m_profiles->preferredCadence();
+            i.cadence = m_backend->preferredCadence();
         m_model.insert(at, i);
         m_selected = at;
     }

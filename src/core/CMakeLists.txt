@@ -15,7 +15,9 @@ qt_add_library(watt_core STATIC
     ProfileManager.h ProfileManager.cpp
     WorkoutLibrary.h WorkoutLibrary.cpp
     WorkoutIO.h WorkoutIO.cpp
+    BuilderBackend.h
     WorkoutBuilder.h WorkoutBuilder.cpp
+    AppBuilderBackend.h AppBuilderBackend.cpp
     TrainingSession.h TrainingSession.cpp
     HistoryManager.h HistoryManager.cpp
     PlanTypes.h

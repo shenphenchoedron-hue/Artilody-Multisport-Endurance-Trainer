@@ -15,11 +15,19 @@ Item {
     readonly property bool rowing: Builder.sport === "rowing"
     readonly property string ftpLabel: rowing ? "Rowing FTP" : "FTP"
 
+    // Hooks for the standalone "Artilody Workout Creator", which shares this
+    // page (the defaults are the Watts Trainer behaviour).
+    property string pageTitle: "Workout Builder"
+    property string pageSubtitle: page.rowing ? "Design your own rowing session" : "Design your own training session"
+    property bool showExport: false     // adds an "Export" button next to Save
+    signal exportRequested()
+
     PageHeader {
         x: Theme.pageMargin + 8
         y: 30
-        title: "Workout Builder"
-        subtitle: page.rowing ? "Design your own rowing session" : "Design your own training session"
+        width: parent.width - 2 * Theme.pageMargin - 8
+        title: page.pageTitle
+        subtitle: page.pageSubtitle
     }
 
     // FTP the watts are based on (rowing workouts use the rowing FTP)
@@ -60,6 +68,8 @@ Item {
             trailingIcon: "edit"
             placeholderText: "Workout name"
             onTextEdited: Builder.name = text
+            // show the start of a long name (not its end) when a workout is loaded
+            onTextChanged: if (!activeFocus) cursorPosition = 0
             onTrailingClicked: { nameField.forceActiveFocus(); nameField.selectAll() }
         }
         SegmentedControl {
@@ -82,13 +92,23 @@ Item {
         }
         Item { Layout.preferredWidth: 20 }
         AppButton {
-            Layout.preferredWidth: 166
+            Layout.preferredWidth: page.showExport ? 146 : 166
             Layout.fillHeight: true
             kind: "secondary"
             iconName: "play"
             text: "Preview"
             bold: false
             onClicked: previewDialog.open()
+        }
+        AppButton {
+            visible: page.showExport
+            Layout.preferredWidth: 146
+            Layout.fillHeight: true
+            kind: "secondary"
+            iconName: "export"
+            text: "Export"
+            bold: false
+            onClicked: page.exportRequested()
         }
         AppButton {
             Layout.preferredWidth: 216
@@ -800,9 +820,14 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 20
             anchors.baseline: summaryTitle.baseline
-            text: Builder.intensity + "% " + page.ftpLabel + "  •  TSS " + Builder.tss
+            anchors.left: summaryTitle.right
+            anchors.leftMargin: 10
+            horizontalAlignment: Text.AlignRight
+            // "% Rowing FTP" does not fit next to the title: shorter label for rowing
+            text: Builder.intensity + "%" + (page.rowing ? "" : " " + page.ftpLabel) + "  •  TSS " + Builder.tss
             color: Theme.textSecondary
             font.pixelSize: 14
+            elide: Text.ElideLeft
         }
         RowLayout {
             id: summaryRow
