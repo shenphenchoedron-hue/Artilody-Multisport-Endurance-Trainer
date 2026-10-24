@@ -44,6 +44,9 @@ public:
         commitMeasurement();
     }
     void hr(int bpm) { applyHeartRate(bpm); commitMeasurement(); }
+    // stroke without a stroke rate from the monitor (e.g. 0x0032 missing)
+    void bareStroke(int watts) { applyStroke(++strokes, watts); commitMeasurement(); }
+    void strokeAt(int watts, int spm) { applyStroke(++strokes, watts); applyStrokeRate(spm); commitMeasurement(); }
 
     int strokes = 0;
     int lastTarget = -1;
@@ -110,6 +113,49 @@ private slots:
         QCOMPARE(RowingSession::traceTimeAt(tr, 85), 15.0);
         QCOMPARE(RowingSession::traceTimeAt(tr, 500), 20.0);
         QCOMPARE(RowingSession::traceTimeAt({}, 5), 0.0);
+    }
+
+    void spmFollowsDeviceAndFallback()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        qint64 now = 0;
+        f.rower.setClockForTesting([&now] { return now; });
+        QSignalSpy metrics(f.rowing.get(), &RowingSession::metricsChanged);
+        f.rower.progress(0, 0);
+        QVERIFY(f.rowing->setupSolo(2000));
+        // monitor without a stroke rate: strokes every 2 s -> 30 spm computed
+        f.rower.bareStroke(200);
+        QCOMPARE(f.rowing->spm(), 0);
+        for (int k = 1; k <= 20; ++k) {
+            now += 1000;
+            f.rowing->advanceClock(1000);
+            if (k % 2 == 0)
+                f.rower.bareStroke(200);
+            f.rower.progress(k, 4.0 * k);
+        }
+        QCOMPARE(f.rowing->spm(), 30);
+        QCOMPARE(f.rowing->avgSpm(), 30);
+        QVERIFY(f.rower.strokeRateEstimated());
+        // the monitor reports its own rate: it wins and the average follows
+        for (int k = 21; k <= 40; ++k) {
+            now += 1000;
+            f.rowing->advanceClock(1000);
+            if (k % 2 == 0)
+                f.rower.strokeAt(200, 24);
+            f.rower.progress(k, 4.0 * k);
+        }
+        QCOMPARE(f.rowing->spm(), 24);
+        QVERIFY(!f.rower.strokeRateEstimated());
+        QVERIFY(f.rowing->avgSpm() > 24 && f.rowing->avgSpm() < 30);
+        // stop rowing: the monitor reports 0 -> spm 0, the average keeps the rowed seconds
+        const int avg = f.rowing->avgSpm();
+        now += 500;
+        f.rower.strokeAt(0, 0);
+        QCOMPARE(f.rowing->spm(), 0);
+        f.rowing->advanceClock(3000);
+        QCOMPARE(f.rowing->avgSpm(), avg);
+        QVERIFY(metrics.count() > 0);
     }
 
     void soloDistanceCompletes()

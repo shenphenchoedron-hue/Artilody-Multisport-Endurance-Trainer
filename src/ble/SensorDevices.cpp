@@ -1,6 +1,7 @@
 #include "SensorDevices.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace watt {
 
@@ -35,7 +36,10 @@ RowerDevice::RowerDevice(QObject *parent)
     : SensorDevice(parent)
 {
     m_holdTimer.setInterval(250);
-    connect(&m_holdTimer, &QTimer::timeout, this, [this] { checkPowerHold(); });
+    connect(&m_holdTimer, &QTimer::timeout, this, [this] {
+        checkPowerHold();
+        checkStrokeRate();
+    });
     connect(this, &SensorDevice::stateChanged, this, [this](LinkState s) {
         static_cast<void>(s);
         const bool on = connected();
@@ -67,6 +71,120 @@ void RowerDevice::checkPowerHold(qint64 msSinceLastStroke)
         age = m_sinceStroke.isValid() ? m_sinceStroke.elapsed() : hold;
     if (age >= hold) {
         setWatts(0);
+        commitMeasurement();
+    }
+}
+
+qint64 RowerDevice::nowMs() const
+{
+    if (m_clock)
+        return m_clock();
+    static QElapsedTimer clock;
+    if (!clock.isValid())
+        clock.start();
+    return clock.elapsed();
+}
+
+QString RowerDevice::strokeRateSourceText(StrokeRateSource s)
+{
+    switch (s) {
+    case StrokeRateSource::Device: return QStringLiteral("monitor");
+    case StrokeRateSource::Strokes: return QStringLiteral("computed from stroke timing");
+    case StrokeRateSource::None: break;
+    }
+    return QStringLiteral("none");
+}
+
+QString RowerDevice::dataDiagnostics() const
+{
+    const qint64 now = nowMs();
+    auto ago = [now](qint64 t) {
+        return t < 0 ? QStringLiteral("never") : QStringLiteral("%1 s ago").arg((now - t) / 1000.0, 0, 'f', 1);
+    };
+    QStringList l;
+    l << QStringLiteral("Stroke rate: %1 SPM (source: %2)").arg(m_spm).arg(strokeRateSourceText(m_spmSource));
+    l << QStringLiteral("  monitor value: %1 SPM (last update %2, last value > 0 %3)")
+             .arg(m_deviceSpm)
+             .arg(ago(m_deviceSpmUpdateMs), ago(m_devicePositiveSpmMs));
+    l << QStringLiteral("  computed from strokes: %1 SPM (%2 strokes in window, last stroke %3)")
+             .arg(m_computedSpm)
+             .arg(m_strokeMarks.size())
+             .arg(ago(m_strokeMarks.isEmpty() ? -1 : m_strokeMarks.last().t));
+    l << QStringLiteral("Live: %1 W, stroke count %2, distance %3 m, elapsed %4 s, pace %5 s/500m, HR %6, rowing %7, workout state %8")
+             .arg(m_watts)
+             .arg(m_strokes)
+             .arg(m_distance, 0, 'f', 1)
+             .arg(m_elapsed, 0, 'f', 1)
+             .arg(m_pace, 0, 'f', 1)
+             .arg(m_hr)
+             .arg(m_rowingActive ? QStringLiteral("active") : QStringLiteral("inactive"))
+             .arg(m_workoutState);
+    return l.join(QLatin1Char('\n'));
+}
+
+int RowerDevice::computeStrokeRate(qint64 now)
+{
+    if (m_strokeMarks.isEmpty())
+        return 0;
+    const StrokeMark &last = m_strokeMarks.last();
+    const qint64 since = now - last.t;
+    if (since > kStrokeRateTimeoutMs) {
+        m_strokeMarks.clear();   // stopped: the next stroke starts a new window
+        return 0;
+    }
+    if (m_strokeMarks.size() < 2)
+        return 0;
+    const StrokeMark &first = m_strokeMarks.first();
+    const qint64 span = last.t - first.t;
+    const int strokes = last.count - first.count;   // > 1 per interval when packets were missed
+    if (strokes <= 0 || span < 100 * strokes)
+        return 0;   // implausible timing (> 600 spm)
+    double perStroke = double(span) / strokes;
+    // Slowing down / stopped: the running gap bounds the rate, so it decays
+    // instead of holding the last value until the timeout.
+    if (since > 1.5 * perStroke)
+        perStroke = double(since);
+    const int spm = int(std::lround(60000.0 / perStroke));
+    if (spm < kMinComputedSpm)
+        return 0;
+    return std::min(spm, kMaxComputedSpm);
+}
+
+void RowerDevice::updateStrokeRate()
+{
+    const qint64 now = nowMs();
+    m_computedSpm = computeStrokeRate(now);
+    // The monitor's value counts while it keeps reporting one. A monitor that
+    // just reported a positive rate and now says 0 has stopped rowing; a
+    // monitor that never reports a positive rate (or stopped reporting) is
+    // replaced by the rate computed from the strokes.
+    const bool deviceReporting = m_deviceSpmUpdateMs >= 0 && now - m_deviceSpmUpdateMs <= kStrokeRateTimeoutMs;
+    int spm = 0;
+    StrokeRateSource source = StrokeRateSource::None;
+    if (deviceReporting && m_deviceSpm > 0) {
+        spm = m_deviceSpm;
+        source = StrokeRateSource::Device;
+    } else if (deviceReporting && m_devicePositiveSpmMs >= 0 && now - m_devicePositiveSpmMs <= kStrokeRateTimeoutMs) {
+        source = StrokeRateSource::Device;   // monitor reports "stopped"
+    } else if (m_computedSpm > 0) {
+        spm = m_computedSpm;
+        source = StrokeRateSource::Strokes;
+    }
+    if (m_spmSource != source) {
+        m_spmSource = source;
+        m_dirty = true;
+    }
+    assign(m_spm, spm);
+}
+
+void RowerDevice::checkStrokeRate()
+{
+    const int before = m_spm;
+    const StrokeRateSource sourceBefore = m_spmSource;
+    const int computedBefore = m_computedSpm;
+    updateStrokeRate();
+    if (m_spm != before || m_spmSource != sourceBefore || m_computedSpm != computedBefore) {
+        m_dirty = true;
         commitMeasurement();
     }
 }
@@ -109,6 +227,13 @@ void RowerDevice::applyStroke(int strokeCount, int watts)
     }
     if (m_haveStroke && strokeCount == m_strokes)
         return;   // repeated packet for a stroke we already handled
+    const qint64 now = nowMs();
+    if (!m_strokeMarks.isEmpty()
+        && (strokeCount <= m_strokeMarks.last().count || now - m_strokeMarks.last().t > kStrokeRateTimeoutMs))
+        m_strokeMarks.clear();   // new workout or a pause: start a new timing window
+    m_strokeMarks.append({ now, strokeCount });
+    while (m_strokeMarks.size() > 5)   // 4 intervals
+        m_strokeMarks.removeFirst();
     m_haveStroke = true;
     assign(m_strokes, strokeCount);
     setWatts(std::max(0, watts));
@@ -116,7 +241,15 @@ void RowerDevice::applyStroke(int strokeCount, int watts)
     m_pendingStroke = true;
 }
 
-void RowerDevice::applyStrokeRate(int spm) { assign(m_spm, std::max(0, spm)); }
+void RowerDevice::applyStrokeRate(int spm)
+{
+    spm = std::max(0, spm);
+    const qint64 now = nowMs();
+    m_deviceSpmUpdateMs = now;
+    if (spm > 0)
+        m_devicePositiveSpmMs = now;
+    assign(m_deviceSpm, spm);
+}
 
 void RowerDevice::applyHeartRate(int bpm)
 {
@@ -164,6 +297,11 @@ void RowerDevice::clearLiveValues()
 {
     setWatts(0);
     assign(m_spm, 0);
+    assign(m_deviceSpm, 0);
+    m_computedSpm = 0;
+    m_strokeMarks.clear();
+    m_deviceSpmUpdateMs = m_devicePositiveSpmMs = -1;
+    m_spmSource = StrokeRateSource::None;
     assign(m_speed, 0.0);
     assign(m_pace, 0.0);
     assign(m_hr, 0);
@@ -181,8 +319,10 @@ void RowerDevice::commitMeasurement()
 {
     // Values are complete before any signal is emitted, so every handler sees
     // the measurement of this batch.
-    if (!m_clearing)
+    if (!m_clearing) {
         m_hasData = true;
+        updateStrokeRate();
+    }
     // Elapsed/distance restart per interval inside an interval workout; that is
     // only a new workout when the total work distance dropped as well.
     const bool reset = m_pendingWorkDrop || (m_pendingDrop && !isIntervalState(m_workoutState));

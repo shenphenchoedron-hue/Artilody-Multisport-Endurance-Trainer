@@ -4,6 +4,9 @@
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
+#include <QVector>
+
+#include <functional>
 
 namespace watt {
 
@@ -108,6 +111,14 @@ signals:
 //    already true while the signals of that first measurement are emitted.
 //  * workoutState is the raw PM5 OBJ_WORKOUTSTATE_T value (see
 //    pm5::WorkoutState); rowingActive mirrors the PM5 rowing state.
+//  * strokesPerMinute is the stroke rate reported by the monitor when it
+//    reports one (> 0). When the monitor reports no stroke rate for more than
+//    kStrokeRateTimeoutMs (missing characteristic, a firmware sending 0, ...)
+//    while strokes come in, the rate is computed from the time between the
+//    last strokes (up to 4 intervals, 60 / mean interval, clamped to
+//    5..80 spm); it decays when the strokes slow down and drops to 0
+//    kStrokeRateTimeoutMs after the last stroke. strokeRateEstimated tells
+//    which value is shown.
 class RowerDevice : public SensorDevice
 {
     Q_OBJECT
@@ -128,8 +139,15 @@ class RowerDevice : public SensorDevice
     Q_PROPERTY(int dragFactor READ dragFactor NOTIFY measurementChanged)
     Q_PROPERTY(int workoutState READ workoutState NOTIFY measurementChanged)
     Q_PROPERTY(bool rowingActive READ rowingActive NOTIFY measurementChanged)
+    Q_PROPERTY(int deviceStrokesPerMinute READ deviceStrokesPerMinute NOTIFY measurementChanged)
+    Q_PROPERTY(int computedStrokesPerMinute READ computedStrokesPerMinute NOTIFY measurementChanged)
+    Q_PROPERTY(bool strokeRateEstimated READ strokeRateEstimated NOTIFY measurementChanged)
 
 public:
+    static constexpr int kStrokeRateTimeoutMs = 6000;
+    static constexpr int kMinComputedSpm = 5;
+    static constexpr int kMaxComputedSpm = 80;
+    enum class StrokeRateSource { None, Device, Strokes };
     explicit RowerDevice(QObject *parent = nullptr);
 
     bool connected() const { return state() == LinkState::Connected; }
@@ -147,6 +165,19 @@ public:
     int dragFactor() const { return m_drag; }
     int workoutState() const { return m_workoutState; }
     bool rowingActive() const { return m_rowingActive; }
+    // Last stroke rate value reported by the monitor (0 = none / not rowing).
+    int deviceStrokesPerMinute() const { return m_deviceSpm; }
+    // Stroke rate computed from the stroke timestamps (0 = not enough strokes).
+    int computedStrokesPerMinute() const { return m_computedSpm; }
+    StrokeRateSource strokeRateSource() const { return m_spmSource; }
+    bool strokeRateEstimated() const { return m_spmSource == StrokeRateSource::Strokes; }
+    static QString strokeRateSourceText(StrokeRateSource s);
+
+    // Short description of where the live data comes from ("Concept2 rowing
+    // service", "FTMS Rower Data", ...). Default: protocol().
+    virtual QString dataSourceText() const { return protocol(); }
+    // Multi-line diagnostics of the live data path (diagnostics report).
+    virtual QString dataDiagnostics() const;
 
     bool hasData() const { return m_hasData; }
     int totalWorkDistance() const { return m_totalWork; }   // -1 = not reported
@@ -160,6 +191,15 @@ public:
     // tests can drive it with a fake clock). `msSinceLastStroke` < 0 means
     // "use the internal clock".
     void checkPowerHold(qint64 msSinceLastStroke = -1);
+    // Re-evaluates the stroke rate (fallback decay, stale monitor value);
+    // called by the same timer. Commits when the value changed.
+    void checkStrokeRate();
+
+    // Monotonic clock in ms used for the stroke-rate logic (tests inject a
+    // fake one).
+    using Clock = std::function<qint64()>;
+    void setClockForTesting(Clock clock) { m_clock = std::move(clock); }
+    qint64 nowMs() const;
 
     // Target power of a rowing plan (<= 0 = free rowing). A real monitor
     // cannot be controlled and ignores it; the simulated athlete follows it.
@@ -196,6 +236,8 @@ protected:
 
 private:
     void setWatts(int w);
+    void updateStrokeRate();
+    int computeStrokeRate(qint64 now);
     template<typename T> void assign(T &field, T value)
     {
         if (field != value) {
@@ -220,6 +262,20 @@ private:
     int m_holdMs = 5000;
     QElapsedTimer m_sinceStroke;
     QTimer m_holdTimer;
+
+    // stroke rate: monitor value and fallback from stroke timestamps
+    struct StrokeMark
+    {
+        qint64 t;
+        int count;
+    };
+    QVector<StrokeMark> m_strokeMarks;   // last <= 5 strokes
+    int m_deviceSpm = 0;
+    int m_computedSpm = 0;
+    qint64 m_deviceSpmUpdateMs = -1;     // last applyStrokeRate() (any value)
+    qint64 m_devicePositiveSpmMs = -1;   // last applyStrokeRate() with a value > 0
+    StrokeRateSource m_spmSource = StrokeRateSource::None;
+    Clock m_clock;
 };
 
 } // namespace watt

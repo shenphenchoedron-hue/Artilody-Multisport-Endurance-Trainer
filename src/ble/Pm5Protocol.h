@@ -104,7 +104,9 @@ struct GeneralStatus
 
 // 0x0032 – direct 17 bytes; multiplexed 19 bytes (average power inserted
 // before erg machine type). A direct packet of >= 19 bytes (current firmware)
-// is parsed in the 19-byte layout.
+// is parsed in the 19-byte layout. Stroke rate is byte 5 in both layouts; a
+// packet of 17/18 bytes is accepted in both layouts (fields after the rest
+// time are optional).
 struct AdditionalStatus1
 {
     double elapsedSeconds = 0;

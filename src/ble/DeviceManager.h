@@ -81,6 +81,10 @@ class DeviceManager : public QObject
     Q_PROPERTY(double rowerElapsed READ rowerElapsed NOTIFY rowerDataChanged)
     Q_PROPERTY(int rowerStrokeCount READ rowerStrokeCount NOTIFY rowerDataChanged)
     Q_PROPERTY(bool rowerActive READ rowerActive NOTIFY rowerDataChanged)
+    // "Concept2 rowing service (direct 0x31 0x32 0x36)", "FTMS Rower Data (0x2AD1)", ...
+    Q_PROPERTY(QString rowerDataSource READ rowerDataSource NOTIFY rowerDataChanged)
+    // true while the stroke rate is computed from the stroke timing
+    Q_PROPERTY(bool rowerStrokeRateEstimated READ rowerStrokeRateEstimated NOTIFY rowerDataChanged)
 
     Q_PROPERTY(QVariantList log READ log NOTIFY logChanged)
     Q_PROPERTY(bool autoConnect READ autoConnect WRITE setAutoConnect NOTIFY preferencesChanged)
@@ -147,6 +151,8 @@ public:
     double rowerElapsed() const { return m_rower ? m_rower->elapsedSeconds() : 0.0; }
     int rowerStrokeCount() const { return m_rower ? m_rower->strokeCount() : 0; }
     bool rowerActive() const { return m_rower && m_rower->rowingActive(); }
+    QString rowerDataSource() const { return m_rower ? m_rower->dataSourceText() : QString(); }
+    bool rowerStrokeRateEstimated() const { return m_rower && m_rower->strokeRateEstimated(); }
 
     QVariantList log() const { return m_log; }
     bool autoConnect() const { return m_autoConnect; }

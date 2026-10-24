@@ -73,6 +73,7 @@ void BleLink::cleanup()
 {
     m_settleTimer.stop();
     m_detailsTimeout.stop();
+    m_pendingCccd.clear();
     if (m_service) {
         m_service->disconnect(this);
         m_service->deleteLater();
@@ -173,9 +174,35 @@ void BleLink::onDiscoveryFinished()
             [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicChanged(ch.uuid(), v); });
     connect(m_service, &QLowEnergyService::characteristicRead, this,
             [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicRead(ch.uuid(), v); });
+    connect(m_service, &QLowEnergyService::descriptorWritten, this,
+            [this](const QLowEnergyDescriptor &d, const QByteArray &value) {
+                if (!m_service || d.uuid() != QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration))
+                    return;
+                const auto chars = m_service->characteristics();
+                for (const QLowEnergyCharacteristic &ch : chars) {
+                    if (ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration) != d)
+                        continue;
+                    for (int i = 0; i < m_pendingCccd.size(); ++i) {
+                        if (m_pendingCccd.at(i).uuid == ch.uuid()) {
+                            m_pendingCccd.removeAt(i);
+                            break;
+                        }
+                    }
+                    const bool enabled = !value.isEmpty() && (quint8(value.at(0)) & 0x03);
+                    emit notificationResult(ch.uuid(), enabled, true);
+                    return;
+                }
+            });
     connect(m_service, &QLowEnergyService::errorOccurred, this, [this](QLowEnergyService::ServiceError e) {
         if (e == QLowEnergyService::CharacteristicWriteError)
             emit writeFailed();
+        if (e == QLowEnergyService::DescriptorWriteError && !m_pendingCccd.isEmpty()) {
+            // Requests are processed in order: the oldest open CCCD write failed.
+            const PendingCccd p = m_pendingCccd.takeFirst();
+            emit logMessage(QStringLiteral("%1: could not %2 notifications for %3").arg(displayName(),
+                                p.enable ? QStringLiteral("enable") : QStringLiteral("disable"), uuidText(p.uuid)), false);
+            emit notificationResult(p.uuid, false, false);
+        }
         emit logMessage(QStringLiteral("GATT error %1").arg(int(e)), false);
     });
     m_service->discoverDetails();
@@ -272,8 +299,24 @@ bool BleLink::enableNotifications(const QBluetoothUuid &characteristic, bool ind
     const QLowEnergyDescriptor cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (!cccd.isValid())
         return false;
+    m_pendingCccd.append({ characteristic, true });
     m_service->writeDescriptor(cccd, indicate ? QLowEnergyCharacteristic::CCCDEnableIndication
                                               : QLowEnergyCharacteristic::CCCDEnableNotification);
+    return true;
+}
+
+bool BleLink::disableNotifications(const QBluetoothUuid &characteristic)
+{
+    if (!m_service)
+        return false;
+    const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
+    if (!ch.isValid())
+        return false;
+    const QLowEnergyDescriptor cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+    if (!cccd.isValid())
+        return false;
+    m_pendingCccd.append({ characteristic, false });
+    m_service->writeDescriptor(cccd, QLowEnergyCharacteristic::CCCDDisable);
     return true;
 }
 

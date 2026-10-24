@@ -830,6 +830,12 @@ QString DeviceManager::diagnosticsReport() const
         << "  virtual devices: " << (m_simulatorEnabled ? "on" : "off") << "\n";
     if (m_rower)
         out << "Active rower: " << m_rower->name() << " " << m_rower->id() << " state " << int(m_rower->state()) << "\n";
+    out << "\n[Rower data]\n";
+    if (m_rower) {
+        out << m_rower->dataDiagnostics() << "\n";
+    } else {
+        out << "No rower selected\n";
+    }
 
     out << "\n[Devices seen: " << m_diag.size() << "]\n";
     QList<DiagEntry> list = m_diag.values();

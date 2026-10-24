@@ -116,7 +116,11 @@ std::optional<GeneralStatus> parseGeneralStatus(const QByteArray &d)
 
 std::optional<AdditionalStatus1> parseAdditionalStatus1(const QByteArray &d, Layout layout)
 {
-    if (d.size() < expectedLength(kAdditionalStatus1, layout))
+    // The 17 common bytes (up to the rest time) are required in both
+    // layouts. A multiplexed packet is documented with 19 data bytes, but a
+    // shorter one must not lose the stroke rate/heart rate/pace: average power
+    // and machine type are read only when present.
+    if (d.size() < expectedLength(kAdditionalStatus1, Layout::Direct))
         return std::nullopt;
     AdditionalStatus1 s;
     s.elapsedSeconds = u24(d, 0) * 0.01;
@@ -135,10 +139,12 @@ std::optional<AdditionalStatus1> parseAdditionalStatus1(const QByteArray &d, Lay
     // Average power is part of the multiplexed packet. Current firmware also
     // sends the direct 0x0032 with 19 bytes in that layout (average power at
     // 16-17, machine type at 18), so the length decides.
-    if (layout == Layout::Multiplexed || d.size() >= 19) {
+    if (d.size() >= 19) {
         s.averagePowerW = int(u16(d, 16));
         s.ergMachineType = int(u8(d, 18));
-    } else {
+    } else if (layout == Layout::Multiplexed && d.size() >= 18) {
+        s.averagePowerW = int(u16(d, 16));   // machine type cut off
+    } else if (layout == Layout::Direct) {
         s.ergMachineType = int(u8(d, 16));
     }
     return s;

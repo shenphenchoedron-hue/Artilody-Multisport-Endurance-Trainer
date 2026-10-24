@@ -163,8 +163,51 @@ private slots:
     void additionalStatus1TooShort()
     {
         QVERIFY(!pm5::parseAdditionalStatus1(status1(false).left(16)));
-        // The multiplexed layout needs 19 bytes; a 17-byte direct packet is not enough.
-        QVERIFY(!pm5::parseAdditionalStatus1(status1(false), pm5::Layout::Multiplexed));
+        QVERIFY(!pm5::parseAdditionalStatus1(status1(true).left(16), pm5::Layout::Multiplexed));
+    }
+
+    void additionalStatus1ShortMultiplexedKeepsStrokeRate()
+    {
+        // A multiplexed 0x32 shorter than the documented 19 bytes must not lose
+        // the stroke rate (it used to be dropped as a whole).
+        const auto s17 = pm5::parseAdditionalStatus1(status1(true).left(17), pm5::Layout::Multiplexed);
+        QVERIFY(s17);
+        QCOMPARE(s17->strokesPerMinute, 24);
+        QCOMPARE(s17->heartRateBpm, 142);
+        QCOMPARE(s17->currentPace500Seconds, 117.65);
+        QVERIFY(!s17->averagePowerW);
+        const auto s18 = pm5::parseAdditionalStatus1(status1(true).left(18), pm5::Layout::Multiplexed);
+        QVERIFY(s18);
+        QCOMPARE(s18->strokesPerMinute, 24);
+        QCOMPARE(*s18->averagePowerW, 187);
+    }
+
+    void additionalStatus1StrokeRateOffset_data()
+    {
+        QTest::addColumn<int>("size");
+        QTest::addColumn<bool>("mux");
+        QTest::newRow("direct 17") << 17 << false;
+        QTest::newRow("direct 19") << 19 << false;
+        QTest::newRow("mux 19") << 19 << true;
+        QTest::newRow("mux 17") << 17 << true;
+    }
+
+    void additionalStatus1StrokeRateOffset()
+    {
+        QFETCH(int, size);
+        QFETCH(bool, mux);
+        // stroke rate is byte 5 in every layout; neighbours differ to catch an off-by-one
+        QByteArray d = status1(size >= 19).left(size);
+        d[4] = char(0x11);
+        d[5] = char(31);
+        d[6] = char(150);
+        const auto s = pm5::parseAdditionalStatus1(d, mux ? pm5::Layout::Multiplexed : pm5::Layout::Direct);
+        QVERIFY(s);
+        QCOMPARE(s->strokesPerMinute, 31);
+        QCOMPARE(s->heartRateBpm, 150);
+        const auto p = pm5::parseMultiplexed(QByteArray(1, char(0x32)) + d);
+        QVERIFY(p && p->additionalStatus1);
+        QCOMPARE(p->additionalStatus1->strokesPerMinute, 31);
     }
 
     void additionalStatus1Multiplexed()
@@ -317,7 +360,7 @@ private slots:
     {
         QVERIFY(!pm5::parseMultiplexed(QByteArray()));
         // Truncated payload of a supported id is rejected.
-        QVERIFY(!pm5::parseMultiplexed(QByteArray(1, char(0x32)) + status1(false)));   // 17 < 19
+        QVERIFY(!pm5::parseMultiplexed(QByteArray(1, char(0x32)) + status1(false).left(16)));   // < 17
         QVERIFY(!pm5::parseMultiplexed(QByteArray(1, char(0x31)) + generalStatus().left(10)));
         // Other ids are reported but not decoded.
         const auto p = pm5::parseMultiplexed(QByteArray(1, char(0x35)) + QByteArray(18, '\0'));

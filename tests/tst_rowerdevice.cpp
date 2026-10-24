@@ -39,6 +39,12 @@ public:
     }
     void hr(int bpm) { applyHeartRate(bpm); commitMeasurement(); }
     void rate(int spm) { applyStrokeRate(spm); commitMeasurement(); }
+    void strokeWithRate(int count, int watts, int spm)
+    {
+        applyStroke(count, watts);
+        applyStrokeRate(spm);
+        commitMeasurement();
+    }
     void applyBatch(double t, double d, int strokeCount, int watts)
     {
         applyElapsed(t);
@@ -85,6 +91,44 @@ static QBluetoothDeviceInfo ftmsDevice(const QString &address, const QString &na
                         bytes({ 0x01, machineType & 0xFF, (machineType >> 8) & 0xFF }));
     return info;
 }
+
+static QByteArray le(quint32 v, int bytes)
+{
+    QByteArray b;
+    for (int i = 0; i < bytes; ++i)
+        b.append(char((v >> (8 * i)) & 0xFF));
+    return b;
+}
+
+// 0x0031 general status (19 bytes): rowing active, workout row
+static QByteArray pmGeneral(double t, double d, bool active = true)
+{
+    QByteArray b = le(quint32(std::lround(t * 100)), 3) + le(quint32(std::lround(d * 10)), 3);
+    b += bytes({ 0, 0, active ? 1 : 0, active ? 1 : 0, 1 });
+    b += le(0, 3) + le(0, 3) + bytes({ 0, 120 });
+    return b;
+}
+
+// 0x0032 additional status 1: 17 bytes (direct) or 19 (multiplexed / current firmware)
+static QByteArray pmStatus1(double t, int spm, int size = 17)
+{
+    QByteArray b = le(quint32(std::lround(t * 100)), 3) + le(4250, 2);
+    b += bytes({ spm, 255 });             // spm, hr invalid
+    b += le(11765, 2) + le(12010, 2);     // pace, avg pace
+    b += le(0, 2) + le(0, 3);             // rest distance/time
+    if (size >= 18)
+        b += le(187, 2);                  // average power
+    b += bytes({ 0 });                    // machine type
+    return b.left(size);
+}
+
+// 0x0036 additional stroke data (15 bytes)
+static QByteArray pmStroke(double t, int count, int watts)
+{
+    return le(quint32(std::lround(t * 100)), 3) + le(quint32(watts), 2) + le(1000, 2) + le(quint32(count), 2) + le(0, 3) + le(0, 3);
+}
+
+static QBluetoothUuid pmChar(quint16 id) { return QBluetoothUuid(pm5::uuid(id)); }
 
 // DeviceManager without Bluetooth: initialize() is not called, so no adapter
 // is opened and no simulated entries are added; scan results are fed through
@@ -579,6 +623,293 @@ private slots:
         QCOMPARE(r.strokeCount(), 57);
         QCOMPARE(r.watts(), 212);
         QCOMPARE(r.protocol(), QStringLiteral("Concept2 PM5 Bluetooth"));
+    }
+
+    // --- stroke rate (1.1.4) ----------------------------------------------------
+
+    void concept2DirectStatus1StrokeRate_data()
+    {
+        QTest::addColumn<int>("size");
+        QTest::newRow("17 bytes") << 17;
+        QTest::newRow("19 bytes") << 19;
+    }
+
+    void concept2DirectStatus1StrokeRate()
+    {
+        QFETCH(int, size);
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:DD:01"), QStringLiteral("PM5 430123456"), {}));
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), pmStatus1(10, 27, size));
+        QCOMPARE(r.strokesPerMinute(), 27);
+        QCOMPARE(r.deviceStrokesPerMinute(), 27);
+        QVERIFY(!r.strokeRateEstimated());
+        QCOMPARE(r.lastDecodedStrokeRate(), 27);
+        QCOMPARE(r.channels().value(QStringLiteral("0x0032")).packets, 1);
+    }
+
+    void concept2MultiplexedStrokeRate_data()
+    {
+        QTest::addColumn<int>("size");
+        QTest::newRow("19 bytes (documented)") << 19;
+        QTest::newRow("18 bytes") << 18;
+        QTest::newRow("17 bytes (short firmware)") << 17;
+    }
+
+    void concept2MultiplexedStrokeRate()
+    {
+        QFETCH(int, size);
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:DD:02"), QStringLiteral("PM5 430123456"), {}));
+        r.processNotification(pmChar(pm5::kMultiplexed), QByteArray(1, char(0x32)) + pmStatus1(10, 22, size));
+        QCOMPARE(r.strokesPerMinute(), 22);
+        const auto ch = r.channels();
+        QCOMPARE(ch.value(QStringLiteral("0x0080")).packets, 1);
+        QCOMPARE(ch.value(QStringLiteral("0x0080/0x32")).packets, 1);
+        QCOMPARE(ch.value(QStringLiteral("0x0080/0x32")).undecoded, 0);
+        QVERIFY(r.dataSourceText().contains(QStringLiteral("0x0080 multiplex 0x32")));
+    }
+
+    void concept2SequenceKeepsStrokeRate()
+    {
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:DD:03"), QStringLiteral("PM5 430123456"), {}));
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        r.processNotification(pmChar(pm5::kGeneralStatus), pmGeneral(9.8, 40));
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), pmStatus1(10, 26));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        now += 100;
+        r.processNotification(pmChar(pm5::kAdditionalStrokeData), pmStroke(10.1, 5, 190));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        QCOMPARE(r.watts(), 190);
+        now += 100;
+        r.processNotification(pmChar(pm5::kGeneralStatus), pmGeneral(10.2, 41));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        // multiplexed copies of the other ids do not touch it either
+        r.processNotification(pmChar(pm5::kMultiplexed), QByteArray(1, char(0x31)) + pmGeneral(10.3, 41.5));
+        r.processNotification(pmChar(pm5::kMultiplexed), QByteArray(1, char(0x36)) + pmStroke(10.3, 5, 190) + le(0, 2));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        // power hold decay leaves the rate alone
+        r.checkPowerHold(10000);
+        QCOMPARE(r.watts(), 0);
+        QCOMPARE(r.strokesPerMinute(), 26);
+        QVERIFY(r.dataSourceText().startsWith(QStringLiteral("Concept2 rowing service (direct 0x31 0x32 0x36")));
+    }
+
+    void ftmsSplitPacketsKeepStrokeRate()
+    {
+        Pm5Rower r(ftmsDevice(QStringLiteral("D4:36:39:AA:DD:04"), QStringLiteral("PM5 430123456"), 0x0010));
+        const QBluetoothUuid rowerData(ftms::kRowerDataUuid);
+        // bit0 = 1: distance + power, no stroke rate
+        const QByteArray more = bytes({ 0x25, 0x00, 0xE8, 0x03, 0x00, 0xC8, 0x00 });   // 1000 m, 200 W
+        // bit0 = 0: stroke rate 48 (0.5 /min) -> 24 spm, stroke count 30, elapsed 240 s
+        const QByteArray rate = bytes({ 0x00, 0x08, 48, 30, 0x00, 0xF0, 0x00 });
+        r.processNotification(rowerData, more);
+        r.processNotification(rowerData, rate);
+        QCOMPARE(r.strokesPerMinute(), 24);
+        QCOMPARE(r.distanceMeters(), 1000.0);
+        QCOMPARE(r.watts(), 200);
+        QCOMPARE(r.elapsedSeconds(), 240.0);
+        // the next record starts with packets without stroke rate: kept
+        r.processNotification(rowerData, bytes({ 0x25, 0x00, 0xE9, 0x03, 0x00, 0xCA, 0x00 }));
+        QCOMPARE(r.strokesPerMinute(), 24);
+        r.processNotification(rowerData, bytes({ 0x25, 0x00, 0xEA, 0x03, 0x00, 0xCC, 0x00 }));   // overlapping: releases the first
+        QCOMPARE(r.strokesPerMinute(), 24);
+        QCOMPARE(r.distanceMeters(), 1001.0);
+        // a packet with only stroke rate/count is applied on its own
+        r.processNotification(rowerData, bytes({ 0x00, 0x00, 52, 31, 0x00 }));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        QCOMPARE(r.strokeCount(), 31);
+        QCOMPARE(r.lastDecodedStrokeRate(), 26);
+        // average stroke rate (bit 1) is not taken as stroke rate
+        r.processNotification(rowerData, bytes({ 0x03, 0x00, 80 }));
+        QCOMPARE(r.strokesPerMinute(), 26);
+        QCOMPARE(r.dataSourceText(), QStringLiteral("FTMS Rower Data (0x2AD1)"));
+        QCOMPARE(r.channels().value(QStringLiteral("0x2AD1")).packets, 6);
+    }
+
+    void ftmsStrokeRateFirstThenMoreData()
+    {
+        // order the other way round: stroke rate packet first, More Data after it
+        Pm5Rower r(ftmsDevice(QStringLiteral("D4:36:39:AA:DD:05"), QStringLiteral("PM5 430123456"), 0x0010));
+        const QBluetoothUuid rowerData(ftms::kRowerDataUuid);
+        r.processNotification(rowerData, bytes({ 0x00, 0x00, 48, 10, 0x00 }));
+        QCOMPARE(r.strokesPerMinute(), 24);
+        r.processNotification(rowerData, bytes({ 0x21, 0x00, 0xC8, 0x00 }));   // power only, More Data
+        r.processNotification(rowerData, bytes({ 0x05, 0x00, 0xE8, 0x03, 0x00 }));
+        QCOMPARE(r.strokesPerMinute(), 24);
+        r.processNotification(rowerData, bytes({ 0x00, 0x00, 50, 11, 0x00 }));
+        QCOMPARE(r.strokesPerMinute(), 25);
+        QCOMPARE(r.distanceMeters(), 1000.0);
+        QCOMPARE(r.watts(), 200);
+    }
+
+    void strokeRateFallbackFromStrokeTiming()
+    {
+        FakeRower r;
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        r.connectDevice();
+        QSignalSpy changed(&r, &RowerDevice::measurementChanged);
+        r.stroke(1, 180);
+        QCOMPARE(r.strokesPerMinute(), 0);   // one stroke: no interval yet
+        now += 2500;
+        r.stroke(2, 180);
+        QCOMPARE(r.strokesPerMinute(), 24);
+        QVERIFY(r.strokeRateEstimated());
+        QCOMPARE(r.strokeRateSource(), RowerDevice::StrokeRateSource::Strokes);
+        // smoothed over the last 4 intervals: 2.5, 2.0, 2.0, 2.0 s -> 2.125 s -> 28
+        for (int i = 3; i <= 5; ++i) {
+            now += 2000;
+            r.stroke(i, 180);
+        }
+        QCOMPARE(r.strokesPerMinute(), int(std::lround(60000.0 / ((2500 + 3 * 2000) / 4.0))));
+        now += 2000;
+        r.stroke(6, 180);   // window drops the 2.5 s interval
+        QCOMPARE(r.strokesPerMinute(), 30);
+        // a missed stroke packet (count jumps by 2) does not halve the rate
+        now += 4000;
+        r.stroke(8, 180);
+        QCOMPARE(r.strokesPerMinute(), 30);
+        // slowing down: after > 1.5 intervals the running gap bounds the rate
+        now += 2500;
+        r.checkStrokeRate();
+        QCOMPARE(r.strokesPerMinute(), 30);
+        now += 1500;   // 4 s since the last stroke
+        r.checkStrokeRate();
+        QCOMPARE(r.strokesPerMinute(), 15);
+        now += 2001;   // > 6 s without a stroke
+        r.checkStrokeRate();
+        QCOMPARE(r.strokesPerMinute(), 0);
+        QVERIFY(!r.strokeRateEstimated());
+        QVERIFY(changed.count() > 0);
+        // a new piece starts a fresh window
+        now += 10000;
+        r.stroke(9, 150);
+        QCOMPARE(r.strokesPerMinute(), 0);
+        now += 3000;
+        r.stroke(10, 150);
+        QCOMPARE(r.strokesPerMinute(), 20);
+    }
+
+    void strokeRateFallbackClamps()
+    {
+        FakeRower r;
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        r.connectDevice();
+        for (int i = 1; i <= 5; ++i) {
+            r.stroke(i, 100);
+            now += 500;   // 120 spm: implausible for rowing
+        }
+        now -= 500;
+        r.checkStrokeRate();
+        QCOMPARE(r.strokesPerMinute(), RowerDevice::kMaxComputedSpm);
+        // simultaneous packets (no time between strokes) give no rate
+        FakeRower z;
+        z.setClockForTesting([] { return qint64(1000); });
+        z.stroke(1, 100);
+        z.stroke(2, 100);
+        QCOMPARE(z.strokesPerMinute(), 0);
+    }
+
+    void deviceStrokeRatePreferred()
+    {
+        FakeRower r;
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        r.connectDevice();
+        // strokes every 2 s (30 spm computed), the monitor says 28: monitor wins
+        for (int i = 1; i <= 4; ++i) {
+            r.strokeWithRate(i, 200, 28);
+            now += 2000;
+        }
+        QCOMPARE(r.strokesPerMinute(), 28);
+        QCOMPARE(r.computedStrokesPerMinute(), 30);
+        QVERIFY(!r.strokeRateEstimated());
+        // the monitor stops reporting a rate (characteristic lost) while strokes go on
+        for (int i = 5; i <= 8; ++i) {
+            r.stroke(i, 200);
+            now += 2000;
+        }
+        r.checkStrokeRate();
+        QCOMPARE(r.strokesPerMinute(), 30);
+        QVERIFY(r.strokeRateEstimated());
+        // reporting again
+        r.strokeWithRate(9, 200, 27);
+        QCOMPARE(r.strokesPerMinute(), 27);
+        // the monitor reports 0 right after a positive rate: rowing stopped -> 0
+        now += 500;
+        r.rate(0);
+        QCOMPARE(r.strokesPerMinute(), 0);
+        QCOMPARE(r.strokeRateSource(), RowerDevice::StrokeRateSource::Device);
+    }
+
+    void deviceReportingZeroUsesFallback()
+    {
+        // e.g. a firmware whose stroke rate field stays 0 while strokes come in
+        FakeRower r;
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        r.connectDevice();
+        for (int i = 1; i <= 4; ++i) {
+            r.strokeWithRate(i, 200, 0);
+            now += 2400;
+        }
+        now -= 2400;
+        QCOMPARE(r.strokesPerMinute(), 25);
+        QVERIFY(r.strokeRateEstimated());
+        r.disconnectDevice();
+        QCOMPARE(r.strokesPerMinute(), 0);
+        QCOMPARE(r.computedStrokesPerMinute(), 0);
+    }
+
+    void pm5WithoutStatus1ComputesStrokeRate()
+    {
+        // 0x0032 never arrives (subscription lost): 0x31 + 0x36 only
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:DD:06"), QStringLiteral("PM5 430123456"), {}));
+        qint64 now = 0;
+        r.setClockForTesting([&now] { return now; });
+        for (int i = 1; i <= 5; ++i) {
+            const double t = 10 + 2.0 * i;
+            r.processNotification(pmChar(pm5::kGeneralStatus), pmGeneral(t, 8.0 * i));
+            r.processNotification(pmChar(pm5::kAdditionalStrokeData), pmStroke(t, i, 200));
+            now += 2000;
+        }
+        now -= 2000;
+        QCOMPARE(r.strokesPerMinute(), 30);
+        QVERIFY(r.strokeRateEstimated());
+        QCOMPARE(r.lastDecodedStrokeRate(), -1);
+        const QString diag = r.dataDiagnostics();
+        QVERIFY2(diag.contains(QStringLiteral("Additional Status 1 (stroke rate) via: none received")), qPrintable(diag));
+        QVERIFY2(diag.contains(QStringLiteral("computed from stroke timing")), qPrintable(diag));
+        QVERIFY2(diag.contains(QStringLiteral("0x0036")), qPrintable(diag));
+        QVERIFY2(diag.contains(QString::fromLatin1(pmStroke(20, 5, 200).toHex(' '))), qPrintable(diag));
+        // the monitor's rate takes over as soon as 0x0032 arrives
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), pmStatus1(20.1, 29));
+        QCOMPARE(r.strokesPerMinute(), 29);
+        QVERIFY(!r.strokeRateEstimated());
+        QVERIFY(r.dataDiagnostics().contains(QStringLiteral("via: 0x0032")));
+    }
+
+    void pm5DiagnosticsCountersAndRawHex()
+    {
+        Pm5Rower r(bluezDevice(QStringLiteral("D4:36:39:AA:DD:07"), QStringLiteral("PM5 430123456"), {}));
+        const QByteArray s1 = pmStatus1(5, 21, 19);
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), s1);
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), s1);
+        r.processNotification(pmChar(pm5::kAdditionalStatus1), s1.left(10));   // truncated: counted, not decoded
+        r.processNotification(pmChar(pm5::kMultiplexed), QByteArray(1, char(0x35)) + QByteArray(18, '\0'));
+        const auto ch = r.channels();
+        QCOMPARE(ch.value(QStringLiteral("0x0032")).packets, 3);
+        QCOMPARE(ch.value(QStringLiteral("0x0032")).undecoded, 1);
+        QCOMPARE(ch.value(QStringLiteral("0x0032")).last, s1.left(10));
+        QCOMPARE(ch.value(QStringLiteral("0x0080/0x35")).packets, 1);
+        QCOMPARE(r.strokesPerMinute(), 21);
+        const QString diag = r.dataDiagnostics();
+        QVERIFY2(diag.contains(QStringLiteral("Last decoded stroke rate: 21 SPM")), qPrintable(diag));
+        QVERIFY2(diag.contains(QStringLiteral("(1 undecoded)")), qPrintable(diag));
+        QVERIFY2(diag.contains(QString::fromLatin1(s1.left(10).toHex(' '))), qPrintable(diag));
+        QVERIFY2(diag.contains(QStringLiteral("Stroke rate: 21 SPM (source: monitor)")), qPrintable(diag));
+        QCOMPARE(Pm5Rower::channelKey(ftms::kRowerDataUuid), QStringLiteral("0x2AD1"));
+        QCOMPARE(Pm5Rower::channelKey(pm5::kGeneralStatus), QStringLiteral("0x0031"));
     }
 };
 

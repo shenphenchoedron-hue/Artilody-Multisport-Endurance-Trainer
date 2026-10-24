@@ -44,7 +44,9 @@ public:
     QString gattSummary() const;
     static QString uuidText(const QBluetoothUuid &uuid);
 
+    // Queues the CCCD write; the outcome is reported by notificationResult().
     bool enableNotifications(const QBluetoothUuid &characteristic, bool indicate = false);
+    bool disableNotifications(const QBluetoothUuid &characteristic);
     bool write(const QBluetoothUuid &characteristic, const QByteArray &data, bool withResponse = true);
     bool read(const QBluetoothUuid &characteristic);
 
@@ -56,6 +58,9 @@ signals:
     void writeFailed();   // a characteristic write was rejected by the peripheral
     void serviceMissing(); // connected, but the peripheral lacks the required service
     void gattDiscovered(const QString &summary);   // after every (re)discovery
+    // Outcome of a CCCD write queued by enable/disableNotifications():
+    // ok == false when the peripheral/stack rejected it.
+    void notificationResult(const QBluetoothUuid &characteristic, bool enabled, bool ok);
     void rssiChanged(int rssi);
     void logMessage(const QString &text, bool ok);
 
@@ -88,6 +93,12 @@ private:
     QTimer m_rssiTimer;
     QTimer m_settleTimer;
     QTimer m_detailsTimeout;
+    struct PendingCccd
+    {
+        QBluetoothUuid uuid;
+        bool enable;
+    };
+    QList<PendingCccd> m_pendingCccd;   // CCCD writes in the order they were queued
 };
 
 } // namespace watt

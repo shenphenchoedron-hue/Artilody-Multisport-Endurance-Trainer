@@ -449,7 +449,7 @@ Item {
                                                     Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 12 }
                                                     Text {
                                                         text: index === 0 ? Devices.rowerWatts + " W"
-                                                              : index === 1 ? Devices.rowerStrokesPerMinute + " SPM"
+                                                              : index === 1 ? (Devices.rowerStrokeRateEstimated ? "≈" : "") + Devices.rowerStrokesPerMinute + " SPM"
                                                               : index === 2 ? page.paceText(Devices.rowerPace500)
                                                               : Theme.thousands(Devices.rowerDistance) + " m"
                                                         color: Theme.text
@@ -551,6 +551,7 @@ Item {
 
     // --- diagnostics -------------------------------------------------------------
     Card {
+        id: diagCard
         x: availableCard.x
         y: availableCard.y + availableCard.height + Theme.spacing
         width: availableCard.width
@@ -597,15 +598,22 @@ Item {
                     { k: "Adapter", v: Devices.adapterName },
                     { k: "Connection mode", v: "Bluetooth Low Energy" },
                     { k: "Signal", v: Devices.trainerState === 2 ? (Devices.trainerRssi >= -75 ? "Stable" : "Weak") : "–", good: Devices.trainerRssi >= -75 },
-                    { k: "Last scan", v: Devices.lastScanText }
+                    { k: "Last scan", v: Devices.lastScanText },
+                    { k: "Rower data", v: Devices.rowerConnected
+                                          ? Devices.rowerDataSource + "  •  " + Devices.rowerStrokesPerMinute + " SPM"
+                                            + (Devices.rowerStrokeRateEstimated ? " (from stroke timing)" : "")
+                                          : "–" }
                 ]
                 Item {
                     width: parent.width
-                    height: 36
+                    // five rows share the space below the header
+                    height: Math.max(26, Math.min(36, (diagCard.height - 64 - 8) / 5))
                     Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
                     Text { x: 6; anchors.verticalCenter: parent.verticalCenter; text: modelData.k; color: Theme.text; font.pixelSize: 17 }
                     Text {
                         x: 175
+                        width: parent.width - x - 6
+                        elide: Text.ElideRight
                         anchors.verticalCenter: parent.verticalCenter
                         text: modelData.v
                         color: modelData.k === "Signal" && modelData.v === "Stable" ? Theme.success : Theme.textSecondary
