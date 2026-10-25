@@ -88,6 +88,57 @@ private slots:
         QCOMPARE(b.selected().value(QStringLiteral("name")).toString(), name);
     }
 
+    void percentEditsAndGeneratedGroups()
+    {
+        WorkoutBuilder b(db, profiles);   // warm up, sweet spot, cool down
+        b.setPercent(0, 45);
+        b.setEndPercent(0, 75);
+        QCOMPARE(b.selected().value(QStringLiteral("index")).toInt(), 1);
+        QCOMPARE(b.block(0).value(QStringLiteral("percent")).toInt(), 45);
+        QCOMPARE(b.block(0).value(QStringLiteral("endPercent")).toInt(), 75);
+
+        b.setSelectedIndex(1);
+        b.addIntervalSet(5, 30, 120, 60, 55, false);   // 5 × 30 s @ 120 % / 1 min @ 55 %, no last recovery
+        QCOMPARE(b.blockCount(), 12);
+        QCOMPARE(b.selectionCount(), 9);
+        QCOMPARE(b.selectedIndex(), 2);
+        b.addSteps(4, 90, 50, 80);                     // rising staircase after the set
+        QCOMPARE(b.selectionCount(), 4);
+        QCOMPARE(b.selectionDurationSec(), 4 * 90);
+
+        // a batch edit of all selected blocks recomputes the workout once
+        QSignalSpy content(&b, &WorkoutBuilder::contentChanged);
+        QSignalSpy selected(&b, &WorkoutBuilder::selectedChanged);
+        b.beginBatch();
+        for (int r : b.selectedRows())
+            b.setDuration(r, 60);
+        QCOMPARE(content.count(), 0);
+        b.endBatch();
+        QCOMPARE(content.count(), 1);
+        QCOMPARE(selected.count(), 1);
+        QCOMPARE(b.selectionDurationSec(), 4 * 60);
+        b.endBatch();                                  // unbalanced end: no effect
+        QCOMPARE(content.count(), 1);
+        QVERIFY(b.setDurationText(b.selectedRows().constFirst(), QStringLiteral("1:30")));
+        QCOMPARE(content.count(), 2);                  // outside a batch: emitted right away
+        QCOMPARE(b.block(b.selectedRows().constLast()).value(QStringLiteral("percent")).toInt(), 80);
+        QCOMPARE(b.block(b.selectedRows().constFirst()).value(QStringLiteral("duration")).toInt(), 90);
+
+        // move the staircase to the start as one group
+        b.moveSelection(0);
+        QCOMPARE(b.selectedRows(), QVector<int>({ 0, 1, 2, 3 }));
+        QCOMPARE(b.block(0).value(QStringLiteral("percent")).toInt(), 50);
+        QCOMPARE(b.block(4).value(QStringLiteral("type")).toString(), QStringLiteral("warmup"));
+        b.shiftSelection(1);
+        QCOMPARE(b.block(0).value(QStringLiteral("type")).toString(), QStringLiteral("warmup"));
+        b.removeSelection();
+        QCOMPARE(b.blockCount(), 12);
+
+        const qint64 id = b.save();
+        QVERIFY(id > 0);
+        QCOMPARE(db->workout(id)->intervals.size(), 12);
+    }
+
     void saveKeepsFavoriteAndUsage()
     {
         WorkoutBuilder b(db, profiles);

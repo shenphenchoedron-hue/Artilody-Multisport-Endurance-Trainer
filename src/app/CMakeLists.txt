@@ -36,6 +36,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/SportBadge.qml
     ${QML_ROOT}/components/DatePickerDialog.qml
     ${QML_ROOT}/components/SegmentedControl.qml
+    ${QML_ROOT}/components/BlockPreview.qml
     # rowing
     ${QML_ROOT}/components/RowingBoat.qml
     ${QML_ROOT}/components/RowingMetric.qml
@@ -59,6 +60,8 @@ set(APP_QML_FILES
     ${QML_ROOT}/dialogs/WorkoutDetailsDialog.qml
     ${QML_ROOT}/dialogs/ConfirmDialog.qml
     ${QML_ROOT}/dialogs/FtpResultDialog.qml
+    ${QML_ROOT}/dialogs/RampDialog.qml
+    ${QML_ROOT}/dialogs/IntervalSetDialog.qml
 )
 
 # All QML files live flat in the module root inside the resource system so they
