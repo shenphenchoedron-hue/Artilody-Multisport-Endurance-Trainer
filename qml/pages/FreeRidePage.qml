@@ -176,7 +176,8 @@ Item {
                     iconName: "bolt"
                     iconColor: Theme.warningText
                     valueColor: Theme.warningText
-                    value: FreeRide.watts
+                    showPowerAverage: true
+                    value: Sensors.displayPower
                     unit: "W"
                     footer: FreeRide.mode === "erg" ? "Target: " + FreeRide.targetWatts + " W"
                             : FreeRide.mode === "gears" && FreeRide.gearTargetWatts > 0

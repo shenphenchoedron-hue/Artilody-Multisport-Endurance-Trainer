@@ -187,7 +187,7 @@ def build(s, env):
         f"Linux and Raspberry Pi: {C('sudo apt remove artilody-watts-trainer')}.",
     ])
     s.note("Your rides, profiles, workouts and settings are stored separately in your user folder (see "
-           "section 14.2) and are kept when you uninstall the app.")
+           "section 14.3) and are kept when you uninstall the app.")
 
     s.section("First start")
     s.p("On the very first start the app creates its database and fills it with:")
@@ -222,14 +222,16 @@ def build(s, env):
     s.table(["Item", "Purpose"], [
         [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
         [UI("Free Ride"), "Ride without a workout: virtual gears, ERG at a set wattage, Zwift Click (chapter 12)."],
+        [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
         [UI("Calendar"), "The training plan: plan, move and start workouts by day (chapter 10)."],
         [UI("Builder"), "The Workout Builder for creating and editing workouts."],
-        [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("History"), "Recorded rides and rows, analysis, time in zones, FIT and CSV export."],
         [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
         [UI("Profile"), "Opens the User Profile dialog for the current rider."],
     ], [1.2, 4.5])
+    s.p("The three training pages – Dashboard (cycling workouts), Free Ride and Rowing – are at the top, "
+        "followed by planning (Workouts, Calendar, Builder), History and Devices.")
     s.p("While a workout is armed or running, a status box appears at the bottom of the sidebar. It shows "
         "<i>Waiting… / Start pedaling</i>, <i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
         "current power. Click it to jump back to the Dashboard from any page. A free ride shows "
@@ -591,7 +593,9 @@ def build(s, env):
     s.sub("Metric cards")
     s.table(["Card", "Shows"], [
         [UI("Power"), "Current power in watts. The bar is coloured by your current power zone. Footer: the "
-                      "target power and your deviation from it (e.g. <i>+2 W</i>)."],
+                      "target power and your deviation from it (e.g. <i>+2 W</i>). The small <b>3 s avg</b> badge "
+                      "shows that the value is the rolling 3-second average (section 14.2); click it to switch "
+                      "to the raw trainer value (<i>Instant</i>) and back."],
         [UI("Cadence"), "Current cadence in RPM. Footer: the target range ±5 RPM around the interval's cadence, "
                         "or around your preferred cadence if the interval has none."],
         [UI("Heart Rate"), "Current heart rate in BPM, or “–” without data. The bar is coloured by heart-rate "
@@ -1263,7 +1267,8 @@ def build(s, env):
 
     s.section("The page")
     s.bullets([
-        "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs), speed (average), "
+        "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
+        "badge shows the rolling average and toggles it, section 14.2), speed (average), "
         "cadence (current gear), heart rate (% of max), time (average power) and distance (energy in kJ).",
         "<b>Control panel</b> – Virtual Gears, ERG or Free, depending on the mode (below).",
         f"<b>Chart</b> – power (yellow area), virtual speed (cyan) and heart rate (pink) over time; in ERG mode a "
@@ -1410,8 +1415,27 @@ def build(s, env):
         f"{UI('Dark theme')} – same as the sun/moon button.",
         f"{UI('Show virtual devices')} and {UI('Auto-connect known devices')} – same as in Connection "
         "Preferences on the Devices page.",
+        f"{UI('Smooth power')} – shows cycling watts as a rolling average (on by default, 3 s) and the length "
+        "of the average: 1, 3, 5 or 10 s (section 14.2).",
         "The full path of the database file (<i>“All data is stored locally (offline) in SQLite”</i>).",
         f"The app version. {UI('Done')} closes the dialog.",
+    ])
+    s.section("Power smoothing (3 s average)")
+    s.p("Nobody pedals exactly evenly with both legs, so the power a trainer reports changes with every pedal "
+        "stroke and the raw number jumps up and down. With "
+        f"{UI('Smooth power')} on (the default) the app shows the <b>average over the last 3 seconds</b> "
+        "instead – like most training apps and bike computers. The average is time-based: every reading counts "
+        "for as long as it was current, so it works the same with trainers that send 1, 2 or 4 readings a "
+        "second. When the trainer stops sending, the value drops to 0 after 3 seconds.")
+    s.bullets([
+        "Used for the displayed watts on the Dashboard power card (including the deviation from the target and "
+        "the zone colour of its bar), the Free Ride power tile and ERG panel (<i>Actual … W</i>), the sidebar "
+        "status box and the live trainer values on the Devices page (<i>Power 3s</i>).",
+        "<b>Not</b> used for recording: rides keep the raw per-second power, so averages, NP, IF, TSS, zones, "
+        "FIT/CSV export, the FTP test (best 1-minute power), ERG control and virtual gearing are unchanged.",
+        "Rowing is not affected – the PM5 already reports power per stroke.",
+        f"Change it in the Settings dialog ({UI('Smooth power')}: switch plus 1 / 3 / 5 / 10 s) or click the "
+        f"{UI('3 s avg')} badge on the power card; the setting is stored in the database and kept after a restart.",
     ])
     s.section("Where your data is stored")
     s.p(f"Everything – profiles, workouts, rides and rows with per-second data, the training plan, rowing "

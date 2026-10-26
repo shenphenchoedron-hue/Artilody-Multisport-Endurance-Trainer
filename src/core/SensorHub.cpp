@@ -1,5 +1,6 @@
 #include "SensorHub.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace watt {
@@ -7,16 +8,73 @@ namespace watt {
 SensorHub::SensorHub(QObject *parent)
     : QObject(parent)
 {
+    m_clock.start();
+    m_smoother.setHoldMs(m_staleMs);
+    // while smoothing, the average keeps moving between samples (and decays
+    // when the trainer stops sending)
+    m_displayTimer.setInterval(250);
+    connect(&m_displayTimer, &QTimer::timeout, this, &SensorHub::refreshDisplayPower);
+}
+
+qint64 SensorHub::now() const
+{
+    return m_clockFn ? m_clockFn() : m_clock.elapsed();
+}
+
+void SensorHub::setStaleTimeoutMs(int ms)
+{
+    m_staleMs = ms;
+    m_smoother.setHoldMs(ms);
+}
+
+void SensorHub::setPowerSmoothing(bool on)
+{
+    if (m_smoothing == on)
+        return;
+    m_smoothing = on;
+    emit powerSmoothingChanged();
+    refreshDisplayPower();
+}
+
+void SensorHub::setPowerSmoothingSeconds(int seconds)
+{
+    seconds = std::clamp(seconds, 1, 30);
+    if (seconds * 1000 == m_smoother.windowMs())
+        return;
+    m_smoother.setWindowMs(seconds * 1000);
+    emit powerSmoothingChanged();
+    refreshDisplayPower();
+}
+
+void SensorHub::refreshDisplayPower()
+{
+    const qint64 t = now();
+    const int v = m_smoothing ? m_smoother.averageRounded(t) : m_power;
+    if (v != m_displayPower) {
+        m_displayPower = v;
+        emit displayPowerChanged();
+    }
+    // keep ticking while the window still holds samples that can change the
+    // average; stop once it has settled
+    const bool moving = m_smoothing && m_lastSampleMs >= 0
+                        && t - m_lastSampleMs < std::max(m_smoother.windowMs(), m_smoother.holdMs()) + 250;
+    if (moving && !m_displayTimer.isActive())
+        m_displayTimer.start();
+    else if (!moving && m_displayTimer.isActive())
+        m_displayTimer.stop();
 }
 
 void SensorHub::updatePower(int watts)
 {
     m_powerAge.start();
     watts = std::max(0, watts);
+    m_lastSampleMs = now();
+    m_smoother.addSample(m_lastSampleMs, watts);
     if (watts != m_power) {
         m_power = watts;
         emit powerChanged();
     }
+    refreshDisplayPower();
 }
 
 void SensorHub::updateCadence(double rpm)
@@ -55,6 +113,9 @@ void SensorHub::setTrainerConnected(bool connected)
     emit trainerConnectedChanged();
     if (!connected) {
         updatePower(0);
+        // no fading average of a trainer that is gone
+        m_smoother.clear();
+        refreshDisplayPower();
         updateCadence(0);
         updateSpeed(0);
     } else if (m_requestedTarget > 0) {
@@ -77,6 +138,7 @@ void SensorHub::expireStale()
         m_power = 0;
         emit powerChanged();
     }
+    refreshDisplayPower();
     if (m_cadence && (!m_cadenceAge.isValid() || m_cadenceAge.elapsed() > m_staleMs)) {
         m_cadence = 0;
         emit cadenceChanged();

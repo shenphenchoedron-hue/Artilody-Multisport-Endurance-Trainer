@@ -24,6 +24,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/CategoryBadge.qml
     ${QML_ROOT}/components/Avatar.qml
     ${QML_ROOT}/components/MetricCard.qml
+    ${QML_ROOT}/components/PowerAvgBadge.qml
     ${QML_ROOT}/components/StatTile.qml
     ${QML_ROOT}/components/ZoneLegend.qml
     ${QML_ROOT}/components/WorkoutChart.qml

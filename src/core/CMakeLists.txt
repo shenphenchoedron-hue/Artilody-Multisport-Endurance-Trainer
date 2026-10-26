@@ -10,6 +10,7 @@ qt_add_library(watt_core STATIC
     CsvExporter.h CsvExporter.cpp
     FitExporter.h FitExporter.cpp
     WorkoutEngine.h WorkoutEngine.cpp
+    PowerSmoother.h PowerSmoother.cpp
     SensorHub.h SensorHub.cpp
     TimeFormat.h TimeFormat.cpp
     ProfileManager.h ProfileManager.cpp

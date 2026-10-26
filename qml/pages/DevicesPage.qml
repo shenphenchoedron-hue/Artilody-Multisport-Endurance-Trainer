@@ -441,13 +441,15 @@ Item {
                                             Column {
                                                 spacing: 2
                                                 Text {
-                                                    text: modelData === "hr" ? "Heart Rate" : modelData === "power" ? "Power" : "Cadence"
+                                                    text: modelData === "hr" ? "Heart Rate"
+                                                          : modelData === "power" ? (Sensors.powerSmoothing ? "Power " + Sensors.powerSmoothingSeconds + "s" : "Power")
+                                                          : "Cadence"
                                                     color: Theme.textSecondary
                                                     font.pixelSize: 13
                                                 }
                                                 Text {
                                                     text: modelData === "hr" ? Sensors.heartRate + " BPM"
-                                                          : modelData === "power" ? Sensors.power + " W"
+                                                          : modelData === "power" ? Sensors.displayPower + " W"
                                                           : Sensors.cadence + " RPM"
                                                     color: Theme.text
                                                     font.pixelSize: 17

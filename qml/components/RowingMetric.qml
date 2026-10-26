@@ -5,6 +5,7 @@ import QtQuick
 Card {
     id: metric
     property string label
+    property bool showPowerAverage: false   // cycling power tile: "3 s avg" toggle
     property string iconName
     property color iconColor: Theme.text
     property color valueColor: Theme.text
@@ -109,5 +110,15 @@ Card {
         color: Theme.textSecondary
         font.pixelSize: 15
         elide: Text.ElideRight
+    }
+
+    // narrow tile: compact "3 s" toggle at the right of the header
+    PowerAvgBadge {
+        visible: metric.showPowerAverage
+        compact: true
+        fontSize: 12
+        anchors.right: parent.right
+        anchors.rightMargin: 12
+        y: 16 + (24 - height) / 2
     }
 }

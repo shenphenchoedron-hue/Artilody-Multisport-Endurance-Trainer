@@ -122,16 +122,18 @@ Item {
                     Layout.preferredWidth: 306
                     Layout.fillHeight: true
                     label: "Power"
+                    showPowerAverage: true
                     iconName: "bolt"
                     iconColor: Theme.danger
-                    value: Training.power
+                    // display value: 3 s average when "Smooth power" is on
+                    value: Sensors.displayPower
                     unit: "W"
                     valueSize: 84
-                    fraction: Training.power / Math.max(1, (page.target > 0 ? page.target : Profiles.ftp) * 1.3)
-                    barColor: Theme.zoneColor(Profiles.zoneForWatts(Training.power))
+                    fraction: Sensors.displayPower / Math.max(1, (page.target > 0 ? page.target : Profiles.ftp) * 1.3)
+                    barColor: Theme.zoneColor(Profiles.zoneForWatts(Sensors.displayPower))
                     footerLeft: page.target > 0 ? "Target " + page.target + " W" : (Training.freeRide ? "Free ride" : "No target")
                     footerRight: page.target > 0 && Training.active
-                                 ? ((Training.power - page.target > 0 ? "+" : "") + (Training.power - page.target) + " W") : ""
+                                 ? ((Sensors.displayPower - page.target > 0 ? "+" : "") + (Sensors.displayPower - page.target) + " W") : ""
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -198,7 +200,7 @@ Item {
                     ftp: Profiles.ftp
                     cursorSec: Training.active || Training.elapsedSec > 0 ? Training.elapsedSec : -1
                     showCursorLabel: Training.active
-                    cursorWatts: Training.power
+                    cursorWatts: Sensors.displayPower
                     hrMin: Math.max(40, Math.floor((Profiles.restHr + 10) / 20) * 20)
                     hrMax: Math.ceil(Profiles.maxHr / 20) * 20
                 }

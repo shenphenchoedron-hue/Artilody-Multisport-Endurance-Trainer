@@ -14,7 +14,7 @@ Item {
             b.pulse()
     }
 
-    readonly property int diff: FreeRide.watts - FreeRide.targetWatts
+    readonly property int diff: Sensors.displayPower - FreeRide.targetWatts
     readonly property bool onTarget: Math.abs(diff) <= Math.max(5, FreeRide.targetWatts * 0.05)
 
     RowLayout {
@@ -52,10 +52,10 @@ Item {
                 }
             }
             Text {
-                text: FreeRide.watts > 0
-                      ? "Actual " + FreeRide.watts + " W  (" + (erg.diff > 0 ? "+" : erg.diff < 0 ? "−" : "±") + Math.abs(erg.diff) + ")"
+                text: Sensors.displayPower > 0
+                      ? "Actual " + Sensors.displayPower + " W  (" + (erg.diff > 0 ? "+" : erg.diff < 0 ? "−" : "±") + Math.abs(erg.diff) + ")"
                       : "Actual – W"
-                color: FreeRide.watts <= 0 ? Theme.textSecondary : (erg.onTarget ? Theme.successText : Theme.warningText)
+                color: Sensors.displayPower <= 0 ? Theme.textSecondary : (erg.onTarget ? Theme.successText : Theme.warningText)
                 font.pixelSize: 17
                 font.weight: Font.DemiBold
             }
@@ -84,7 +84,7 @@ Item {
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
-                    x: Math.max(0, Math.min(track.width, track.width * FreeRide.watts / parent.scaleMax)) - width / 2
+                    x: Math.max(0, Math.min(track.width, track.width * Sensors.displayPower / parent.scaleMax)) - width / 2
                     width: 6
                     height: 22
                     radius: 3

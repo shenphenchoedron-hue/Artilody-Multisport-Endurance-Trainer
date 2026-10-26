@@ -6,7 +6,7 @@ AppDialog {
     id: dlg
     title: "Settings"
     panelWidth: 560
-    panelHeight: 470
+    panelHeight: 556
 
     Column {
         x: 28
@@ -51,6 +51,49 @@ AppDialog {
             sub: "Connect automatically on start-up"
             checked: Devices.autoConnect
             onToggled: (on) => Devices.autoConnect = on
+        }
+
+        // Display smoothing of the cycling power (SensorHub.displayPower).
+        // Recording, averages/NP/TSS, ERG and the FTP test use the raw power.
+        Item {
+            width: parent.width
+            height: 46
+            Column {
+                Text { text: "Smooth power"; color: Theme.text; font.pixelSize: 17 }
+                Text {
+                    text: "Show cycling watts as a rolling average"
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                }
+            }
+            AppComboBox {
+                id: smoothCombo
+                anchors.right: smoothSwitch.left
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                width: 104
+                height: 40
+                fontSize: 15
+                enabled: Sensors.powerSmoothing
+                opacity: enabled ? 1 : 0.5
+                readonly property var seconds: [1, 3, 5, 10]
+                model: ["1 s", "3 s", "5 s", "10 s"]
+                currentIndex: Math.max(0, seconds.indexOf(Sensors.powerSmoothingSeconds))
+                onActivated: (index) => Sensors.powerSmoothingSeconds = seconds[index]
+            }
+            ToggleSwitch {
+                id: smoothSwitch
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                onColor: Theme.accent
+                checked: Sensors.powerSmoothing
+                onToggled: (on) => {
+                    Sensors.powerSmoothing = on
+                    // the switch assigns checked itself: keep following the
+                    // setting (the power tiles toggle it too)
+                    checked = Qt.binding(() => Sensors.powerSmoothing)
+                }
+            }
         }
 
         Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }

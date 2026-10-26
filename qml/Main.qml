@@ -21,7 +21,7 @@ ApplicationWindow {
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "freeride", "workouts", "calendar", "builder", "rowing", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "rowing", "workouts", "calendar", "builder", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -89,6 +89,7 @@ ApplicationWindow {
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
         case "gearsetup": showPage("freeride"); gearSetupDialog.openDialog(); break
+        case "settings": showPage("dashboard"); settingsDialog.open(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
         // show the keyboard highlight (the destructive entry on the calendar menu)
@@ -100,6 +101,8 @@ ApplicationWindow {
             musicLibrary.close()
         if (gearSetupDialog.visible)
             gearSetupDialog.close()
+        if (settingsDialog.visible)
+            settingsDialog.close()
         if (screenshotMenu)
             screenshotMenu.close()
         screenshotMenu = null
@@ -166,6 +169,15 @@ ApplicationWindow {
                     onOpenGearSetup: gearSetupDialog.openDialog()
                     onRequestFinish: freeRideFinishDialog.open()
                 }
+                RowingPage {
+                    onOpenDevices: window.showPage("devices")
+                    onOpenBuilder: {
+                        Builder.newWorkout("rowing")
+                        window.showPage("builder")
+                    }
+                    onRequestFinish: rowingFinishDialog.open()
+                    onMessage: (text) => window.showToast(text)
+                }
                 WorkoutsPage {
                     id: workoutsPage
                     onStarted: window.showPage("dashboard")
@@ -179,15 +191,6 @@ ApplicationWindow {
                 CalendarPage { id: calendarPage }
                 BuilderPage {
                     id: builderPage
-                    onMessage: (text) => window.showToast(text)
-                }
-                RowingPage {
-                    onOpenDevices: window.showPage("devices")
-                    onOpenBuilder: {
-                        Builder.newWorkout("rowing")
-                        window.showPage("builder")
-                    }
-                    onRequestFinish: rowingFinishDialog.open()
                     onMessage: (text) => window.showToast(text)
                 }
                 HistoryPage {

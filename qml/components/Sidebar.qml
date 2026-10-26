@@ -6,7 +6,7 @@ Rectangle {
     property int currentIndex: 0
     property bool profileOpen: false
     // Page names in StackLayout order (Main.qml window.pageNames).
-    property var pageNames: ["dashboard", "freeride", "workouts", "calendar", "builder", "rowing", "history", "devices"]
+    property var pageNames: ["dashboard", "freeride", "rowing", "workouts", "calendar", "builder", "history", "devices"]
     signal navigate(int index)
     signal profileRequested()
 
@@ -15,10 +15,10 @@ Rectangle {
     readonly property var items: [
         { label: "Dashboard", icon: "dashboard", page: "dashboard" },
         { label: "Free Ride", icon: "freeRide", page: "freeride" },
+        { label: "Rowing", icon: "rowing", page: "rowing" },
         { label: "Workouts", icon: "calendar", page: "workouts" },
         { label: "Calendar", icon: "calendarDays", page: "calendar" },
         { label: "Builder", icon: "plus", page: "builder" },
-        { label: "Rowing", icon: "rowing", page: "rowing" },
         { label: "History", icon: "history", page: "history" },
         { label: "Devices", icon: "bluetooth", page: "devices" }
     ]
@@ -115,9 +115,9 @@ Rectangle {
                                         : Theme.clock(FreeRide.elapsedSeconds) + " • "
                                           + (FreeRide.mode === "gears" ? FreeRide.gearLabel + " • "
                                              : FreeRide.mode === "erg" ? "ERG • " : "")
-                                          + FreeRide.watts + " W")
+                                          + Sensors.displayPower + " W")
                         : (Training.waiting ? "Start pedaling"
-                                            : Theme.clock(Training.elapsedSec) + "  •  " + Training.power + " W")
+                                            : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W")
                 color: Theme.textSecondary
                 font.pixelSize: 13
             }

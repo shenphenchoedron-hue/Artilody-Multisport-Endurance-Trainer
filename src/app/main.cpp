@@ -145,6 +145,13 @@ int main(int argc, char *argv[])
     db.seedDefaults();
 
     SensorHub hub;
+    // Display smoothing of the cycling power (Settings: "Smooth power").
+    hub.setPowerSmoothing(db.setting(QStringLiteral("display/powerSmoothing"), true).toBool());
+    hub.setPowerSmoothingSeconds(db.setting(QStringLiteral("display/powerSmoothingSec"), 3).toInt());
+    QObject::connect(&hub, &SensorHub::powerSmoothingChanged, &db, [&db, &hub] {
+        db.setSetting(QStringLiteral("display/powerSmoothing"), hub.powerSmoothing());
+        db.setSetting(QStringLiteral("display/powerSmoothingSec"), hub.powerSmoothingSeconds());
+    });
     ProfileManager profiles(&db);
     profiles.load();
 
@@ -284,8 +291,8 @@ int main(int argc, char *argv[])
 
     // Developer aid: WATT_SCREENSHOT_DIR=<dir> renders every page to PNG and quits
     // (used to compare the UI against docs/mockups). Files are named after the
-    // page (dashboard.png, workouts.png, calendar.png, builder.png, rowing.png,
-    // history.png, devices.png) plus page<N>.png in sidebar order.
+    // page (dashboard.png, freeride.png, rowing.png, workouts.png, calendar.png,
+    // builder.png, history.png, devices.png) plus page<N>.png in sidebar order.
     //   WATT_SCREENSHOT_STEP_MS        step time (default 1500 ms)
     //   WATT_SCREENSHOT_ROWING=1       live row on the virtual rower instead of
     //                                  the cycling workout
@@ -300,7 +307,8 @@ int main(int argc, char *argv[])
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
     //                                  (music: the music library dialog,
-    //                                  gearsetup: the free ride gear setup dialog)
+    //                                  gearsetup: the free ride gear setup dialog,
+    //                                  settings: the settings dialog)
     //   WATT_SCREENSHOT_MUSIC=1        seed a long demo playlist (see above)
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
     const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")

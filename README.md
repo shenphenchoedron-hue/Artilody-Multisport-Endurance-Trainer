@@ -30,6 +30,8 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 - **Free Ride page** – ride without a workout. In **Gears** mode you shift virtual gears (on screen, with the keyboard or with a Zwift Click): a harder gear means more watts and more speed at the same cadence, and a grade setting adds a virtual climb. In **ERG** mode you set a wattage (±5/10/25 W steps or an exact value) and the trainer holds it for as long as you like; **Free** mode leaves the resistance alone. Live power, speed, cadence, heart rate, time and distance, a power/speed/heart-rate chart, start on pedaling, pause, and save to History (FIT/CSV export included).
 - **Zwift Click v1 / v2** – connect it under **Devices → Controllers (Zwift Click)**: **+** shifts harder, **−** easier (in ERG mode ±10 W). Battery level and a live button test are shown on the Devices page.
+- **Smooth power (3 s average)** – cycling watts on the Dashboard, the Free Ride page, the sidebar and the Devices page are shown as a rolling 3-second average by default, so the number no longer jumps with every uneven pedal stroke. Turn it off (raw trainer value) or pick 1 / 3 / 5 / 10 s under **Settings → Smooth power**, or click the small **3 s avg** badge on the power tile. Recorded rides, averages, NP/TSS, ERG and the FTP test still use the raw per-second power.
+- **Sidebar order** – the training pages are now together at the top: **Dashboard** (cycling workouts), **Free Ride**, **Rowing**, then Workouts, Calendar, Builder, History and Devices.
 - **Gear setup** – enter your own chainrings (e.g. 50/34, 53/39 or a single 1× ring) and cassette (e.g. 11–34) from presets or as numbers, the wheel size, and *sequential* virtual gears (one list, easiest to hardest) or *front + rear* shifting like a real bike. A live preview lists every gear with its ratio, the speed at 90 rpm and the power on the flat. Saved per profile.
 
 ## What's new in 1.1.4
@@ -92,6 +94,7 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 
 ### Ride
 - **Live dashboard** with power, cadence, heart rate and elapsed/remaining time.
+- **Smooth power**: the displayed watts are a time-weighted rolling average over the last 3 s (on by default; off, 1, 5 or 10 s under **Settings** or by clicking the **3 s avg** badge on the power tile). It only affects the display – rides are recorded with the raw power.
 - **Workout chart** with targets coloured by RPE/power zone, your heart-rate curve and a position marker, plus a timeline of the intervals.
 - **On-the-fly control**: change the intensity in ±5 % steps, skip the current interval, and turn ERG on or off during the ride.
 - **Start on pedaling**: the workout loads and waits until you start pedaling (cadence ≥ 20 rpm, or power ≥ 30 W on trainers that don't report cadence). Press **Start now** to start it yourself.
