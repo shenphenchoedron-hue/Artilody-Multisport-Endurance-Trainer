@@ -1467,13 +1467,26 @@ def build(s, env):
     s.bullets([
         "<b>H.264 MP4</b> (720p or 1080p) plays on every platform.",
         "<b>AV1</b> videos need AV1 hardware decoding (recent Apple Silicon Macs, recent PC graphics). "
-        "Elsewhere the page shows <i>No picture</i> or <i>This video cannot be played</i>; the ride still works. "
-        f"Convert such a video once, e.g. {C('ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4')}, "
-        "and give the result the name the route expects.",
+        "Elsewhere the page shows <i>No picture</i> or <i>This video cannot be played</i> together with the "
+        "conversion steps below (with buttons to open the HandBrake website, copy the steps and rescan the "
+        "library); the ride still works without the picture.",
         f"<b>Raspberry Pi</b>: prefer 720p H.264 and install the GStreamer decoders: "
         f"{C('sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-good')} (recommended by the .deb "
         "package). 1080p and AV1 are too heavy for a Pi.",
     ])
+    s.p(f"<b>Convert a video to H.264 with HandBrake</b> (free, {L('https://handbrake.fr', 'handbrake.fr')}):")
+    s.steps([
+        f"Open the video in HandBrake and choose the preset {UI('General → Fast 720p30')} "
+        f"(or {UI('HQ 720p30 Surround')}).",
+        f"On the {UI('Video')} tab set {UI('Video Encoder')} to {UI('H.264 (x264)')}, {UI('Framerate')} to "
+        f"{UI('Same as source')} and select {UI('Constant Framerate')} – important, so the video stays in sync "
+        "with the GPS route.",
+        "Save it as <b>.mp4</b> in the route folder with the <b>same file name</b> as the original, replacing it "
+        "(keep the original somewhere else).",
+        f"Click {UI('Rescan Library')} (on the page, or in the folder menu next to the route drop-down).",
+    ])
+    s.p(f"Or with ffmpeg: {C('ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4')}, then give the "
+        "new file the original name.")
     s.tip("Free route videos with GPX tracks are available from several RLV communities; respect the licence "
           "of each video (many are non-commercial only).")
 

@@ -138,7 +138,14 @@ Existing data is kept: the database is upgraded automatically on first start. Se
   The default videos folder is `Documents/Artilody Videos` in your home folder (created when you open it from the app); you can choose any other folder and add more folders, e.g. on an external drive.
 - **Resistance**: in **Gears** mode the trainer simulates the route's gradient with your virtual gears – shift with **−** / **+**, <kbd>↓</kbd>/<kbd>↑</kbd> or the **Zwift Click**, and set up your bike with **Gear Setup…** (shared with Free Ride). In **Power** mode the trainer keeps its own resistance and your speed is computed from your power on the gradient. **Difficulty** (0–100 %, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> in 10 % steps) scales the gradients: 50 % makes a 6 % climb feel like 3 %.
 - **Start** now or **when pedaling**, **Pause** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; reaching the end of the route finishes and saves the ride. Video rides are saved to History with the route name and can be exported as FIT/CSV.
-- **Video formats**: H.264 MP4 plays everywhere. **AV1** videos only play on computers with AV1 hardware decoding (e.g. recent Apple Silicon or recent GPUs) – the page tells you when a video cannot be decoded; convert it with e.g. `ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4`. RLV videos are usually silent, so the sound is off (the speaker button on the video turns it on).
+- **Video formats**: H.264 MP4 plays everywhere. **AV1** videos only play on computers with AV1 hardware decoding (e.g. recent Apple Silicon or recent GPUs) – the page tells you when a video cannot be decoded and shows how to convert it. To convert a video to H.264 with the free [HandBrake](https://handbrake.fr):
+  1. Open the video in HandBrake and choose the preset **General → Fast 720p30** (or **HQ 720p30 Surround**).
+  2. On the **Video** tab set **Video Encoder** to **H.264 (x264)**, **Framerate** to **Same as source** and select **Constant Framerate** (important, so the video stays in sync with the GPS route).
+  3. Save it as **.mp4** in the route folder with the **same file name** as the original, replacing it (keep the original somewhere else).
+  4. Click **Rescan Library** (on the page, or in the folder menu next to the route drop-down).
+
+  Or with ffmpeg: `ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4`, then give the new file the original name.
+- **Sound**: RLV videos are usually silent, so the sound is off (the speaker button on the video turns it on).
 - **Raspberry Pi**: prefer **720p H.264** videos (1080p and AV1 are too heavy for a Pi) and install the GStreamer decoders: `sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-good` (both are recommended by the .deb package).
 
 <p align="center">

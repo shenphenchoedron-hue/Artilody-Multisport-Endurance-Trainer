@@ -141,6 +141,160 @@ Item {
     }
     onWantPlayChanged: syncPlay()
 
+    // How to convert a video the computer cannot play (AV1 …) to H.264:
+    // HandBrake steps, the ffmpeg alternative and quick action buttons.
+    // Used on the video ("No picture", light on dark) and on the card
+    // ("This video cannot be played", theme colours).
+    component ConvertHelp: Column {
+        id: help
+        property color textColor: Theme.text
+        property color mutedColor: Theme.textSecondary
+        property color linkColor: Theme.accentText
+        property color panelColor: Theme.field
+        property color panelBorder: Theme.fieldBorder
+        property bool onVideo: false
+        property bool compact: false
+        readonly property real stepSize: compact ? 13 : 14
+        readonly property string ffmpegLine: "ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4"
+        readonly property var steps: [
+            "Open the video in HandBrake and choose the preset <b>General → Fast 720p30</b> (or HQ 720p30 Surround).",
+            "<b>Video</b> tab: Video Encoder <b>H.264 (x264)</b>, Framerate <b>Same as source</b> and "
+                + "<b>Constant Framerate</b> – keeps the video in sync with the GPS route.",
+            "Save it as <b>.mp4</b> in the route folder with the <b>same file name</b> as the original, "
+                + "replacing it (keep the original somewhere else).",
+            "Press <b>Rescan Library</b>."
+        ]
+        function plainSteps() {
+            var t = "Convert the video to H.264 with HandBrake (free: https://handbrake.fr)\n"
+            for (var i = 0; i < steps.length; ++i)
+                t += (i + 1) + ". " + steps[i].replace(/<[^>]+>/g, "") + "\n"
+            return t + "Or with ffmpeg (then give the new file the original name):\n" + ffmpegLine + "\n"
+        }
+        function toast(text) {
+            var w = ApplicationWindow.window
+            if (w && typeof w.showToast === "function")
+                w.showToast(text)
+        }
+        spacing: compact ? 8 : 10
+
+        Rectangle {
+            width: help.width
+            height: stepsCol.implicitHeight + (help.compact ? 18 : 24)
+            radius: 10
+            color: help.panelColor
+            border.color: help.panelBorder
+            Column {
+                id: stepsCol
+                x: help.compact ? 12 : 16
+                y: help.compact ? 9 : 12
+                width: parent.width - 2 * x
+                spacing: help.compact ? 4 : 6
+                Text {
+                    width: parent.width
+                    text: "<b>Convert it with HandBrake</b> – free: <a href=\"https://handbrake.fr\">handbrake.fr</a>"
+                    textFormat: Text.StyledText
+                    color: help.textColor
+                    linkColor: help.linkColor
+                    font.pixelSize: help.stepSize + 1
+                    wrapMode: Text.WordWrap
+                    onLinkActivated: (link) => Qt.openUrlExternally(link)
+                    HoverHandler {
+                        enabled: parent.hoveredLink.length > 0
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                }
+                Repeater {
+                    model: help.steps
+                    Row {
+                        width: stepsCol.width
+                        spacing: 8
+                        Text {
+                            id: stepNo
+                            text: (index + 1) + "."
+                            color: help.linkColor
+                            font.pixelSize: help.stepSize
+                            font.weight: Font.Bold
+                        }
+                        Text {
+                            width: parent.width - stepNo.width - parent.spacing
+                            text: modelData
+                            textFormat: Text.StyledText
+                            color: help.mutedColor
+                            font.pixelSize: help.stepSize
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width
+                    topPadding: 2
+                    text: "Or with ffmpeg (then give the new file the original name):"
+                    color: help.mutedColor
+                    font.pixelSize: help.stepSize - 1
+                    wrapMode: Text.WordWrap
+                }
+                TextEdit {
+                    width: parent.width
+                    text: help.ffmpegLine
+                    readOnly: true
+                    selectByMouse: true
+                    color: help.textColor
+                    selectionColor: Theme.accent
+                    selectedTextColor: "white"
+                    font.family: Qt.platform.os === "osx" ? "Menlo" : Qt.platform.os === "windows" ? "Consolas" : "DejaVu Sans Mono"
+                    font.pixelSize: help.stepSize - 1
+                    wrapMode: TextEdit.WrapAnywhere
+                }
+            }
+        }
+        Flow {
+            width: help.width
+            spacing: 8
+            AppButton {
+                height: help.compact ? 34 : 38
+                kind: help.onVideo ? "primary" : "secondary"
+                fontSize: 14
+                iconSize: 16
+                iconSpacing: 8
+                horizontalPadding: 14
+                bold: false
+                iconName: "link"
+                text: "HandBrake Website"
+                onClicked: Qt.openUrlExternally("https://handbrake.fr")
+            }
+            AppButton {
+                height: help.compact ? 34 : 38
+                kind: "secondary"
+                fontSize: 14
+                iconSize: 16
+                iconSpacing: 8
+                horizontalPadding: 14
+                bold: false
+                iconName: "copy"
+                text: "Copy Steps"
+                onClicked: {
+                    Devices.copyToClipboard(help.plainSteps())
+                    help.toast("Conversion steps copied to the clipboard")
+                }
+            }
+            AppButton {
+                height: help.compact ? 34 : 38
+                kind: "secondary"
+                fontSize: 14
+                iconSize: 16
+                iconSpacing: 8
+                horizontalPadding: 14
+                bold: false
+                iconName: "refresh"
+                text: "Rescan Library"
+                onClicked: {
+                    Videos.rescan()
+                    help.toast(Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library")
+                }
+            }
+        }
+    }
+
     MediaPlayer {
         id: player
         source: Rlv.videoUrl
@@ -585,7 +739,8 @@ Item {
                     property string text
                     property bool shown: false
                     visible: videoCard.showVideo && opacity > 0.01
-                    opacity: shown && text.length > 0 ? 1 : 0
+                    // the "No picture" help would be covered by the text
+                    opacity: shown && text.length > 0 && !page.noPicture ? 1 : 0
                     Behavior on opacity { NumberAnimation { duration: 600 } }
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: chipRow.top
@@ -694,43 +849,82 @@ Item {
                 }
 
                 // the file opened but no frame could be decoded
-                Column {
+                Flickable {
+                    id: noPicFlick
                     visible: videoCard.showVideo && page.noPicture
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -20
-                    width: Math.min(parent.width - 80, 620)
-                    spacing: 10
-                    Icon {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        name: "video"
-                        size: 42
-                        strokeWidth: 2
-                        color: Theme.warning
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "No picture"
-                        color: "white"
-                        font.pixelSize: 24
-                        font.weight: Font.Bold
-                    }
-                    Text {
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: "This computer cannot decode the video"
-                              + (page.videoCodec.length > 0 ? " (" + page.videoCodec + ")" : "")
-                              + ". AV1 videos need AV1 hardware decoding – convert the file to H.264 (720p), e.g.\n"
-                              + "ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4\n"
-                              + "The ride itself works without the picture."
-                        color: Qt.rgba(1, 1, 1, 0.78)
-                        font.pixelSize: 15
-                        wrapMode: Text.WordWrap
+                    readonly property bool compact: height < 420 || width < 560
+                    anchors.fill: parent
+                    anchors.topMargin: compact ? 58 : 64
+                    anchors.bottomMargin: compact ? 56 : 60
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    clip: true
+                    contentWidth: width
+                    contentHeight: Math.max(height, noPicPanel.height + 8)
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: noPicFlick.contentHeight > noPicFlick.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+                    Rectangle {
+                        id: noPicPanel
+                        width: Math.min(noPicFlick.width - 16, 680)
+                        x: (noPicFlick.width - width) / 2
+                        y: Math.max(4, (noPicFlick.height - height) / 2)
+                        height: noPicCol.implicitHeight + (noPicFlick.compact ? 24 : 36)
+                        radius: 14
+                        color: Qt.rgba(0.02, 0.03, 0.07, 0.86)
+                        border.color: Qt.rgba(1, 1, 1, 0.12)
+                        Column {
+                            id: noPicCol
+                            x: noPicFlick.compact ? 14 : 22
+                            y: noPicFlick.compact ? 12 : 18
+                            width: parent.width - 2 * x
+                            spacing: noPicFlick.compact ? 6 : 10
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                spacing: 10
+                                Icon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    name: "video"
+                                    size: noPicFlick.compact ? 24 : 32
+                                    strokeWidth: 2
+                                    color: Theme.warning
+                                }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "No picture"
+                                    color: "white"
+                                    font.pixelSize: noPicFlick.compact ? 19 : 24
+                                    font.weight: Font.Bold
+                                }
+                            }
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: "This computer cannot decode the video"
+                                      + (page.videoCodec.length > 0 ? " (" + page.videoCodec + ")" : "")
+                                      + ". AV1 videos need AV1 hardware decoding – convert the file once to H.264 (720p). "
+                                      + "The ride itself works without the picture."
+                                color: Qt.rgba(1, 1, 1, 0.82)
+                                font.pixelSize: noPicFlick.compact ? 13 : 15
+                                wrapMode: Text.WordWrap
+                            }
+                            ConvertHelp {
+                                width: parent.width
+                                onVideo: true
+                                compact: noPicFlick.compact
+                                textColor: "white"
+                                mutedColor: Qt.rgba(1, 1, 1, 0.80)
+                                linkColor: Theme.accentLight
+                                panelColor: Qt.rgba(1, 1, 1, 0.07)
+                                panelBorder: Qt.rgba(1, 1, 1, 0.14)
+                            }
+                        }
                     }
                 }
 
                 // paused / waiting / finished
                 Rectangle {
-                    visible: videoCard.showVideo && (page.st === "paused" || page.st === "ready" || page.finished)
+                    visible: videoCard.showVideo && !page.noPicture
+                             && (page.st === "paused" || page.st === "ready" || page.finished)
                     anchors.centerIn: parent
                     width: centerCol.implicitWidth + 56
                     height: centerCol.implicitHeight + 32
@@ -896,38 +1090,59 @@ Item {
                 }
 
                 // route without a playable video
-                Column {
+                Flickable {
+                    id: noVideoFlick
                     visible: Rlv.hasRoute && !videoCard.showVideo
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width - 60, 600)
-                    spacing: 10
-                    Icon {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        name: "video"
-                        size: 46
-                        strokeWidth: 2
-                        color: Theme.warning
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: page.videoError ? "This video cannot be played" : "Video file missing"
-                        color: Theme.text
-                        font.pixelSize: 24
-                        font.weight: Font.Bold
-                    }
-                    Text {
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: page.videoError
-                              ? player.errorString + (page.videoCodec.length > 0 ? " (" + page.videoCodec + ")" : "")
-                                + "\nAV1 videos need AV1 hardware decoding – convert them to H.264 (720p). "
-                                + "On a Raspberry Pi install gstreamer1.0-libav."
-                              : (Rlv.lastError.length > 0 ? Rlv.lastError + "\n" : "")
-                                + "Put the .mp4 next to the route's .gpx / .xml file. You can still ride the route – "
-                                + "distance, gradient and the profile work without the video."
-                        color: Theme.textSecondary
-                        font.pixelSize: 15
-                        wrapMode: Text.WordWrap
+                    readonly property bool compact: height < 420 || width < 560
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    clip: true
+                    contentWidth: width
+                    contentHeight: Math.max(height, noVideoCol.implicitHeight + 16)
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: noVideoFlick.contentHeight > noVideoFlick.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+                    Column {
+                        id: noVideoCol
+                        width: Math.min(noVideoFlick.width - 24, page.videoError ? 680 : 600)
+                        x: (noVideoFlick.width - width) / 2
+                        y: Math.max(8, (noVideoFlick.height - implicitHeight) / 2)
+                        spacing: noVideoFlick.compact ? 7 : 10
+                        Icon {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: !noVideoFlick.compact || !page.videoError
+                            name: "video"
+                            size: 46
+                            strokeWidth: 2
+                            color: Theme.warning
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: page.videoError ? "This video cannot be played" : "Video file missing"
+                            color: Theme.text
+                            font.pixelSize: noVideoFlick.compact ? 20 : 24
+                            font.weight: Font.Bold
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: page.videoError
+                                  ? player.errorString + (page.videoCodec.length > 0 ? " (" + page.videoCodec + ")" : "")
+                                    + "\nAV1 videos need AV1 hardware decoding – convert them to H.264 (720p). "
+                                    + "On a Raspberry Pi install gstreamer1.0-libav."
+                                  : (Rlv.lastError.length > 0 ? Rlv.lastError + "\n" : "")
+                                    + "Put the .mp4 next to the route's .gpx / .xml file. You can still ride the route – "
+                                    + "distance, gradient and the profile work without the video."
+                            color: Theme.textSecondary
+                            font.pixelSize: noVideoFlick.compact ? 13 : 15
+                            wrapMode: Text.WordWrap
+                        }
+                        ConvertHelp {
+                            visible: page.videoError
+                            width: parent.width
+                            compact: noVideoFlick.compact
+                        }
                     }
                 }
             }
