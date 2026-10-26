@@ -17,6 +17,7 @@
 #include "RowingRecords.h"
 #include "RowingSession.h"
 #include "SensorHub.h"
+#include "SimulatedDevices.h"
 #include "Track.h"
 #include "TrainingSession.h"
 #include "WorkoutBuilder.h"
@@ -34,6 +35,7 @@
 #include <QQuickWindow>
 #include <QSize>
 #include <QTimer>
+#include <cstdlib>
 #include <memory>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -593,6 +595,86 @@ int main(int argc, char *argv[])
         if (shotMenus.isEmpty())
             timer->start(qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") > 0
                              ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") : 1500);
+    }
+
+    // Developer aid (virtual gears diagnostics):
+    //   WATT_DEBUG_GEARS=1          one line per second on stderr: page/session, gear,
+    //                               ratio, cadence, virtual speed, resistance path, road
+    //                               grade, grade / ERG target sent, trainer speed, the
+    //                               virtual trainer's internal state and the watts
+    //   WATT_DEBUG_SHIFTS=+3,-6,+3  shift sequence (gears per step), one gear every
+    //                               WATT_DEBUG_SHIFT_SEC (default 5) seconds, starting
+    //                               after WATT_DEBUG_SHIFT_DELAY_SEC (default 10); through
+    //                               the virtual Zwift Click when connected (same route as a
+    //                               real Click), else DeviceManager::controllerShift
+    if (qEnvironmentVariableIntValue("WATT_DEBUG_GEARS") > 0) {
+        auto *dbgTimer = new QTimer(&app);
+        auto dbgClock = std::make_shared<QElapsedTimer>();
+        dbgClock->start();
+        QObject::connect(dbgTimer, &QTimer::timeout, &app, [&, dbgClock] {
+            const bool rlvLive = rlv.active() || rlv.waiting();
+            const bool frLive = freeRide.active() || freeRide.waiting();
+            const bool onRlv = rlvLive || (!frLive && gears.activePage() == QLatin1String("video"));
+            QString sim = QStringLiteral("-");
+            if (auto *t = qobject_cast<SimulatedTrainer *>(devices.trainerDevice())) {
+                sim = QStringLiteral("%1 simGrade=%2 gear=%3 fixed=%4 cad=%5 v=%6 P=%7 erg=%8 goal=%9")
+                          .arg(t->ergActive() ? QStringLiteral("ERG") : t->simulating() ? QStringLiteral("SIM")
+                                                                                         : QStringLiteral("FREE"))
+                          .arg(t->simulationGrade(), 0, 'f', 2)
+                          .arg(t->gearIndex())
+                          .arg(t->fixedGearRatio(), 0, 'f', 3)
+                          .arg(t->cadenceRpm(), 0, 'f', 1)
+                          .arg(t->wheelSpeedMps() * 3.6, 0, 'f', 1)
+                          .arg(t->currentPower(), 0, 'f', 0)
+                          .arg(t->targetPower())
+                          .arg(t->riderGoal(), 0, 'f', 0);
+            }
+            const QString session = onRlv ? QStringLiteral("rlv:%1/%2 d=%3m grade=%4 eff=%5")
+                                                .arg(rlv.state(), rlv.mode())
+                                                .arg(rlv.distanceMeters(), 0, 'f', 0)
+                                                .arg(rlv.gradePercent(), 0, 'f', 2)
+                                                .arg(rlv.effectiveGradePercent(), 0, 'f', 2)
+                                          : QStringLiteral("freeride:%1/%2 grade=%3")
+                                                .arg(freeRide.state(), freeRide.mode())
+                                                .arg(freeRide.gradePercent(), 0, 'f', 2);
+            qInfo("GEARS t=%5.1f page=%s %s gear=%s ratio=%.3f factor=%.3f cad=%d vVirt=%.1f path=%s "
+                  "sent[%s grade=%.2f erg=%d] vTrainer=%.1f | sim[%s] | W=%d disp=%d",
+                  dbgClock->elapsed() / 1000.0, qPrintable(gears.activePage()), qPrintable(session),
+                  qPrintable(gears.gear().value(QStringLiteral("label")).toString()),
+                  gears.gear().value(QStringLiteral("ratio")).toDouble(), gears.gearFactor(), hub.cadence(),
+                  onRlv ? rlv.speedKmh() : freeRide.speedKmh(),
+                  qPrintable(onRlv ? rlv.resistancePath() : freeRide.resistancePath()),
+                  hub.simulationActive() ? "SIM" : hub.ergActive() ? "ERG" : "FREE", hub.requestedGrade(),
+                  hub.requestedTarget(), hub.speedKmh(), qPrintable(sim), hub.power(), hub.displayPower());
+        });
+        dbgTimer->start(1000);
+    }
+    if (const QString seq = qEnvironmentVariable("WATT_DEBUG_SHIFTS"); !seq.isEmpty()) {
+        auto shifts = std::make_shared<QList<int>>();
+        for (const QString &part : seq.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            const int n = part.trimmed().toInt();
+            for (int i = 0; i < std::abs(n); ++i)
+                shifts->append(n > 0 ? 1 : -1);
+        }
+        const int every = qEnvironmentVariableIntValue("WATT_DEBUG_SHIFT_SEC") > 0
+                              ? qEnvironmentVariableIntValue("WATT_DEBUG_SHIFT_SEC") : 5;
+        const int delay = qEnvironmentVariableIsSet("WATT_DEBUG_SHIFT_DELAY_SEC")
+                              ? qEnvironmentVariableIntValue("WATT_DEBUG_SHIFT_DELAY_SEC") : 10;
+        auto *shiftTimer = new QTimer(&app);
+        QObject::connect(shiftTimer, &QTimer::timeout, &app, [&devices, &gears, shifts, shiftTimer] {
+            if (shifts->isEmpty()) {
+                shiftTimer->stop();
+                return;
+            }
+            const int dir = shifts->takeFirst();
+            const bool viaClick = devices.pressSimulatedController(dir);
+            if (!viaClick)
+                emit devices.controllerShift(dir);
+            qInfo("GEARS shift %s via %s -> %s", dir > 0 ? "harder" : "easier",
+                  viaClick ? "virtual Click" : "controllerShift",
+                  qPrintable(gears.gear().value(QStringLiteral("label")).toString()));
+        });
+        QTimer::singleShot(delay * 1000, shiftTimer, [shiftTimer, every] { shiftTimer->start(every * 1000); });
     }
 
     const int rc = app.exec();

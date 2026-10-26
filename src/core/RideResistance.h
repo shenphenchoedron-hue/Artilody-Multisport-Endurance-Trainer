@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Gearing.h"
+
 #include <QtGlobal>
 #include <limits>
 
@@ -13,13 +15,16 @@ class SensorHub;
 // Paths (choose()):
 //   Erg            - fixed watts (FTMS Set Target Power), sent at once on change.
 //   Simulation     - real gears: the trainer gets the road grade (FTMS 0x11).
-//   GearSimulation - virtual gears on a simulating trainer that reports its
-//                    speed ("path a"): the trainer gets a gear-adjusted grade
-//                    (road::gearSimulationGrade), the bike stays in the
-//                    reference gear.
+//   GearSimulation - virtual gears on a simulating trainer ("path a"): the
+//                    trainer gets a gear-adjusted grade (gearGrade()), the
+//                    bike stays in the reference gear. Needs the cadence or
+//                    the trainer's speed.
 //   GearErg        - virtual gears via ERG ("path b"): the trainer holds the
-//                    road power for the virtual speed. Used when the trainer
-//                    cannot simulate gradients or does not report speed.
+//                    road power for the virtual speed (gearWatts()). Used
+//                    when the trainer cannot simulate gradients (or reports
+//                    neither cadence nor speed).
+// Free Ride and Video Ride use exactly these functions for virtual gears
+// (same physics, same rate limits) - only the road grade differs.
 // Grades go out at the first call, then when they moved by >= kMinGradeChange
 // but at most every kMinGradeIntervalMs, refreshed every kGradeRefreshMs.
 // Gear watts at most every kGearIntervalMs and only when they moved by
@@ -28,6 +33,40 @@ class RideResistance
 {
 public:
     enum class Path { Erg, Simulation, GearSimulation, GearErg };
+
+    // What the virtual gear resistance depends on (both pages).
+    struct GearDrive
+    {
+        road::Model road;            // rider + bike on the (effective) road grade
+        double cadenceRpm = 0;       // < kCoastCadenceRpm: not pedaling / no cadence
+        double virtualRatio = 0;     // current virtual gear (chainring / cog)
+        double referenceRatio = 0;   // the real gear the bike sits in on the trainer
+        int circumferenceMm = GearSetup::kDefaultCircumferenceMm;
+        double trainerSpeedMps = 0;  // the trainer's reported speed (fallback without cadence)
+        double bikeSpeedMps = -1;    // the session's road speed: faster than the pedals
+                                     // downhill = freewheeling (< 0: unknown)
+    };
+    static constexpr int kCoastCadenceRpm = 15;
+    static constexpr int kMinGearWatts = 20;     // lowest gear power while pedaling
+    static constexpr int kMaxGearWatts = 1500;
+    static constexpr double kMinGearSpeedMps = 1.0;
+
+    // Virtual speed v_v = cadence/60 · R_virtual · circumference (no cadence:
+    // trainer speed · R_virtual / R_reference). 0 when unknown.
+    static double gearSpeed(const GearDrive &d);
+    // Road power at the virtual speed, kMinGearWatts..kMaxGearWatts; the
+    // minimum when the bike rolls faster than the pedals turn it downhill or
+    // the road power would be lower (descents). 0 = not pedaling (release).
+    // Monotonic: a harder gear at the same cadence never gives less.
+    static int gearWatts(const GearDrive &d);
+    // Path a: the grade that makes the trainer, turning at the speed of the
+    // reference gear v_ref, brake with gearWatts():
+    //     v_ref = cadence/60 · R_reference · circumference
+    // (taken from the cadence, not the trainer's speed: a heavier brake slows
+    // the flywheel, and a speed-based grade would then drop with it - the
+    // gear must decide, not the feedback; trainer speed only without cadence).
+    // Not pedaling: the plain road grade. Clamped to minGrade..maxGrade.
+    static double gearGrade(const GearDrive &d, double minGrade = kMinGrade, double maxGrade = kMaxGrade);
 
     static constexpr int kGearIntervalMs = 1000;
     static constexpr int kMinWattsChange = 2;

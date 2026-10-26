@@ -411,8 +411,32 @@ private slots:
         // clamped, and no adjustment while (nearly) standing
         m.gradePercent = 3;
         QCOMPARE(road::gearSimulationGrade(m, 12.0, 3.0, t), 20.0);
+        // steeply downhill the road power is negative: floored at 0 W (the
+        // rider freewheels), i.e. the grade at which the trainer brakes with
+        // 0 W at v_t - never lower, so a harder gear can't give less
         m.gradePercent = -15;
-        QCOMPARE(road::gearSimulationGrade(m, 12.0, 0.8, t), -10.0);
+        const double zero = road::gradeForTrainerPower(0.0, 12.0, t);
+        QCOMPARE(road::gearSimulationGrade(m, 12.0, 0.8, t), zero);
+        QVERIFY(zero > -10.0 && zero < 0.0);
+        // descents: monotonic in the gear (was inverted below the speed of
+        // the lowest road power: harder gear -> more negative power -> lower grade)
+        for (double grade : { -2.0, -4.0, -8.0 }) {
+            m.gradePercent = grade;
+            double previous = -1e9;
+            for (double factor = 0.4; factor <= 2.0; factor += 0.05) {
+                const double g = road::gearSimulationGrade(m, 6.0, factor, t);
+                QVERIFY2(g >= previous - 1e-9, qPrintable(QStringLiteral("grade %1 factor %2").arg(grade).arg(factor)));
+                previous = g;
+            }
+        }
+        // gradeForTrainerPower: the trainer then brakes with that power
+        for (double p : { 0.0, 50.0, 200.0, 400.0 }) {
+            const double g = road::gradeForTrainerPower(p, 8.0, t);
+            const double theta = std::atan(g / 100.0);
+            const double force = t.massKg * road::kGravity * (std::sin(theta) + t.crr * std::cos(theta))
+                                 + 0.5 * t.cwKgPerM * 64.0;
+            QVERIFY(qAbs(force * 8.0 - p) < 0.5);
+        }
         m.gradePercent = 3;
         QCOMPARE(road::gearSimulationGrade(m, 0.5, 1.4, t), 3.0);
         m.gradePercent = 30;

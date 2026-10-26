@@ -81,6 +81,10 @@ void SensorHub::updateCadence(double rpm)
 {
     m_cadenceAge.start();
     const int v = std::max(0, int(std::lround(rpm)));
+    if (v > 0 && m_trainerConnected && !m_cadenceReported) {
+        m_cadenceReported = true;
+        emit cadenceReportedChanged();
+    }
     if (v != m_cadence) {
         m_cadence = v;
         emit cadenceChanged();
@@ -128,6 +132,10 @@ void SensorHub::setTrainerConnected(bool connected)
         if (m_speedReported) {
             m_speedReported = false;
             emit trainerReportsSpeedChanged();
+        }
+        if (m_cadenceReported) {
+            m_cadenceReported = false;
+            emit cadenceReportedChanged();
         }
     } else if (m_requestedTarget > 0) {
         // re-apply ERG target after (re)connect

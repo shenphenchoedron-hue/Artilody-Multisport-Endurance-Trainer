@@ -159,6 +159,11 @@ public:
     void setSimulatedFixedGear(double ratio);
     // Developer/screenshot aid: a connected virtual Zwift Click ("sim:click").
     void connectSimulatedController();
+    // Developer aid: a button press on the virtual Zwift Click (same route as
+    // a real Click: shiftRequested -> controllerShift). false without one.
+    bool pressSimulatedController(int direction);
+    // The active trainer object (may be null), e.g. for diagnostics.
+    TrainerDevice *trainerDevice() const { return m_trainer; }
     static constexpr int kMaxControllers = 2;
 
     // Active rower for C++ consumers (e.g. a RowingSession): connect to

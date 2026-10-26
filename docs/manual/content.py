@@ -414,13 +414,18 @@ def build(s, env):
         [UI("+"), "Shift harder", "Target +10 W", "Shift harder"],
         [UI("−"), "Shift easier", "Target −10 W", "Shift easier"],
     ], [1.0, 2.4, 1.2, 1.2])
-    s.p("<b>How the gear reaches the trainer.</b> On a trainer that simulates gradients and reports its speed, "
-        "the app sends a gear-adjusted grade: with the bike in the reference gear the trainer's flywheel turns "
-        "at v<sub>t</sub>, the virtual bike rides at v<sub>v</sub> = v<sub>t</sub> × R<sub>virtual</sub> / "
-        "R<sub>reference</sub>, and the grade is chosen so that the brake delivers the road power for "
-        "v<sub>v</sub> on the route grade (limited to −10 … +20 %). Other trainers are set (ERG) to the road "
-        "power for the speed from your cadence and gear. Either way a harder gear means more speed and more "
-        "watts at the same cadence, and climbs are harder.")
+    s.p("<b>How the gear reaches the trainer.</b> On a trainer that simulates gradients the app sends a "
+        "gear-adjusted grade: with the bike in the reference gear the trainer's flywheel turns at "
+        "v<sub>ref</sub> = cadence × R<sub>reference</sub> × wheel circumference, the virtual bike rides at "
+        "v<sub>v</sub> = cadence × R<sub>virtual</sub> × wheel circumference, and the grade is chosen so that "
+        "the brake delivers the road power for v<sub>v</sub> on the route grade at v<sub>ref</sub> (limited to "
+        "−10 … +20 %). The speeds come from your cadence – the trainer's own speed is used only when there is no "
+        "cadence – so the gear, not a slowing flywheel, decides the resistance. Other trainers are set (ERG) to "
+        "the same road power. Either way a harder gear means more speed and more watts at the same cadence, an "
+        "easier gear fewer, and climbs are harder. On a descent where the bike rolls faster than your pedals "
+        "turn it you spin freely (a light minimum resistance), whatever the gear. Free Ride and Video Ride use "
+        "exactly the same calculation, and it applies as soon as the page is open: shifting changes the "
+        "resistance before you press Start, too.")
 
     s.section("Gear setup")
     s.figure(SHOTS / "gear-setup.png",
@@ -450,7 +455,10 @@ def build(s, env):
     s.section("Virtual devices")
     s.p(f"{UI('Virtual Trainer')} (Simulated FTMS) and {UI('Virtual HR Sensor')} (Simulated HRS) are built-in "
         "simulators marked with a <i>VIRTUAL</i> badge. They let you try every feature – workouts, ERG, "
-        "History, the FTP dialog – without any hardware. The virtual heart rate reacts to the simulated load "
+        "History, the FTP dialog – without any hardware. With virtual gears on, the virtual rider leaves the "
+        "bike in the reference gear and pedals a steady ~88 rpm (a few rpm less under a heavy load) – no "
+        "shifting of his own – so the watts follow your virtual gear and the road; with virtual gears off he "
+        "shifts his own bike towards the effort he wants. The virtual heart rate reacts to the simulated load "
         "and uses the resting and maximum heart rate of your profile. Hide them with "
         f"{UI('Show virtual devices')} (Connection Preferences or Settings). Rides with virtual devices are "
         "recorded like any other ride.")
@@ -1325,7 +1333,8 @@ def build(s, env):
     s.p("Choose the mode with the selector at the top right of the page – it is the only ERG switch: selecting "
         "ERG sends the target to the trainer at once – also before the ride is started, as long as the Free Ride "
         "page is open and a trainer is connected (the status pill then shows <i>ERG on</i>) – and selecting Ride "
-        "releases it. While paused the trainer stays free and ERG returns with Resume. You can change the mode "
+        "releases it (with virtual gears, Ride gives the trainer the resistance of your virtual gear right away; "
+        "the pill shows <i>Gears on</i>). While paused the trainer stays free and ERG returns with Resume. You can change the mode "
         "at any time; switching to ERG continues at the power you are riding at that moment (3 s average), "
         "otherwise at the last target (the first time 60 % of your FTP).")
     s.note("A trainer that cannot simulate a gradient cannot make a climb harder by itself. In Ride mode the "

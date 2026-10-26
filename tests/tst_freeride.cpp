@@ -44,7 +44,9 @@ struct Fixture
         training = std::make_unique<TrainingSession>(&db, profiles.get(), hub.get());
         training->setManualClock(true);
         gears = makeGears();
-        // most tests ride with virtual gears (a trainer without speed: path b, ERG)
+        // most tests ride with virtual gears on a trainer without gradient
+        // simulation: path b, ERG (tests of path a / real gears set support 1)
+        hub->setTrainerSimulationSupport(0);
         gears->setEnabled(true);
         ride = makeRide();
         return true;
@@ -62,6 +64,12 @@ struct Fixture
         r->setMinimumSaveSeconds(5);
         r->setTrainingSession(training.get());
         return r;
+    }
+    // real gears on a trainer that simulates gradients
+    void realGears()
+    {
+        gears->setEnabled(false);
+        hub->setTrainerSimulationSupport(1);
     }
     void pedal(int cadence, int watts)
     {
@@ -210,7 +218,7 @@ private slots:
         QVERIFY(f.ride->start());
         f.ride_for(5000);   // smoothed cadence settles at 90
         int previous = 0;
-        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));   // no trainer speed: path b
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));   // no gradient simulation: path b
         for (int i = 0; i < f.gears->gearCount(); ++i) {
             QVERIFY(f.gears->setGearIndex(i));
             f.ride_for(1000);
@@ -397,7 +405,7 @@ private slots:
         QVERIFY(FreeRideSession::parseMode(QStringLiteral("gears")) == FreeRideSession::Mode::Ride);
         QVERIFY(!FreeRideSession::parseMode(QStringLiteral("power")));
         // ride + real gears: the trainer gets the grade (FTMS 0x11)
-        f.gears->setEnabled(false);
+        f.realGears();
         f.ride = f.makeRide();
         QVERIFY(!f.ride->virtualGears());
         QCOMPARE(f.ride->resistancePath(), QStringLiteral("simulation"));
@@ -498,7 +506,7 @@ private slots:
         QCOMPARE(f.ride->targetWatts(), target);
         // real gears (virtual gears off): the Click still shifts, never the grade
         f.ride->setMode(QStringLiteral("ride"));
-        f.gears->setEnabled(false);
+        f.realGears();
         f.ride->controllerShiftUp();
         QCOMPARE(f.gears->gearIndex(), gear);
         QCOMPARE(f.ride->gradePercent(), 4.0);
@@ -757,7 +765,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.gears->setEnabled(false);
+        f.realGears();
         FakeTrainer trainer(f.hub.get());
         f.ride->setTargetWatts(210);
         QVERIFY(trainer.log.isEmpty());
@@ -818,7 +826,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.gears->setEnabled(false);
+        f.realGears();
         qint64 now = 1000000;   // the hub's clock (3 s display power)
         f.hub->setClockForTesting([&now] { return now; });
         FakeTrainer trainer(f.hub.get());
@@ -859,13 +867,16 @@ private slots:
         QVERIFY(trainer.inErg(210));
         f.ride->controllerShift(1);
         QVERIFY(trainer.inErg(220));
-        f.gears->setEnabled(false);
+        f.realGears();
         QVERIFY(trainer.inErg(220));
         // Ride with virtual gears -> gear watts / grade, back to ERG
         f.gears->setEnabled(true);
         f.ride->setMode(QStringLiteral("ride"));
         QVERIFY(f.ride->virtualGears());
-        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));   // gear watts
+        // a simulating trainer with cadence: the gear-adjusted grade, no ERG left over
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearSimulation"));
+        QVERIFY(trainer.last().startsWith(QStringLiteral("sim ")));
+        QVERIFY(!trainer.erg);
         f.ride->setMode(QStringLiteral("erg"));
         QCOMPARE(f.ride->resistancePath(), QStringLiteral("erg"));
         QVERIFY(trainer.erg);

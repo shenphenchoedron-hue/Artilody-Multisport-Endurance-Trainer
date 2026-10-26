@@ -9,7 +9,56 @@ namespace watt {
 
 bool RideResistance::gearSimulationPossible(const SensorHub *hub)
 {
-    return hub && !hub->trainerSimulationUnsupported() && hub->trainerReportsSpeed();
+    // the gear-adjusted grade needs the reference gear's speed: from the
+    // cadence, else from the trainer's speed
+    return hub && !hub->trainerSimulationUnsupported() && (hub->cadenceReported() || hub->trainerReportsSpeed());
+}
+
+double RideResistance::gearSpeed(const GearDrive &d)
+{
+    if (d.cadenceRpm >= kCoastCadenceRpm)
+        return Gearing::speedFor(d.cadenceRpm, d.virtualRatio, d.circumferenceMm);
+    if (d.trainerSpeedMps > 0 && d.referenceRatio > 0 && d.virtualRatio > 0)
+        return d.trainerSpeedMps * d.virtualRatio / d.referenceRatio;
+    return 0.0;
+}
+
+namespace {
+double gearPower(const RideResistance::GearDrive &d, double v)
+{
+    if (d.road.gradePercent < 0 && d.bikeSpeedMps > v + 0.3)
+        return RideResistance::kMinGearWatts;   // the road is faster than the pedals (freewheeling)
+    return std::clamp(road::powerForSpeed(d.road, v), double(RideResistance::kMinGearWatts),
+                      double(RideResistance::kMaxGearWatts));
+}
+} // namespace
+
+int RideResistance::gearWatts(const GearDrive &d)
+{
+    if (d.cadenceRpm < kCoastCadenceRpm)
+        return 0;
+    const double v = gearSpeed(d);
+    if (!(v > 0))
+        return 0;
+    return int(std::lround(gearPower(d, v)));
+}
+
+double RideResistance::gearGrade(const GearDrive &d, double minGrade, double maxGrade)
+{
+    const double plain = std::clamp(d.road.gradePercent, minGrade, maxGrade);
+    double vRef = 0;
+    if (d.cadenceRpm >= kCoastCadenceRpm)
+        vRef = Gearing::speedFor(d.cadenceRpm, d.referenceRatio, d.circumferenceMm);
+    else if (d.cadenceRpm <= 0)
+        vRef = d.trainerSpeedMps;   // trainer without cadence
+    const double vVirt = gearSpeed(d);
+    if (!(vRef >= kMinGearSpeedMps) || !(vVirt > 0))
+        return plain;   // coasting / standing: the road as it is
+    road::TrainerModel trainer;
+    trainer.massKg = d.road.massKg;
+    trainer.crr = SensorHub::kDefaultCrr;
+    trainer.cwKgPerM = SensorHub::kDefaultCw;
+    return road::gradeForTrainerPower(gearPower(d, vVirt), vRef, trainer, minGrade, maxGrade);
 }
 
 RideResistance::Path RideResistance::choose(bool erg, bool virtualGears, const SensorHub *hub)

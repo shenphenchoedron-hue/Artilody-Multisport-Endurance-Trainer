@@ -650,13 +650,10 @@ double integrateSpeed(const Model &m, double v, double watts, double dt, double 
     return v;
 }
 
-double gearSimulationGrade(const Model &roadModel, double vt, double gearFactor, const TrainerModel &t, double minGrade,
-                           double maxGrade, double minSpeedMps)
+double gradeForTrainerPower(double power, double vt, const TrainerModel &t, double minGrade, double maxGrade)
 {
-    if (!(vt >= minSpeedMps) || !(gearFactor > 0) || !(t.massKg > 0))
-        return std::clamp(roadModel.gradePercent, minGrade, maxGrade);
-    const double vv = vt * gearFactor;
-    const double power = powerForSpeed(roadModel, vv);
+    if (!(vt > 0) || !(t.massKg > 0) || !std::isfinite(power))
+        return std::clamp(0.0, minGrade, maxGrade);
     const double force = power / vt;
     const double weight = t.massKg * kGravity;
     const double k = (force - 0.5 * t.cwKgPerM * vt * vt) / weight;
@@ -664,6 +661,15 @@ double gearSimulationGrade(const Model &roadModel, double vt, double gearFactor,
     const double theta = std::asin(std::clamp(k / std::sqrt(1.0 + crr * crr), -1.0, 1.0)) - std::atan(crr);
     const double grade = std::tan(std::clamp(theta, -1.4, 1.4)) * 100.0;
     return std::clamp(grade, minGrade, maxGrade);
+}
+
+double gearSimulationGrade(const Model &roadModel, double vt, double gearFactor, const TrainerModel &t, double minGrade,
+                           double maxGrade, double minSpeedMps)
+{
+    if (!(vt >= minSpeedMps) || !(gearFactor > 0) || !(t.massKg > 0))
+        return std::clamp(roadModel.gradePercent, minGrade, maxGrade);
+    const double power = std::max(0.0, powerForSpeed(roadModel, vt * gearFactor));
+    return gradeForTrainerPower(power, vt, t, minGrade, maxGrade);
 }
 
 } // namespace road

@@ -208,19 +208,29 @@ struct TrainerModel
     double cwKgPerM = 0.51;
 };
 
+// Grade (%) for FTMS 0x11 that makes a trainer braking at speed vt deliver
+// `power` (W):
+//     F = P / v_t = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v_t²
+// solved exactly for θ (sinθ + Crr·cosθ = k, k = (F − ½·Cw·v_t²)/(m·g)):
+//     θ = asin(k / √(1 + Crr²)) − atan(Crr)
+// Returns tan θ in % clamped to minGrade..maxGrade (vt must be > 0).
+// Monotonic: more power at the same speed = a steeper grade.
+double gradeForTrainerPower(double power, double trainerSpeedMps, const TrainerModel &trainer, double minGrade = -10.0,
+                            double maxGrade = 20.0);
+
 // Virtual gears on a trainer that simulates gradients ("path a"): the bike
 // stays in the reference gear, so the trainer's flywheel turns at v_t while
 // the virtual bike rides at
 //     v_v = v_t · R_virtual / R_reference          (gearFactor = R_v / R_ref)
 // The rider must push the road power for v_v on the road grade:
-//     P = powerForSpeed(road, v_v)
-// The trainer delivers P at its own speed v_t when it brakes with
-//     F = P / v_t = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v_t²
-// Solved exactly for θ (sinθ + Crr·cosθ = k, k = (F − ½·Cw·v_t²)/(m·g)):
-//     θ = asin(k / √(1 + Crr²)) − atan(Crr)
-// Returns tan θ in % clamped to minGrade..maxGrade. Below minSpeedMps
-// trainer speed (or a non-positive gear factor) the plain road grade
-// (clamped) is returned.
+//     P = max(0, powerForSpeed(road, v_v))
+// (never negative: steeply downhill the road would push the pedals - the
+// rider freewheels instead; this also keeps the result monotonic in the
+// gear, a harder gear never gives a lower grade), delivered at v_t with
+// gradeForTrainerPower(). Below minSpeedMps trainer speed (or a
+// non-positive gear factor) the plain road grade (clamped) is returned.
+// The sessions use RideResistance::gearGrade(), which takes v_t from the
+// cadence (see there).
 double gearSimulationGrade(const Model &road, double trainerSpeedMps, double gearFactor, const TrainerModel &trainer,
                            double minGrade = -10.0, double maxGrade = 20.0, double minSpeedMps = 1.0);
 

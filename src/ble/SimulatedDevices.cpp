@@ -111,7 +111,12 @@ double SimulatedTrainer::gearRatio(int index) const
 
 double SimulatedTrainer::brakePower(double v) const
 {
-    const double theta = std::atan(m_grade / 100.0);
+    return brakePowerAt(v, m_grade);
+}
+
+double SimulatedTrainer::brakePowerAt(double v, double gradePercent) const
+{
+    const double theta = std::atan(gradePercent / 100.0);
     const double air = v + m_wind;
     const double force = m_crr * kSimMassKg * 9.80665 * std::cos(theta) + kSimMassKg * 9.80665 * std::sin(theta)
                          + 0.5 * m_cw * air * std::abs(air);
@@ -120,6 +125,8 @@ double SimulatedTrainer::brakePower(double v) const
 
 double SimulatedTrainer::riderGoal() const
 {
+    if (m_fixedRatio > 0)
+        return 0.0;   // virtual gears: no effort target, the brake decides
     const double base = m_freeRidePower + 15.0 * std::sin(m_t / 40.0);
     return std::clamp(base + kSimWattsPerPercent * m_grade, 0.5 * base, 1.8 * base);
 }
@@ -127,38 +134,56 @@ double SimulatedTrainer::riderGoal() const
 void SimulatedTrainer::step()
 {
     ++m_t;
-    m_cadence += ((85.0 + 4.0 * std::sin(m_t / 23.0)) - m_cadence) * 0.5;
     double goal;
-    if (m_erg && m_target > 0) {
-        goal = m_target;
-    } else if (m_sim) {
-        // the brake decides the power; the rider shifts one gear per second
-        // (up to three when far off) towards the effort he wants
-        const double want = riderGoal();
-        auto powerIn = [this](int g) { return brakePower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
-        for (int i = 0; i < 3 && m_fixedRatio <= 0; ++i) {
-            const double p = powerIn(m_gear);
-            const bool farOff = p > want * 1.3 || p < want * 0.7;
-            if (p > want * 1.08 && m_gear > 0 && std::abs(powerIn(m_gear - 1) - want) < std::abs(p - want))
-                --m_gear;
-            else if (p < want * 0.92 && m_gear < gearCount() - 1
-                     && (powerIn(m_gear + 1) <= want || std::abs(powerIn(m_gear + 1) - want) < std::abs(p - want)))
-                ++m_gear;
-            else
-                break;
-            if (!farOff)
-                break;
-        }
-        m_wheelSpeed = m_cadence / 60.0 * (m_fixedRatio > 0 ? m_fixedRatio : gearRatio(m_gear)) * kWheelCircumferenceM;
-        goal = brakePower(m_wheelSpeed);
+    if (m_fixedRatio > 0) {
+        // Virtual gears: the bike stays in the reference gear and the rider
+        // keeps his cadence (~88 rpm, a few rpm less under a heavy load). No
+        // shifting, no effort target - the power is whatever the brake asks
+        // for at that speed, so the app's resistance (and with it the
+        // virtual gear) decides the watts.
+        const double load = std::clamp((m_power - kSimCadenceLoadWatts) / 50.0, 0.0, kSimMaxCadenceDrop);
+        m_cadence += ((kSimCadenceRpm + 2.0 * std::sin(m_t / 23.0) - load) - m_cadence) * 0.5;
+        m_wheelSpeed = m_cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
+        if (m_erg && m_target > 0)
+            goal = m_target;                               // ERG holds the target at any speed
+        else if (m_sim)
+            goal = brakePower(m_wheelSpeed);               // the (gear-adjusted) grade
+        else
+            goal = brakePowerAt(m_wheelSpeed, 0.0);        // free ride: the flywheel's basic resistance
     } else {
-        goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
+        m_cadence += ((85.0 + 4.0 * std::sin(m_t / 23.0)) - m_cadence) * 0.5;
+        if (m_erg && m_target > 0) {
+            goal = m_target;
+        } else if (m_sim) {
+            // the brake decides the power; the rider shifts one gear per second
+            // (up to three when far off) towards the effort he wants
+            const double want = riderGoal();
+            auto powerIn = [this](int g) { return brakePower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
+            for (int i = 0; i < 3; ++i) {
+                const double p = powerIn(m_gear);
+                const bool farOff = p > want * 1.3 || p < want * 0.7;
+                if (p > want * 1.08 && m_gear > 0 && std::abs(powerIn(m_gear - 1) - want) < std::abs(p - want))
+                    --m_gear;
+                else if (p < want * 0.92 && m_gear < gearCount() - 1
+                         && (powerIn(m_gear + 1) <= want || std::abs(powerIn(m_gear + 1) - want) < std::abs(p - want)))
+                    ++m_gear;
+                else
+                    break;
+                if (!farOff)
+                    break;
+            }
+            m_wheelSpeed = m_cadence / 60.0 * gearRatio(m_gear) * kWheelCircumferenceM;
+            goal = brakePower(m_wheelSpeed);
+        } else {
+            goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
+        }
     }
-    m_power += (goal - m_power) * (m_sim ? 0.7 : 0.45);
+    const bool brake = m_fixedRatio > 0 || m_sim;
+    m_power += (goal - m_power) * (brake ? 0.7 : 0.45);
     const double shown = std::max(0.0, m_power + (m_noise ? noise(4.0) : 0.0));
     emit powerMeasured(int(std::lround(shown)));
     emit cadenceMeasured(std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0)));
-    emit speedMeasured(m_sim ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2);
+    emit speedMeasured(brake ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2);
 }
 
 // ---------------------------------------------------------------------------

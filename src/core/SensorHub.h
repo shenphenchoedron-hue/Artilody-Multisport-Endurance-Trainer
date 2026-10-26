@@ -55,6 +55,9 @@ public:
     double speedKmh() const { return m_speed; }
     double speedMps() const { return m_speed / 3.6; }
     bool trainerReportsSpeed() const { return m_speedReported; }
+    // A cadence > 0 arrived since the trainer connected (cleared when it
+    // disconnects): virtual gears take the reference gear's speed from it.
+    bool cadenceReported() const { return m_cadenceReported; }
     bool trainerConnected() const { return m_trainerConnected; }
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
@@ -110,6 +113,7 @@ signals:
     void requestedTargetChanged();
     void trainerSimulationSupportChanged();
     void trainerReportsSpeedChanged();
+    void cadenceReportedChanged();
 
     void targetPowerRequested(int watts);
     void freeRideRequested();
@@ -128,6 +132,7 @@ private:
     double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
     int m_simSupport = -1;
     bool m_speedReported = false;
+    bool m_cadenceReported = false;
     int m_staleMs = 3000;
     QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge, m_speedAge;
 

@@ -120,11 +120,12 @@ Item {
                     Rectangle {
                         id: statusPill
                         readonly property color dot: page.st === "idle" && FreeRide.ergHolding ? Theme.warning
+                                                   : page.st === "idle" && FreeRide.gearHolding ? Theme.accentLight
                                                    : page.st === "ready" ? Theme.success
                                                    : page.st === "running" ? Theme.danger
                                                    : page.st === "paused" ? Theme.warning
                                                    : page.st === "finished" ? Theme.accentLight : Theme.textMuted
-                        visible: page.st !== "idle" || FreeRide.ergHolding
+                        visible: page.st !== "idle" || FreeRide.ergHolding || FreeRide.gearHolding
                         anchors.verticalCenter: parent.verticalCenter
                         height: 34
                         width: pillRow.implicitWidth + 28
@@ -148,7 +149,8 @@ Item {
                             }
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: page.st === "idle" ? "ERG on  •  " + FreeRide.targetWatts + " W"
+                                text: page.st === "idle" ? (FreeRide.ergHolding ? "ERG on  •  " + FreeRide.targetWatts + " W"
+                                                                                : "Gears on  •  " + Gears.gearLabel)
                                       : page.st === "ready" ? "Waiting for pedaling…"
                                       : page.st === "running" ? (FreeRide.coasting ? "Coasting" : "Riding") + "  •  " + page.modeName(FreeRide.mode)
                                       : page.st === "paused" ? "Paused" : "Finished"

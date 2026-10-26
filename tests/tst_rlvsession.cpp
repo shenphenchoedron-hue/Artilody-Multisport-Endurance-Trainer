@@ -100,10 +100,12 @@ struct Fixture
         gears->setSessions(freeRide.get(), rlv.get());
         return true;
     }
-    // simulation with virtual gears (a trainer without speed: path b, ERG)
+    // simulation with virtual gears on a trainer without gradient
+    // simulation: path b, ERG
     void useGears()
     {
         rlv->setMode(QStringLiteral("sim"));
+        hub->setTrainerSimulationSupport(0);
         gears->setEnabled(true);
     }
     bool addRoute(const QString &name, double lengthM, double speed, const std::function<double(double)> &grade,

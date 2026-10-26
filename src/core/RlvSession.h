@@ -53,12 +53,14 @@ class VirtualGears;
 //         up on the Devices page) and the effective grade decide the
 //         resistance: v = cadence/60 · ratio · wheel circumference and the
 //         road power P = road::powerForSpeed(v, grade). Delivered through
-//         RideResistance::GearSimulation ("path a": the trainer simulates and
-//         reports speed; it gets the gear-adjusted grade
-//         road::gearSimulationGrade() while the bike stays in the reference
-//         gear) or RideResistance::GearErg ("path b": ERG target P, resent at
-//         most every kTargetIntervalMs, clamped kMinGearWatts..kMaxWatts,
-//         released while coasting). Speed/distance/video follow the virtual
+//         RideResistance::GearSimulation ("path a": the trainer simulates; it
+//         gets the gear-adjusted grade RideResistance::gearGrade() for the
+//         cadence while the bike stays in the reference gear) or
+//         RideResistance::GearErg ("path b": ERG target P =
+//         RideResistance::gearWatts(), resent at most every
+//         kTargetIntervalMs, released while coasting) - the same functions
+//         as the Free Ride. With the page open (idle or armed) the trainer
+//         already gets this resistance (gearHolding()). Speed/distance/video follow the virtual
 //         speed; while coasting, or when the road is faster than the pedals
 //         (descents), the road physics (road::coastDeceleration). A trainer
 //         without cadence: speed from power (with inertia).
@@ -171,6 +173,9 @@ class RlvSession : public QObject
     Q_PROPERTY(int maxTargetWatts READ maxTargetWatts CONSTANT)
     Q_PROPERTY(int sentTargetWatts READ sentTargetWatts NOTIFY targetChanged)    // last ERG target sent (0 = none)
     Q_PROPERTY(bool ergHolding READ ergHolding NOTIFY targetChanged)   // ERG held outside a ride
+    // virtual gear resistance held outside a ride (Simulation with virtual
+    // gears on the open Video Ride page, idle or armed)
+    Q_PROPERTY(bool gearHolding READ gearHolding NOTIFY targetChanged)
     Q_PROPERTY(int gearTargetWatts READ gearTargetWatts NOTIFY targetChanged)    // road power of the virtual gear
     // grade last sent to the trainer (FTMS 0x11), and whether it is being sent
     Q_PROPERTY(double simulationGradePercent READ simulationGradePercent NOTIFY targetChanged)
@@ -190,8 +195,8 @@ public:
 
     static constexpr int kStartCadenceRpm = 20;
     static constexpr int kStartPowerWatts = 30;
-    static constexpr int kCoastCadenceRpm = 15;
-    static constexpr int kMinGearWatts = 20;
+    static constexpr int kCoastCadenceRpm = RideResistance::kCoastCadenceRpm;
+    static constexpr int kMinGearWatts = RideResistance::kMinGearWatts;
     static constexpr int kMaxWatts = 1500;
     static constexpr int kTargetIntervalMs = RideResistance::kGearIntervalMs;
     static constexpr int kMinTargetChangeWatts = RideResistance::kMinWattsChange;
@@ -315,7 +320,10 @@ public:
     // target right away while idle or armed (trainer connected, no other
     // session busy); Simulation / leaving the page releases it. Paused:
     // released, ERG comes with resume().
-    bool ergHolding() const { return m_ergHold; }
+    // Simulation with virtual gears on the open page holds the virtual gear
+    // resistance the same way (shifting changes the watts before Start).
+    bool ergHolding() const { return m_ergHold && m_mode == Mode::Erg; }
+    bool gearHolding() const { return m_ergHold && m_mode == Mode::Sim; }
     bool holdWanted() const;
     int gearTargetWatts() const;
     double simulationGradePercent() const { return m_res.lastGrade(); }
@@ -399,7 +407,10 @@ private:
     void checkPedaling();
     void applyTarget(bool force = false);
     int desiredGearWatts() const;
-    int computeGearTarget(double cadenceRpm) const;
+    RideResistance::GearDrive gearDrive(double cadenceRpm) const;
+    double controlCadence() const;   // cadence the resistance follows (< coast = coasting)
+    bool sendResistance(bool force);  // the current path's command (ride and page hold)
+    void updateTimer();
     void clearRecording();
     qint64 saveRide();
     void releaseTrainer();
@@ -422,7 +433,7 @@ private:
     QVariantList m_profile;
     Mode m_mode = Mode::Sim;
     int m_ergTarget = 150;
-    bool m_ergHold = false;       // ERG target held outside a ride (updateHold())
+    bool m_ergHold = false;       // ERG target / virtual gear held outside a ride (updateHold())
     State m_state = State::Idle;
     int m_difficulty = kDefaultDifficulty;
     bool m_completed = false;

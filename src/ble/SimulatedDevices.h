@@ -12,16 +12,23 @@ namespace watt {
 //
 // Gradient simulation (setSimulation): the trainer brake resists like the
 // road, P = (Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v²)·v at the wheel speed
-// v = cadence/60 · gear ratio · 2.096 m (m = kSimMassKg). The simulated
-// rider pedals ~85 rpm and shifts a 22-speed bike (34×28 .. 50×11) one gear
-// per second towards the effort he wants for that grade (free ride power +
-// kSimWattsPerPercent per % grade, 0.5..1.8 × the free ride power), so a
-// climb first makes the pedals heavier and then the rider shifts down.
+// v = cadence/60 · gear ratio · 2.096 m (m = kSimMassKg).
+// Virtual gears off (fixed gear ratio 0): the simulated rider pedals ~85 rpm
+// and shifts a 22-speed bike (34×28 .. 50×11) one gear per second towards
+// the effort he wants for that grade (free ride power + kSimWattsPerPercent
+// per % grade, 0.5..1.8 × the free ride power), so a climb first makes the
+// pedals heavier and then the rider shifts down.
+// Virtual gears on (setFixedGearRatio(r > 0), the rider shifts with a Zwift
+// Click): the bike stays in the reference gear r and the rider keeps
+// ~kSimCadenceRpm (±2, up to kSimMaxCadenceDrop rpm less under a heavy load).
+// No shifting, no effort target: the power is the brake at that speed - the
+// (gear-adjusted) grade in simulation, the ERG target in ERG, the flywheel's
+// basic resistance (grade 0) in free ride. So a harder virtual gear (= a
+// steeper gear-adjusted grade / a higher ERG target from the app) gives more
+// watts, an easier one fewer, climbs more. The reported speed is the wheel
+// speed of the reference gear.
 // WATT_SIM_TRAINER_NO_SIM=1 makes it a trainer without simulation support
 // (demo of the fallback).
-// setFixedGearRatio(r > 0): the rider shifts virtually (Zwift Click) and
-// leaves the bike in the reference gear r - the simulated rider no longer
-// shifts, the brake power follows the (gear-adjusted) grade the app sends.
 class SimulatedTrainer : public TrainerDevice
 {
     Q_OBJECT
@@ -45,6 +52,9 @@ public:
     static constexpr double kSimMassKg = 83.0;
     static constexpr double kSimWattsPerPercent = 9.0;
     static constexpr double kWheelCircumferenceM = 2.096;
+    static constexpr double kSimCadenceRpm = 88.0;          // virtual gears: steady cadence
+    static constexpr double kSimCadenceLoadWatts = 300.0;   // above: the cadence drops a little
+    static constexpr double kSimMaxCadenceDrop = 6.0;       // rpm
 
     void setFreeRidePower(int watts) { m_freeRidePower = watts; }
     void setSimulationSupported(bool on);
@@ -58,15 +68,18 @@ public:
     double simulationGrade() const { return m_grade; }
     double wheelSpeedMps() const { return m_wheelSpeed; }
     int gearIndex() const { return m_gear; }
+    double cadenceRpm() const { return m_cadence; }
+    // The effort (W) the simulated rider shifts towards (real gears only).
+    double riderGoal() const;
     static int gearCount();
     // Brake power (W) at wheel speed v for the current simulation parameters.
     double brakePower(double speedMps) const;
+    double brakePowerAt(double speedMps, double gradePercent) const;
     // One simulation second (driven by a 1 s timer; public for tests).
     void step();
 
 private:
     double gearRatio(int index) const;
-    double riderGoal() const;
 
     QTimer m_timer;
     double m_power = 0;

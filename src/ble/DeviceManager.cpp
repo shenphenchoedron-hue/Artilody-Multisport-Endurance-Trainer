@@ -1426,6 +1426,15 @@ void DeviceManager::connectSimulatedController()
     emit devicesChanged();
 }
 
+bool DeviceManager::pressSimulatedController(int direction)
+{
+    auto *c = qobject_cast<SimulatedController *>(controllerFor(QStringLiteral("sim:click")));
+    if (!c || c->state() != LinkState::Connected)
+        return false;
+    c->pressButton(direction);
+    return true;
+}
+
 void DeviceManager::attachTrainer(TrainerDevice *t)
 {
     m_trainer = t;

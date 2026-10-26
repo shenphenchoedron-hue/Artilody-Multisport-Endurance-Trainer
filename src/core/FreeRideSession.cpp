@@ -53,12 +53,13 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     connect(m_gears, &VirtualGears::activePageChanged, this, [this] { updateHold(); });
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &FreeRideSession::resistanceSetupChanged);
+    connect(m_hub, &SensorHub::cadenceReportedChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &FreeRideSession::resistanceSetupChanged);
     auto gearChanged = [this] {
         emit targetChanged();
         emit metricsChanged();
-        if (running() && virtualGears())
-            applyTarget(true);   // new gear / bike -> new resistance right away
+        if (virtualGears())
+            applyTarget(true);   // new gear / bike -> new resistance right away (ride or page hold)
     };
     connect(m_gears, &VirtualGears::gearChanged, this, gearChanged);
     connect(m_gears, &VirtualGears::gearSetupChanged, this, gearChanged);
@@ -140,13 +141,8 @@ void FreeRideSession::setState(State s)
     if (m_state == s)
         return;
     m_state = s;
-    if (m_state == State::Ready || active()) {
-        m_clock.start();
-        if (!m_manualClock)
-            m_timer.start();
-    } else {
-        m_timer.stop();
-    }
+    m_clock.start();
+    updateTimer();
     emit stateChanged();
     if (!active())
         updateHold();   // idle / armed: ERG on the open page holds the target
@@ -201,8 +197,20 @@ void FreeRideSession::resistanceSetupChanged()
     emit modeChanged();   // virtualGears / simulationFallback / resistancePath
     emit targetChanged();
     emit metricsChanged();
-    if (running())
-        applyTarget(true);
+    applyTarget(true);   // running: the ride's resistance; else the page hold
+}
+
+void FreeRideSession::updateTimer()
+{
+    // the clock runs while a ride is armed/active and while the page holds
+    // the virtual gear resistance (it follows the cadence)
+    const bool want = !m_manualClock && (m_state == State::Ready || active() || m_holding);
+    if (want && !m_timer.isActive()) {
+        m_clock.start();
+        m_timer.start();
+    } else if (!want && m_timer.isActive()) {
+        m_timer.stop();
+    }
 }
 
 bool FreeRideSession::virtualGears() const
@@ -306,15 +314,27 @@ void FreeRideSession::adjustGrade(double delta)
     setGrade(m_grade + delta);
 }
 
-int FreeRideSession::computeGearTarget(double cadenceRpm) const
+RideResistance::GearDrive FreeRideSession::gearDrive(double cadenceRpm) const
 {
-    if (cadenceRpm < kCoastCadenceRpm)
-        return 0;
-    const double v = gearing().virtualSpeed(cadenceRpm);
-    if (running() && m_grade < 0 && m_speed > v + 0.3)
-        return kMinGearWatts;   // the road is faster than the pedals (freewheeling downhill)
-    const double p = road::powerForSpeed(roadModel(m_grade), v);
-    return std::clamp(int(std::lround(p)), kMinGearWatts, kMaxWatts);
+    RideResistance::GearDrive d;
+    d.road = roadModel(m_grade);
+    d.cadenceRpm = cadenceRpm;
+    d.virtualRatio = gearing().ratio();
+    d.referenceRatio = m_gears->referenceRatio();
+    d.circumferenceMm = gearing().setup().circumferenceMm;
+    // without a cadence the trainer's speed stands in for the reference gear
+    d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
+    d.bikeSpeedMps = running() ? m_speed : -1.0;
+    return d;
+}
+
+double FreeRideSession::controlCadence() const
+{
+    const int raw = m_hub->cadence();
+    if (raw < kCoastCadenceRpm)
+        return raw;   // coasting (or no cadence)
+    // smoothed while a ride is armed/running, else the live cadence
+    return (m_state == State::Ready || active()) ? std::max(m_cadSmooth, double(kCoastCadenceRpm)) : double(raw);
 }
 
 int FreeRideSession::gearTargetWatts() const
@@ -323,27 +343,32 @@ int FreeRideSession::gearTargetWatts() const
         return 0;
     // Smoothed cadence while a ride is armed/running, else the live cadence.
     const double cad = (m_state == State::Ready || active()) ? m_cadSmooth : double(m_hub->cadence());
-    return computeGearTarget(cad);
+    return RideResistance::gearWatts(gearDrive(cad));
 }
 
 int FreeRideSession::desiredGearWatts() const
 {
-    if (m_hub->cadence() < kCoastCadenceRpm)
-        return 0;   // coasting (or no cadence): release
-    return computeGearTarget(std::max(m_cadSmooth, double(kCoastCadenceRpm)));
+    return RideResistance::gearWatts(gearDrive(controlCadence()));
 }
 
 double FreeRideSession::gearSimulationGrade() const
 {
-    const road::Model model = roadModel(m_grade);
-    if (m_hub->cadence() < kCoastCadenceRpm)
-        return std::clamp(m_grade, RideResistance::kMinGrade, RideResistance::kMaxGrade);   // coasting
-    road::TrainerModel trainer;
-    trainer.massKg = model.massKg;
-    trainer.crr = SensorHub::kDefaultCrr;
-    trainer.cwKgPerM = SensorHub::kDefaultCw;
-    return road::gearSimulationGrade(model, m_hub->speedMps(), m_gears->gearFactor(), trainer,
-                                     RideResistance::kMinGrade, RideResistance::kMaxGrade);
+    return RideResistance::gearGrade(gearDrive(controlCadence()));
+}
+
+bool FreeRideSession::sendResistance(bool force)
+{
+    switch (path()) {
+    case RideResistance::Path::Erg:
+        return m_res.sendErg(m_targetWatts, force);
+    case RideResistance::Path::Simulation:
+        return m_res.sendGrade(m_grade, force);
+    case RideResistance::Path::GearSimulation:
+        return m_res.sendGrade(gearSimulationGrade(), force);
+    case RideResistance::Path::GearErg:
+        return m_res.sendGearWatts(desiredGearWatts(), force);
+    }
+    return false;
 }
 
 void FreeRideSession::applyTarget(bool force)
@@ -352,23 +377,9 @@ void FreeRideSession::applyTarget(bool force)
         updateHold(force);   // idle / armed: ERG on the open page
         return;
     }
+    const bool wasHolding = m_holding;
     m_holding = false;   // the ride's resistance from here on
-    bool sent = false;
-    switch (path()) {
-    case RideResistance::Path::Erg:
-        sent = m_res.sendErg(m_targetWatts, force);
-        break;
-    case RideResistance::Path::Simulation:
-        sent = m_res.sendGrade(m_grade, force);
-        break;
-    case RideResistance::Path::GearSimulation:
-        sent = m_res.sendGrade(gearSimulationGrade(), force);
-        break;
-    case RideResistance::Path::GearErg:
-        sent = m_res.sendGearWatts(desiredGearWatts(), force);
-        break;
-    }
-    if (sent)
+    if (sendResistance(force) || wasHolding)
         emit targetChanged();
 }
 
@@ -388,7 +399,7 @@ bool FreeRideSession::holdBlocked() const
 
 bool FreeRideSession::holdWanted() const
 {
-    return m_mode == Mode::Erg && (m_state == State::Idle || m_state == State::Ready)
+    return (m_mode == Mode::Erg || virtualGears()) && (m_state == State::Idle || m_state == State::Ready)
            && m_gears->activePage() == QLatin1String("freeride") && trainerConnected() && !holdBlocked();
 }
 
@@ -397,9 +408,10 @@ void FreeRideSession::updateHold(bool force)
     if (active())
         return;   // running: applyTarget(); paused: released until resume()
     if (holdWanted()) {
-        const bool sent = m_res.sendErg(m_targetWatts, force || !m_holding);
+        const bool sent = sendResistance(force || !m_holding);
         const bool changed = !m_holding;
         m_holding = true;
+        updateTimer();
         if (sent || changed)
             emit targetChanged();
         return;
@@ -407,6 +419,7 @@ void FreeRideSession::updateHold(bool force)
     if (!m_holding)
         return;
     m_holding = false;
+    updateTimer();
     // Release only what is still ours: another session may have sent its own
     // command in the meantime (e.g. the Video Ride page holding its target).
     if (!holdBlocked() && m_res.lastCommandIsOurs())
@@ -622,8 +635,16 @@ void FreeRideSession::updateModel(double dt)
 void FreeRideSession::process(int ms)
 {
     m_hub->expireStale();
-    if (ms <= 0 || !(m_state == State::Ready || active()))
+    if (ms <= 0)
         return;
+    if (!(m_state == State::Ready || active())) {
+        if (m_holding) {   // idle page holding the virtual gear: follow the cadence
+            m_res.elapse(ms);
+            updateHold();
+            emit metricsChanged();
+        }
+        return;
+    }
     if (paused())
         return;   // clock stopped, values frozen
     const double dt = ms / 1000.0;
@@ -635,6 +656,9 @@ void FreeRideSession::process(int ms)
         recordUpTo(int(m_activeMs / 1000));
         applyTarget();
         emit tick();
+    } else if (m_holding) {
+        m_res.elapse(ms);
+        updateHold();   // armed: the page hold follows the cadence
     }
     emit metricsChanged();
 }
