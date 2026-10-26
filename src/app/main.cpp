@@ -168,6 +168,16 @@ int main(int argc, char *argv[])
     RowingRecords rowingRecords(&db, &profiles);
 
     DeviceManager devices(&db, &hub);
+    // WATT_TRAINER_LOG=1 (on in screenshot mode): every resistance command the
+    // device layer forwards to the trainer, on stderr.
+    if (!shotDir.isEmpty() || qEnvironmentVariableIntValue("WATT_TRAINER_LOG") > 0) {
+        QObject::connect(&hub, &SensorHub::targetPowerRequested, &app,
+                         [](int w) { qInfo("trainer: set target power %d W (ERG)", w); });
+        QObject::connect(&hub, &SensorHub::freeRideRequested, &app, [] { qInfo("trainer: free ride"); });
+        QObject::connect(&hub, &SensorHub::simulationRequested, &app, [](double g, double, double, double) {
+            qInfo("trainer: simulation grade %.2f %%", g);
+        });
+    }
     auto syncPhysiology = [&] {
         devices.setRiderPhysiology(profiles.restHr(), profiles.maxHr(), profiles.ftp());
     };
@@ -343,6 +353,13 @@ int main(int argc, char *argv[])
     //                                  (= ride with virtual gears on)
     //   WATT_SCREENSHOT_FREERIDE_SEC   seconds ridden before freeride.png (default 40)
     //   WATT_SCREENSHOT_FREERIDE_FINISH=1  finish the ride (not saved) before the capture
+    //   WATT_SCREENSHOT_FREERIDE_IDLE=1    do not start the free ride (idle page)
+    //   WATT_SCREENSHOT_SELECT=erg,ride,…  on the live page (Free Ride / Video Ride), one
+    //                                  click per step on the page's mode selector: emits the
+    //                                  SegmentedControl's activated(value) signal, i.e. the
+    //                                  same QML handler a mouse click runs
+    //   WATT_TRAINER_LOG=1             log every trainer command (target power, simulation,
+    //                                  free ride) to stderr; on in screenshot mode
     //   WATT_SCREENSHOT_RLV=<route>    live video ride (folder, .xml or .gpx) on the virtual
     //                                  trainer instead of the cycling workout (page "video" last)
     //   WATT_SCREENSHOT_RLV_SEC        seconds ridden before video.png (default 40)
@@ -505,14 +522,21 @@ int main(int argc, char *argv[])
         const bool finishRlv = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_FINISH") > 0;
         const bool rlvIdle = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_IDLE") > 0;
         const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
+        const bool freeRideIdle = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_IDLE") > 0;
+        auto selects = std::make_shared<QStringList>(
+            qEnvironmentVariable("WATT_SCREENSHOT_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts));
+        const QString selectorName = shotFreeRide ? QStringLiteral("freeRideModeSelector")
+                                                  : QStringLiteral("videoModeSelector");
         clock->start();
         QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv] {
             const int s = (*step)++;
             if (s == 1) {
                 if (shotRowing)
                     rowing.start();
-                else if (shotFreeRide)
-                    freeRide.start();
+                else if (shotFreeRide) {
+                    if (!freeRideIdle)
+                        freeRide.start();
+                }
                 else if (shotRlv) {
                     if (!rlvIdle)
                         rlv.start();
@@ -531,6 +555,19 @@ int main(int argc, char *argv[])
                 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, page));
                 if (shotClick && name == QLatin1String("devices"))
                     QMetaObject::invokeMethod(window, "revealControllers");
+                return;
+            }
+            if (shotLive && name == livePage && !selects->isEmpty()) {
+                // a click on the page's mode selector (SegmentedControl.activated)
+                const QString value = selects->takeFirst().trimmed();
+                QObject *selector = window->findChild<QObject *>(selectorName);
+                if (!selector)
+                    qWarning("Screenshot mode: no %s", qPrintable(selectorName));
+                else {
+                    qInfo("Screenshot mode: selector %s -> %s", qPrintable(selectorName), qPrintable(value));
+                    QMetaObject::invokeMethod(selector, "activated", Q_ARG(QString, value));
+                }
+                --(*step);
                 return;
             }
             if (shotLive && name == livePage && clock->elapsed() < liveSec * 1000) {

@@ -53,6 +53,8 @@ public:
     void setNoise(bool on) { m_noise = on; }   // tests: deterministic values
     double currentPower() const { return m_power; }
     bool simulating() const { return m_sim; }
+    bool ergActive() const { return m_erg; }      // holds targetPower()
+    int targetPower() const { return m_target; }
     double simulationGrade() const { return m_grade; }
     double wheelSpeedMps() const { return m_wheelSpeed; }
     int gearIndex() const { return m_gear; }

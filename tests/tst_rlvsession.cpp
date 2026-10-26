@@ -695,6 +695,78 @@ private slots:
         QCOMPARE(f.hub->requestedTarget(), 0);
     }
 
+    // ERG pressed on the Video Ride page puts the trainer in ERG at once
+    // (idle / armed); Simulation or leaving the page releases it; paused:
+    // applied on resume. The Free Ride page's hold and this one never fight.
+    void ergSelectorEngagesTrainerWhenIdle()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 6000, 5, [](double) { return 0.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        f.rlv->setTargetWatts(190);
+        f.gears->setActivePage(QStringLiteral("video"));
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        f.rlv->setProperty("mode", QStringLiteral("erg"));   // = onActivated: Rlv.mode = v
+        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        QVERIFY(f.rlv->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 190);
+        QCOMPARE(f.rlv->sentTargetWatts(), 190);
+        f.rlv->controllerShift(1);   // Zwift Click +10 W
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        f.rlv->setProperty("mode", QStringLiteral("sim"));
+        QVERIFY(!f.rlv->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        f.rlv->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.hub->requestedTarget(), 200);
+
+        // page switches: Free Ride (ERG 200 too) <-> Video Ride, either order
+        f.freeRide->setTargetWatts(200);
+        f.freeRide->setMode(QStringLiteral("erg"));
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(!f.rlv->ergHolding());
+        QVERIFY(f.freeRide->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 200);   // not released by the video page
+        f.gears->setActivePage(QStringLiteral("video"));
+        QVERIFY(f.rlv->ergHolding());
+        QVERIFY(!f.freeRide->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        f.freeRide->setMode(QStringLiteral("ride"));
+        QCOMPARE(f.hub->requestedTarget(), 200);   // not the free ride's trainer any more
+        f.gears->setActivePage(QStringLiteral("history"));
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        f.gears->setActivePage(QStringLiteral("video"));
+        QCOMPARE(f.hub->requestedTarget(), 200);
+
+        // armed -> held, pedaling starts the ride in ERG
+        f.rlv->startWhenPedaling();
+        QCOMPARE(f.rlv->state(), QStringLiteral("ready"));
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        f.pedal(85, 195);
+        QCOMPARE(f.rlv->state(), QStringLiteral("running"));
+        QVERIFY(!f.rlv->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        f.ride_for(3000);
+        // running: Simulation -> ERG
+        f.rlv->setMode(QStringLiteral("sim"));
+        QVERIFY(f.hub->simulationActive());
+        f.rlv->setMode(QStringLiteral("erg"));
+        QVERIFY(!f.hub->simulationActive());
+        QVERIFY(f.hub->requestedTarget() > 0);
+        // paused: released, ERG pressed while paused comes with resume
+        f.rlv->setMode(QStringLiteral("sim"));
+        f.rlv->pause();
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        QVERIFY(!f.hub->simulationActive());
+        f.rlv->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        f.rlv->resume();
+        QCOMPARE(f.hub->requestedTarget(), f.rlv->targetWatts());
+        f.rlv->finish(false);
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        QVERIFY(!f.rlv->ergHolding());
+    }
+
     void modePersistenceAndMigration()
     {
         Fixture f;

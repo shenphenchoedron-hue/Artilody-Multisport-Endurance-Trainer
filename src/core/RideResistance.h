@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QtGlobal>
 #include <limits>
 
 namespace watt {
@@ -58,12 +59,15 @@ public:
     bool sentAnything() const { return m_lastWatts >= 0 || simulating(); }
     bool simulating() const { return m_lastGrade == m_lastGrade; }      // not NaN
     double lastGrade() const { return simulating() ? m_lastGrade : 0.0; }
+    // The trainer's last command came from here (nobody sent one since).
+    bool lastCommandIsOurs() const;
 
 private:
     SensorHub *m_hub;
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts
     double m_lastGrade = std::numeric_limits<double>::quiet_NaN();
     int m_sinceMs = 0;
+    quint64 m_serial = 0;    // SensorHub::commandSerial() after our last command
 };
 
 } // namespace watt

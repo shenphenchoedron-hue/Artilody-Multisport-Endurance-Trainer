@@ -61,6 +61,19 @@ Item {
                 font.pixelSize: 20
                 font.weight: Font.DemiBold
             }
+            // is the trainer holding the target right now?
+            Text {
+                readonly property bool on: (FreeRide.running && FreeRide.requestedWatts > 0) || FreeRide.ergHolding
+                Layout.fillWidth: true
+                text: on ? "Trainer holds " + FreeRide.requestedWatts + " W"
+                      : !FreeRide.trainerConnected ? "Connect a trainer for ERG"
+                      : FreeRide.paused ? "Paused – ERG resumes with the ride"
+                      : FreeRide.state === "finished" ? "Ride finished"
+                      : "ERG starts with the ride"
+                color: on ? Theme.successText : Theme.textSecondary
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+            }
             // actual vs target: the band is ±5 %, the marker the current power
             Item {
                 Layout.fillWidth: true

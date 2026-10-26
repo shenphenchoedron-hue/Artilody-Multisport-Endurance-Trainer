@@ -170,6 +170,7 @@ class RlvSession : public QObject
     Q_PROPERTY(int minTargetWatts READ minTargetWatts CONSTANT)
     Q_PROPERTY(int maxTargetWatts READ maxTargetWatts CONSTANT)
     Q_PROPERTY(int sentTargetWatts READ sentTargetWatts NOTIFY targetChanged)    // last ERG target sent (0 = none)
+    Q_PROPERTY(bool ergHolding READ ergHolding NOTIFY targetChanged)   // ERG held outside a ride
     Q_PROPERTY(int gearTargetWatts READ gearTargetWatts NOTIFY targetChanged)    // road power of the virtual gear
     // grade last sent to the trainer (FTMS 0x11), and whether it is being sent
     Q_PROPERTY(double simulationGradePercent READ simulationGradePercent NOTIFY targetChanged)
@@ -309,6 +310,13 @@ public:
     int minTargetWatts() const { return kMinErgWatts; }
     int maxTargetWatts() const { return kMaxWatts; }
     int sentTargetWatts() const { return m_res.lastWatts(); }
+    // ERG outside a ride: ERG selected on the open Video Ride page
+    // (VirtualGears::activePage() == "video") puts the trainer in ERG at the
+    // target right away while idle or armed (trainer connected, no other
+    // session busy); Simulation / leaving the page releases it. Paused:
+    // released, ERG comes with resume().
+    bool ergHolding() const { return m_ergHold; }
+    bool holdWanted() const;
     int gearTargetWatts() const;
     double simulationGradePercent() const { return m_res.lastGrade(); }
     bool simulationActive() const { return running() && m_res.simulating(); }
@@ -395,6 +403,8 @@ private:
     void clearRecording();
     qint64 saveRide();
     void releaseTrainer();
+    void updateHold(bool force = false);
+    bool holdBlocked() const;
     void requestSeek();
     bool canSelect() const;
 
@@ -412,6 +422,7 @@ private:
     QVariantList m_profile;
     Mode m_mode = Mode::Sim;
     int m_ergTarget = 150;
+    bool m_ergHold = false;       // ERG target held outside a ride (updateHold())
     State m_state = State::Idle;
     int m_difficulty = kDefaultDifficulty;
     bool m_completed = false;

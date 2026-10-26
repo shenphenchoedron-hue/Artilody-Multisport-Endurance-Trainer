@@ -3,8 +3,11 @@
 // and reports whether the trainer can simulate.
 #include "Database.h"
 #include "DeviceManager.h"
+#include "FreeRideSession.h"
+#include "ProfileManager.h"
 #include "SensorHub.h"
 #include "SimulatedDevices.h"
+#include "VirtualGears.h"
 
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -162,6 +165,55 @@ private slots:
         // a trainer that cannot simulate is reported to the hub
         trainer->setSimulationSupported(false);
         QCOMPARE(hub.trainerSimulationSupport(), 0);
+        mgr.disconnectDevice(QStringLiteral("sim:trainer"));
+    }
+
+    // End to end on the virtual trainer: ERG on the Free Ride page's mode
+    // selector reaches the trainer through DeviceManager right away (idle),
+    // Ride gives it back, a started ride keeps ERG.
+    void freeRideErgSelectorReachesTheTrainer()
+    {
+        QTemporaryDir dir;
+        Database db;
+        QVERIFY(db.open(dir.filePath(QStringLiteral("t.db"))));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        SensorHub hub;
+        DeviceManager mgr(&db, &hub);
+        mgr.setSimulatorEnabled(false);
+        mgr.setSimulatorEnabled(true);   // adds the virtual devices without Bluetooth
+        VirtualGears gears(&db, &profiles);
+        FreeRideSession ride(&db, &profiles, &hub, &gears);
+        ride.setManualClock(true);
+        gears.setSessions(&ride, nullptr);
+        gears.setActivePage(QStringLiteral("freeride"));
+        ride.setTargetWatts(220);
+        ride.setMode(QStringLiteral("erg"));   // before the trainer connects
+        QVERIFY(!ride.ergHolding());
+        mgr.connectDevice(QStringLiteral("sim:trainer"));
+        QTRY_VERIFY_WITH_TIMEOUT(hub.trainerConnected(), 3000);
+        auto *trainer = mgr.findChild<SimulatedTrainer *>();
+        QVERIFY(trainer);
+        QVERIFY(ride.ergHolding());
+        QVERIFY(trainer->ergActive());
+        QCOMPARE(trainer->targetPower(), 220);
+        ride.setMode(QStringLiteral("ride"));
+        QVERIFY(!trainer->ergActive());
+        ride.setProperty("mode", QStringLiteral("erg"));   // what the QML selector does
+        QVERIFY(trainer->ergActive());
+        QCOMPARE(trainer->targetPower(), 220);
+        gears.controllerShift(-1);   // Zwift Click -10 W
+        QCOMPARE(trainer->targetPower(), 210);
+        QVERIFY(ride.start());
+        QVERIFY(trainer->ergActive());
+        QCOMPARE(trainer->targetPower(), 210);
+        ride.setMode(QStringLiteral("ride"));
+        QVERIFY(!trainer->ergActive());   // simulation (or gear watts) again
+        ride.setMode(QStringLiteral("erg"));
+        QVERIFY(trainer->ergActive());
+        ride.finish(false);
+        QVERIFY(!trainer->ergActive());
         mgr.disconnectDevice(QStringLiteral("sim:trainer"));
     }
 };

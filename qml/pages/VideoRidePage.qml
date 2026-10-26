@@ -1457,6 +1457,7 @@ Item {
                     spacing: 10
 
                     SegmentedControl {
+                        objectName: "videoModeSelector"
                         width: parent.width
                         height: 44
                         fontSize: 14
@@ -1470,7 +1471,8 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: page.ergMode ? "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
+                        text: page.ergMode ? (Rlv.ergHolding ? "ERG on – the trainer holds " + Rlv.sentTargetWatts + " W now. " : "")
+                                             + "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
                               : "Climbs get harder like on the road."
                         color: Theme.textSecondary
                         font.pixelSize: 14

@@ -1323,8 +1323,11 @@ def build(s, env):
         [UI("ERG"), "The trainer holds the target wattage regardless of cadence, as long as you like."],
     ], [1.0, 4.8])
     s.p("Choose the mode with the selector at the top right of the page – it is the only ERG switch: selecting "
-        "ERG sends the target to the trainer, selecting Ride releases it. You can change it at any time, also "
-        "during a ride; switching to ERG continues at the power you are riding at that moment.")
+        "ERG sends the target to the trainer at once – also before the ride is started, as long as the Free Ride "
+        "page is open and a trainer is connected (the status pill then shows <i>ERG on</i>) – and selecting Ride "
+        "releases it. While paused the trainer stays free and ERG returns with Resume. You can change the mode "
+        "at any time; switching to ERG continues at the power you are riding at that moment (3 s average), "
+        "otherwise at the last target (the first time 60 % of your FTP).")
     s.note("A trainer that cannot simulate a gradient cannot make a climb harder by itself. In Ride mode the "
            "app then uses virtual gears automatically (via ERG) and says so on the page.")
 

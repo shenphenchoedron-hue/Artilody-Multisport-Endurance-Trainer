@@ -67,6 +67,9 @@ class FreeRideSession : public QObject
     Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)      // armed, waits for pedaling
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(bool ergEnabled READ ergEnabled NOTIFY modeChanged)   // read-only: mode == "erg"
+    // The trainer holds the ERG target outside a ride (ERG selected on the open
+    // Free Ride page, idle or armed; see holdWanted()).
+    Q_PROPERTY(bool ergHolding READ ergHolding NOTIFY targetChanged)
 
     // live / session values
     Q_PROPERTY(int elapsedSeconds READ elapsedSeconds NOTIFY tick)
@@ -116,7 +119,8 @@ public:
     static constexpr int kMinGearWatts = 20;        // lowest gears-mode target while pedaling
     static constexpr int kMinErgWatts = 25;
     static constexpr int kMaxWatts = 1500;
-    static constexpr int kDefaultErgWatts = 150;
+    static constexpr int kDefaultErgWatts = 150;    // without a profile FTP
+    static constexpr double kDefaultErgFtpShare = 0.6;   // first ERG target: 60 % FTP
     static constexpr int kControllerErgStep = 10;   // Zwift Click +/- in ERG mode
     static constexpr int kTargetIntervalMs = RideResistance::kGearIntervalMs;
     static constexpr int kMinTargetChangeWatts = RideResistance::kMinWattsChange;
@@ -156,6 +160,14 @@ public:
     // ERG is on exactly in mode "erg" (the Ride | ERG selector is the only
     // switch); there is no separate setter, so mode and ERG cannot disagree.
     bool ergEnabled() const { return m_mode == Mode::Erg; }
+    // ERG outside a ride: selecting ERG on the Free Ride page (VirtualGears::
+    // activePage() == "freeride") puts the trainer in ERG at the target right
+    // away while the ride is idle or armed (trainer connected, no other session
+    // busy); Ride / leaving the page releases it. Running: the ride's
+    // resistance; paused: released, ERG comes with resume().
+    bool ergHolding() const { return m_holding; }
+    bool holdWanted() const;
+    int defaultErgTarget() const;   // 60 % FTP, rounded to 5 W
 
     int elapsedSeconds() const { return int(m_activeMs / 1000); }
     double distanceMeters() const { return m_distance; }
@@ -254,6 +266,8 @@ private:
     void clearRecording();
     qint64 saveRide();
     void releaseTrainer();
+    void updateHold(bool force = false);
+    bool holdBlocked() const;
     QVariantList downsample(const QVector<double> &data, bool ignoreZero, int decimals) const;
 
     Database *m_db;
@@ -267,6 +281,7 @@ private:
     Mode m_mode = Mode::Ride;
     State m_state = State::Idle;
     int m_targetWatts = kDefaultErgWatts;
+    bool m_holding = false;       // ERG target held outside a ride (updateHold())
     double m_grade = 0.0;
 
     QTimer m_timer;

@@ -10,6 +10,7 @@
 #include "ProfileManager.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
+#include "SensorDevices.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
 #include "VirtualGears.h"
@@ -73,6 +74,54 @@ struct Fixture
         for (int t = 0; t < ms; t += 250)
             ride->advanceClock(250);
     }
+};
+
+
+// A trainer that records what it is told, wired to the hub exactly like
+// DeviceManager forwards the resistance requests (target power -> FTMS 0x05,
+// free ride, simulation -> 0x11).
+class FakeTrainer : public TrainerDevice
+{
+public:
+    explicit FakeTrainer(SensorHub *hub)
+    {
+        QObject::connect(hub, &SensorHub::targetPowerRequested, this, [this](int w) { setTargetPower(w); });
+        QObject::connect(hub, &SensorHub::freeRideRequested, this, [this] { setFreeRide(); });
+        QObject::connect(hub, &SensorHub::simulationRequested, this,
+                         [this](double g, double wd, double crr, double cw) { setSimulation(g, wd, crr, cw); });
+    }
+    QString id() const override { return QStringLiteral("fake"); }
+    QString name() const override { return QStringLiteral("Fake"); }
+    QString protocol() const override { return QStringLiteral("Fake FTMS"); }
+    void connectDevice() override {}
+    void disconnectDevice() override {}
+    QStringList capabilities() const override { return {}; }
+    bool supportsControl() const override { return true; }
+    int simulationSupport() const override { return 1; }
+    void setTargetPower(int watts) override
+    {
+        log << QStringLiteral("erg %1").arg(watts);
+        erg = true;
+        target = watts;
+    }
+    void setFreeRide() override
+    {
+        log << QStringLiteral("free");
+        erg = false;
+        target = 0;
+    }
+    void setSimulation(double g, double, double, double) override
+    {
+        log << QStringLiteral("sim %1").arg(g);
+        erg = false;
+        target = 0;
+    }
+    QString last() const { return log.isEmpty() ? QString() : log.last(); }
+    bool inErg(int watts) const { return erg && target == watts; }
+
+    QStringList log;
+    bool erg = false;
+    int target = 0;
 };
 
 class TestFreeRide : public QObject
@@ -698,6 +747,193 @@ private slots:
         againRide.reset();
         again.reset();
         f.training.reset();
+    }
+
+    // Bug: ERG pressed on the Free Ride page did nothing until a ride ran.
+    // The selector (FreeRide.mode = "erg") now puts the trainer in ERG at
+    // once while the page is open: idle and armed; running as before; paused
+    // on resume. Ride / leaving the page releases it.
+    void ergSelectorEngagesTrainerWhenIdle()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setEnabled(false);
+        FakeTrainer trainer(f.hub.get());
+        f.ride->setTargetWatts(210);
+        QVERIFY(trainer.log.isEmpty());
+        f.gears->setActivePage(QStringLiteral("freeride"));   // Main.qml: Gears.activePage
+        QVERIFY(trainer.log.isEmpty());                       // Ride: the trainer stays free
+        QVERIFY(!f.ride->ergHolding());
+
+        QSignalSpy targetChanged(f.ride.get(), &FreeRideSession::targetChanged);
+        f.ride->setProperty("mode", QStringLiteral("erg"));   // = onActivated: FreeRide.mode = v
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        QVERIFY(f.ride->ergEnabled());
+        QVERIFY(f.ride->ergHolding());
+        QVERIFY(trainer.inErg(210));
+        QCOMPARE(trainer.log, QStringList { QStringLiteral("erg 210") });
+        QCOMPARE(f.hub->requestedTarget(), 210);
+        QCOMPARE(f.ride->requestedWatts(), 210);
+        QVERIFY(targetChanged.count() > 0);
+
+        // steps and the Zwift Click change the held target right away
+        f.ride->adjustTargetWatts(5);
+        QVERIFY(trainer.inErg(215));
+        f.gears->setSessions(f.ride.get(), nullptr);
+        f.gears->setEnabled(true);   // Click users have virtual gears on: ERG still wins
+        QVERIFY(f.ride->ergHolding());
+        f.gears->controllerShift(1);
+        QVERIFY(trainer.inErg(225));
+        f.gears->controllerShift(-1);
+        f.gears->controllerShift(-1);
+        QVERIFY(trainer.inErg(205));
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("erg"));
+
+        // Ride releases the trainer, ERG takes it again
+        f.ride->setProperty("mode", QStringLiteral("ride"));
+        QVERIFY(!f.ride->ergHolding());
+        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        f.ride->setProperty("mode", QStringLiteral("erg"));
+        QVERIFY(trainer.inErg(205));
+
+        // leaving the page releases, coming back holds again
+        f.gears->setActivePage(QStringLiteral("dashboard"));
+        QVERIFY(!f.ride->ergHolding());
+        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(trainer.inErg(205));
+
+        // a trainer that connects later gets the target
+        f.hub->setTrainerConnected(false);
+        QVERIFY(!f.ride->ergHolding());
+        trainer.log.clear();
+        f.hub->setTrainerConnected(true);
+        QVERIFY(f.ride->ergHolding());
+        QVERIFY(trainer.inErg(205));
+        QVERIFY(trainer.log.contains(QStringLiteral("erg 205")));
+    }
+
+    void ergSelectorWhileArmedRunningAndPaused()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setEnabled(false);
+        qint64 now = 1000000;   // the hub's clock (3 s display power)
+        f.hub->setClockForTesting([&now] { return now; });
+        FakeTrainer trainer(f.hub.get());
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        f.ride->setTargetWatts(180);
+
+        // armed ("Start When Pedaling"): ERG holds right away
+        f.ride->startWhenPedaling();
+        QCOMPARE(f.ride->state(), QStringLiteral("ready"));
+        QCOMPARE(trainer.last(), QStringLiteral("free"));   // Ride: spin up freely
+        f.ride->setMode(QStringLiteral("erg"));
+        QVERIFY(trainer.inErg(180));
+        QVERIFY(f.ride->ergHolding());
+        // first pedal strokes start the ride, ERG stays
+        f.pedal(85, 175);
+        QCOMPARE(f.ride->state(), QStringLiteral("running"));
+        QVERIFY(!f.ride->ergHolding());
+        QVERIFY(trainer.inErg(180));
+        f.ride_for(5000);
+        QVERIFY(trainer.inErg(180));
+
+        // running: ERG -> Ride (simulation) -> ERG
+        f.ride->setMode(QStringLiteral("ride"));
+        QVERIFY(trainer.last().startsWith(QStringLiteral("sim ")));
+        QVERIFY(!trainer.erg);
+        f.ride_for(2000);
+        now += 5000;
+        f.pedal(85, 212);
+        now += 3500;        // the 3 s display power settles on 212 W
+        f.hub->refreshDisplayPower();
+        QCOMPARE(f.hub->displayPower(), 212);
+        f.ride_for(1000);
+        f.ride->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.ride->targetWatts(), 210);   // 3 s power rounded to 5 W
+        QVERIFY(trainer.inErg(210));
+        // virtual gears on/off while ERG: still ERG
+        f.gears->setEnabled(true);
+        QVERIFY(trainer.inErg(210));
+        f.ride->controllerShift(1);
+        QVERIFY(trainer.inErg(220));
+        f.gears->setEnabled(false);
+        QVERIFY(trainer.inErg(220));
+        // Ride with virtual gears -> gear watts / grade, back to ERG
+        f.gears->setEnabled(true);
+        f.ride->setMode(QStringLiteral("ride"));
+        QVERIFY(f.ride->virtualGears());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));   // gear watts
+        f.ride->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("erg"));
+        QVERIFY(trainer.erg);
+        const int target = f.ride->targetWatts();
+        QCOMPARE(trainer.target, target);
+
+        // paused: released; ERG pressed while paused applies on resume
+        f.ride->setMode(QStringLiteral("ride"));
+        f.ride->pause();
+        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        trainer.log.clear();
+        f.ride->setMode(QStringLiteral("erg"));
+        QVERIFY(!f.ride->ergHolding());
+        QVERIFY(trainer.log.isEmpty());   // nothing while paused
+        f.ride->resume();
+        QCOMPARE(trainer.last(), QStringLiteral("erg %1").arg(f.ride->targetWatts()));
+
+        // finished: released and not taken again by itself
+        f.ride->finish(false);
+        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        QVERIFY(!f.ride->ergHolding());
+        // reset -> idle on the open page: ERG holds again
+        f.ride->reset();
+        QVERIFY(f.ride->ergHolding());
+        QVERIFY(trainer.erg);
+    }
+
+    void ergHoldYieldsToOtherSessions()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        FakeTrainer trainer(f.hub.get());
+        f.ride->setTargetWatts(200);
+        // no page: selecting ERG elsewhere (stored mode) does not grab the trainer
+        f.ride->setMode(QStringLiteral("erg"));
+        QVERIFY(trainer.log.isEmpty());
+        f.ride->setMode(QStringLiteral("ride"));
+        // a workout armed on the Dashboard owns the trainer
+        Workout w;
+        w.name = QStringLiteral("W");
+        Interval i;
+        i.durationSec = 600;
+        i.startPercent = i.endPercent = 0.5;
+        w.intervals << i;
+        f.training->loadWorkout(w);
+        f.training->startWhenPedaling();
+        QVERIFY(f.training->waiting());
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        trainer.log.clear();
+        f.ride->setMode(QStringLiteral("erg"));
+        QVERIFY(!f.ride->ergHolding());
+        QVERIFY(trainer.log.isEmpty());
+        // the workout is cancelled: the open page's ERG applies
+        f.training->stop();
+        QVERIFY(f.ride->ergHolding());
+        QVERIFY(trainer.inErg(200));
+    }
+
+    void firstErgTargetIsSixtyPercentFtp()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.profiles->saveProfile({ { QStringLiteral("ftp"), 300 } }));
+        auto fresh = f.makeRide();
+        QCOMPARE(fresh->targetWatts(), 180);   // no saved target: 60 % FTP
+        fresh->setTargetWatts(240);
+        auto again = f.makeRide();
+        QCOMPARE(again->targetWatts(), 240);   // saved target
     }
 
     void physicsUseRiderWeight()

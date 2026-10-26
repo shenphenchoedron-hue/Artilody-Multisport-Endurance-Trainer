@@ -49,7 +49,11 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     connect(m_hub, &SensorHub::trainerConnectedChanged, this, [this] {
         if (running() && trainerConnected())
             applyTarget(true);
+        else
+            updateHold(true);   // ERG selected on the open page: hold it now
     });
+    // ERG outside a ride follows the open page (Main.qml: Gears.activePage).
+    connect(m_gears, &VirtualGears::activePageChanged, this, [this] { updateHold(); });
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &RlvSession::resistanceSetupChanged);
@@ -84,8 +88,8 @@ RlvSession::~RlvSession()
 {
     if (m_training)
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
-    if (active() || waiting())
-        releaseTrainer();
+    if (active() || waiting() || m_ergHold)
+        m_res.release();
 }
 
 // --- wiring ------------------------------------------------------------------------
@@ -95,8 +99,10 @@ void RlvSession::setTrainingSession(TrainingSession *training)
     if (m_training)
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
     m_training = training;
-    if (training)
+    if (training) {
         training->setStartBlocker(QStringLiteral("rlv"), [this] { return active() || waiting(); });
+        connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
+    }
 }
 
 void RlvSession::setStartBlocker(const QString &key, std::function<bool()> blocker)
@@ -158,6 +164,8 @@ void RlvSession::setState(State s)
         m_timer.stop();
     }
     emit stateChanged();
+    if (!active())
+        updateHold();   // idle / armed: ERG on the open page holds the target
 }
 
 QString RlvSession::modeName(Mode m)
@@ -188,8 +196,11 @@ void RlvSession::setMode(const QString &modeText)
     if (m_mode == Mode::Erg) {
         // start from what the rider is pushing right now
         const int now = m_hub->displayPower();
-        if ((active() || waiting()) && now >= kStartPowerWatts)
-            setTargetWatts(int(std::lround(now / 5.0)) * 5);
+        if (now >= kStartPowerWatts) {
+            // stored here, sent once by applyTarget() below
+            m_ergTarget = std::clamp(int(std::lround(now / 5.0)) * 5, int(kMinErgWatts), int(kMaxWatts));
+            m_db->setSetting(kSettingErgWatts, m_ergTarget);
+        }
     }
     emit modeChanged();
     emit positionChanged();   // effectiveGradePercent
@@ -493,8 +504,11 @@ int RlvSession::desiredGearWatts() const
 
 void RlvSession::applyTarget(bool force)
 {
-    if (!running())
+    if (!running()) {
+        updateHold(force);   // idle / armed: ERG on the open page
         return;
+    }
+    m_ergHold = false;   // the ride's resistance from here on
     bool sent = false;
     switch (path()) {
     case RideResistance::Path::Erg:
@@ -516,7 +530,42 @@ void RlvSession::applyTarget(bool force)
 
 void RlvSession::releaseTrainer()
 {
+    m_ergHold = false;
     m_res.release();
+    emit targetChanged();
+}
+
+bool RlvSession::holdBlocked() const
+{
+    return startBlocked() || (m_training && m_training->waiting()) || (m_freeRide && m_freeRide->waiting());
+}
+
+bool RlvSession::holdWanted() const
+{
+    return m_mode == Mode::Erg && (m_state == State::Idle || m_state == State::Ready)
+           && m_gears->activePage() == QLatin1String("video") && trainerConnected() && !holdBlocked();
+}
+
+void RlvSession::updateHold(bool force)
+{
+    if (active())
+        return;   // running: applyTarget(); paused: released until resume()
+    if (holdWanted()) {
+        const bool sent = m_res.sendErg(m_ergTarget, force || !m_ergHold);
+        const bool changed = !m_ergHold;
+        m_ergHold = true;
+        if (sent || changed)
+            emit targetChanged();
+        return;
+    }
+    if (!m_ergHold)
+        return;
+    m_ergHold = false;
+    // release only what is still ours (another page may hold its own target)
+    if (!holdBlocked() && m_res.lastCommandIsOurs())
+        m_res.release();
+    else
+        m_res.reset();
     emit targetChanged();
 }
 

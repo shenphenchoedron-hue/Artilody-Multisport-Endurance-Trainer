@@ -178,6 +178,7 @@ void SensorHub::setTrainerSimulationSupport(int support)
 void SensorHub::requestTargetPower(int watts)
 {
     watts = std::max(0, watts);
+    ++m_commandSerial;
     if (watts != m_requestedTarget || m_simActive) {
         m_requestedTarget = watts;
         m_simActive = false;
@@ -188,6 +189,7 @@ void SensorHub::requestTargetPower(int watts)
 
 void SensorHub::requestFreeRide()
 {
+    ++m_commandSerial;
     if (m_requestedTarget != 0 || m_simActive) {
         m_requestedTarget = 0;
         m_simActive = false;
@@ -200,6 +202,7 @@ void SensorHub::requestSimulation(double gradePercent, double windSpeedMps, doub
 {
     if (!std::isfinite(gradePercent))
         gradePercent = 0;
+    ++m_commandSerial;
     const bool changed = m_requestedTarget != 0 || !m_simActive || gradePercent != m_simGrade;
     m_requestedTarget = 0;
     m_simActive = true;

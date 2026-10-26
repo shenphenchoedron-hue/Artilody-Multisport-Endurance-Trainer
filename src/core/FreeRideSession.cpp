@@ -46,7 +46,11 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     connect(m_hub, &SensorHub::trainerConnectedChanged, this, [this] {
         if (running() && trainerConnected())
             applyTarget(true);   // a (re)connected trainer gets the current target
+        else
+            updateHold(true);    // ERG selected on the open page: hold it now
     });
+    // ERG outside a ride follows the open page (Main.qml: Gears.activePage).
+    connect(m_gears, &VirtualGears::activePageChanged, this, [this] { updateHold(); });
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &FreeRideSession::resistanceSetupChanged);
@@ -63,15 +67,24 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     m_mode = parseMode(stored).value_or(Mode::Ride);
     if (stored != mode())
         m_db->setSetting(kSettingMode, mode());   // "gears" / "free" (old) -> "ride"
-    m_targetWatts = std::clamp(m_db->setting(kSettingTarget, kDefaultErgWatts).toInt(), kMinErgWatts, kMaxWatts);
+    const int storedTarget = m_db->setting(kSettingTarget, 0).toInt();
+    m_targetWatts = storedTarget > 0 ? std::clamp(storedTarget, kMinErgWatts, kMaxWatts) : defaultErgTarget();
+}
+
+int FreeRideSession::defaultErgTarget() const
+{
+    const int ftp = m_profiles->current().ftpFor(sport::cycling());
+    if (ftp <= 0)
+        return kDefaultErgWatts;
+    return std::clamp(roundTo5(ftp * kDefaultErgFtpShare), kMinErgWatts, kMaxWatts);
 }
 
 FreeRideSession::~FreeRideSession()
 {
     if (m_training)
         m_training->setStartBlocker(QStringLiteral("freeRide"), {});
-    if (active() || waiting())
-        releaseTrainer();
+    if (active() || waiting() || m_holding)
+        m_res.release();
 }
 
 // --- wiring --------------------------------------------------------------------
@@ -81,8 +94,12 @@ void FreeRideSession::setTrainingSession(TrainingSession *training)
     if (m_training)
         m_training->setStartBlocker(QStringLiteral("freeRide"), {});
     m_training = training;
-    if (training)
+    if (training) {
         training->setStartBlocker(QStringLiteral("freeRide"), [this] { return active() || waiting(); });
+        // a workout armed/started elsewhere owns the trainer; when it ends,
+        // ERG on the open Free Ride page applies again
+        connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
+    }
 }
 
 void FreeRideSession::setStartBlocker(const QString &key, std::function<bool()> blocker)
@@ -131,6 +148,8 @@ void FreeRideSession::setState(State s)
         m_timer.stop();
     }
     emit stateChanged();
+    if (!active())
+        updateHold();   // idle / armed: ERG on the open page holds the target
 }
 
 QString FreeRideSession::modeName(Mode m)
@@ -158,9 +177,13 @@ void FreeRideSession::setMode(const QString &modeText)
     if (!parsed || *parsed == m_mode)
         return;
     if (*parsed == Mode::Erg) {
-        // Continue at the power the rider is doing right now.
-        int start = watts();
-        if (start <= 0 && virtualGears())
+        // Continue at the power the rider is doing right now (the 3 s power
+        // of the display), else the virtual gear's watts, else the saved
+        // target (first time: 60 % FTP).
+        int start = m_hub->displayPower() >= kStartPowerWatts ? m_hub->displayPower()
+                    : watts() >= kStartPowerWatts             ? watts()
+                                                              : 0;
+        if (start <= 0 && running() && virtualGears())
             start = m_res.lastWatts() > 0 ? m_res.lastWatts() : gearTargetWatts();
         if (start > 0)
             m_targetWatts = std::clamp(roundTo5(start), kMinErgWatts, kMaxWatts);
@@ -325,8 +348,11 @@ double FreeRideSession::gearSimulationGrade() const
 
 void FreeRideSession::applyTarget(bool force)
 {
-    if (!running())
+    if (!running()) {
+        updateHold(force);   // idle / armed: ERG on the open page
         return;
+    }
+    m_holding = false;   // the ride's resistance from here on
     bool sent = false;
     switch (path()) {
     case RideResistance::Path::Erg:
@@ -348,7 +374,45 @@ void FreeRideSession::applyTarget(bool force)
 
 void FreeRideSession::releaseTrainer()
 {
+    m_holding = false;
     m_res.release();
+    emit targetChanged();
+}
+
+bool FreeRideSession::holdBlocked() const
+{
+    // another session owns the trainer (a workout armed or riding, a row, a
+    // video ride)
+    return startBlocked() || (m_training && m_training->waiting());
+}
+
+bool FreeRideSession::holdWanted() const
+{
+    return m_mode == Mode::Erg && (m_state == State::Idle || m_state == State::Ready)
+           && m_gears->activePage() == QLatin1String("freeride") && trainerConnected() && !holdBlocked();
+}
+
+void FreeRideSession::updateHold(bool force)
+{
+    if (active())
+        return;   // running: applyTarget(); paused: released until resume()
+    if (holdWanted()) {
+        const bool sent = m_res.sendErg(m_targetWatts, force || !m_holding);
+        const bool changed = !m_holding;
+        m_holding = true;
+        if (sent || changed)
+            emit targetChanged();
+        return;
+    }
+    if (!m_holding)
+        return;
+    m_holding = false;
+    // Release only what is still ours: another session may have sent its own
+    // command in the meantime (e.g. the Video Ride page holding its target).
+    if (!holdBlocked() && m_res.lastCommandIsOurs())
+        m_res.release();
+    else
+        m_res.reset();
     emit targetChanged();
 }
 

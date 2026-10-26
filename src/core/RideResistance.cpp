@@ -42,7 +42,13 @@ void RideResistance::reset()
 void RideResistance::release()
 {
     m_hub->requestFreeRide();
+    m_serial = m_hub->commandSerial();
     reset();
+}
+
+bool RideResistance::lastCommandIsOurs() const
+{
+    return m_serial != 0 && m_hub->commandSerial() == m_serial;
 }
 
 bool RideResistance::sendErg(int watts, bool force)
@@ -50,6 +56,7 @@ bool RideResistance::sendErg(int watts, bool force)
     if (!force && !simulating() && m_lastWatts == watts)
         return false;
     m_hub->requestTargetPower(watts);
+    m_serial = m_hub->commandSerial();
     m_lastWatts = watts;
     m_lastGrade = std::numeric_limits<double>::quiet_NaN();
     m_sinceMs = 0;
@@ -65,6 +72,7 @@ bool RideResistance::sendGearWatts(int watts, bool force)
     if (watts <= 0) {
         if (force || m_lastWatts != 0) {
             m_hub->requestFreeRide();
+            m_serial = m_hub->commandSerial();
             m_lastWatts = 0;
             m_sinceMs = 0;
             return true;
@@ -75,6 +83,7 @@ bool RideResistance::sendGearWatts(int watts, bool force)
     const bool due = m_lastWatts <= 0 || m_sinceMs >= kGearIntervalMs;
     if (force || (changed && due)) {
         m_hub->requestTargetPower(watts);
+        m_serial = m_hub->commandSerial();
         m_lastWatts = watts;
         m_sinceMs = 0;
         return true;
@@ -93,6 +102,7 @@ bool RideResistance::sendGrade(double grade, bool force)
     if (!(force || first || (changed && due) || m_sinceMs >= kGradeRefreshMs))
         return false;
     m_hub->requestSimulation(grade, 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
+    m_serial = m_hub->commandSerial();
     const bool newValue = first || grade != m_lastGrade;
     m_lastGrade = grade;
     m_lastWatts = 0;

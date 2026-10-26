@@ -58,6 +58,9 @@ public:
     bool trainerConnected() const { return m_trainerConnected; }
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
+    // Counts the resistance requests (target power, free ride, simulation):
+    // lets a sender tell whether the trainer still has its last command.
+    quint64 commandSerial() const { return m_commandSerial; }
     bool ergActive() const { return m_requestedTarget > 0; }
     bool simulationActive() const { return m_simActive; }
     double requestedGrade() const { return m_simActive ? m_simGrade : 0.0; }
@@ -120,6 +123,7 @@ private:
     bool m_trainerConnected = false;
     bool m_hrConnected = false;
     int m_requestedTarget = 0;
+    quint64 m_commandSerial = 0;
     bool m_simActive = false;
     double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
     int m_simSupport = -1;

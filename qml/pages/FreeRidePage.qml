@@ -119,11 +119,12 @@ Item {
 
                     Rectangle {
                         id: statusPill
-                        readonly property color dot: page.st === "ready" ? Theme.success
+                        readonly property color dot: page.st === "idle" && FreeRide.ergHolding ? Theme.warning
+                                                   : page.st === "ready" ? Theme.success
                                                    : page.st === "running" ? Theme.danger
                                                    : page.st === "paused" ? Theme.warning
                                                    : page.st === "finished" ? Theme.accentLight : Theme.textMuted
-                        visible: page.st !== "idle"
+                        visible: page.st !== "idle" || FreeRide.ergHolding
                         anchors.verticalCenter: parent.verticalCenter
                         height: 34
                         width: pillRow.implicitWidth + 28
@@ -147,7 +148,8 @@ Item {
                             }
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: page.st === "ready" ? "Waiting for pedaling…"
+                                text: page.st === "idle" ? "ERG on  •  " + FreeRide.targetWatts + " W"
+                                      : page.st === "ready" ? "Waiting for pedaling…"
                                       : page.st === "running" ? (FreeRide.coasting ? "Coasting" : "Riding") + "  •  " + page.modeName(FreeRide.mode)
                                       : page.st === "paused" ? "Paused" : "Finished"
                                 color: Theme.text
@@ -159,6 +161,7 @@ Item {
 
                     SegmentedControl {
                         id: modeSelector
+                        objectName: "freeRideModeSelector"
                         anchors.verticalCenter: parent.verticalCenter
                         height: 46
                         options: [
