@@ -28,10 +28,11 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ## New: Free Ride, virtual gears and Zwift Click
 
+- **Video Ride (Real Life Video)** – ride filmed routes: pick a route from a drop-down (name, distance, climbing and duration), and the video plays at the speed you ride – faster when you push, slower on the climbs, paused when you stop. Power, cadence, heart rate, speed and time at the top, the video in the middle, the route's elevation profile with your position at the bottom. Virtual gears or power mode, a difficulty slider and the Zwift Click work as in Free Ride. See [Real Life Video](#real-life-video).
 - **Free Ride page** – ride without a workout. In **Gears** mode you shift virtual gears (on screen, with the keyboard or with a Zwift Click): a harder gear means more watts and more speed at the same cadence, and a grade setting adds a virtual climb. In **ERG** mode you set a wattage (±5/10/25 W steps or an exact value) and the trainer holds it for as long as you like; **Free** mode leaves the resistance alone. Live power, speed, cadence, heart rate, time and distance, a power/speed/heart-rate chart, start on pedaling, pause, and save to History (FIT/CSV export included).
 - **Zwift Click v1 / v2** – connect it under **Devices → Controllers (Zwift Click)**: **+** shifts harder, **−** easier (in ERG mode ±10 W). Battery level and a live button test are shown on the Devices page.
 - **Smooth power (3 s average)** – cycling watts on the Dashboard, the Free Ride page, the sidebar and the Devices page are shown as a rolling 3-second average by default, so the number no longer jumps with every uneven pedal stroke. Turn it off (raw trainer value) or pick 1 / 3 / 5 / 10 s under **Settings → Smooth power**, or click the small **3 s avg** badge on the power tile. Recorded rides, averages, NP/TSS, ERG and the FTP test still use the raw per-second power.
-- **Sidebar order** – the training pages are now together at the top: **Dashboard** (cycling workouts), **Free Ride**, **Rowing**, then Workouts, Calendar, Builder, History and Devices.
+- **Sidebar order** – the training pages are now together at the top: **Dashboard** (cycling workouts), **Free Ride**, **Video Ride**, **Rowing**, then Workouts, Calendar, Builder, History and Devices.
 - **Gear setup** – enter your own chainrings (e.g. 50/34, 53/39 or a single 1× ring) and cassette (e.g. 11–34) from presets or as numbers, the wheel size, and *sequential* virtual gears (one list, easiest to hardest) or *front + rear* shifting like a real bike. A live preview lists every gear with its ratio, the speed at 90 rpm and the power on the flat. Saved per profile.
 
 ## What's new in 1.1.4
@@ -77,6 +78,7 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 - [What's new in 1.1.1](#whats-new-in-111)
 - [What's new in 1.1.0](#whats-new-in-110)
 - [Features](#features)
+  - [Real Life Video](#real-life-video)
 - [Screenshots](#screenshots)
 - [Download & install](#download--install)
 - [User manual](#user-manual)
@@ -120,6 +122,29 @@ Existing data is kept: the database is upgraded automatically on first start. Se
     </td>
   </tr>
 </table>
+
+### Real Life Video
+- **Video Ride page** (sidebar → **Video Ride**): ride a filmed route. The video follows your position on the route's GPS track: its playback speed follows your riding speed (from about 0.25× to 2.5×; it pauses when you stop), and when it drifts more than a moment from your position it jumps back in sync. The page shows **power** (3 s average), **cadence**, **heart rate**, **speed** and **elapsed time** at the top, the **video** in the middle – with the current gradient, your gear and difficulty and the route's on-screen texts as overlays – and at the bottom the **distance line**: the elevation profile of the whole route, coloured by gradient, with the ridden part highlighted, your position (*4.3 / 12.0 km*), km marks and small ticks where the route has texts. Before you start, click the profile to start part-way along the route.
+- **Choosing a route**: the drop-down at the top lists every route in your library with its name, distance, climbing, video length and country. The folder button next to it adds folders, changes the videos folder, opens it or rescans the library.
+- **Folder layout**: each route is a folder with the video (**.mp4**) and its GPS track (**.gpx**, with elevation), optionally a route file (**.xml**, the common RLV format with title, country, start/end frame and on-screen texts):
+
+  ```
+  Artilody Videos/
+    FR_Le_petit_Menglonnais/
+      FR_Le_petit_Menglonnais.mp4
+      FR_Le_petit_Menglonnais.gpx
+      FR_Le_petit_Menglonnais.xml
+  ```
+  The default videos folder is `Documents/Artilody Videos` in your home folder (created when you open it from the app); you can choose any other folder and add more folders, e.g. on an external drive.
+- **Resistance**: in **Gears** mode the trainer simulates the route's gradient with your virtual gears – shift with **−** / **+**, <kbd>↓</kbd>/<kbd>↑</kbd> or the **Zwift Click**, and set up your bike with **Gear Setup…** (shared with Free Ride). In **Power** mode the trainer keeps its own resistance and your speed is computed from your power on the gradient. **Difficulty** (0–100 %, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> in 10 % steps) scales the gradients: 50 % makes a 6 % climb feel like 3 %.
+- **Start** now or **when pedaling**, **Pause** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; reaching the end of the route finishes and saves the ride. Video rides are saved to History with the route name and can be exported as FIT/CSV.
+- **Video formats**: H.264 MP4 plays everywhere. **AV1** videos only play on computers with AV1 hardware decoding (e.g. recent Apple Silicon or recent GPUs) – the page tells you when a video cannot be decoded; convert it with e.g. `ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4`. RLV videos are usually silent, so the sound is off (the speaker button on the video turns it on).
+- **Raspberry Pi**: prefer **720p H.264** videos (1080p and AV1 are too heavy for a Pi) and install the GStreamer decoders: `sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-good` (both are recommended by the .deb package).
+
+<p align="center">
+  <img src="docs/screenshots/video-ride.png" alt="Video Ride with a Real Life Video" width="900"><br>
+  <sub><b>Video Ride</b>: the video follows your speed; elevation profile with your position at the bottom.<br>Video: cycling.vangestel.online, CC BY-NC-SA 4.0</sub>
+</p>
 
 ### Plan
 - **Workout calendar**: a month view of your training plan. Click a day or a planned workout to select it; double-click a day, click its **+** or press **Add Workout** to add a workout (search, Cycling/Rowing filter, optional notes). Drag planned workouts between days, and right-click (or press and hold) for *Ride/Row this workout*, *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (removing asks for confirmation). Double-click a workout or press **Ride**/**Row** in the side panel to start it: cycling workouts open on the Dashboard, rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout you started from the calendar, exactly that plan entry is ticked off (even if it was planned for another day), and a completed workout started elsewhere ticks off a matching open entry on that day. Stopped or aborted rides don't count, and deleting a ride in History reopens its plan entry.

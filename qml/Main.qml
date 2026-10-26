@@ -21,7 +21,7 @@ ApplicationWindow {
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "freeride", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "video", "rowing", "workouts", "calendar", "builder", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -71,6 +71,7 @@ ApplicationWindow {
                                           || settingsDialog.visible || workoutDetails.visible || stopDialog.visible
                                           || rowingFinishDialog.visible || ftpResultDialog.visible
                                           || freeRideFinishDialog.visible || gearSetupDialog.visible
+                                          || videoFinishDialog.visible
 
     // Developer aid: start with "--light" to open in the light theme (screenshots).
     Component.onCompleted: if (Qt.application.arguments.indexOf("--light") >= 0) Theme.dark = false
@@ -89,6 +90,7 @@ ApplicationWindow {
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
         case "gearsetup": showPage("freeride"); gearSetupDialog.openDialog(); break
+        case "videofinish": showPage("video"); videoFinishDialog.open(); break
         case "settings": showPage("dashboard"); settingsDialog.open(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
@@ -101,6 +103,8 @@ ApplicationWindow {
             musicLibrary.close()
         if (gearSetupDialog.visible)
             gearSetupDialog.close()
+        if (videoFinishDialog.visible)
+            videoFinishDialog.close()
         if (settingsDialog.visible)
             settingsDialog.close()
         if (screenshotMenu)
@@ -168,6 +172,11 @@ ApplicationWindow {
                     onOpenDevices: window.showPage("devices")
                     onOpenGearSetup: gearSetupDialog.openDialog()
                     onRequestFinish: freeRideFinishDialog.open()
+                }
+                VideoRidePage {
+                    onOpenDevices: window.showPage("devices")
+                    onOpenGearSetup: gearSetupDialog.openDialog()
+                    onRequestFinish: videoFinishDialog.open()
                 }
                 RowingPage {
                     onOpenDevices: window.showPage("devices")
@@ -274,6 +283,26 @@ ApplicationWindow {
             }
         }
 
+        ConfirmDialog {
+            id: videoFinishDialog
+            title: "Finish video ride?"
+            message: "Your ride will be saved to History. Choose Discard to throw it away."
+            acceptText: "Save & Finish"
+            secondaryText: "Discard"
+            onAccepted: {
+                if (!Rlv.active)
+                    return
+                var id = Rlv.finish(true)
+                window.showToast(id >= 0 ? "Ride saved – see History for the analysis" : "Ride too short to save")
+            }
+            onSecondary: {
+                if (!Rlv.active)
+                    return
+                Rlv.discard()
+                window.showToast("Ride discarded")
+            }
+        }
+
         GearSetupDialog { id: gearSetupDialog }
 
         // Above every other dialog: a ride can finish while one is open.
@@ -306,7 +335,8 @@ ApplicationWindow {
         }
         function onStartRefused() {
             window.showToast(FreeRide.active ? "A free ride is in progress – finish it before starting a workout"
-                                             : "A row is in progress – finish it before riding")
+                             : Rlv.active || Rlv.waiting ? "A video ride is in progress – finish it before starting a workout"
+                             : "A row is in progress – finish it before riding")
         }
         function onRowingWorkoutRefused(workoutId, name) {
             window.showToast("\"" + name + "\" is a rowing workout – start it on the Rowing page")
@@ -326,6 +356,20 @@ ApplicationWindow {
         function onFinished() {
             if (freeRideFinishDialog.visible)
                 freeRideFinishDialog.close()
+        }
+        function onStartRefused(reason) {
+            window.showToast(reason)
+        }
+    }
+
+    Connections {
+        target: Rlv
+        function onFinished() {
+            if (videoFinishDialog.visible)
+                videoFinishDialog.close()
+            // the end of the route finishes and saves the ride by itself
+            if (Rlv.completed)
+                window.showToast(Rlv.lastRideId >= 0 ? "Route complete – ride saved to History" : "Route complete")
         }
         function onStartRefused(reason) {
             window.showToast(reason)
@@ -388,5 +432,45 @@ ApplicationWindow {
         sequence: "PgDown"
         enabled: window.freeRideKeys
         onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(-10) : FreeRide.adjustGrade(-0.5)
+    }
+
+    // Video Ride page: ↑ / ↓ shift (Gears) or ±10 % difficulty (Power),
+    // Shift + ↑ / ↓ front shift, PgUp / PgDn difficulty ±10 %, Space start /
+    // pause / resume (not while typing or while a dialog or menu has the keyboard).
+    readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
+    Shortcut {
+        sequences: ["Space"]
+        enabled: window.videoKeys && (Rlv.active || (Rlv.hasRoute && Rlv.trainerConnected && !Rlv.waiting))
+        onActivated: Rlv.togglePause()
+    }
+    Shortcut {
+        sequences: ["Up", "+", "="]
+        enabled: window.videoKeys
+        onActivated: Rlv.controllerShift(1)
+    }
+    Shortcut {
+        sequences: ["Down", "-"]
+        enabled: window.videoKeys
+        onActivated: Rlv.controllerShift(-1)
+    }
+    Shortcut {
+        sequence: "Shift+Up"
+        enabled: window.videoKeys && Rlv.mode === "gears"
+        onActivated: Rlv.shiftFrontUp()
+    }
+    Shortcut {
+        sequence: "Shift+Down"
+        enabled: window.videoKeys && Rlv.mode === "gears"
+        onActivated: Rlv.shiftFrontDown()
+    }
+    Shortcut {
+        sequence: "PgUp"
+        enabled: window.videoKeys
+        onActivated: Rlv.adjustDifficulty(10)
+    }
+    Shortcut {
+        sequence: "PgDown"
+        enabled: window.videoKeys
+        onActivated: Rlv.adjustDifficulty(-10)
     }
 }

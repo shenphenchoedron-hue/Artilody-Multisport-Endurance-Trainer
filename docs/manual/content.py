@@ -48,6 +48,8 @@ def build(s, env):
         f"{UI('Records and analyses')} – every second of every ride is stored. History shows totals, charts, "
         "time in zones, Normalized Power, Intensity Factor and Training Stress Score. Rides can be exported as FIT "
         "files (for Strava, Garmin Connect, TrainingPeaks, intervals.icu …) or as CSV files.",
+        f"{UI('Rides filmed routes')} – Real Life Videos play at your speed while the trainer simulates the "
+        "gradient of the road (Video Ride page).",
         f"{UI('Plans your training')} – a month calendar for planned rides and rows; planned workouts are "
         "started with a double-click and ticked off automatically when you complete them.",
         f"{UI('Rows on a Concept2')} – connects to a Concept2 PM5 for free rows over a distance, watt-plan "
@@ -187,7 +189,7 @@ def build(s, env):
         f"Linux and Raspberry Pi: {C('sudo apt remove artilody-watts-trainer')}.",
     ])
     s.note("Your rides, profiles, workouts and settings are stored separately in your user folder (see "
-           "section 14.3) and are kept when you uninstall the app.")
+           "section 15.3) and are kept when you uninstall the app.")
 
     s.section("First start")
     s.p("On the very first start the app creates its database and fills it with:")
@@ -222,6 +224,7 @@ def build(s, env):
     s.table(["Item", "Purpose"], [
         [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
         [UI("Free Ride"), "Ride without a workout: virtual gears, ERG at a set wattage, Zwift Click (chapter 12)."],
+        [UI("Video Ride"), "Ride a filmed route (Real Life Video): the video follows your speed (chapter 13)."],
         [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
         [UI("Calendar"), "The training plan: plan, move and start workouts by day (chapter 10)."],
@@ -230,18 +233,18 @@ def build(s, env):
         [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
         [UI("Profile"), "Opens the User Profile dialog for the current rider."],
     ], [1.2, 4.5])
-    s.p("The three training pages – Dashboard (cycling workouts), Free Ride and Rowing – are at the top, "
+    s.p("The four training pages – Dashboard (cycling workouts), Free Ride, Video Ride and Rowing – are at the top, "
         "followed by planning (Workouts, Calendar, Builder), History and Devices.")
     s.p("While a workout is armed or running, a status box appears at the bottom of the sidebar. It shows "
         "<i>Waiting… / Start pedaling</i>, <i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
         "current power. Click it to jump back to the Dashboard from any page. A free ride shows "
-        "<i>Free Ride 12:34 • 50×17 • 210 W</i> (time, gear or ERG, power) and leads to the Free Ride page; a row "
-        "leads to the Rowing page.")
+        "<i>Free Ride 12:34 • 50×17 • 210 W</i> (time, gear or ERG, power) and leads to the Free Ride page; a video "
+        "ride shows <i>Video 12:34 • 4.3 km • 210 W</i> and leads to the Video Ride page; a row leads to the Rowing page.")
     s.section("Top bar")
     s.bullets([
         f"{UI('Sun/moon icon')} – switches between the dark and the light theme. The app always starts in the "
         "dark theme; the choice applies until you close the app.",
-        f"{UI('Gear icon')} – opens the Settings dialog (section 14.1).",
+        f"{UI('Gear icon')} – opens the Settings dialog (section 15.1).",
         f"{UI('Avatar and name')} – opens the profile menu: a list of all profiles (name and FTP) to switch "
         f"between, {UI('Edit profile…')} and {UI('New profile…')}. Switching and creating profiles is disabled "
         "while a ride is running or paused.",
@@ -451,7 +454,7 @@ def build(s, env):
         "Values drop to 0 or “–”: power and cadence are reset after 3 seconds without new data, heart rate "
         "after 6 seconds. This usually means a weak signal – reduce the distance or use a USB adapter with an "
         "extension cable.",
-        "See chapter 15 for more solutions.",
+        "See chapter 16 for more solutions.",
     ])
 
     # =====================================================================
@@ -594,7 +597,7 @@ def build(s, env):
     s.table(["Card", "Shows"], [
         [UI("Power"), "Current power in watts. The bar is coloured by your current power zone. Footer: the "
                       "target power and your deviation from it (e.g. <i>+2 W</i>). The small <b>3 s avg</b> badge "
-                      "shows that the value is the rolling 3-second average (section 14.2); click it to switch "
+                      "shows that the value is the rolling 3-second average (section 15.2); click it to switch "
                       "to the raw trainer value (<i>Instant</i>) and back."],
         [UI("Cadence"), "Current cadence in RPM. Footer: the target range ±5 RPM around the interval's cadence, "
                         "or around your preferred cadence if the interval has none."],
@@ -630,7 +633,7 @@ def build(s, env):
         "Free Ride). The text below explains the current mode.",
         f"{UI('Controls')} – {UI('Start')} / {UI('Start now')} / {UI('Pause')} / {UI('Resume')} and "
         f"{UI('Stop')}.",
-        f"{UI('Music Player')} – see chapter 13.",
+        f"{UI('Music Player')} – see chapter 14.",
     ])
 
     s.section("Pause, resume and stop")
@@ -1268,7 +1271,7 @@ def build(s, env):
     s.section("The page")
     s.bullets([
         "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
-        "badge shows the rolling average and toggles it, section 14.2), speed (average), "
+        "badge shows the rolling average and toggles it, section 15.2), speed (average), "
         "cadence (current gear), heart rate (% of max), time (average power) and distance (energy in kJ).",
         "<b>Control panel</b> – Virtual Gears, ERG or Free, depending on the mode (below).",
         f"<b>Chart</b> – power (yellow area), virtual speed (cyan) and heart rate (pink) over time; in ERG mode a "
@@ -1373,6 +1376,108 @@ def build(s, env):
         "open.")
 
     # =====================================================================
+    s.chapter("Real Life Video",
+              "Ride filmed routes: the video plays at the speed you ride, the trainer simulates the gradient of "
+              "the road, and the route's elevation profile shows where you are.")
+    s.figure(SHOTS / "video-ride.png",
+             "The Video Ride page: live metrics at the top, the route video with the gradient, gear and "
+             "difficulty overlays in the middle and the elevation profile with your position at the bottom. "
+             "Video: cycling.vangestel.online, CC BY-NC-SA 4.0.")
+    s.section("Route folders")
+    s.p("A Real Life Video (RLV) route is a folder with three files that share a name:")
+    s.table(["File", "Content"], [
+        [C(".mp4"), "The video, filmed from the bike. H.264 plays everywhere; see <i>Video formats</i> below."],
+        [C(".gpx"), "The GPS track with elevation – distance, gradient and the profile are computed from it."],
+        [C(".xml"), "Optional route file (common RLV format): title, country, the video's start and end frame "
+                    "and the on-screen texts at their distances (e.g. <i>Mount Glandasse in the background</i>)."],
+    ], [1.0, 4.8])
+    s.p(f"Put route folders into your videos folder – by default {C('Documents/Artilody Videos')} in your home "
+        f"folder – for example {C('Artilody Videos/FR_Le_petit_Menglonnais/FR_Le_petit_Menglonnais.mp4')} "
+        f"(plus the {C('.gpx')} and {C('.xml')} next to it). The folder button next to the route list opens a "
+        f"menu: {UI('Add Folder…')} adds another folder (e.g. on an external drive; a folder can hold many "
+        f"route folders or be a route folder itself), {UI('Choose Videos Folder…')} replaces the videos "
+        f"folder, {UI('Open Videos Folder')} shows it in Finder / Explorer and {UI('Rescan Library')} looks for "
+        "new routes. With an empty library the page explains the layout and offers the same buttons.")
+
+    s.section("Choosing a route")
+    s.p("The drop-down at the top of the page lists every route with its name in bold and below it the "
+        "distance, the climbing, the length of the video and the country, e.g. <i>12.0 km · 142 m ↑ · 29:43 · "
+        "FR</i>. Routes that cannot be loaded are shown greyed out with the reason. Choosing a route shows its "
+        "first frame and its profile; the app remembers the last route. The route cannot be changed during a "
+        "ride.")
+
+    s.section("The page")
+    s.bullets([
+        "<b>Metric tiles</b> – power (3 s average, with the power the current gear needs), cadence (gear), "
+        "heart rate (% of max), speed (average) and elapsed time (distance ridden and energy).",
+        "<b>Video</b> – plays at your speed: the playback rate follows your riding speed relative to the speed "
+        "of the camera (about 0.25× to 2.5×); it pauses when you stop or coast to a standstill, and a video that "
+        "drifts from your position jumps back in sync. Overlays show the ride status, the current gradient "
+        "(coloured; with the felt gradient when the difficulty is below 100 %), your gear, the difficulty, the "
+        "playback rate and the route's on-screen texts. The speaker button turns the sound on – RLV videos are "
+        "usually silent, so it starts muted.",
+        "<b>Distance line</b> – the elevation profile of the whole route, coloured by gradient (green "
+        "descents, blue flat, yellow/orange climbs, red steep), the ridden part strong, your position with "
+        "<i>4.3 / 12.0 km</i>, km marks and small ticks where the route has texts. Above it: distance, "
+        "remaining distance, elevation, climbing done and gradient. Before the start, click the profile to "
+        "start part-way along the route (hovering shows the distance and elevation).",
+        f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
+        f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the {UI('Resistance')} card; the Zwift Click status. "
+        f"Without a trainer a <i>No trainer connected</i> card with {UI('Open Devices')} appears.",
+    ])
+
+    s.section("Resistance and difficulty")
+    s.table(["Mode", "What happens"], [
+        [UI("Gears"), "The trainer simulates the route's gradient with your virtual gears (the Free Ride gearing "
+                      f"and {UI('Gear Setup…')}, chapter 12): your speed comes from cadence and gear, and the "
+                      "trainer is set to the power that speed needs on the gradient. Shift with "
+                      f"{UI('−')} / {UI('+')}, the keyboard or the Zwift Click."],
+        [UI("Power"), "The trainer keeps its own resistance; your speed is computed from your power on the "
+                      "gradient (your weight, the bike, air and rolling resistance)."],
+    ], [1.0, 4.8])
+    s.p("<b>Difficulty</b> (0–100 %) scales the gradients: at 100 % you ride the real road, at 50 % a 6 % "
+        "climb feels like 3 %, at 0 % the route is flat (descents are scaled the same way). The slider is on "
+        f"the {UI('Resistance')} card; {K('Page Up')} / {K('Page Down')} change it in 10 % steps. The setting "
+        "is remembered.")
+
+    s.section("Starting, pausing and finishing")
+    s.bullets([
+        f"{UI('Start Now')} starts at the chosen start point; {UI('Start When Pedaling')} waits for the first "
+        "pedal strokes.",
+        f"{UI('Pause Ride')} (or {K('Space')}) stops the clock and the video; {UI('Resume')} continues.",
+        f"{UI('Finish')} asks <i>Finish video ride?</i> – {UI('Save &amp; Finish')} or {UI('Discard')}. "
+        "Reaching the end of the route finishes and saves the ride by itself. Video rides appear in History "
+        "with the route name and can be exported as FIT or CSV.",
+        "Only one session runs at a time – a video ride cannot start while a workout, a free ride or a row is "
+        "running.",
+    ])
+
+    s.section("Zwift Click and keyboard")
+    s.table(["Input", "Gears", "Power"], [
+        [UI("+") + " / " + K("↑"), "Shift harder", "Difficulty +10 %"],
+        [UI("−") + " / " + K("↓"), "Shift easier", "Difficulty −10 %"],
+        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring", "–"],
+        [K("Page Up") + " / " + K("Page Down"), "Difficulty ±10 %", "Difficulty ±10 %"],
+        [K("Space"), "Start / pause / resume", "Start / pause / resume"],
+    ], [1.6, 2.2, 2.0])
+    s.p("The keys work only on the Video Ride page and not while you type in a field or a dialog or menu is "
+        "open.")
+
+    s.section("Video formats and Raspberry Pi")
+    s.bullets([
+        "<b>H.264 MP4</b> (720p or 1080p) plays on every platform.",
+        "<b>AV1</b> videos need AV1 hardware decoding (recent Apple Silicon Macs, recent PC graphics). "
+        "Elsewhere the page shows <i>No picture</i> or <i>This video cannot be played</i>; the ride still works. "
+        f"Convert such a video once, e.g. {C('ffmpeg -i video.mp4 -c:v libx264 -crf 21 -an video-h264.mp4')}, "
+        "and give the result the name the route expects.",
+        f"<b>Raspberry Pi</b>: prefer 720p H.264 and install the GStreamer decoders: "
+        f"{C('sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-good')} (recommended by the .deb "
+        "package). 1080p and AV1 are too heavy for a Pi.",
+    ])
+    s.tip("Free route videos with GPX tracks are available from several RLV communities; respect the licence "
+          "of each video (many are non-commercial only).")
+
+    # =====================================================================
     s.chapter("Music player",
               "Play your own music while you ride – from the Dashboard, without leaving the app.")
     s.section("The player card")
@@ -1416,7 +1521,7 @@ def build(s, env):
         f"{UI('Show virtual devices')} and {UI('Auto-connect known devices')} – same as in Connection "
         "Preferences on the Devices page.",
         f"{UI('Smooth power')} – shows cycling watts as a rolling average (on by default, 3 s) and the length "
-        "of the average: 1, 3, 5 or 10 s (section 14.2).",
+        "of the average: 1, 3, 5 or 10 s (section 15.2).",
         "The full path of the database file (<i>“All data is stored locally (offline) in SQLite”</i>).",
         f"The app version. {UI('Done')} closes the dialog.",
     ])
@@ -1573,6 +1678,8 @@ def build(s, env):
         ["PM5", "Performance Monitor 5 – the Bluetooth display of Concept2 rowing machines."],
         ["NP", "Normalized Power – a weighted average power that reflects the physiological cost of a "
                "variable ride."],
+        ["RLV", "Real Life Video – a filmed route (video + GPS track) that plays at your riding speed "
+                "(Video Ride page)."],
         ["RPE", "Rating of Perceived Exertion – how hard an effort feels on a scale of 1 to 10."],
         ["TSS", "Training Stress Score – training load from duration and intensity; one hour at FTP = 100."],
         ["Virtual gears", "Gears simulated by the app: speed from cadence and gear, trainer power from the speed "
@@ -1593,6 +1700,10 @@ def build(s, env):
          "Shift harder / easier (Gears); target ±5 W (ERG)."],
         [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Free Ride", "Bigger / smaller chainring; sequential: jump 3 gears."],
         [K("Page Up") + " / " + K("Page Down"), "Free Ride", "Grade ±0.5 % (Gears); target ±10 W (ERG)."],
+        [K("Space"), "Video Ride", "Start now / pause / resume the video ride."],
+        [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Video Ride",
+         "Shift harder / easier (Gears); difficulty ±10 % (Power)."],
+        [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %."],
         [K("Esc"), "Dialogs", "Close the dialog (where it can be closed)."],
         [K("Enter"), "New playlist name", "Create the playlist."],
     ], [1.0, 1.5, 3.3])

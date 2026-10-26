@@ -322,7 +322,7 @@ int main(int argc, char *argv[])
 
     // Developer aid: WATT_SCREENSHOT_DIR=<dir> renders every page to PNG and quits
     // (used to compare the UI against docs/mockups). Files are named after the
-    // page (dashboard.png, freeride.png, rowing.png, workouts.png, calendar.png,
+    // page (dashboard.png, freeride.png, video.png, rowing.png, workouts.png, calendar.png,
     // builder.png, history.png, devices.png) plus page<N>.png in sidebar order.
     //   WATT_SCREENSHOT_STEP_MS        step time (default 1500 ms)
     //   WATT_SCREENSHOT_ROWING=1       live row on the virtual rower instead of
@@ -335,8 +335,11 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_FREERIDE_SEC   seconds ridden before freeride.png (default 40)
     //   WATT_SCREENSHOT_FREERIDE_FINISH=1  finish the ride (not saved) before the capture
     //   WATT_SCREENSHOT_RLV=<route>    live video ride (folder, .xml or .gpx) on the virtual
-    //                                  trainer instead of the cycling workout (page "rlv" last)
-    //   WATT_SCREENSHOT_RLV_SEC        seconds ridden before rlv.png (default 40)
+    //                                  trainer instead of the cycling workout (page "video" last)
+    //   WATT_SCREENSHOT_RLV_SEC        seconds ridden before video.png (default 40)
+    //   WATT_SCREENSHOT_RLV_IDLE=1     only select the route (preview / poster frame, no ride)
+    //   WATT_SCREENSHOT_RLV_START=<m>  start point in metres (default 0)
+    //   WATT_SCREENSHOT_RLV_FINISH=1   finish the video ride (not saved) before the capture
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
@@ -414,6 +417,8 @@ int main(int argc, char *argv[])
         if (shotRlv && !rlv.selectPath(shotRlvPath))
             qWarning("Screenshot mode: could not load the video route %s: %s", qPrintable(shotRlvPath),
                      qPrintable(rlv.lastError()));
+        else if (shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_START") > 0)
+            rlv.seekToDistance(qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_START"));
 
         if (!shotMenus.isEmpty()) {
             // open each menu, grab, close; then quit
@@ -441,7 +446,7 @@ int main(int argc, char *argv[])
         // Rowing (or, for a free ride, the Free Ride) page last, so the
         // session has time to get going.
         const QString livePage = shotFreeRide ? QStringLiteral("freeride")
-                                 : shotRlv    ? QStringLiteral("rlv")
+                                 : shotRlv    ? QStringLiteral("video")
                                               : QStringLiteral("rowing");
         const bool shotLive = shotRowing || shotFreeRide || shotRlv;
         const QStringList names = window->property("pageNames").toStringList();
@@ -459,6 +464,8 @@ int main(int argc, char *argv[])
         auto *timer = new QTimer(&app);
         auto step = std::make_shared<int>(0);
         auto clock = std::make_shared<QElapsedTimer>();
+        const bool finishRlv = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_FINISH") > 0;
+        const bool rlvIdle = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_IDLE") > 0;
         const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
         clock->start();
         QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv] {
@@ -468,8 +475,10 @@ int main(int argc, char *argv[])
                     rowing.start();
                 else if (shotFreeRide)
                     freeRide.start();
-                else if (shotRlv)
-                    rlv.start();
+                else if (shotRlv) {
+                    if (!rlvIdle)
+                        rlv.start();
+                }
                 else
                     training.start();
             }
@@ -490,6 +499,11 @@ int main(int argc, char *argv[])
             }
             if (finishFreeRide && name == livePage && freeRide.active()) {
                 freeRide.finish(false);   // summary card; captured on the next tick
+                --(*step);
+                return;
+            }
+            if (finishRlv && name == livePage && rlv.active()) {
+                rlv.finish(false);   // summary card; captured on the next tick
                 --(*step);
                 return;
             }
@@ -517,9 +531,9 @@ int main(int argc, char *argv[])
     if (freeRide.active() || freeRide.waiting())
         freeRide.finish(shotDir.isEmpty());
     if (!shotRlvPath.isEmpty())
-        qInfo("Screenshot mode: video ride %s, %s, %.0f m of %.0f m, %.1f km/h, video %lld ms, rate %.2f",
+        qInfo("Screenshot mode: video ride %s, %s, %.0f m of %.0f m, %.1f km/h, video %lld ms, rate %.2f, drift %.2f s",
               qPrintable(rlv.routeName()), qPrintable(rlv.state()), rlv.distanceMeters(), rlv.totalDistanceM(),
-              rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate());
+              rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate(), rlv.videoDriftSec());
     if (rlv.active() || rlv.waiting())
         rlv.finish(shotDir.isEmpty());
 

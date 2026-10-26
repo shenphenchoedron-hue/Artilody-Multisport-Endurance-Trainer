@@ -6,7 +6,7 @@ Rectangle {
     property int currentIndex: 0
     property bool profileOpen: false
     // Page names in StackLayout order (Main.qml window.pageNames).
-    property var pageNames: ["dashboard", "freeride", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    property var pageNames: ["dashboard", "freeride", "video", "rowing", "workouts", "calendar", "builder", "history", "devices"]
     signal navigate(int index)
     signal profileRequested()
 
@@ -15,6 +15,7 @@ Rectangle {
     readonly property var items: [
         { label: "Dashboard", icon: "dashboard", page: "dashboard" },
         { label: "Free Ride", icon: "freeRide", page: "freeride" },
+        { label: "Video Ride", icon: "video", page: "video" },
         { label: "Rowing", icon: "rowing", page: "rowing" },
         { label: "Workouts", icon: "calendar", page: "workouts" },
         { label: "Calendar", icon: "calendarDays", page: "calendar" },
@@ -56,17 +57,19 @@ Rectangle {
     // Live ride / free ride / row indicator at the bottom of the sidebar
     Rectangle {
         id: live
-        // A cycling workout wins, then a free ride (running or waiting for the
-        // first pedal stroke); otherwise a running row, or a set-up row that a
-        // stroke on the connected rower would start, is shown.
+        // A cycling workout wins, then a free ride / video ride (running or
+        // waiting for the first pedal stroke); otherwise a running row, or a
+        // set-up row that a stroke on the connected rower would start, is shown.
         readonly property bool freeRide: !Training.armedOrActive && (FreeRide.active || FreeRide.waiting)
-        readonly property bool rowing: !Training.armedOrActive && !freeRide
+        readonly property bool video: !Training.armedOrActive && !freeRide && (Rlv.active || Rlv.waiting)
+        readonly property bool rowing: !Training.armedOrActive && !freeRide && !video
                                        && (Rowing.active || (Rowing.state === "ready" && Rowing.rowerConnected))
-        readonly property bool waiting: rowing ? Rowing.state === "ready" : freeRide ? FreeRide.waiting : Training.waiting
-        readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : Training.paused
-        readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : Training.running
+        readonly property bool waiting: rowing ? Rowing.state === "ready" : freeRide ? FreeRide.waiting
+                                        : video ? Rlv.waiting : Training.waiting
+        readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? Rlv.paused : Training.paused
+        readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : video ? Rlv.running : Training.running
 
-        visible: Training.armedOrActive || freeRide || rowing
+        visible: Training.armedOrActive || freeRide || video || rowing
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 20
         x: 12
@@ -95,6 +98,7 @@ Rectangle {
                 Text {
                     text: live.rowing ? (live.waiting ? "Rowing ready" : (live.paused ? "Paused" : "Rowing"))
                           : live.freeRide ? (live.waiting ? "Free Ride ready" : (live.paused ? "Free Ride paused" : "Free Ride"))
+                          : live.video ? (live.waiting ? "Video ready" : (live.paused ? "Video paused" : "Video"))
                           : (live.waiting ? "Waiting…" : (live.paused ? "Paused" : "Riding"))
                     color: Theme.text
                     font.pixelSize: 14
@@ -116,6 +120,10 @@ Rectangle {
                                           + (FreeRide.mode === "gears" ? FreeRide.gearLabel + " • "
                                              : FreeRide.mode === "erg" ? "ERG • " : "")
                                           + Sensors.displayPower + " W")
+                        : live.video
+                          ? (live.waiting ? "Start pedaling"
+                                          : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
+                                            + " km • " + Sensors.displayPower + " W")
                         : (Training.waiting ? "Start pedaling"
                                             : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W")
                 color: Theme.textSecondary
@@ -125,7 +133,7 @@ Rectangle {
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: sidebar.navigate(sidebar.indexOfPage(live.rowing ? "rowing" : live.freeRide ? "freeride" : "dashboard"))
+            onClicked: sidebar.navigate(sidebar.indexOfPage(live.rowing ? "rowing" : live.freeRide ? "freeride" : live.video ? "video" : "dashboard"))
         }
     }
 }

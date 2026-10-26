@@ -51,9 +51,12 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/ShiftButton.qml
     ${QML_ROOT}/components/ErgControl.qml
     ${QML_ROOT}/components/FreeRideChart.qml
+    # real life video
+    ${QML_ROOT}/components/RouteProfile.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/FreeRidePage.qml
+    ${QML_ROOT}/pages/VideoRidePage.qml
     ${QML_ROOT}/pages/WorkoutsPage.qml
     ${QML_ROOT}/pages/CalendarPage.qml
     ${QML_ROOT}/pages/BuilderPage.qml
