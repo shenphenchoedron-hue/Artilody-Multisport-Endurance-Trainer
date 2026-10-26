@@ -6,6 +6,7 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -133,10 +134,13 @@ public:
     // Drive the clock manually (unit tests). Disables the internal timer.
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
-    // Optional guard: while it returns true, start()/startWhenPedaling() are
-    // refused (e.g. a rowing session is running; only one session at a time).
-    void setStartBlocker(std::function<bool()> blocker) { m_startBlocker = std::move(blocker); }
-    bool startBlocked() const { return m_startBlocker && m_startBlocker(); }
+    // Optional guards: while one returns true, start()/startWhenPedaling() are
+    // refused (e.g. a rowing or free ride session is running; only one
+    // session at a time). Each owner uses its own key; an empty function
+    // removes the guard. The key-less overload is the "default" guard.
+    void setStartBlocker(std::function<bool()> blocker) { setStartBlocker(QStringLiteral("default"), std::move(blocker)); }
+    void setStartBlocker(const QString &key, std::function<bool()> blocker);
+    bool startBlocked() const;
 
     // Indoor cycling only: rowing workouts are refused (false + rowingWorkoutRefused());
     // they run in RowingSession.
@@ -212,7 +216,7 @@ private:
     Profile m_rideProfile;      // rider snapshot taken at start()
     qint64 m_lastRideId = -1;
     bool m_lastCompleted = false;
-    std::function<bool()> m_startBlocker;
+    QHash<QString, std::function<bool()>> m_startBlockers;
 };
 
 } // namespace watt

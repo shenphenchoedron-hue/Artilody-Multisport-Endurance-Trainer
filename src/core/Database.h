@@ -25,7 +25,9 @@ public:
     //   1  initial schema
     //   2  workouts.sport, rides.sport, rides.distance_m, profiles.rowing_ftp,
     //      tables planned_workouts and rowing_records
-    static constexpr int kSchemaVersion = 2;
+    //   3  profiles.gear_setup (JSON, virtual shifting / free ride bike setup),
+    //      ride_samples.speed (m/s, free ride virtual speed; NULL = none)
+    static constexpr int kSchemaVersion = 3;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -51,6 +53,10 @@ public:
     std::optional<Profile> profile(qint64 id) const;
     qint64 saveProfile(const Profile &profile);    // insert when id < 0, returns id or -1
     bool deleteProfile(qint64 id);
+    // Free ride bike/gear setup of a profile (GearSetup JSON, schema v3).
+    // Empty when none was stored yet.
+    QString gearSetupJson(qint64 profileId) const;
+    bool setGearSetupJson(qint64 profileId, const QString &json);
 
     // Workouts
     QVector<Workout> workouts() const;
@@ -103,6 +109,7 @@ private:
     bool migrate();
     bool createSchemaV1();
     bool migrateToV2();
+    bool migrateToV3();
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);
     int userVersion() const;

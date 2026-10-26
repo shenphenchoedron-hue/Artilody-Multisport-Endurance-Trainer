@@ -7,6 +7,7 @@
 
 #include "Database.h"
 #include "DeviceManager.h"
+#include "FreeRideSession.h"
 #include "HistoryManager.h"
 #include "MusicPlayer.h"
 #include "ProfileManager.h"
@@ -171,6 +172,18 @@ int main(int argc, char *argv[])
     rowing.setRower(devices.rower());
     QObject::connect(&devices, &DeviceManager::rowerChanged, &rowing, &RowingSession::setRower);
     QObject::connect(&rowing, &RowingSession::rideSaved, &history, &HistoryManager::showNewRide);
+
+    // Free ride (virtual gearing / ERG); exclusive with workouts and rowing.
+    FreeRideSession freeRide(&db, &profiles, &hub);
+    freeRide.setTrainingSession(&training);
+    freeRide.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
+    rowing.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); },
+                           QStringLiteral("A free ride is running. Stop it before rowing."));
+    QObject::connect(&freeRide, &FreeRideSession::rideSaved, &history, &HistoryManager::showNewRide);
+    // Zwift Click buttons: shift (gears) / ±10 W (ERG) on the free ride.
+    QObject::connect(&devices, &DeviceManager::controllerShift, &freeRide, &FreeRideSession::controllerShift);
+    QObject::connect(&devices, &DeviceManager::devicesChanged, &freeRide,
+                     [&] { freeRide.setClickConnected(devices.controllerConnected()); });
     devices.initialize();
 
     MusicPlayer music(&db);
@@ -251,6 +264,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Planner", &planner);
     qmlRegisterSingletonInstance(uri, 1, 0, "RowingRecords", &rowingRecords);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rowing", &rowing);
+    qmlRegisterSingletonInstance(uri, 1, 0, "FreeRide", &freeRide);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -421,6 +435,8 @@ int main(int argc, char *argv[])
     }
     if (rowing.active())
         rowing.finish(shotDir.isEmpty());
+    if (freeRide.active() || freeRide.waiting())
+        freeRide.finish(shotDir.isEmpty());
 
     return rc;
 }

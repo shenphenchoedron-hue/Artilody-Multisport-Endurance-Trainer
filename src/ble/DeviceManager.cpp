@@ -9,6 +9,8 @@
 #include "Pm5Rower.h"
 #include "SensorHub.h"
 #include "SimulatedDevices.h"
+#include "ZwiftClick.h"
+#include "ZwiftClickProtocol.h"
 
 #include <QBluetoothLocalDevice>
 #include <QClipboard>
@@ -39,6 +41,19 @@ const QString kKindTrainer = QStringLiteral("trainer");
 const QString kKindHeartRate = QStringLiteral("heartRate");
 const QString kKindRower = QStringLiteral("rower");
 const QString kKindOther = QStringLiteral("other");
+const QString kKindController = QStringLiteral("controller");
+
+// Zwift Click / Play / Ride: manufacturer data 0x094A with a controller type
+// byte (not the Hub trainer), the newer 0xFC82 service, or the name.
+bool isZwiftController(const QBluetoothDeviceInfo &info, const QString &name)
+{
+    const QByteArray mfr = info.manufacturerData(zwift::kManufacturerId);
+    if (!mfr.isEmpty())
+        return zwift::isControllerType(quint8(mfr.at(0)));
+    if (zwift::nameLooksLikeController(name))
+        return true;
+    return info.serviceUuids().contains(QBluetoothUuid(quint16(zwift::kServiceUuid16)));
+}
 
 bool nameLooksLikeConcept2(const QString &n)
 {
@@ -189,6 +204,10 @@ DeviceManager::~DeviceManager()
         m_hr->disconnectDevice();
     if (m_rower)
         m_rower->disconnectDevice();
+    for (const auto &c : std::as_const(m_controllerDevs)) {
+        if (c)
+            c->disconnectDevice();
+    }
 }
 
 void DeviceManager::initialize()
@@ -201,6 +220,7 @@ void DeviceManager::initialize()
     m_knownTrainer = m_db->setting(QStringLiteral("ble/knownTrainer")).toString();
     m_knownHr = m_db->setting(QStringLiteral("ble/knownHr")).toString();
     m_knownRower = m_db->setting(QStringLiteral("ble/knownRower")).toString();
+    m_knownControllers = m_db->setting(QStringLiteral("ble/knownControllers")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
     m_showAll = m_db->setting(QStringLiteral("ble/showAll"), false).toBool();
     const QStringList rowers = m_db->setting(QStringLiteral("ble/rowerIds")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
     m_forcedRowers = QSet<QString>(rowers.cbegin(), rowers.cend());
@@ -219,7 +239,8 @@ void DeviceManager::initialize()
             connectDevice(kSimRower);
         const bool needsScan = (!m_knownTrainer.isEmpty() && m_knownTrainer != kSimTrainer)
                                || (!m_knownHr.isEmpty() && m_knownHr != kSimHr)
-                               || (!m_knownRower.isEmpty() && m_knownRower != kSimRower);
+                               || (!m_knownRower.isEmpty() && m_knownRower != kSimRower)
+                               || !m_knownControllers.isEmpty();
         if (needsScan && bluetoothAvailable()) {
             m_autoRescans = 4;   // keep looking for a known device for ~5 min
             QTimer::singleShot(500, this, &DeviceManager::startScan);
@@ -432,6 +453,7 @@ void DeviceManager::doStartScan(bool clearLists)
         m_hrSensors.removeDisconnected();
         m_rowers.removeDisconnected();
         m_others.removeDisconnected();
+        m_controllers.removeDisconnected();
     }
     addSimulatedEntries();
     setScanError(QString());
@@ -480,8 +502,13 @@ void DeviceManager::onScanWindowEnded(const QString &how)
     auto missing = [](const QString &known, const QString &sim, const auto &dev) {
         return !known.isEmpty() && known != sim && !(dev && dev->state() != LinkState::Disconnected);
     };
-    const bool knownMissing = missing(m_knownTrainer, kSimTrainer, m_trainer) || missing(m_knownHr, kSimHr, m_hr)
-                              || missing(m_knownRower, kSimRower, m_rower);
+    bool knownMissing = missing(m_knownTrainer, kSimTrainer, m_trainer) || missing(m_knownHr, kSimHr, m_hr)
+                        || missing(m_knownRower, kSimRower, m_rower);
+    for (const QString &id : std::as_const(m_knownControllers)) {
+        const ControllerDevice *c = controllerFor(id);
+        if (!c || c->state() == LinkState::Disconnected)
+            knownMissing = true;
+    }
     if (m_autoConnect && knownMissing && m_autoRescans > 0) {
         --m_autoRescans;
         QTimer::singleShot(1000, this, [this] {
@@ -606,6 +633,9 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
         return Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
         return Kind::HeartRate;
+    // Before the name hints: "Zwift Click" would match the trainer hint "ZWIFT".
+    if (isZwiftController(info, name))
+        return Kind::Controller;
     if (nameLooksLikeTrainer(name))
         return Kind::Trainer;
     if (nameLooksLikeHr(name))
@@ -619,6 +649,7 @@ QString DeviceManager::kindName(Kind k)
     case Kind::Trainer: return QStringLiteral("Trainer");
     case Kind::HeartRate: return QStringLiteral("HeartRate");
     case Kind::Rower: return QStringLiteral("Rower");
+    case Kind::Controller: return QStringLiteral("Controller");
     case Kind::Unknown: break;
     }
     return QStringLiteral("Unknown");
@@ -685,6 +716,9 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
     const bool activeTrainer = m_trainer && m_trainer->id() == id;
     const bool activeHr = m_hr && m_hr->id() == id;
     const bool activeRower = m_rower && m_rower->id() == id;
+    const bool activeController = controllerFor(id) != nullptr;
+    if (kind != Kind::Controller && m_controllers.contains(id) && !activeController)
+        m_controllers.remove(id);
     if (kind != Kind::Trainer && m_trainers.contains(id) && !activeTrainer)
         m_trainers.remove(id);
     if (kind != Kind::HeartRate && m_hrSensors.contains(id) && !activeHr)
@@ -704,7 +738,7 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
             && info.coreConfigurations() != QBluetoothDeviceInfo::UnknownCoreConfiguration)
             return;
-        if (activeTrainer || activeHr || activeRower)
+        if (activeTrainer || activeHr || activeRower || activeController)
             return;
         e.kind = kKindOther;
         e.protocol = info.serviceUuids().isEmpty()
@@ -732,6 +766,17 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         e.kind = kKindRower;
         e.known = id == m_knownRower;
         m_rowers.upsert(e);
+    } else if (kind == Kind::Controller) {
+        const QByteArray mfr = info.manufacturerData(zwift::kManufacturerId);
+        if (activeController && controllerFor(id)->state() == LinkState::Connected)
+            e.protocol = controllerFor(id)->protocol();
+        else if (!mfr.isEmpty())
+            e.protocol = QStringLiteral("%1 · Bluetooth LE").arg(zwift::deviceTypeText(quint8(mfr.at(0))));
+        else
+            e.protocol = QStringLiteral("Zwift controller · Bluetooth LE");
+        e.kind = kKindController;
+        e.known = m_knownControllers.contains(id);
+        m_controllers.upsert(e);
     } else {
         e.protocol = QStringLiteral("Bluetooth Heart Rate Service (HRS)");
         e.kind = kKindHeartRate;
@@ -748,13 +793,18 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
             const bool otherBusy = (m_trainer && m_trainer->id() != id && m_trainer->state() != LinkState::Disconnected)
                                    || (m_hr && m_hr->id() != id && m_hr->state() != LinkState::Disconnected)
                                    || (m_rower && m_rower->id() != id && m_rower->state() != LinkState::Disconnected);
-            if (otherBusy)
+            bool controllerBusy = false;
+            for (const auto &c : std::as_const(m_controllerDevs))
+                controllerBusy = controllerBusy || (c && c->id() != id && c->state() != LinkState::Disconnected);
+            if (otherBusy || controllerBusy)
                 return;
         }
         const bool trainerFree = kind == Kind::Trainer && !activeTrainer;
         const bool hrFree = kind == Kind::HeartRate && !activeHr;
         const bool rowerFree = kind == Kind::Rower && !activeRower;
-        if (trainerFree || hrFree || rowerFree)
+        const bool controllerFree = kind == Kind::Controller && !activeController
+                                    && m_controllerDevs.size() < kMaxControllers;
+        if (trainerFree || hrFree || rowerFree || controllerFree)
             connectDevice(id);
     }
 }
@@ -777,8 +827,12 @@ void DeviceManager::recordDiag(const QString &id, const QBluetoothDeviceInfo &in
     for (const QBluetoothUuid &u : info.serviceUuids())
         d.uuids << uuidText(u);
     d.manufacturerIds.clear();
-    for (quint16 k : info.manufacturerIds())
-        d.manufacturerIds << QStringLiteral("0x%1").arg(k, 4, 16, QLatin1Char('0'));
+    for (quint16 k : info.manufacturerIds()) {
+        const QByteArray data = info.manufacturerData(k);
+        d.manufacturerIds << (data.isEmpty() ? QStringLiteral("0x%1").arg(k, 4, 16, QLatin1Char('0'))
+                                             : QStringLiteral("0x%1=%2").arg(k, 4, 16, QLatin1Char('0'))
+                                                   .arg(QString::fromLatin1(data.left(16).toHex(' '))));
+    }
     d.coreConfig = coreConfigText(info.coreConfigurations());
     d.ftmsServiceData = ftmsServiceDataText(info);
     d.serviceDataIds.clear();
@@ -825,11 +879,25 @@ QString DeviceManager::diagnosticsReport() const
         out << "Agent error: " << int(m_agent->error()) << " " << m_agent->errorString() << "\n";
     out << "Known rower: " << (m_knownRower.isEmpty() ? QStringLiteral("-") : m_knownRower)
         << "  known trainer: " << (m_knownTrainer.isEmpty() ? QStringLiteral("-") : m_knownTrainer)
-        << "  known HR: " << (m_knownHr.isEmpty() ? QStringLiteral("-") : m_knownHr) << "\n";
+        << "  known HR: " << (m_knownHr.isEmpty() ? QStringLiteral("-") : m_knownHr)
+        << "  known controllers: " << (m_knownControllers.isEmpty() ? QStringLiteral("-") : m_knownControllers.join(QLatin1Char(','))) << "\n";
     out << "Auto-connect: " << (m_autoConnect ? "on" : "off") << "  multiple sensors: " << (m_allowMultiple ? "on" : "off")
         << "  virtual devices: " << (m_simulatorEnabled ? "on" : "off") << "\n";
     if (m_rower)
         out << "Active rower: " << m_rower->name() << " " << m_rower->id() << " state " << int(m_rower->state()) << "\n";
+    out << "\n[Controllers]\n";
+    if (m_controllerDevs.isEmpty())
+        out << "No controller selected\n";
+    for (const auto &c : std::as_const(m_controllerDevs)) {
+        if (!c)
+            continue;
+        out << c->name() << " " << c->id() << "  state " << int(c->state()) << "  " << c->protocol()
+            << "  battery " << (c->batteryLevel() >= 0 ? QStringLiteral("%1 %").arg(c->batteryLevel()) : QStringLiteral("?"));
+        if (auto *z = qobject_cast<ZwiftClick *>(c.data()))
+            out << "  type " << (z->deviceType() >= 0 ? zwift::deviceTypeText(z->deviceType()) : QStringLiteral("?"))
+                << "  handshake " << (z->handshakeDone() ? "ok" : "pending") << (z->isV2() ? "  v2" : "");
+        out << "\n";
+    }
     out << "\n[Rower data]\n";
     if (m_rower) {
         out << m_rower->dataDiagnostics() << "\n";
@@ -1018,6 +1086,7 @@ void DeviceManager::connectDevice(const QString &id)
             releaseHeartRate();
         if (m_rower && m_rower->id() != id)
             releaseRower();
+        releaseControllers(id);
     }
 
     // The driver follows the entry kind; an id is only in one list (see
@@ -1029,6 +1098,10 @@ void DeviceManager::connectDevice(const QString &id)
         kind = kKindTrainer;
     else if (m_hr && m_hr->id() == id)
         kind = kKindHeartRate;
+    else if (controllerFor(id))
+        kind = kKindController;
+    else if (m_controllers.contains(id))
+        kind = kKindController;
     else if (m_rowers.contains(id))
         kind = kKindRower;
     else if (m_trainers.contains(id))
@@ -1109,6 +1182,36 @@ void DeviceManager::connectDevice(const QString &id)
         m_knownRower = id;
         m_db->setSetting(QStringLiteral("ble/knownRower"), id);
         r->connectDevice();
+    } else if (kind == kKindController) {
+        if (ControllerDevice *c = controllerFor(id)) {
+            if (c->state() == LinkState::Disconnected)
+                c->connectDevice();
+            return;
+        }
+        if (m_controllerDevs.size() >= kMaxControllers) {
+            // make room: drop a controller that is not connected, else refuse
+            QString drop;
+            for (const auto &c : std::as_const(m_controllerDevs)) {
+                if (c && c->state() != LinkState::Connected) {
+                    drop = c->id();
+                    break;
+                }
+            }
+            if (drop.isEmpty()) {
+                addLog(QStringLiteral("Already %1 controllers connected – disconnect one first").arg(kMaxControllers), false);
+                return;
+            }
+            releaseController(drop);
+        }
+        if (!m_infos.contains(id))
+            return;
+        auto *c = new ZwiftClick(m_infos.value(id), adapter, this);
+        attachController(c);
+        if (!m_knownControllers.contains(id)) {
+            m_knownControllers.append(id);
+            saveKnownControllers();
+        }
+        c->connectDevice();
     }
     // Real BLE device: keep BlueZ's device object alive while connecting.
     if (!id.startsWith(QLatin1String("sim:")) && !kind.isEmpty())
@@ -1130,8 +1233,167 @@ void DeviceManager::disconnectDevice(const QString &id)
         releaseRower();
         m_knownRower.clear();
         m_db->setSetting(QStringLiteral("ble/knownRower"), QString());
+    } else if (controllerFor(id)) {
+        releaseController(id);
+        m_knownControllers.removeAll(id);
+        saveKnownControllers();
     }
     emit devicesChanged();
+}
+
+// --- controllers -------------------------------------------------------------
+
+ControllerDevice *DeviceManager::controllerFor(const QString &id) const
+{
+    for (const auto &c : m_controllerDevs) {
+        if (c && c->id() == id)
+            return c.data();
+    }
+    return nullptr;
+}
+
+QList<ControllerDevice *> DeviceManager::controllerDevices() const
+{
+    QList<ControllerDevice *> out;
+    for (const auto &c : m_controllerDevs) {
+        if (c)
+            out << c.data();
+    }
+    return out;
+}
+
+ControllerDevice *DeviceManager::primaryController() const
+{
+    ControllerDevice *fallback = nullptr;
+    for (const auto &c : m_controllerDevs) {
+        if (!c)
+            continue;
+        if (c->state() == LinkState::Connected)
+            return c.data();
+        if (!fallback)
+            fallback = c.data();
+    }
+    return fallback;
+}
+
+void DeviceManager::attachController(ControllerDevice *c)
+{
+    m_controllerDevs.append(c);
+    c->setAutoReconnect(m_autoReconnect);
+    m_controllers.setState(c->id(), int(LinkState::Connecting));
+    connect(c, &ControllerDevice::shiftRequested, this, [this](int dir) {
+        emit controllerShift(dir);
+        if (dir > 0)
+            emit controllerShiftUp();
+        else if (dir < 0)
+            emit controllerShiftDown();
+    });
+    connect(c, &ControllerDevice::buttonsChanged, this, &DeviceManager::controllerButtonsChanged);
+    connect(c, &ControllerDevice::batteryChanged, this, &DeviceManager::devicesChanged);
+    connect(c, &ControllerDevice::logMessage, this, &DeviceManager::addLog);
+    connect(c, &ControllerDevice::gattReport, this, [this, id = c->id()](const QString &g) { recordGatt(id, g); });
+    connect(c, &ControllerDevice::rssiChanged, this, [this, c](int rssi) { m_controllers.setRssi(c->id(), rssi); });
+    connect(c, &ControllerDevice::stateChanged, this, [this, c](LinkState s) {
+        m_controllers.setState(c->id(), int(s));
+        if (s == LinkState::Connected) {
+            if (const DeviceEntry *e = m_controllers.find(c->id())) {
+                DeviceEntry copy = *e;
+                copy.protocol = c->protocol();
+                m_controllers.upsert(copy);
+            }
+        }
+        emit devicesChanged();
+    });
+    emit devicesChanged();
+}
+
+void DeviceManager::releaseController(const QString &id)
+{
+    for (int i = 0; i < m_controllerDevs.size(); ++i) {
+        ControllerDevice *c = m_controllerDevs.at(i);
+        if (c && c->id() != id)
+            continue;
+        m_controllerDevs.removeAt(i);
+        if (c) {
+            m_controllers.setState(c->id(), int(LinkState::Disconnected));
+            c->disconnect(this);
+            c->disconnectDevice();
+            c->deleteLater();
+        }
+        emit controllerButtonsChanged(false, false);
+        emit devicesChanged();
+        return;
+    }
+}
+
+void DeviceManager::releaseControllers(const QString &exceptId)
+{
+    const QList<ControllerDevice *> list = controllerDevices();
+    for (ControllerDevice *c : list) {
+        if (c->id() != exceptId)
+            releaseController(c->id());
+    }
+}
+
+void DeviceManager::saveKnownControllers()
+{
+    m_db->setSetting(QStringLiteral("ble/knownControllers"), m_knownControllers.join(QLatin1Char(';')));
+}
+
+QString DeviceManager::controllerId() const
+{
+    const ControllerDevice *c = primaryController();
+    return c ? c->id() : QString();
+}
+
+QString DeviceManager::controllerName() const
+{
+    QStringList names;
+    for (const auto &c : m_controllerDevs) {
+        if (c && c->state() == LinkState::Connected)
+            names << c->name();
+    }
+    if (!names.isEmpty())
+        return names.join(QStringLiteral(" + "));
+    const ControllerDevice *c = primaryController();
+    return c ? c->name() : QString();
+}
+
+QString DeviceManager::controllerProtocol() const
+{
+    const ControllerDevice *c = primaryController();
+    return c ? c->protocol() : QString();
+}
+
+int DeviceManager::controllerState() const
+{
+    const ControllerDevice *c = primaryController();
+    return c ? int(c->state()) : 0;
+}
+
+bool DeviceManager::controllerConnected() const
+{
+    return controllerCount() > 0;
+}
+
+int DeviceManager::controllerCount() const
+{
+    int n = 0;
+    for (const auto &c : m_controllerDevs) {
+        if (c && c->state() == LinkState::Connected)
+            ++n;
+    }
+    return n;
+}
+
+int DeviceManager::controllerBattery() const
+{
+    int level = -1;
+    for (const auto &c : m_controllerDevs) {
+        if (c && c->state() == LinkState::Connected && c->batteryLevel() >= 0)
+            level = level < 0 ? c->batteryLevel() : std::min(level, c->batteryLevel());
+    }
+    return level;
 }
 
 void DeviceManager::attachTrainer(TrainerDevice *t)
@@ -1278,7 +1540,7 @@ int DeviceManager::connectedCount() const
         ++n;
     if (m_rower && m_rower->state() == LinkState::Connected)
         ++n;
-    return n;
+    return n + controllerCount();
 }
 
 QString DeviceManager::connectedSummary() const
@@ -1293,6 +1555,8 @@ QString DeviceManager::connectedSummary() const
         parts << QStringLiteral("Rower");
     if (h)
         parts << QStringLiteral("Heart Rate Sensor");
+    if (controllerConnected())
+        parts << QStringLiteral("Controller");
     if (parts.isEmpty())
         return QStringLiteral("No sensors connected");
     return parts.join(QStringLiteral(" + "));
@@ -1413,6 +1677,10 @@ void DeviceManager::setAutoReconnect(bool on)
         m_hr->setAutoReconnect(on);
     if (m_rower)
         m_rower->setAutoReconnect(on);
+    for (const auto &c : std::as_const(m_controllerDevs)) {
+        if (c)
+            c->setAutoReconnect(on);
+    }
     savePreferences();
 }
 

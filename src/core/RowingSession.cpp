@@ -65,7 +65,7 @@ RowingSession::~RowingSession()
     for (const auto &c : std::as_const(m_rowerConnections))
         disconnect(c);
     if (m_training)
-        m_training->setStartBlocker({});
+        m_training->setStartBlocker(QStringLiteral("rowing"), {});
 }
 
 // --- wiring -----------------------------------------------------------------
@@ -108,10 +108,19 @@ void RowingSession::setRower(RowerDevice *rower)
 void RowingSession::setTrainingSession(TrainingSession *training)
 {
     if (m_training)
-        m_training->setStartBlocker({});
+        m_training->setStartBlocker(QStringLiteral("rowing"), {});
     m_training = training;
     if (training)
-        training->setStartBlocker([this] { return active(); });
+        training->setStartBlocker(QStringLiteral("rowing"), [this] { return active(); });
+}
+
+void RowingSession::setStartBlocker(const QString &key, std::function<bool()> blocker, const QString &reason)
+{
+    if (blocker)
+        m_startBlockers.insert(key, qMakePair(std::move(blocker),
+                                              reason.isEmpty() ? QStringLiteral("Another session is running.") : reason));
+    else
+        m_startBlockers.remove(key);
 }
 
 RowerDevice *RowingSession::rower() const
@@ -621,6 +630,12 @@ bool RowingSession::start()
     if (m_training && m_training->active()) {
         emit startRefused(QStringLiteral("A cycling session is running. Stop it before rowing."));
         return false;
+    }
+    for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
+        if (it->first && it->first()) {
+            emit startRefused(it->second);
+            return false;
+        }
     }
     if (m_mode == Mode::Plan && !m_db->workout(m_planWorkoutId)) {
         // Checked before reset(): the results of a finished row stay visible.

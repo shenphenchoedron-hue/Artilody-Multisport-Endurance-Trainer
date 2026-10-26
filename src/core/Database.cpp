@@ -230,7 +230,8 @@ bool Database::migrate()
         return true;   // additive schema: older code can still read what it knows
     }
     struct Step { int version; bool (Database::*apply)(); };
-    const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 } };
+    const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 },
+                           { 3, &Database::migrateToV3 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -318,6 +319,12 @@ bool Database::migrateToV2()
             return false;
     }
     return true;
+}
+
+bool Database::migrateToV3()
+{
+    return addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("gear_setup"), QStringLiteral("TEXT"))
+           && addColumnIfMissing(QStringLiteral("ride_samples"), QStringLiteral("speed"), QStringLiteral("REAL"));
 }
 
 void Database::seedDefaults()
@@ -433,6 +440,29 @@ qint64 Database::saveProfile(const Profile &p)
         return -1;
     }
     return p.id >= 0 ? p.id : q.lastInsertId().toLongLong();
+}
+
+QString Database::gearSetupJson(qint64 profileId) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT gear_setup FROM profiles WHERE id = ?"));
+    q.addBindValue(profileId);
+    if (q.exec() && q.next())
+        return q.value(0).toString();
+    return QString();
+}
+
+bool Database::setGearSetupJson(qint64 profileId, const QString &json)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE profiles SET gear_setup = ? WHERE id = ?"));
+    q.addBindValue(json);
+    q.addBindValue(profileId);
+    if (!q.exec()) {
+        setError(QStringLiteral("setGearSetupJson"), q.lastError().text());
+        return false;
+    }
+    return q.numRowsAffected() > 0;
 }
 
 bool Database::deleteProfile(qint64 id)
@@ -596,7 +626,8 @@ qint64 Database::saveRide(const RideRecord &r, const QVector<Sample> &samples)
     const qint64 rideId = q.lastInsertId().toLongLong();
 
     QSqlQuery s(d);
-    s.prepare(QStringLiteral("INSERT OR REPLACE INTO ride_samples (ride_id, t, power, target, cadence, hr) VALUES (?, ?, ?, ?, ?, ?)"));
+    s.prepare(QStringLiteral("INSERT OR REPLACE INTO ride_samples (ride_id, t, power, target, cadence, hr, speed)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?)"));
     for (const Sample &smp : samples) {
         s.addBindValue(rideId);
         s.addBindValue(smp.t);
@@ -604,6 +635,7 @@ qint64 Database::saveRide(const RideRecord &r, const QVector<Sample> &samples)
         s.addBindValue(smp.targetPower);
         s.addBindValue(smp.cadence);
         s.addBindValue(smp.heartRate);
+        s.addBindValue(smp.speedMps > 0 ? QVariant(smp.speedMps) : QVariant(QMetaType::fromType<double>()));
         if (!s.exec()) {
             setError(QStringLiteral("saveRide samples"), s.lastError().text());
             d.rollback();
@@ -652,12 +684,13 @@ QVector<Sample> Database::rideSamples(qint64 rideId) const
     QVector<Sample> out;
     QSqlQuery q(db());
     q.setForwardOnly(true);
-    q.prepare(QStringLiteral("SELECT t, power, target, cadence, hr FROM ride_samples WHERE ride_id = ? ORDER BY t"));
+    q.prepare(QStringLiteral("SELECT t, power, target, cadence, hr, speed FROM ride_samples WHERE ride_id = ? ORDER BY t"));
     q.addBindValue(rideId);
     if (!q.exec())
         return out;
     while (q.next())
-        out.append({ q.value(0).toInt(), q.value(1).toInt(), q.value(2).toInt(), q.value(3).toInt(), q.value(4).toInt() });
+        out.append({ q.value(0).toInt(), q.value(1).toInt(), q.value(2).toInt(), q.value(3).toInt(), q.value(4).toInt(),
+                     q.value(5).isNull() ? 0.0 : q.value(5).toDouble() });
     return out;
 }
 

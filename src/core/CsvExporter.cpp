@@ -2,6 +2,7 @@
 
 #include <QSaveFile>
 #include <QTextStream>
+#include <algorithm>
 
 namespace watt::csv {
 
@@ -29,14 +30,21 @@ QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples)
     s << "# workout," << escape(ride.workoutName) << "\n";
     s << "# started," << ride.startedAt.toString(Qt::ISODate) << "\n";
     s << "# ftp," << ride.ftp << "\n";
-    s << "seconds,elapsed,power_w,target_w,cadence_rpm,heart_rate_bpm\n";
+    // Free rides record a (virtual) speed: extra column, only then.
+    const bool withSpeed = std::any_of(samples.cbegin(), samples.cend(), [](const Sample &x) { return x.speedMps > 0; });
+    if (ride.distanceM > 0)
+        s << "# distance_m," << num(ride.distanceM) << "\n";
+    s << "seconds,elapsed,power_w,target_w,cadence_rpm,heart_rate_bpm" << (withSpeed ? ",speed_kmh" : "") << "\n";
     for (const Sample &x : samples) {
         const QString elapsed = QStringLiteral("%1:%2:%3")
                                     .arg(x.t / 3600, 2, 10, QLatin1Char('0'))
                                     .arg((x.t % 3600) / 60, 2, 10, QLatin1Char('0'))
                                     .arg(x.t % 60, 2, 10, QLatin1Char('0'));
         s << x.t << ',' << elapsed << ',' << x.power << ',' << x.targetPower << ',' << x.cadence << ','
-          << x.heartRate << "\n";
+          << x.heartRate;
+        if (withSpeed)
+            s << ',' << num(x.speedMps * 3.6);
+        s << "\n";
     }
     return out;
 }

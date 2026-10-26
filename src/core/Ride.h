@@ -17,6 +17,7 @@ struct Sample
     int targetPower = 0;    // W (0 in free ride without workout)
     int cadence = 0;        // rpm
     int heartRate = 0;      // bpm
+    double speedMps = 0;    // m/s (free ride virtual speed; 0 = not recorded)
 };
 
 // Summary of a finished ride as stored in the database.
@@ -42,7 +43,7 @@ struct RideRecord
     double tss = 0;
     std::array<int, kZoneCount> zoneSeconds {};
     QString sport = QStringLiteral("cycling");   // "cycling" or "rowing" (schema v2)
-    double distanceM = 0;                         // rowing distance in metres (0 = unknown)
+    double distanceM = 0;                         // rowing / free ride distance in metres (0 = unknown)
 };
 
 } // namespace watt

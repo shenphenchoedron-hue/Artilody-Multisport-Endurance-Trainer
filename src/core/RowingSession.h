@@ -7,6 +7,9 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QHash>
+#include <QPair>
+#include <functional>
 #include <QList>
 #include <QMetaObject>
 #include <QObject>
@@ -128,6 +131,9 @@ public:
     // Only one session at a time: installs a start guard on the cycling
     // session; start() refuses while it is active (cancels it when only armed).
     void setTrainingSession(TrainingSession *training);
+    // Further guards (e.g. a running free ride): while one returns true,
+    // start() is refused with startRefused(reason). Empty function removes it.
+    void setStartBlocker(const QString &key, std::function<bool()> blocker, const QString &reason = {});
 
     // Tests: drive the clock manually (disables the internal timer).
     void setManualClock(bool manual) { m_manualClock = manual; }
@@ -273,6 +279,7 @@ private:
     RowingRecords *m_records;
     WorkoutPlanner *m_planner;
     QPointer<TrainingSession> m_training;
+    QHash<QString, QPair<std::function<bool()>, QString>> m_startBlockers;
     QPointer<RowerDevice> m_rower;
     QList<QMetaObject::Connection> m_rowerConnections;
 

@@ -1,0 +1,184 @@
+#pragma once
+
+#include <QJsonObject>
+#include <QString>
+#include <QVariantList>
+#include <QVector>
+
+namespace watt {
+
+// Bike gearing for virtual shifting (free ride page).
+//
+// Conventions
+//  * chainrings and cogs are stored sorted ascending by teeth
+//    (e.g. chainrings [34, 50], cogs [11, 12, ..., 34]).
+//  * frontIndex indexes chainrings (0 = smallest ring = easiest),
+//    rearIndex indexes cogs (0 = smallest cog = hardest).
+//  * "up" always means harder (higher ratio), "down" easier.
+//
+// Two shifting modes:
+//  * derailleur: front and rear shift separately like a real bike
+//    (shiftUp/Down move the rear, shiftFrontUp/Down the front).
+//  * sequential: one list of gears, easiest first, like Zwift's virtual
+//    gears: the smaller rings down to mid-cassette, then the next ring, gears
+//    within kDuplicateTolerance of the previous one skipped (see
+//    buildSequence()); shiftUp/Down step through that list,
+//    shiftFrontUp/Down jump kSequentialJump gears.
+struct GearSetup
+{
+    static constexpr int kMinTeeth = 9;
+    static constexpr int kMaxChainringTeeth = 70;
+    static constexpr int kMaxCogTeeth = 60;
+    static constexpr int kMaxChainrings = 3;
+    static constexpr int kMaxCogs = 14;
+    static constexpr int kMinCircumferenceMm = 1000;
+    static constexpr int kMaxCircumferenceMm = 3000;
+    static constexpr int kDefaultCircumferenceMm = 2105;   // 700x25c
+
+    QVector<int> chainrings { 34, 50 };
+    QVector<int> cogs { 11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34 };   // 11-34 12-speed
+    int circumferenceMm = kDefaultCircumferenceMm;
+    bool sequential = true;
+    // current gear (indices into chainrings / cogs, see conventions above)
+    int frontIndex = 1;
+    int rearIndex = 6;
+    // road model of the rider's bike (rider weight comes from the profile)
+    double bikeWeightKg = 9.0;
+    double cda = 0.32;      // m^2, hoods position
+    double crr = 0.004;     // rolling resistance, good road tyres
+
+    static GearSetup defaults();
+    // Checks the lists/values; on error returns false and sets *error.
+    // Order and duplicates are fixed by normalized() and are no error.
+    static bool validate(const QVector<int> &chainrings, const QVector<int> &cogs, int circumferenceMm,
+                         QString *error = nullptr);
+    // Sorted ascending, duplicates removed, indices and physics clamped.
+    GearSetup normalized() const;
+    bool isValid(QString *error = nullptr) const;
+
+    QJsonObject toJson() const;
+    // Missing/invalid values fall back to the defaults.
+    static GearSetup fromJson(const QJsonObject &o);
+    QString toJsonText() const;
+    static GearSetup fromJsonText(const QString &text);   // empty/invalid -> defaults()
+
+    bool operator==(const GearSetup &o) const;
+    bool operator!=(const GearSetup &o) const { return !(*this == o); }
+
+    // Presets for the setup UI: [{name, values: [int]}] / [{name, mm}]
+    static QVariantList chainringPresets();
+    static QVariantList cassettePresets();
+    static QVariantList wheelPresets();
+    // "11,12,13" / "11-12-13" / "11 12 13" -> [11,12,13]; empty on any bad token
+    static QVector<int> parseTeethList(const QString &text);
+};
+
+struct Gear
+{
+    int front = 0;   // chainring index
+    int rear = 0;    // cog index
+    int frontTeeth = 0;
+    int rearTeeth = 0;
+    double ratio = 0;
+};
+
+class Gearing
+{
+public:
+    static constexpr double kDuplicateTolerance = 0.03;   // ratios within 3 % count as the same gear
+    static constexpr int kSequentialJump = 3;
+
+    Gearing();
+    explicit Gearing(const GearSetup &setup);
+
+    // Replaces the setup (normalized). The requested gear indices are used
+    // when valid, else the gear with the nearest ratio to the previous one.
+    void setSetup(const GearSetup &setup);
+    const GearSetup &setup() const { return m_setup; }
+    void setSequential(bool on);
+
+    int frontIndex() const { return m_setup.frontIndex; }
+    int rearIndex() const { return m_setup.rearIndex; }
+    int frontTeeth() const;
+    int rearTeeth() const;
+    double ratio() const;
+    QString label() const;        // "50×17"
+    Gear current() const;
+
+    // Position of the current gear: sequential -> index in sequence(),
+    // derailleur -> rank of the current combination in allGears().
+    // 0 = easiest.
+    int gearIndex() const;
+    int gearCount() const;
+
+    bool canShiftUp() const;
+    bool canShiftDown() const;
+    bool canShiftFrontUp() const;
+    bool canShiftFrontDown() const;
+    bool shiftUp();          // harder
+    bool shiftDown();        // easier
+    bool shiftFrontUp();     // bigger ring (sequential: jump kSequentialJump gears harder)
+    bool shiftFrontDown();
+    bool setGear(int front, int rear);
+    bool setGearIndex(int index);   // in the current mode's ordering (see gearIndex())
+
+    // Sequential list (easiest first) for the current setup.
+    const QVector<Gear> &sequence() const { return m_sequence; }
+    // All combinations sorted by ratio (easiest first), no deduplication.
+    QVector<Gear> allGears() const;
+
+    static QVector<Gear> buildSequence(const GearSetup &setup, double tolerance = kDuplicateTolerance);
+    static QString labelFor(int frontTeeth, int rearTeeth);
+
+    // Virtual wheel speed (m/s) at the given cadence in the current gear:
+    // cadence / 60 * ratio * circumference.
+    double virtualSpeed(double cadenceRpm) const;
+    static double speedFor(double cadenceRpm, double ratio, int circumferenceMm);
+
+private:
+    void rebuild();
+    void snapToSequence();
+    int sequenceIndex() const;          // exact match or nearest ratio
+    void selectNearest(double ratio);
+    Gear gearAt(int front, int rear) const;
+
+    GearSetup m_setup;
+    QVector<Gear> m_sequence;
+};
+
+// Steady-state road model used for ERG based virtual shifting.
+//
+//   P = (Crr·m·g·cosθ + m·g·sinθ + ½·ρ·CdA·v²) · v / η
+//
+// m = rider + bike mass, θ = atan(grade), ρ = air density, η = drivetrain
+// efficiency. No wind and no acceleration term (FreeRideSession handles
+// inertia while coasting with coastDeceleration()).
+namespace road {
+
+constexpr double kGravity = 9.80665;
+constexpr double kAirDensity = 1.225;           // kg/m^3, sea level 15 °C
+constexpr double kDrivetrainEfficiency = 0.97;
+constexpr double kMaxSpeedMps = 30.0;           // 108 km/h, bisection bound
+
+struct Model
+{
+    double massKg = 79.0;      // rider + bike
+    double cda = 0.32;
+    double crr = 0.004;
+    double gradePercent = 0.0;
+    double airDensity = kAirDensity;
+    double efficiency = kDrivetrainEfficiency;
+};
+
+// Resisting force (N) at speed v (m/s); negative downhill when gravity wins.
+double resistance(const Model &m, double speedMps);
+// Rider power (W) needed to hold speed v; may be negative steeply downhill.
+double powerForSpeed(const Model &m, double speedMps);
+// Inverse of powerForSpeed() for P >= 0 (bisection in 0..kMaxSpeedMps).
+double speedForPower(const Model &m, double watts);
+// Deceleration (m/s^2, > 0 slows down, < 0 speeds up downhill) while coasting.
+double coastDeceleration(const Model &m, double speedMps);
+
+} // namespace road
+
+} // namespace watt

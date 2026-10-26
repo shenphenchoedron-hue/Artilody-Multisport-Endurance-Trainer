@@ -1,4 +1,4 @@
-// Schema migration v1 -> v2 (PRAGMA user_version) without data loss.
+// Schema migrations v1 -> v2 -> v3 (PRAGMA user_version) without data loss.
 #include "Database.h"
 #include "ProfileManager.h"
 #include "WorkoutBuilder.h"
@@ -96,7 +96,9 @@ private slots:
                 QCOMPARE(w.sport, QStringLiteral("cycling"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 2);
+        QCOMPARE(Database::kSchemaVersion, 3);
+        QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
+        QVERIFY(columns(path, QStringLiteral("ride_samples")).contains(QStringLiteral("speed")));
         QVERIFY(columns(path, QStringLiteral("workouts")).contains(QStringLiteral("sport")));
         QVERIFY(columns(path, QStringLiteral("planned_workouts")).contains(QStringLiteral("ride_id")));
         QVERIFY(columns(path, QStringLiteral("rowing_records")).contains(QStringLiteral("trace")));
@@ -166,7 +168,7 @@ private slots:
             QCOMPARE(db.ride(rowId)->distanceM, 2000.0);
             QVERIFY(db.addPlannedWorkout(1, QDate(2026, 10, 23), 7) > 0);
         }
-        QCOMPARE(pragmaVersion(path), 2);
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
         const QStringList rideCols = columns(path, QStringLiteral("rides"));
         QVERIFY(rideCols.contains(QStringLiteral("sport")));
         QVERIFY(rideCols.contains(QStringLiteral("distance_m")));
@@ -177,6 +179,88 @@ private slots:
         QVERIFY(again.open(path));
         QCOMPARE(again.profile(1)->rowingFtp, 190);
         QCOMPARE(again.plannedWorkouts(1, {}, {}).size(), 1);
+    }
+
+    void upgradesV2WithoutDataLoss()
+    {
+        // A v2 database (as shipped with 1.1.x): v1 schema + the v2 step.
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v2.sqlite"));
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v2"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            for (const char *sql : kV1Schema)
+                QVERIFY2(q.exec(QString::fromUtf8(sql)), sql);
+            const char *v2[] = {
+                "ALTER TABLE workouts ADD COLUMN sport TEXT NOT NULL DEFAULT 'cycling'",
+                "ALTER TABLE rides ADD COLUMN sport TEXT NOT NULL DEFAULT 'cycling'",
+                "ALTER TABLE rides ADD COLUMN distance_m REAL",
+                "ALTER TABLE profiles ADD COLUMN rowing_ftp INTEGER NOT NULL DEFAULT 150",
+                "CREATE TABLE planned_workouts (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE, date TEXT NOT NULL,"
+                " workout_id INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,"
+                " position INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0,"
+                " ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL, notes TEXT)",
+                "CREATE TABLE rowing_records (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE, distance_m INTEGER NOT NULL,"
+                " time_sec REAL NOT NULL, ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL, created_at TEXT, trace TEXT)",
+                "UPDATE profiles SET rowing_ftp = 177 WHERE id = 1",
+                "INSERT INTO rides (id, profile_id, workout_id, workout_name, started_at, duration, sport, distance_m)"
+                " VALUES (4, 1, -1, '2k', 1700100000, 480, 'rowing', 2000)",
+                "INSERT INTO planned_workouts (profile_id, date, workout_id) VALUES (1, '2026-10-20', 7)",
+                "INSERT INTO rowing_records (profile_id, distance_m, time_sec, ride_id, trace) VALUES (1, 2000, 480, 4, '[[0,0],[480,2000]]')",
+                "PRAGMA user_version = 2",
+            };
+            for (const char *sql : v2)
+                QVERIFY2(q.exec(QString::fromUtf8(sql)), sql);
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v2"));
+        QCOMPARE(pragmaVersion(path), 2);
+        QVERIFY(!columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
+
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+            QCOMPARE(db.profile(1)->ftp, 262);
+            QCOMPARE(db.profile(1)->rowingFtp, 177);
+            QCOMPARE(db.workout(7)->name, QStringLiteral("My Sweet Spot"));
+            QCOMPARE(db.ride(3)->tss, 13.5);
+            QCOMPARE(db.ride(4)->distanceM, 2000.0);
+            QCOMPARE(db.ride(4)->sport, QStringLiteral("rowing"));
+            const QVector<Sample> old = db.rideSamples(3);
+            QCOMPARE(old.size(), 1);
+            QCOMPARE(old.first().power, 220);
+            QCOMPARE(old.first().speedMps, 0.0);   // no speed recorded before v3
+            QCOMPARE(db.plannedWorkouts(1, {}, {}).size(), 1);
+            QVERIFY(db.bestRowingRecord(1, 2000));
+            QCOMPARE(db.playlistTracks(1).size(), 1);
+            QCOMPARE(db.workouts().size(), 2);
+            // the new columns work
+            QVERIFY(db.gearSetupJson(1).isEmpty());
+            QVERIFY(db.setGearSetupJson(1, QStringLiteral("{\"chainrings\":[42]}")));
+            QCOMPARE(db.gearSetupJson(1), QStringLiteral("{\"chainrings\":[42]}"));
+            RideRecord r;
+            r.profileId = 1;
+            r.workoutName = QStringLiteral("Free Ride");
+            r.startedAt = QDateTime::currentDateTime();
+            r.distanceM = 1234;
+            Sample s;
+            s.power = 200;
+            s.speedMps = 9.5;
+            const qint64 id = db.saveRide(r, { s });
+            QVERIFY(id > 0);
+            QCOMPARE(db.rideSamples(id).first().speedMps, 9.5);
+        }
+        QCOMPARE(pragmaVersion(path), 3);
+        QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
+        QVERIFY(columns(path, QStringLiteral("ride_samples")).contains(QStringLiteral("speed")));
+        Database again;
+        QVERIFY(again.open(path));
+        QCOMPARE(again.gearSetupJson(1), QStringLiteral("{\"chainrings\":[42]}"));
     }
 
     void partiallyMigratedColumnsAreTolerated()
@@ -199,7 +283,7 @@ private slots:
         Database db;
         QVERIFY(db.open(path));
         QCOMPARE(db.workout(7)->sport, QStringLiteral("cycling"));
-        QCOMPARE(pragmaVersion(path), 2);
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
     }
 
     void profileManagerRowingFtp()

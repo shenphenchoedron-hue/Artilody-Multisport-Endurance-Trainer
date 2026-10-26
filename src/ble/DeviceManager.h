@@ -48,6 +48,8 @@ class DeviceManager : public QObject
     Q_PROPERTY(DeviceListModel *heartRateSensors READ heartRateSensors CONSTANT)
     Q_PROPERTY(DeviceListModel *rowers READ rowers CONSTANT)
     Q_PROPERTY(DeviceListModel *otherDevices READ otherDevices CONSTANT)
+    // Handlebar controllers for virtual shifting (Zwift Click v1/v2).
+    Q_PROPERTY(DeviceListModel *controllers READ controllers CONSTANT)
 
     Q_PROPERTY(int connectedCount READ connectedCount NOTIFY devicesChanged)
     Q_PROPERTY(QString connectedSummary READ connectedSummary NOTIFY devicesChanged)
@@ -62,6 +64,16 @@ class DeviceManager : public QObject
     Q_PROPERTY(QString heartRateName READ heartRateName NOTIFY devicesChanged)
     Q_PROPERTY(QString heartRateProtocol READ heartRateProtocol NOTIFY devicesChanged)
     Q_PROPERTY(int heartRateState READ heartRateState NOTIFY devicesChanged)
+    // Controllers (up to kMaxControllers at once, e.g. both Click v2 pods).
+    // The flat values describe the first connected (else connecting) one;
+    // controllerBattery is the lowest known level (-1 = unknown).
+    Q_PROPERTY(QString controllerId READ controllerId NOTIFY devicesChanged)
+    Q_PROPERTY(QString controllerName READ controllerName NOTIFY devicesChanged)
+    Q_PROPERTY(QString controllerProtocol READ controllerProtocol NOTIFY devicesChanged)
+    Q_PROPERTY(int controllerState READ controllerState NOTIFY devicesChanged)
+    Q_PROPERTY(bool controllerConnected READ controllerConnected NOTIFY devicesChanged)
+    Q_PROPERTY(int controllerCount READ controllerCount NOTIFY devicesChanged)
+    Q_PROPERTY(int controllerBattery READ controllerBattery NOTIFY devicesChanged)
 
     // Active rower. `rower` is the RowerDevice object itself (null when none is
     // selected) with live properties (watts, strokesPerMinute, ...). The flat
@@ -119,6 +131,7 @@ public:
     DeviceListModel *heartRateSensors() { return &m_hrSensors; }
     DeviceListModel *rowers() { return &m_rowers; }
     DeviceListModel *otherDevices() { return &m_others; }
+    DeviceListModel *controllers() { return &m_controllers; }
 
     int connectedCount() const;
     QString connectedSummary() const;
@@ -133,6 +146,15 @@ public:
     QString heartRateName() const;
     QString heartRateProtocol() const;
     int heartRateState() const;
+    QString controllerId() const;
+    QString controllerName() const;
+    QString controllerProtocol() const;
+    int controllerState() const;
+    bool controllerConnected() const;
+    int controllerCount() const;      // connected controllers
+    int controllerBattery() const;
+    QList<ControllerDevice *> controllerDevices() const;
+    static constexpr int kMaxControllers = 2;
 
     // Active rower for C++ consumers (e.g. a RowingSession): connect to
     // rowerChanged() and (re)attach to the RowerDevice signals. May be null.
@@ -200,9 +222,15 @@ signals:
     void ergTestChanged();
     void rowerChanged(watt::RowerDevice *rower);   // active rower object replaced (may be null)
     void rowerDataChanged();                        // live rower values updated
+    // Controller buttons (Zwift Click): +1 = plus (shift up / harder),
+    // -1 = minus (shift down / easier); includes auto-repeat of held buttons.
+    void controllerShift(int direction);
+    void controllerShiftUp();
+    void controllerShiftDown();
+    void controllerButtonsChanged(bool plus, bool minus);
 
 public:
-    enum class Kind { Unknown, Trainer, HeartRate, Rower };
+    enum class Kind { Unknown, Trainer, HeartRate, Rower, Controller };
     // Device kind from a scan result (public for tests).
     static Kind classify(const QBluetoothDeviceInfo &info);
     // Name-only rower check: "PM5 ..." (any case) or containing "Concept2",
@@ -254,6 +282,12 @@ private:
     void attachTrainer(TrainerDevice *t);
     void attachHeartRate(HeartRateDevice *h);
     void attachRower(RowerDevice *r);
+    void attachController(ControllerDevice *c);
+    ControllerDevice *controllerFor(const QString &id) const;
+    ControllerDevice *primaryController() const;
+    void releaseController(const QString &id);
+    void releaseControllers(const QString &exceptId = QString());
+    void saveKnownControllers();
     void releaseTrainer();
     void releaseHeartRate();
     void releaseRower();
@@ -267,6 +301,7 @@ private:
     DeviceListModel m_hrSensors;
     DeviceListModel m_rowers;
     DeviceListModel m_others;
+    DeviceListModel m_controllers;
     QHash<QString, QBluetoothDeviceInfo> m_infos;
     QHash<QString, Kind> m_kinds;          // last classification per device id
     QSet<QString> m_forcedRowers;          // "Connect as rower" / detected after connecting (persisted)
@@ -284,6 +319,8 @@ private:
     QPointer<TrainerDevice> m_trainer;
     QPointer<HeartRateDevice> m_hr;
     QPointer<RowerDevice> m_rower;
+    QList<QPointer<ControllerDevice>> m_controllerDevs;
+    QStringList m_knownControllers;
     QVariantList m_log;
     QDateTime m_lastScan;
     QString m_scanStatus;

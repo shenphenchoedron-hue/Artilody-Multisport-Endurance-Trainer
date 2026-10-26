@@ -221,6 +221,22 @@ std::vector<double> derivedDistance(const QVector<Sample> &samples, double total
     return out;
 }
 
+// Cumulative distance (metres) from per-second speeds (free rides record a
+// virtual speed): out[i] = distance before second i, out[size] = total. When
+// the ride total is known it is used for the end so session and records agree.
+std::vector<double> speedDistance(const QVector<Sample> &samples, double totalM)
+{
+    std::vector<double> out(size_t(samples.size()) + 1, 0.0);
+    double acc = 0;
+    for (int i = 0; i < samples.size(); ++i) {
+        out[size_t(i)] = acc;
+        acc += std::max(0.0, samples[i].speedMps);
+    }
+    const double last = samples.isEmpty() ? 0.0 : out[size_t(samples.size()) - 1];
+    out.back() = totalM > 0 ? std::max(totalM, last) : acc;
+    return out;
+}
+
 } // namespace
 
 quint16 crc16(const QByteArray &data, quint16 crc)
@@ -254,16 +270,26 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     const bool rowing = ride.sport == QLatin1String("rowing");
     const quint64 sport = rowing ? kSportRowing : kSportCycling;
     const quint64 subSport = rowing ? kSubSportIndoorRowing : kSubSportIndoorCycling;
-    const bool hasDistance = ride.distanceM > 0;
-    const quint64 totalDistance = u32(ride.distanceM * 100.0);   // total_distance: m, scale 100
-    const quint64 avgSpeed = elapsedSec > 0 ? u16(ride.distanceM / double(elapsedSec) * 1000.0)
+    // Free rides (virtual gearing) record a per-second virtual speed.
+    const bool recordSpeed = !rowing && std::any_of(samples.cbegin(), samples.cend(),
+                                                    [](const Sample &s) { return s.speedMps > 0; });
+    double distanceM = ride.distanceM;
+    if (recordSpeed && !(distanceM > 0)) {
+        for (const Sample &s : samples)
+            distanceM += std::max(0.0, s.speedMps);
+    }
+    const bool hasDistance = distanceM > 0;
+    const quint64 totalDistance = u32(distanceM * 100.0);   // total_distance: m, scale 100
+    const quint64 avgSpeed = elapsedSec > 0 ? u16(distanceM / double(elapsedSec) * 1000.0)
                                             : invalidFor(UInt16);   // avg_speed: m/s, scale 1000
     // Samples carry no per-second distance; for rows it is derived from the
-    // total (see derivedDistance). Cycling has no speed model for an indoor
-    // trainer, so a cycling ride only gets session/lap totals (if any).
-    const bool recordDistance = rowing && hasDistance && !samples.isEmpty();
-    const std::vector<double> distances = recordDistance ? derivedDistance(samples, ride.distanceM)
-                                                         : std::vector<double>();
+    // total (see derivedDistance), for free rides from the recorded speed.
+    // Other cycling rides have no speed model for an indoor trainer and only
+    // get session/lap totals (if any).
+    const bool recordDistance = ((rowing && hasDistance) || recordSpeed) && !samples.isEmpty();
+    const std::vector<double> distances = !recordDistance ? std::vector<double>()
+                                          : recordSpeed   ? speedDistance(samples, distanceM)
+                                                          : derivedDistance(samples, distanceM);
 
     Encoder e;
     e.write(LFileId, MesgFileId,
@@ -299,6 +325,8 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
                 { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) } };
         if (recordDistance)
             rec.push_back({ 5, UInt32, u32(distances[size_t(i)] * 100.0) });   // distance: m, scale 100
+        if (recordSpeed)
+            rec.push_back({ 6, UInt16, u16(s.speedMps * 1000.0) });            // speed: m/s, scale 1000
         e.write(LRecord, MesgRecord, rec);
     }
     if (recordDistance) {
@@ -310,6 +338,8 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
                 { 3, UInt8, u8OrInvalid(s.heartRate) },
                 { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) },
                 { 5, UInt32, u32(distances.back() * 100.0) } };
+        if (recordSpeed)
+            rec.push_back({ 6, UInt16, u16(s.speedMps * 1000.0) });
         e.write(LRecord, MesgRecord, rec);
     }
 

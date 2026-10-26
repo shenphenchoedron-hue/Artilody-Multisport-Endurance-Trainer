@@ -43,6 +43,23 @@ TrainingSession::TrainingSession(Database *db, ProfileManager *profiles, SensorH
     m_engine.loadFreeRide();
 }
 
+void TrainingSession::setStartBlocker(const QString &key, std::function<bool()> blocker)
+{
+    if (blocker)
+        m_startBlockers.insert(key, std::move(blocker));
+    else
+        m_startBlockers.remove(key);
+}
+
+bool TrainingSession::startBlocked() const
+{
+    for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
+        if (it.value() && it.value()())
+            return true;
+    }
+    return false;
+}
+
 void TrainingSession::setErgMode(bool erg)
 {
     if (m_ergMode == erg)

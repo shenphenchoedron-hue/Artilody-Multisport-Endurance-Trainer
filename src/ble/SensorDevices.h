@@ -82,6 +82,35 @@ signals:
     void heartRateMeasured(int bpm);
 };
 
+// Handlebar controller for virtual shifting (Zwift Click). Reports shift
+// requests only; what a shift does is up to the consumer (FreeRideSession).
+class ControllerDevice : public SensorDevice
+{
+    Q_OBJECT
+public:
+    using SensorDevice::SensorDevice;
+
+    int batteryLevel() const { return m_battery; }   // percent, -1 = unknown
+
+signals:
+    // +1 = plus / shift up (harder), -1 = minus / shift down (easier).
+    // One per button press plus auto-repeat while a button is held.
+    void shiftRequested(int direction);
+    void buttonsChanged(bool plus, bool minus);
+    void batteryChanged(int percent);
+
+protected:
+    void setBatteryLevel(int percent)
+    {
+        if (percent == m_battery)
+            return;
+        m_battery = percent;
+        emit batteryChanged(percent);
+    }
+
+private:
+    int m_battery = -1;
+};
 
 // Rowing machine (Concept2 PM5 over BLE, or simulated). Unlike a trainer it
 // cannot be controlled; it only reports normalized live data.
