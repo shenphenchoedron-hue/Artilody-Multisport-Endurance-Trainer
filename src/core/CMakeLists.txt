@@ -26,6 +26,9 @@ qt_add_library(watt_core STATIC
     RowingRecords.h RowingRecords.cpp
     Gearing.h Gearing.cpp
     FreeRideSession.h FreeRideSession.cpp
+    RlvRoute.h RlvRoute.cpp
+    RlvLibrary.h RlvLibrary.cpp
+    RlvSession.h RlvSession.cpp
 )
 
 target_include_directories(watt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

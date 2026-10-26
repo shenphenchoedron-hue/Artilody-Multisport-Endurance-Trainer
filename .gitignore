@@ -27,3 +27,7 @@ CPackConfig.cmake
 CPackSourceConfig.cmake
 *.sqlite
 *.sqlite-journal
+
+# Real Life Video example routes (CC BY-NC-SA video/GPS data, never committed)
+FR_Le_petit_Menglonnais/
+*.mp4

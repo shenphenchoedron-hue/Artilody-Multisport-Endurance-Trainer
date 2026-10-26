@@ -11,6 +11,8 @@
 #include "HistoryManager.h"
 #include "MusicPlayer.h"
 #include "ProfileManager.h"
+#include "RlvLibrary.h"
+#include "RlvSession.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
 #include "SensorHub.h"
@@ -187,8 +189,35 @@ int main(int argc, char *argv[])
     rowing.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); },
                            QStringLiteral("A free ride is running. Stop it before rowing."));
     QObject::connect(&freeRide, &FreeRideSession::rideSaved, &history, &HistoryManager::showNewRide);
-    // Zwift Click buttons: shift (gears) / ±10 W (ERG) on the free ride.
-    QObject::connect(&devices, &DeviceManager::controllerShift, &freeRide, &FreeRideSession::controllerShift);
+    // Real Life Video rides; exclusive with workouts, rowing and free rides.
+    // The gearing (setup + current gear) is shared with the free ride.
+    RlvLibrary videos(&db);
+    // Developer aid: WATT_RLV_DIR=<folder> (or WATT_SCREENSHOT_RLV=<route folder>)
+    // adds a folder to the video library for this run only (not saved).
+    const QString shotRlvPath = shotDir.isEmpty() ? QString() : qEnvironmentVariable("WATT_SCREENSHOT_RLV");
+    for (const QString &dir : { qEnvironmentVariable("WATT_RLV_DIR"), shotRlvPath }) {
+        if (!dir.isEmpty())
+            videos.addTemporaryFolder(dir);
+    }
+    videos.rescan();
+    RlvSession rlv(&db, &profiles, &hub, &videos);
+    rlv.setFreeRideSession(&freeRide);
+    rlv.setTrainingSession(&training);
+    rlv.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); });
+    rlv.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
+    freeRide.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active() || rlv.waiting(); });
+    rowing.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active(); },
+                           QStringLiteral("A video ride is running. Stop it before rowing."));
+    QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
+
+    // Zwift Click buttons: shift (gears) / ±10 W (ERG) on the free ride, or
+    // shift (gears) / ±10 % difficulty (power mode) on a running video ride.
+    QObject::connect(&devices, &DeviceManager::controllerShift, &rlv, [&](int direction) {
+        if (rlv.active() || rlv.waiting())
+            rlv.controllerShift(direction);
+        else
+            freeRide.controllerShift(direction);
+    });
     QObject::connect(&devices, &DeviceManager::devicesChanged, &freeRide,
                      [&] { freeRide.setClickConnected(devices.controllerConnected()); });
     devices.initialize();
@@ -272,6 +301,8 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "RowingRecords", &rowingRecords);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rowing", &rowing);
     qmlRegisterSingletonInstance(uri, 1, 0, "FreeRide", &freeRide);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Videos", &videos);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -303,6 +334,9 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_FREERIDE_MODE  gears (default) | erg | free
     //   WATT_SCREENSHOT_FREERIDE_SEC   seconds ridden before freeride.png (default 40)
     //   WATT_SCREENSHOT_FREERIDE_FINISH=1  finish the ride (not saved) before the capture
+    //   WATT_SCREENSHOT_RLV=<route>    live video ride (folder, .xml or .gpx) on the virtual
+    //                                  trainer instead of the cycling workout (page "rlv" last)
+    //   WATT_SCREENSHOT_RLV_SEC        seconds ridden before rlv.png (default 40)
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
@@ -316,6 +350,7 @@ int main(int argc, char *argv[])
     const bool shotRowing = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING") > 0;
     const bool shotFreeRide = !shotDir.isEmpty() && !shotRowing
                               && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE") > 0;
+    const bool shotRlv = !shotRlvPath.isEmpty() && !shotRowing && !shotFreeRide;
     QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
         ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
     if (!shotDir.isEmpty() && !shotWindow)
@@ -376,6 +411,9 @@ int main(int argc, char *argv[])
             else
                 freeRide.setGrade(1.5);
         }
+        if (shotRlv && !rlv.selectPath(shotRlvPath))
+            qWarning("Screenshot mode: could not load the video route %s: %s", qPrintable(shotRlvPath),
+                     qPrintable(rlv.lastError()));
 
         if (!shotMenus.isEmpty()) {
             // open each menu, grab, close; then quit
@@ -402,7 +440,10 @@ int main(int argc, char *argv[])
 
         // Rowing (or, for a free ride, the Free Ride) page last, so the
         // session has time to get going.
-        const QString livePage = shotFreeRide ? QStringLiteral("freeride") : QStringLiteral("rowing");
+        const QString livePage = shotFreeRide ? QStringLiteral("freeride")
+                                 : shotRlv    ? QStringLiteral("rlv")
+                                              : QStringLiteral("rowing");
+        const bool shotLive = shotRowing || shotFreeRide || shotRlv;
         const QStringList names = window->property("pageNames").toStringList();
         QList<int> order;
         for (int i = 0; i < names.size(); ++i)
@@ -410,24 +451,25 @@ int main(int argc, char *argv[])
                 order << i;
         if (names.contains(livePage))
             order << names.indexOf(livePage);
-        const int liveSec = shotFreeRide
-            ? (qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_SEC") > 0
-                   ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_SEC") : 40)
-            : (qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") > 0
-                   ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") : 40);
+        const char *liveSecVar = shotFreeRide ? "WATT_SCREENSHOT_FREERIDE_SEC"
+                                 : shotRlv    ? "WATT_SCREENSHOT_RLV_SEC"
+                                              : "WATT_SCREENSHOT_ROWING_SEC";
+        const int liveSec = qEnvironmentVariableIntValue(liveSecVar) > 0 ? qEnvironmentVariableIntValue(liveSecVar) : 40;
 
         auto *timer = new QTimer(&app);
         auto step = std::make_shared<int>(0);
         auto clock = std::make_shared<QElapsedTimer>();
         const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
         clock->start();
-        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide] {
+        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv] {
             const int s = (*step)++;
             if (s == 1) {
                 if (shotRowing)
                     rowing.start();
                 else if (shotFreeRide)
                     freeRide.start();
+                else if (shotRlv)
+                    rlv.start();
                 else
                     training.start();
             }
@@ -442,7 +484,7 @@ int main(int argc, char *argv[])
                 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, page));
                 return;
             }
-            if ((shotRowing || shotFreeRide) && name == livePage && clock->elapsed() < liveSec * 1000) {
+            if (shotLive && name == livePage && clock->elapsed() < liveSec * 1000) {
                 --(*step);   // keep rowing / riding, try again on the next tick
                 return;
             }
@@ -474,6 +516,12 @@ int main(int argc, char *argv[])
         rowing.finish(shotDir.isEmpty());
     if (freeRide.active() || freeRide.waiting())
         freeRide.finish(shotDir.isEmpty());
+    if (!shotRlvPath.isEmpty())
+        qInfo("Screenshot mode: video ride %s, %s, %.0f m of %.0f m, %.1f km/h, video %lld ms, rate %.2f",
+              qPrintable(rlv.routeName()), qPrintable(rlv.state()), rlv.distanceMeters(), rlv.totalDistanceM(),
+              rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate());
+    if (rlv.active() || rlv.waiting())
+        rlv.finish(shotDir.isEmpty());
 
     return rc;
 }
