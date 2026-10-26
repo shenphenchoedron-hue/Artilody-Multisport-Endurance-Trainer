@@ -42,6 +42,7 @@ QtObject {
     readonly property color pace: "#38d9f5"         // pace curve (rowing)
     readonly property color rowingColor: "#22d6e6"  // rowing sport accent
     readonly property color cyclingColor: accent    // cycling sport accent
+    readonly property color speed: "#38d9f5"        // virtual speed curve (free ride)
 
     // Text-safe variants of the accents: the bright accents suit the dark
     // surfaces but are too pale for (small) text on the white light-theme cards.
@@ -207,6 +208,12 @@ QtObject {
         "flag": "M5 21V4 M5 4.5h12l-2.5 4 2.5 4H5",
         "mapPin": "M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z M9.7 10a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0-4.6 0",
         "gauge": "M4 17a8 8 0 1 1 16 0 M12 17l4-5.5 M7.2 10.6l1.2 1 M12 8v1.5 M16.8 10.6l-1.2 1",
-        "trophy": "M8 4h8v6a4 4 0 0 1-8 0z M8 6H4.5a3.5 3.5 0 0 0 3.8 4 M16 6h3.5a3.5 3.5 0 0 1-3.8 4 M12 14v3.5 M8.5 20.5h7 M9.5 17.5h5v3h-5z"
+        "trophy": "M8 4h8v6a4 4 0 0 1-8 0z M8 6H4.5a3.5 3.5 0 0 0 3.8 4 M16 6h3.5a3.5 3.5 0 0 1-3.8 4 M12 14v3.5 M8.5 20.5h7 M9.5 17.5h5v3h-5z",
+        // free ride / virtual shifting
+        "freeRide": "M4 21L9.5 3 M20 21L14.5 3 M12 4.5v2.5 M12 10v3 M12 16v4.5",
+        "cog": "M12 4.5a7.5 7.5 0 1 0 0 15a7.5 7.5 0 1 0 0-15 M12 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5 M12 2v2.5 M12 19.5V22 M2 12h2.5 M19.5 12H22 M4.9 4.9l1.8 1.8 M17.3 17.3l1.8 1.8 M4.9 19.1l1.8-1.8 M17.3 6.7l1.8-1.8",
+        "controller": "M8.5 2.5h7a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3h-7a3 3 0 0 1-3-3v-13a3 3 0 0 1 3-3z M9.5 8.5h5 M12 6v5 M9.5 16h5",
+        "mountain": "M2.5 19.5l6.5-11 4 6.5 2.5-3.5 6 8z",
+        "keyboard": "M3 6.5h18v11H3z M6.5 10h.01 M10 10h.01 M13.5 10h.01 M17 10h.01 M8 14h8"
     })
 }

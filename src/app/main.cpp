@@ -291,15 +291,23 @@ int main(int argc, char *argv[])
     //                                  the cycling workout
     //   WATT_SCREENSHOT_ROWING_MODE    ghost (default) | solo | plan
     //   WATT_SCREENSHOT_ROWING_SEC     seconds rowed before rowing.png (default 40)
+    //   WATT_SCREENSHOT_FREERIDE=1     live free ride on the virtual trainer instead of
+    //                                  the cycling workout (freeride.png taken last)
+    //   WATT_SCREENSHOT_FREERIDE_MODE  gears (default) | erg | free
+    //   WATT_SCREENSHOT_FREERIDE_SEC   seconds ridden before freeride.png (default 40)
+    //   WATT_SCREENSHOT_FREERIDE_FINISH=1  finish the ride (not saved) before the capture
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
-    //                                  (music: the music library dialog)
+    //                                  (music: the music library dialog,
+    //                                  gearsetup: the free ride gear setup dialog)
     //   WATT_SCREENSHOT_MUSIC=1        seed a long demo playlist (see above)
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
     const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")
                                       .split(QLatin1Char(','), Qt::SkipEmptyParts);
     const bool shotRowing = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING") > 0;
+    const bool shotFreeRide = !shotDir.isEmpty() && !shotRowing
+                              && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE") > 0;
     QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
         ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
     if (!shotDir.isEmpty() && !shotWindow)
@@ -352,6 +360,14 @@ int main(int argc, char *argv[])
                 rowing.setupGhost(1000);
             }
         }
+        if (shotFreeRide) {
+            const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_FREERIDE_MODE", QStringLiteral("gears"));
+            freeRide.setMode(mode);
+            if (mode == QLatin1String("erg"))
+                freeRide.setTargetWatts(200);
+            else
+                freeRide.setGrade(1.5);
+        }
 
         if (!shotMenus.isEmpty()) {
             // open each menu, grab, close; then quit
@@ -376,26 +392,34 @@ int main(int argc, char *argv[])
                                  ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_STEP_MS") : 1200);
         }
 
-        // Rowing page last, so the row has time to get going.
+        // Rowing (or, for a free ride, the Free Ride) page last, so the
+        // session has time to get going.
+        const QString livePage = shotFreeRide ? QStringLiteral("freeride") : QStringLiteral("rowing");
         const QStringList names = window->property("pageNames").toStringList();
         QList<int> order;
         for (int i = 0; i < names.size(); ++i)
-            if (names.at(i) != QLatin1String("rowing"))
+            if (names.at(i) != livePage)
                 order << i;
-        if (names.contains(QStringLiteral("rowing")))
-            order << names.indexOf(QStringLiteral("rowing"));
-        const int rowingSec = qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") > 0
-                                  ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") : 40;
+        if (names.contains(livePage))
+            order << names.indexOf(livePage);
+        const int liveSec = shotFreeRide
+            ? (qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_SEC") > 0
+                   ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_SEC") : 40)
+            : (qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") > 0
+                   ? qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_SEC") : 40);
 
         auto *timer = new QTimer(&app);
         auto step = std::make_shared<int>(0);
         auto clock = std::make_shared<QElapsedTimer>();
+        const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
         clock->start();
-        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing] {
+        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide] {
             const int s = (*step)++;
             if (s == 1) {
                 if (shotRowing)
                     rowing.start();
+                else if (shotFreeRide)
+                    freeRide.start();
                 else
                     training.start();
             }
@@ -410,8 +434,13 @@ int main(int argc, char *argv[])
                 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, page));
                 return;
             }
-            if (shotRowing && name == QLatin1String("rowing") && clock->elapsed() < rowingSec * 1000) {
-                --(*step);   // keep rowing, try again on the next tick
+            if ((shotRowing || shotFreeRide) && name == livePage && clock->elapsed() < liveSec * 1000) {
+                --(*step);   // keep rowing / riding, try again on the next tick
+                return;
+            }
+            if (finishFreeRide && name == livePage && freeRide.active()) {
+                freeRide.finish(false);   // summary card; captured on the next tick
+                --(*step);
                 return;
             }
             const QImage img = window->grabWindow();

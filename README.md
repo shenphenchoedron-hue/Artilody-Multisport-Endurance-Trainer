@@ -26,6 +26,12 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
+## New: Free Ride, virtual gears and Zwift Click
+
+- **Free Ride page** – ride without a workout. In **Gears** mode you shift virtual gears (on screen, with the keyboard or with a Zwift Click): a harder gear means more watts and more speed at the same cadence, and a grade setting adds a virtual climb. In **ERG** mode you set a wattage (±5/10/25 W steps or an exact value) and the trainer holds it for as long as you like; **Free** mode leaves the resistance alone. Live power, speed, cadence, heart rate, time and distance, a power/speed/heart-rate chart, start on pedaling, pause, and save to History (FIT/CSV export included).
+- **Zwift Click v1 / v2** – connect it under **Devices → Controllers (Zwift Click)**: **+** shifts harder, **−** easier (in ERG mode ±10 W). Battery level and a live button test are shown on the Devices page.
+- **Gear setup** – enter your own chainrings (e.g. 50/34, 53/39 or a single 1× ring) and cassette (e.g. 11–34) from presets or as numbers, the wheel size, and *sequential* virtual gears (one list, easiest to hardest) or *front + rear* shifting like a real bike. A live preview lists every gear with its ratio, the speed at 90 rpm and the power on the flat. Saved per profile.
+
 ## What's new in 1.1.4
 
 - **Concept2 PM5: stroke rate fixed** – the stroke rate stayed empty on some PM5 connections (Raspberry Pi / BlueZ) while power, pace and distance worked: it comes only from the PM5's *Additional Status 1* (0x0032), and when that channel stayed silent or arrived shortened on the multiplexed channel, nothing noticed (pace is also derived from power). Shortened 0x0032 packets are now decoded, a silent 0x0032 is re-enabled and then moved to the multiplexed channel 0x0080, and failed notification subscriptions are detected.
@@ -62,6 +68,7 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 
 ## Contents
 
+- [New: Free Ride, virtual gears and Zwift Click](#new-free-ride-virtual-gears-and-zwift-click)
 - [What's new in 1.1.4](#whats-new-in-114)
 - [What's new in 1.1.3](#whats-new-in-113)
 - [What's new in 1.1.2](#whats-new-in-112)
@@ -89,6 +96,27 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 - **On-the-fly control**: change the intensity in ±5 % steps, skip the current interval, and turn ERG on or off during the ride.
 - **Start on pedaling**: the workout loads and waits until you start pedaling (cadence ≥ 20 rpm, or power ≥ 30 W on trainers that don't report cadence). Press **Start now** to start it yourself.
 - **ERG or Free Ride**: in ERG mode the app sends the target power to the trainer. In Free Ride you still see the targets, but the trainer simulates a flat road and you control the effort.
+
+### Free Ride & virtual shifting
+- **Free Ride page** (sidebar → **Free Ride**): cycle without a workout. Choose a mode at the top: **Gears**, **ERG** or **Free**. Big tiles show power, speed, cadence, heart rate, time and distance (with averages), and a chart draws power, virtual speed and heart rate.
+- **Virtual gears**: the current gear is shown large (e.g. *50 × 17*, *Gear 9 / 16*) with a sketch of the chainrings and cassette. **Easier** / **Harder** (or <kbd>↓</kbd>/<kbd>↑</kbd>, <kbd>−</kbd>/<kbd>+</kbd>, or the Zwift Click) shift; the app computes the speed from your cadence and the gear and sets the trainer to the power that speed needs on the road, so shifting harder gives more watts and more speed. A **grade** control (−15 % to +20 %, ±0.5 % steps) adds a virtual climb or descent.
+- **ERG**: set a target wattage with the −25/−10/−5/+5/+10/+25 buttons or type an exact value; the trainer holds it until you change it. The Zwift Click changes the target by 10 W.
+- **Start** now or **when pedaling**, **Pause** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; the ride is saved to History as a free ride and can be exported as FIT/CSV. A finish summary shows time, distance, average/max power, average speed and energy.
+- **Zwift Click v1 / v2** over Bluetooth LE under **Devices → Controllers (Zwift Click)**, with battery level and a live button test. Press a button on the Click to wake it; a Click v2 has two pods – pair both.
+- **Gear setup** (**Gear Setup…** on the Free Ride page): chainrings and cassette from presets (compact, semi-compact, standard, GRX, 1×, 11–28 … 10–50) or typed as numbers, wheel size, sequential or front + rear shifting, and (advanced) bike weight, CdA and Crr. A live preview lists every gear with ratio, speed at 90 rpm and power on the flat; invalid input is explained.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/freeride.png" alt="Free Ride with virtual gears"><br>
+      <sub><b>Free Ride</b>: shift virtual gears for more watts and speed</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/gear-setup.png" alt="Gear setup"><br>
+      <sub><b>Gear Setup</b>: your chainrings, cassette and wheel</sub>
+    </td>
+  </tr>
+</table>
 
 ### Plan
 - **Workout calendar**: a month view of your training plan. Click a day or a planned workout to select it; double-click a day, click its **+** or press **Add Workout** to add a workout (search, Cycling/Rowing filter, optional notes). Drag planned workouts between days, and right-click (or press and hold) for *Ride/Row this workout*, *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (removing asks for confirmation). Double-click a workout or press **Ride**/**Row** in the side panel to start it: cycling workouts open on the Dashboard, rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout you started from the calendar, exactly that plan entry is ticked off (even if it was planned for another day), and a completed workout started elsewhere ticks off a matching open entry on that day. Stopped or aborted rides don't count, and deleting a ride in History reopens its plan entry.
@@ -142,7 +170,7 @@ Existing data is kept: the database is upgraded automatically on first start. Se
 - **Music player** for your own files (mp3, m4a, flac, wav, ogg, …) with playlists, favourites, shuffle/repeat and album art. Two sample tracks are included.
 - **Light and dark theme.**
 - Larger, easy-to-read menus (Workouts sort/export/**⋯** menus, History **Export**, the Calendar's right-click/press-and-hold menu).
-- **Keyboard shortcuts:** <kbd>Space</kbd> pauses/resumes a ride on the Dashboard (and starts a waiting workout) or a row on the Rowing page; <kbd>Esc</kbd> closes dialogs.
+- **Keyboard shortcuts:** <kbd>Space</kbd> pauses/resumes a ride on the Dashboard (and starts a waiting workout), a free ride on the Free Ride page or a row on the Rowing page; on the Free Ride page <kbd>↑</kbd>/<kbd>+</kbd> and <kbd>↓</kbd>/<kbd>−</kbd> shift harder/easier (±5 W in ERG), <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> change the chainring (or jump 3 gears) and <kbd>Page Up</kbd>/<kbd>Page Down</kbd> change the grade by 0.5 % (the ERG target by 10 W); <kbd>Esc</kbd> closes dialogs.
 - The **UI scales** to small screens such as the official 7" Raspberry Pi display (800 × 480).
 - **Fully offline**: all data is stored in a local SQLite database.
 
@@ -317,6 +345,8 @@ An `.awt` file is plain UTF-8 JSON:
 **Smart trainers.** The app should work with any trainer that implements the standard Bluetooth **Fitness Machine Service (FTMS)**. Most current trainers do, for example Tacx NEO, Wahoo KICKR, Saris H3, Elite (Suito, Direto, …) and Zwift Hub. ERG control needs a trainer that supports FTMS *Set Target Power*.
 
 **Rowers.** **Concept2 PM5** monitors (RowErg and other Concept2 machines with a PM5) over Bluetooth LE. On the PM5 choose *More Options → Turn Wireless ON → Connect Device* before scanning. The PM5 has no ERG mode, so watt plans are followed by feel. Older PM3/PM4 monitors are not supported, and BikeErg and SkiErg are not supported (the app only handles rowing data). If both a heart-rate strap and the PM5 report heart rate, the strap is used.
+
+**Controllers.** **Zwift Click** (v1 and v2) for virtual shifting on the Free Ride page, without the Zwift app. Limits: firmware that insists on Zwift's encrypted mode is not supported (the connection log says so – update the Click in Zwift Companion), and the left pod of a Click v2 only sends buttons after Zwift has unlocked it (once per 24 h); its right pod always works. Zwift Play and Zwift Ride are not supported.
 
 **Heart-rate sensors.** Any Bluetooth LE strap or armband using the standard **Heart Rate Service (HRS)** should work, for example Polar H10, Garmin HRM-Dual/HRM-Pro or Wahoo TICKR.
 

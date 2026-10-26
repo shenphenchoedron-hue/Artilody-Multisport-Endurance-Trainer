@@ -442,6 +442,42 @@ private slots:
         rowing.setStartBlocker(QStringLiteral("freeRide"), {});
     }
 
+    void previewGearsForUnsavedSetup()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString before = f.ride->gearLabel();
+        // invalid -> empty
+        QVERIFY(f.ride->previewGears({}, { 11, 12 }, 2105, true).isEmpty());
+        QVERIFY(f.ride->previewGears({ 50 }, { 11 }, 100, true).isEmpty());
+        // 1x: every cog, easiest first, speed at 90 rpm = 90/60 * ratio * 2.105 m
+        const QVariantList single = f.ride->previewGears({ 40 }, { 11, 21, 42 }, 2105, false);
+        QCOMPARE(single.size(), 3);
+        const QVariantMap easiest = single.first().toMap();
+        QCOMPARE(easiest.value(QStringLiteral("label")).toString(), QStringLiteral("40×42"));
+        QCOMPARE(easiest.value(QStringLiteral("rearTeeth")).toInt(), 42);
+        QVERIFY(qAbs(easiest.value(QStringLiteral("speedKmh")).toDouble() - 1.5 * 40.0 / 42.0 * 2.105 * 3.6) < 0.06);
+        const QVariantMap hardest = single.last().toMap();
+        QCOMPARE(hardest.value(QStringLiteral("label")).toString(), QStringLiteral("40×11"));
+        QVERIFY(hardest.value(QStringLiteral("watts")).toInt() > easiest.value(QStringLiteral("watts")).toInt());
+        // 2x: derailleur lists every combination, sequential skips duplicates
+        const QVariantList rings { 34, 50 };
+        const QVariantList cogs { 11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34 };
+        QCOMPARE(f.ride->previewGears(rings, cogs, 2105, false).size(), 24);
+        const int seq = f.ride->previewGears(rings, cogs, 2105, true).size();
+        QVERIFY(seq > 12 && seq < 24);
+        const double at60 = f.ride->previewGears(rings, cogs, 2105, false, 60).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
+        const double at90 = f.ride->previewGears(rings, cogs, 2105, false, 90).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
+        QVERIFY(qAbs(at60 * 1.5 - at90) < 0.11);
+        // nothing stored
+        QCOMPARE(f.ride->gearLabel(), before);
+        // defaults map
+        const QVariantMap def = f.ride->defaultGearSetup();
+        QCOMPARE(def.value(QStringLiteral("circumferenceMm")).toInt(), GearSetup::kDefaultCircumferenceMm);
+        QCOMPARE(def.value(QStringLiteral("chainrings")).toList().size(), 2);
+        QCOMPARE(def.value(QStringLiteral("cogs")).toList().size(), 12);
+    }
+
     void gearSetupPerProfile()
     {
         Fixture f;

@@ -10,10 +10,23 @@ Item {
     property bool hrOpen: true
     property bool rowersOpen: true
     property bool othersOpen: true
+    property bool controllersOpen: true
+    // live Zwift Click buttons (Devices.controllerButtonsChanged), for testing
+    property bool clickPlus: false
+    property bool clickMinus: false
     readonly property var sectionTrainer: ({ title: "Smart Trainers", icon: "bike", kind: "trainer" })
     readonly property var sectionHr: ({ title: "Heart Rate Sensors", icon: "heart", kind: "hr" })
     readonly property var sectionRower: ({ title: "Rowers (Concept2 PM5)", icon: "rowing", kind: "rower" })
     readonly property var sectionOther: ({ title: "Other Bluetooth devices", icon: "bluetooth", kind: "other" })
+    readonly property var sectionController: ({ title: "Controllers (Zwift Click)", icon: "controller", kind: "controller" })
+
+    Connections {
+        target: Devices
+        function onControllerButtonsChanged(plus, minus) {
+            page.clickPlus = plus
+            page.clickMinus = minus
+        }
+    }
 
     function paceText(sec) {
         if (!(sec > 0) || sec > 3600)
@@ -227,19 +240,23 @@ Item {
                 Repeater {
                     // Rowers right after the trainers (heart rate sensors serve
                     // both); a connected rower without a trainer comes first.
+                    // Controllers (classified Zwift Clicks) are always listed;
+                    // "Show all devices" adds the unclassified ones.
                     model: (Devices.rowerConnected && Devices.trainerState !== 2
-                            ? [page.sectionRower, page.sectionTrainer, page.sectionHr]
-                            : [page.sectionTrainer, page.sectionRower, page.sectionHr])
+                            ? [page.sectionRower, page.sectionTrainer, page.sectionHr, page.sectionController]
+                            : [page.sectionTrainer, page.sectionRower, page.sectionHr, page.sectionController])
                            .concat(Devices.showAllDevices ? [page.sectionOther] : [])
                     Rectangle {
                         id: section
                         readonly property string kindName: modelData.kind
                         readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen
                                                    : modelData.kind === "rower" ? page.rowersOpen
-                                                   : modelData.kind === "other" ? page.othersOpen : page.hrOpen
+                                                   : modelData.kind === "other" ? page.othersOpen
+                                                   : modelData.kind === "controller" ? page.controllersOpen : page.hrOpen
                         readonly property var listModel: modelData.kind === "trainer" ? Devices.trainers
                                                        : modelData.kind === "rower" ? Devices.rowers
-                                                       : modelData.kind === "other" ? Devices.otherDevices : Devices.heartRateSensors
+                                                       : modelData.kind === "other" ? Devices.otherDevices
+                                                       : modelData.kind === "controller" ? Devices.controllers : Devices.heartRateSensors
                         width: devCol.width
                         height: 50 + (open ? listCol.height + 8 : 0)
                         radius: 10
@@ -256,6 +273,7 @@ Item {
                                 size: 28
                                 color: modelData.kind === "hr" ? Theme.danger
                                      : modelData.kind === "rower" ? Theme.rowingColor
+                                     : modelData.kind === "controller" ? Theme.orange
                                      : modelData.kind === "other" ? Theme.textSecondary : Theme.accentLight
                                 anchors.verticalCenter: parent.verticalCenter
                             }
@@ -281,7 +299,12 @@ Item {
                                                                      ? (Devices.trainerState === 2 ? Devices.trainerName : "")
                                                                      : section.kindName === "rower"
                                                                        ? (Devices.rowerState === 2 ? Devices.rowerName : "")
-                                                                       : (Devices.heartRateState === 2 ? Devices.heartRateName : "")
+                                                                       : section.kindName === "controller"
+                                                                         ? (Devices.controllerConnected
+                                                                            ? (Devices.controllerCount > 1 ? Devices.controllerCount + " Zwift Click pods" : Devices.controllerName)
+                                                                            : "")
+                                                                         : section.kindName === "other" ? ""
+                                                                         : (Devices.heartRateState === 2 ? Devices.heartRateName : "")
                             visible: connectedName.length > 0
                             anchors.right: chevron.left
                             anchors.rightMargin: 12
@@ -318,6 +341,8 @@ Item {
                                     page.rowersOpen = !page.rowersOpen
                                 else if (modelData.kind === "other")
                                     page.othersOpen = !page.othersOpen
+                                else if (modelData.kind === "controller")
+                                    page.controllersOpen = !page.controllersOpen
                                 else
                                     page.hrOpen = !page.hrOpen
                             }
@@ -348,10 +373,12 @@ Item {
                                         Icon {
                                             anchors.centerIn: parent
                                             name: section.kindName === "hr" ? "heartPulse" : section.kindName === "rower" ? "rowing"
+                                                : section.kindName === "controller" ? "controller"
                                                 : section.kindName === "other" ? "bluetooth" : "trainer"
                                             size: 44
                                             strokeWidth: 1.6
                                             color: section.kindName === "hr" ? "#ff6b8a" : section.kindName === "rower" ? Theme.rowingColor
+                                                 : section.kindName === "controller" ? Theme.orange
                                                  : section.kindName === "other" ? Theme.textSecondary : Theme.text
                                         }
                                         Text {
@@ -395,6 +422,7 @@ Item {
                                                 color: Theme.textSecondary
                                                 font.pixelSize: 14
                                                 width: section.kindName === "hr" ? 230 : section.kindName === "rower" ? 270
+                                                     : section.kindName === "controller" ? (linkState === 2 ? 150 : 230)
                                                      : section.kindName === "other" ? 210 : 150
                                                 elide: Text.ElideRight
                                             }
@@ -402,7 +430,7 @@ Item {
                                     }
                                     // live values
                                     Row {
-                                        visible: linkState === 2 && section.kindName !== "rower"
+                                        visible: linkState === 2 && section.kindName !== "rower" && section.kindName !== "controller"
                                         x: section.kindName === "hr" ? 360 : 286
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 14
@@ -424,6 +452,46 @@ Item {
                                                     color: Theme.text
                                                     font.pixelSize: 17
                                                     font.weight: Font.Bold
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // live controller values: battery + button test
+                                    Row {
+                                        visible: linkState === 2 && section.kindName === "controller"
+                                        x: 286
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 14
+                                        Column {
+                                            spacing: 2
+                                            Text { text: "Battery"; color: Theme.textSecondary; font.pixelSize: 13 }
+                                            Text {
+                                                text: Devices.controllerBattery >= 0 ? Devices.controllerBattery + " %" : "–"
+                                                color: Devices.controllerBattery >= 0 && Devices.controllerBattery <= 15 ? Theme.danger : Theme.text
+                                                font.pixelSize: 17
+                                                font.weight: Font.Bold
+                                            }
+                                        }
+                                        Column {
+                                            spacing: 2
+                                            Text { text: "Buttons"; color: Theme.textSecondary; font.pixelSize: 13 }
+                                            Row {
+                                                spacing: 5
+                                                Repeater {
+                                                    model: ["−", "+"]
+                                                    Rectangle {
+                                                        readonly property bool down: index === 0 ? page.clickMinus : page.clickPlus
+                                                        width: 24; height: 22; radius: 6
+                                                        color: down ? (index === 0 ? Theme.accent : Theme.orange) : Theme.field
+                                                        border.color: down ? "transparent" : Theme.fieldBorder
+                                                        Text {
+                                                            anchors.centerIn: parent
+                                                            text: modelData
+                                                            color: parent.down ? "white" : Theme.text
+                                                            font.pixelSize: 15
+                                                            font.weight: Font.Bold
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -516,14 +584,16 @@ Item {
                                 x: 16
                                 height: 40
                                 verticalAlignment: Text.AlignVCenter
-                                text: Devices.scanning ? "Searching…" : "No devices found – press Scan for Devices"
+                                text: Devices.scanning ? "Searching…"
+                                      : section.kindName === "controller" ? "No Zwift Click found – press a button on it, then Scan"
+                                      : "No devices found – press Scan for Devices"
                                 elide: Text.ElideRight
                                 width: listCol.width - 32
                                 color: Theme.textSecondary
                                 font.pixelSize: 15
                             }
                             Row {
-                                visible: section.kindName === "rower" || section.kindName === "other"
+                                visible: section.kindName === "rower" || section.kindName === "other" || section.kindName === "controller"
                                          || (section.kindName === "trainer" && section.listModel.count > (Devices.simulatorEnabled ? 1 : 0))
                                 x: 16
                                 height: 34
@@ -532,7 +602,9 @@ Item {
                                 Text {
                                     width: listCol.width - 60
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: section.kindName === "other"
+                                    text: section.kindName === "controller"
+                                          ? "Press any button on the Zwift Click to wake it  •  Click v2: pair both pods"
+                                          : section.kindName === "other"
                                           ? "Unrecognised Bluetooth LE devices – is your PM5 here? Use Connect as rower."
                                           : section.kindName === "trainer"
                                           ? "A rowing machine (Concept2 PM5) listed here? Use the rowing button to connect it as rower."

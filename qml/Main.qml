@@ -21,7 +21,7 @@ ApplicationWindow {
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "workouts", "calendar", "builder", "rowing", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "workouts", "calendar", "builder", "rowing", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -70,6 +70,7 @@ ApplicationWindow {
     readonly property bool anyDialogOpen: keyboardBusy || profileDialog.visible || musicLibrary.visible
                                           || settingsDialog.visible || workoutDetails.visible || stopDialog.visible
                                           || rowingFinishDialog.visible || ftpResultDialog.visible
+                                          || freeRideFinishDialog.visible || gearSetupDialog.visible
 
     // Developer aid: start with "--light" to open in the light theme (screenshots).
     Component.onCompleted: if (Qt.application.arguments.indexOf("--light") >= 0) Theme.dark = false
@@ -87,6 +88,7 @@ ApplicationWindow {
         case "history": showPage("history"); screenshotMenu = historyPage.openScreenshotMenu(); break
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
+        case "gearsetup": showPage("freeride"); gearSetupDialog.openDialog(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
         // show the keyboard highlight (the destructive entry on the calendar menu)
@@ -96,6 +98,8 @@ ApplicationWindow {
     function closeScreenshotMenu() {
         if (musicLibrary.visible)
             musicLibrary.close()
+        if (gearSetupDialog.visible)
+            gearSetupDialog.close()
         if (screenshotMenu)
             screenshotMenu.close()
         screenshotMenu = null
@@ -156,6 +160,11 @@ ApplicationWindow {
                     onOpenMusicLibrary: musicLibrary.open()
                     onRequestStop: stopDialog.open()
                     onOpenHistory: window.showPage("history")
+                }
+                FreeRidePage {
+                    onOpenDevices: window.showPage("devices")
+                    onOpenGearSetup: gearSetupDialog.openDialog()
+                    onRequestFinish: freeRideFinishDialog.open()
                 }
                 WorkoutsPage {
                     id: workoutsPage
@@ -242,6 +251,28 @@ ApplicationWindow {
             }
         }
 
+        ConfirmDialog {
+            id: freeRideFinishDialog
+            title: "Finish free ride?"
+            message: "Your ride will be saved to History. Choose Discard to throw it away."
+            acceptText: "Save & Finish"
+            secondaryText: "Discard"
+            onAccepted: {
+                if (!FreeRide.active)
+                    return
+                var id = FreeRide.finish(true)
+                window.showToast(id >= 0 ? "Ride saved – see History for the analysis" : "Ride too short to save")
+            }
+            onSecondary: {
+                if (!FreeRide.active)
+                    return
+                FreeRide.discard()
+                window.showToast("Ride discarded")
+            }
+        }
+
+        GearSetupDialog { id: gearSetupDialog }
+
         // Above every other dialog: a ride can finish while one is open.
         FtpResultDialog {
             id: ftpResultDialog
@@ -271,7 +302,8 @@ ApplicationWindow {
             ftpResultDialog.openWith(estimatedFtp, previousFtp, best1minPower)
         }
         function onStartRefused() {
-            window.showToast("A row is in progress – finish it before riding")
+            window.showToast(FreeRide.active ? "A free ride is in progress – finish it before starting a workout"
+                                             : "A row is in progress – finish it before riding")
         }
         function onRowingWorkoutRefused(workoutId, name) {
             window.showToast("\"" + name + "\" is a rowing workout – start it on the Rowing page")
@@ -286,6 +318,17 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: FreeRide
+        function onFinished() {
+            if (freeRideFinishDialog.visible)
+                freeRideFinishDialog.close()
+        }
+        function onStartRefused(reason) {
+            window.showToast(reason)
+        }
+    }
+
     // keyboard shortcuts for the trainer room
     Shortcut {
         sequence: "Space"
@@ -296,5 +339,51 @@ ApplicationWindow {
         sequence: "Space"
         enabled: window.currentPage === "rowing" && Rowing.active && !window.anyDialogOpen
         onActivated: Rowing.togglePause()
+    }
+
+    // Free Ride page: shift / ERG target / grade / pause (not while typing or
+    // while a dialog or menu has the keyboard).
+    readonly property bool freeRideKeys: currentPage === "freeride" && !anyDialogOpen
+    // ↑ / ↓: shift harder / easier (Gears), ±5 W (ERG), nothing in Free mode
+    function freeRideStep(direction) {
+        if (FreeRide.mode === "erg")
+            FreeRide.adjustTargetWatts(5 * direction)
+        else if (FreeRide.mode === "gears")
+            direction > 0 ? FreeRide.shiftUp() : FreeRide.shiftDown()
+    }
+    Shortcut {
+        sequences: ["Space"]
+        enabled: window.freeRideKeys && (FreeRide.trainerConnected || FreeRide.active)
+        onActivated: FreeRide.togglePause()
+    }
+    Shortcut {
+        sequences: ["Up", "+", "="]
+        enabled: window.freeRideKeys
+        onActivated: window.freeRideStep(1)
+    }
+    Shortcut {
+        sequences: ["Down", "-"]
+        enabled: window.freeRideKeys
+        onActivated: window.freeRideStep(-1)
+    }
+    Shortcut {
+        sequence: "Shift+Up"
+        enabled: window.freeRideKeys && FreeRide.mode === "gears"
+        onActivated: FreeRide.shiftFrontUp()
+    }
+    Shortcut {
+        sequence: "Shift+Down"
+        enabled: window.freeRideKeys && FreeRide.mode === "gears"
+        onActivated: FreeRide.shiftFrontDown()
+    }
+    Shortcut {
+        sequence: "PgUp"
+        enabled: window.freeRideKeys
+        onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(10) : FreeRide.adjustGrade(0.5)
+    }
+    Shortcut {
+        sequence: "PgDown"
+        enabled: window.freeRideKeys
+        onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(-10) : FreeRide.adjustGrade(-0.5)
     }
 }

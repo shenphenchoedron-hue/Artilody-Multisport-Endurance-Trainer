@@ -116,7 +116,7 @@ Item {
         wasShown = true
         refreshWorkouts()
         // opening the page gets the rower ready: the row starts with the first stroke
-        if (Rowing.state === "idle" && !Training.armedOrActive)
+        if (Rowing.state === "idle" && !Training.armedOrActive && !FreeRide.active && !FreeRide.waiting)
             applySetup()
     }
 

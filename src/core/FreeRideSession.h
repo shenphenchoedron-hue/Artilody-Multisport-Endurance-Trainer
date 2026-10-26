@@ -254,6 +254,15 @@ public:
                                           int circumferenceMm) const;
     // "11,12,13-15" style text -> [11,12,13,15]; [] when invalid
     Q_INVOKABLE QVariantList parseTeeth(const QString &text) const;
+    // Gears of a setup that is not stored yet (gear setup dialog preview), in
+    // the order the given shifting mode uses (easiest first):
+    // [{index, label, ratio, front, rear, frontTeeth, rearTeeth, speedKmh, watts}]
+    // speedKmh at cadenceRpm, watts = power for that speed on a flat road for
+    // the current rider and bike. [] when the setup is invalid.
+    Q_INVOKABLE QVariantList previewGears(const QVariantList &chainrings, const QVariantList &cogs,
+                                          int circumferenceMm, bool sequential, int cadenceRpm = 90) const;
+    // GearSetup::defaults() in the gearSetup map format (setup dialog "Reset").
+    Q_INVOKABLE QVariantMap defaultGearSetup() const;
 
 public slots:
     // Controller buttons (Zwift Click / keyboard): +1 = plus (harder), -1 = minus.
@@ -298,6 +307,7 @@ private:
     void saveSettingsNow();
     void setError(const QString &e);
     void releaseTrainer();
+    static QVariantMap setupToMap(const GearSetup &s);
     QVariantList downsample(const QVector<double> &data, bool ignoreZero, int decimals) const;
 
     Database *m_db;

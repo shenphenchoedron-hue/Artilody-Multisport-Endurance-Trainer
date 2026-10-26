@@ -45,8 +45,14 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/GhostRaceTrack.qml
     ${QML_ROOT}/components/RowingIntervalChart.qml
     ${QML_ROOT}/components/ModeOption.qml
+    # free ride
+    ${QML_ROOT}/components/GearDisplay.qml
+    ${QML_ROOT}/components/ShiftButton.qml
+    ${QML_ROOT}/components/ErgControl.qml
+    ${QML_ROOT}/components/FreeRideChart.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
+    ${QML_ROOT}/pages/FreeRidePage.qml
     ${QML_ROOT}/pages/WorkoutsPage.qml
     ${QML_ROOT}/pages/CalendarPage.qml
     ${QML_ROOT}/pages/BuilderPage.qml
@@ -62,6 +68,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/dialogs/FtpResultDialog.qml
     ${QML_ROOT}/dialogs/RampDialog.qml
     ${QML_ROOT}/dialogs/IntervalSetDialog.qml
+    ${QML_ROOT}/dialogs/GearSetupDialog.qml
 )
 
 # All QML files live flat in the module root inside the resource system so they

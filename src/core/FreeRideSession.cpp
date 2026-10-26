@@ -425,9 +425,8 @@ QVariantList FreeRideSession::gears() const
     return out;
 }
 
-QVariantMap FreeRideSession::gearSetup() const
+QVariantMap FreeRideSession::setupToMap(const GearSetup &s)
 {
-    const GearSetup &s = m_gearing.setup();
     QVariantList rings, cogs;
     for (int t : s.chainrings)
         rings.append(t);
@@ -440,6 +439,49 @@ QVariantMap FreeRideSession::gearSetup() const
                          { QStringLiteral("bikeWeightKg"), s.bikeWeightKg },
                          { QStringLiteral("cda"), s.cda },
                          { QStringLiteral("crr"), s.crr } };
+}
+
+QVariantMap FreeRideSession::gearSetup() const
+{
+    return setupToMap(m_gearing.setup());
+}
+
+QVariantMap FreeRideSession::defaultGearSetup() const
+{
+    return setupToMap(GearSetup::defaults());
+}
+
+QVariantList FreeRideSession::previewGears(const QVariantList &chainrings, const QVariantList &cogs,
+                                           int circumferenceMm, bool seq, int cadenceRpm) const
+{
+    if (!validateGearSetup(chainrings, cogs, circumferenceMm).isEmpty())
+        return {};
+    bool ok = false;
+    GearSetup s = m_gearing.setup();
+    s.chainrings = toIntList(chainrings, &ok);
+    s.cogs = toIntList(cogs, &ok);
+    s.circumferenceMm = circumferenceMm;
+    s.sequential = seq;
+    s.frontIndex = s.rearIndex = 0;
+    const Gearing g(s);
+    const QVector<Gear> list = seq ? g.sequence() : g.allGears();
+    const road::Model flat = roadModel(0.0);
+    const double cadence = std::max(0, cadenceRpm);
+    QVariantList out;
+    for (int i = 0; i < list.size(); ++i) {
+        const Gear &gear = list.at(i);
+        const double v = Gearing::speedFor(cadence, gear.ratio, g.setup().circumferenceMm);
+        out.append(QVariantMap { { QStringLiteral("index"), i },
+                                 { QStringLiteral("label"), Gearing::labelFor(gear.frontTeeth, gear.rearTeeth) },
+                                 { QStringLiteral("ratio"), gear.ratio },
+                                 { QStringLiteral("front"), gear.front },
+                                 { QStringLiteral("rear"), gear.rear },
+                                 { QStringLiteral("frontTeeth"), gear.frontTeeth },
+                                 { QStringLiteral("rearTeeth"), gear.rearTeeth },
+                                 { QStringLiteral("speedKmh"), std::round(v * 36.0) / 10.0 },
+                                 { QStringLiteral("watts"), std::max(0, int(std::lround(road::powerForSpeed(flat, v)))) } });
+    }
+    return out;
 }
 
 void FreeRideSession::afterShift(bool didShift, int direction)
