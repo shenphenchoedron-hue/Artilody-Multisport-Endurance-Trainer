@@ -340,6 +340,9 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_RLV_IDLE=1     only select the route (preview / poster frame, no ride)
     //   WATT_SCREENSHOT_RLV_START=<m>  start point in metres (default 0)
     //   WATT_SCREENSHOT_RLV_FINISH=1   finish the video ride (not saved) before the capture
+    //   WATT_SCREENSHOT_RLV_MODE       sim (default) | gears | erg (ERG target 200 W)
+    //                                  (WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
+    //                                  gradient simulation -> the fallback note)
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
@@ -413,6 +416,12 @@ int main(int argc, char *argv[])
                 freeRide.setTargetWatts(200);
             else
                 freeRide.setGrade(1.5);
+        }
+        if (shotRlv) {
+            const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_RLV_MODE", QStringLiteral("sim"));
+            rlv.setMode(mode);
+            if (mode == QLatin1String("erg"))
+                rlv.setTargetWatts(200);
         }
         if (shotRlv && !rlv.selectPath(shotRlvPath))
             qWarning("Screenshot mode: could not load the video route %s: %s", qPrintable(shotRlvPath),

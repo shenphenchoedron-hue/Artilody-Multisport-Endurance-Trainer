@@ -1,6 +1,7 @@
 // RlvSession: rider position, video sync (rate / seek / hold), resistance
-// with difficulty, power mode, auto-finish + saved ride, mutual exclusion,
-// shared gearing with the free ride.
+// modes (gradient simulation with fallback, virtual gears, ERG) with
+// difficulty, speed from power with inertia, auto-finish + saved ride,
+// mutual exclusion, shared gearing with the free ride, mode persistence.
 #include "Database.h"
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
@@ -151,7 +152,9 @@ private slots:
         QVERIFY(!s.videoShouldPlay());
         QCOMPARE(s.speedKmh(), 0.0);
         QCOMPARE(s.difficultyPercent(), 100);
-        QCOMPARE(s.mode(), QStringLiteral("gears"));
+        QCOMPARE(s.mode(), QStringLiteral("sim"));   // classic RLV by default
+        QVERIFY(!s.simulationFallback());
+        QVERIFY(!s.virtualGears());
         QCOMPARE(s.gearLabel(), QStringLiteral("50×21"));   // own gearing (profile setup)
         QVERIFY(!s.start());
         QCOMPARE(refused.count(), 1);
@@ -210,6 +213,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
@@ -229,7 +233,7 @@ private slots:
         QVERIFY(std::abs(f.rlv->remainingMeters() - (f.rlv->totalDistanceM() - f.rlv->distanceMeters())) < 1e-9);
         // ERG target = road power for the virtual speed on a flat road
         const int expected = int(std::lround(road::powerForSpeed(f.rlv->roadModel(0.0), v)));
-        QVERIFY(std::abs(f.rlv->targetWatts() - expected) <= 2);
+        QVERIFY(std::abs(f.rlv->sentTargetWatts() - expected) <= 2);
         QVERIFY(targets.count() >= 1);
         QCOMPARE(f.rlv->samples().size(), 10);
         QVERIFY(std::abs(f.rlv->samples().at(5).speedMps - v) < 0.01);
@@ -248,6 +252,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("flat"), 5000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         f.pedal(90, 150);
@@ -289,6 +294,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("flat"), 5000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         QSignalSpy seeks(f.rlv.get(), &RlvSession::seekRequested);
@@ -347,6 +353,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double d) { return d < 2000 ? 6.0 : -5.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("hill")));
         QVERIFY(f.rlv->seekToDistance(1000));
@@ -358,14 +365,14 @@ private slots:
         QVERIFY(!f.rlv->seekToDistance(0));   // not while riding
         QVERIFY(std::abs(f.rlv->distanceMeters() - 1000) < 1e-9);
         f.ride_for(2000);
-        const int full = f.rlv->targetWatts();
+        const int full = f.rlv->sentTargetWatts();
         const double v = f.freeRide->gearing().virtualSpeed(80);
         QVERIFY(std::abs(full - road::powerForSpeed(f.rlv->roadModel(f.rlv->effectiveGradePercent()), v)) <= 3);
         f.rlv->setDifficulty(50);
         QVERIFY(std::abs(f.rlv->effectiveGradePercent() - 3.0) < 0.1);
-        const int half = f.rlv->targetWatts();   // applied at once
+        const int half = f.rlv->sentTargetWatts();   // applied at once
         f.rlv->setDifficulty(0);
-        const int none = f.rlv->targetWatts();
+        const int none = f.rlv->sentTargetWatts();
         QVERIFY2(full > half && half > none, qPrintable(QStringLiteral("%1 %2 %3").arg(full).arg(half).arg(none)));
         QVERIFY(std::abs(none - road::powerForSpeed(f.rlv->roadModel(0.0), v)) <= 3);
         f.rlv->setDifficulty(250);
@@ -387,36 +394,335 @@ private slots:
         f.rlv->finish(false);
     }
 
-    void powerModeAndNoCadence()
+    void simulationSendsGradeRateLimited()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        // 0 % for 500 m, a steady ramp 0 -> 8 % over 1500 m, then 8 %
+        QVERIFY(f.addRoute(QStringLiteral("ramp"), 5000, 5, [](double d) {
+            return d < 500 ? 0.0 : d < 2000 ? (d - 500) / 1500.0 * 8.0 : 8.0;
+        }));
+        QVERIFY(f.selectRoute(QStringLiteral("ramp")));
+        QCOMPARE(f.rlv->mode(), QStringLiteral("sim"));
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        QSignalSpy ergs(f.hub.get(), &SensorHub::targetPowerRequested);
+        QVERIFY(f.rlv->seekToDistance(400));
+        f.pedal(85, 300);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(sims.count(), 1);   // at once on start
+        QVERIFY(std::abs(sims.last().at(0).toDouble() - f.rlv->simulationGradeToSend()) < 1e-9);
+        QCOMPARE(sims.last().at(1).toDouble(), 0.0);
+        QCOMPARE(sims.last().at(2).toDouble(), 0.004);
+        QCOMPARE(sims.last().at(3).toDouble(), 0.51);
+        QVERIFY(f.hub->simulationActive());
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        QVERIFY(f.rlv->simulationActive());
+        QCOMPARE(f.rlv->gearTargetWatts(), 0);
+
+        // ride up the ramp: every send >= 1 s apart, a new grade differs by
+        // >= 0.1 % (or is the 3 s refresh), and matches the position
+        qint64 now = 0, lastAt = 0;
+        double lastGrade = sims.last().at(0).toDouble();
+        int sends = 0, refreshes = 0;
+        while (f.rlv->distanceMeters() < 2300 && now < 600000) {
+            const int before = int(sims.count());
+            f.rlv->advanceClock(250);
+            now += 250;
+            if (sims.count() == before)
+                continue;
+            QCOMPARE(int(sims.count()), before + 1);
+            const double g = sims.last().at(0).toDouble();
+            QVERIFY2(now - lastAt >= RlvSession::kSimMinIntervalMs, qPrintable(QString::number(now - lastAt)));
+            QVERIFY2(now - lastAt <= RlvSession::kSimRefreshMs, qPrintable(QString::number(now - lastAt)));
+            if (std::abs(g - lastGrade) < RlvSession::kSimMinGradeChange - 1e-9) {
+                QCOMPARE(now - lastAt, qint64(RlvSession::kSimRefreshMs));
+                ++refreshes;
+            }
+            QVERIFY(std::abs(g - f.rlv->simulationGradeToSend()) < 1e-9);
+            QVERIFY(std::abs(g - std::round(f.rlv->effectiveGradePercent() * 100) / 100) < 0.011);
+            QCOMPARE(f.rlv->simulationGradePercent(), g);
+            lastAt = now;
+            lastGrade = g;
+            ++sends;
+        }
+        QVERIFY(sends >= 10);
+        QVERIFY(lastGrade > 7.5);
+        QVERIFY(refreshes >= 1);   // the flat start and the 8 % top only refresh
+        QCOMPARE(ergs.count(), 0);   // never ERG in simulation mode
+        QVERIFY(f.rlv->ascentDoneM() > 20);
+
+        // difficulty: sent at once, grade × difficulty
+        const int before = int(sims.count());
+        f.rlv->setDifficulty(50);
+        QCOMPARE(int(sims.count()), before + 1);
+        QVERIFY(std::abs(sims.last().at(0).toDouble() - 4.0) < 0.05);
+        // Zwift Click / keys in simulation mode: difficulty ±10 %
+        f.rlv->controllerShift(1);
+        QCOMPARE(f.rlv->difficultyPercent(), 60);
+        QVERIFY(std::abs(sims.last().at(0).toDouble() - 4.8) < 0.05);
+        f.rlv->controllerShift(-1);
+        QCOMPARE(f.rlv->difficultyPercent(), 50);
+        // pause releases the trainer, resume sends the grade again
+        f.rlv->pause();
+        QVERIFY(!f.hub->simulationActive());
+        QVERIFY(!f.rlv->simulationActive());
+        const int paused = int(sims.count());
+        f.rlv->resume();
+        QCOMPARE(int(sims.count()), paused + 1);
+        f.rlv->finish(false);
+        QVERIFY(!f.hub->simulationActive());
+
+        // steep descents are limited to kMinSimGrade
+        QVERIFY(f.addRoute(QStringLiteral("down"), 3000, 5, [](double) { return -14.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("down")));
+        f.rlv->setDifficulty(100);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(sims.last().at(0).toDouble(), RlvSession::kMinSimGrade);
+        f.rlv->finish(false);
+    }
+
+    void speedFromPowerWithInertia()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 20000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        f.pedal(85, 250);
+        QVERIFY(f.rlv->start());
+        // accelerates smoothly from 0: no jumps, always faster
+        double prev = 0;
+        for (int i = 0; i < 40; ++i) {
+            f.rlv->advanceClock(250);
+            const double v = f.rlv->speedMps();
+            QVERIFY2(v > prev, qPrintable(QStringLiteral("%1 %2").arg(prev).arg(v)));
+            QVERIFY2(v - prev < 1.0, qPrintable(QStringLiteral("%1 %2").arg(prev).arg(v)));
+            prev = v;
+        }
+        const double steady250 = f.rlv->solveSpeedForPower(250, 0);
+        QVERIFY(prev < steady250 * 0.9);   // still accelerating after 10 s
+        f.ride_for(120000);
+        QVERIFY2(std::abs(f.rlv->speedMps() - steady250) < 0.05,
+                 qPrintable(QStringLiteral("%1 %2").arg(f.rlv->speedMps()).arg(steady250)));
+        // less power: slows down smoothly
+        f.pedal(85, 120);
+        prev = f.rlv->speedMps();
+        for (int i = 0; i < 40; ++i) {
+            f.rlv->advanceClock(250);
+            const double v = f.rlv->speedMps();
+            QVERIFY(v < prev);
+            QVERIFY(prev - v < 0.5);
+            prev = v;
+        }
+        f.ride_for(150000);
+        QVERIFY(std::abs(f.rlv->speedMps() - f.rlv->solveSpeedForPower(120, 0)) < 0.05);
+        // stop pedaling: rolls out and stops on the flat
+        f.pedal(0, 0);
+        f.ride_for(2000);
+        QVERIFY(f.rlv->speedKmh() > 15);
+        f.ride_for(200000);
+        QCOMPARE(f.rlv->speedMps(), 0.0);
+        f.rlv->finish(false);
+
+        // on a climb the same power is slower; steady state = road physics
+        QVERIFY(f.addRoute(QStringLiteral("climb"), 8000, 5, [](double) { return 5.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("climb")));
+        f.pedal(85, 250);
+        QVERIFY(f.rlv->start());
+        f.ride_for(90000);
+        const double steadyClimb = f.rlv->solveSpeedForPower(250, f.rlv->effectiveGradePercent());
+        QVERIFY(steadyClimb < steady250 * 0.6);
+        QVERIFY2(std::abs(f.rlv->speedMps() - steadyClimb) < 0.05,
+                 qPrintable(QStringLiteral("%1 %2").arg(f.rlv->speedMps()).arg(steadyClimb)));
+        f.rlv->finish(false);
+    }
+
+    void simulationFallbackToVirtualGears()
     {
         Fixture f;
         QVERIFY(f.init());
         QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double) { return 4.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("hill")));
-        f.rlv->setMode(QStringLiteral("power"));
-        QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("power"));
-        f.pedal(85, 250);
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        QSignalSpy modes(f.rlv.get(), &RlvSession::modeChanged);
+        // unknown support (-1): try the simulation
+        f.pedal(85, 220);
         QVERIFY(f.rlv->start());
-        QCOMPARE(f.hub->requestedTarget(), 0);   // trainer free ride
-        f.ride_for(30000);
-        const double expected = f.rlv->solveSpeedForPower(250, f.rlv->effectiveGradePercent());
-        QVERIFY(expected > 3 && expected < 9);
-        QVERIFY(std::abs(f.rlv->speedKmh() / 3.6 - expected) < 0.05);
-        QVERIFY(f.rlv->ascentDoneM() > 5);
-        QCOMPARE(f.hub->requestedTarget(), 0);
-        // Zwift Click in power mode: difficulty ±10 %
-        f.rlv->controllerShift(-1);
-        QCOMPARE(f.rlv->difficultyPercent(), 90);
+        QCOMPARE(sims.count(), 1);
+        QVERIFY(!f.rlv->simulationFallback());
+        f.ride_for(2000);
+        // the trainer rejects 0x11 / lacks the feature bit: virtual gears via ERG
+        f.hub->setTrainerSimulationSupport(0);
+        QVERIFY(modes.count() >= 1);
+        QCOMPARE(f.rlv->mode(), QStringLiteral("sim"));   // the choice is kept
+        QVERIFY(f.rlv->simulationFallback());
+        QVERIFY(f.rlv->virtualGears());
+        QVERIFY(!f.hub->simulationActive());
+        QVERIFY(f.hub->requestedTarget() > 0);
+        QCOMPARE(f.hub->requestedTarget(), f.rlv->sentTargetWatts());
+        QVERIFY(!f.rlv->simulationActive());
+        const int simCount = int(sims.count());
+        f.ride_for(5000);
+        QCOMPARE(int(sims.count()), simCount);
+        // gear speed and gear target like the gears mode
+        const double v = f.freeRide->gearing().virtualSpeed(85);
+        QVERIFY(std::abs(f.rlv->speedMps() - v) < 0.01);
+        QVERIFY(std::abs(f.rlv->sentTargetWatts()
+                         - road::powerForSpeed(f.rlv->roadModel(f.rlv->effectiveGradePercent()), v)) <= 3);
+        // Zwift Click shifts in the fallback
+        const QString gear = f.rlv->gearLabel();
         f.rlv->controllerShift(1);
+        QVERIFY(f.rlv->gearLabel() != gear);
         QCOMPARE(f.rlv->difficultyPercent(), 100);
+        // trainer without cadence: released, speed from power
+        f.pedal(0, 200);
+        f.ride_for(120000);
+        QCOMPARE(f.hub->requestedTarget(), 0);
+        QVERIFY(std::abs(f.rlv->speedMps() - f.rlv->solveSpeedForPower(200, 4.0)) < 0.05);
+        // a trainer that can simulate again (other trainer connected)
+        f.pedal(85, 220);
+        f.hub->setTrainerSimulationSupport(1);
+        QVERIFY(!f.rlv->simulationFallback());
+        QVERIFY(f.hub->simulationActive());
+        QCOMPARE(f.hub->requestedTarget(), 0);
         f.rlv->finish(false);
-        f.rlv->reset();
 
+        // known unsupported before the start: never sends 0x11
+        f.hub->setTrainerSimulationSupport(0);
+        f.rlv->reset();
+        sims.clear();
+        QVERIFY(f.rlv->start());
+        QCOMPARE(sims.count(), 0);
+        QVERIFY(f.hub->requestedTarget() > 0);
+        f.rlv->finish(false);
+    }
+
+    void ergTargetOnThePage()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("hill"), 6000, 5, [](double d) { return d < 3000 ? 6.0 : -3.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("hill")));
+        // never set: 60 % FTP, rounded to 5 W
+        const int ftp = f.profiles->current().ftpFor(QStringLiteral("cycling"));
+        const int expected = int(std::lround(ftp * 0.6 / 5.0)) * 5;
+        QCOMPARE(f.rlv->targetWatts(), expected);
+        QSignalSpy ergs(f.hub.get(), &SensorHub::targetPowerRequested);
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        f.rlv->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.rlv->mode(), QStringLiteral("erg"));
+        QCOMPARE(f.rlv->targetWatts(), expected);   // not riding: keeps the target
+        QCOMPARE(ergs.count(), 0);
+        f.rlv->setTargetWatts(200);
+        QCOMPARE(f.db.setting(QStringLiteral("rlv/ergWatts")).toInt(), 200);
+        f.pedal(85, 200);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        QCOMPARE(f.rlv->sentTargetWatts(), 200);
+        QCOMPARE(sims.count(), 0);
+        QVERIFY(!f.rlv->virtualGears());
+        // ± on the page, clamped
+        f.rlv->adjustTargetWatts(25);
+        QCOMPARE(f.hub->requestedTarget(), 225);
+        f.rlv->adjustTargetWatts(-5);
+        QCOMPARE(f.hub->requestedTarget(), 220);
+        f.rlv->setTargetWatts(3);
+        QCOMPARE(f.rlv->targetWatts(), RlvSession::kMinErgWatts);
+        f.rlv->setTargetWatts(5000);
+        QCOMPARE(f.rlv->targetWatts(), RlvSession::kMaxWatts);
+        QCOMPARE(f.hub->requestedTarget(), RlvSession::kMaxWatts);
+        f.rlv->setTargetWatts(200);
+        // Zwift Click ±10 W
+        QSignalSpy shifted(f.rlv.get(), &RlvSession::shifted);
+        f.rlv->controllerShift(1);
+        QCOMPARE(f.rlv->targetWatts(), 210);
+        QCOMPARE(f.hub->requestedTarget(), 210);
+        f.rlv->controllerShift(-1);
+        f.rlv->controllerShift(-1);
+        QCOMPARE(f.rlv->targetWatts(), 190);
+        QCOMPARE(shifted.count(), 3);
+        QCOMPARE(f.rlv->difficultyPercent(), 100);
+        f.rlv->setTargetWatts(200);
+        // the difficulty does not flatten the route in ERG
+        f.rlv->setDifficulty(50);
+        QVERIFY(std::abs(f.rlv->effectiveGradePercent() - 6.0) < 0.1);
+        // the trainer holds the watts, the climb makes the speed slower
+        f.ride_for(90000);
+        QVERIFY(f.rlv->distanceMeters() < 3000);
+        const double climbSpeed = f.rlv->speedMps();
+        QVERIFY(std::abs(climbSpeed - f.rlv->solveSpeedForPower(200, 6.0)) < 0.05);
+        QCOMPARE(f.hub->requestedTarget(), 200);   // unchanged by the grade
+        QVERIFY(f.rlv->sentTargetWatts() == 200);
+        // switching to ERG while riding starts from the current 3 s power
+        f.rlv->setMode(QStringLiteral("sim"));
+        QVERIFY(f.hub->simulationActive());
+        f.hub->setPowerSmoothing(false);   // 3 s average = this power
+        f.pedal(85, 237);
+        QCOMPARE(f.hub->displayPower(), 237);
+        f.rlv->setMode(QStringLiteral("erg"));
+        QCOMPARE(f.rlv->targetWatts(), 235);
+        QCOMPARE(f.hub->requestedTarget(), 235);
+        QVERIFY(!f.hub->simulationActive());
+        f.rlv->setTargetWatts(200);
+        f.pedal(85, 200);
+        f.ride_for(10000);
+        // saved as an ERG ride with the target in the samples
+        const qint64 id = f.rlv->finish(true);
+        QVERIFY(id >= 0);
+        const auto ride = f.db.ride(id);
+        QVERIFY(ride.has_value());
+        QVERIFY(ride->ergMode);
+        QCOMPARE(f.db.rideSamples(id).last().targetPower, 200);
+        QCOMPARE(f.hub->requestedTarget(), 0);
+    }
+
+    void modePersistenceAndMigration()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        // old "power" mode -> classic simulation, setting rewritten
+        f.db.setSetting(QStringLiteral("rlv/mode"), QStringLiteral("power"));
+        {
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+            QCOMPARE(s.mode(), QStringLiteral("sim"));
+            QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("sim"));
+            s.setMode(QStringLiteral("power"));   // still accepted, as sim
+            QCOMPARE(s.mode(), QStringLiteral("sim"));
+            s.setMode(QStringLiteral("bogus"));
+            QCOMPARE(s.mode(), QStringLiteral("sim"));
+            s.setMode(QStringLiteral("erg"));
+            s.setTargetWatts(185);
+        }
+        {
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+            QCOMPARE(s.mode(), QStringLiteral("erg"));
+            QCOMPARE(s.targetWatts(), 185);
+            s.setMode(QStringLiteral("gears"));
+        }
+        {
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+            QCOMPARE(s.mode(), QStringLiteral("gears"));
+            QVERIFY(s.virtualGears());
+        }
+        f.db.setSetting(QStringLiteral("rlv/mode"), QStringLiteral("nonsense"));
+        RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+        QCOMPARE(s.mode(), QStringLiteral("sim"));
+        QCOMPARE(RlvSession::parseMode(QStringLiteral("power")), std::optional<RlvSession::Mode>(RlvSession::Mode::Sim));
+        QVERIFY(!RlvSession::parseMode(QStringLiteral("x")));
+        QCOMPARE(RlvSession::modeName(RlvSession::Mode::Erg), QStringLiteral("erg"));
+    }
+
+    void gearsWithoutCadence()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double) { return 4.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("hill")));
         // gears mode, trainer without cadence: speed from power, trainer released
         f.rlv->setMode(QStringLiteral("gears"));
+        QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("gears"));
         f.pedal(0, 200);
         QVERIFY(f.rlv->start());
-        f.ride_for(30000);
+        f.ride_for(120000);
         QVERIFY(std::abs(f.rlv->speedKmh() / 3.6 - f.rlv->solveSpeedForPower(200, 4.0)) < 0.05);
         QCOMPARE(f.hub->requestedTarget(), 0);
         f.rlv->finish(false);
@@ -428,6 +734,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("short"), 400, 8, [](double d) { return d < 200 ? 3.0 : 0.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("short")));
         QSignalSpy saved(f.rlv.get(), &RlvSession::rideSaved);
@@ -522,6 +829,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.rlv->setMode(QStringLiteral("gears"));
         QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         QSignalSpy gear(f.rlv.get(), &RlvSession::gearChanged);
@@ -540,13 +848,13 @@ private slots:
         f.pedal(90, 200);
         QVERIFY(f.rlv->start());
         f.ride_for(2000);
-        const int t0 = f.rlv->targetWatts();
+        const int t0 = f.rlv->sentTargetWatts();
         f.rlv->controllerShift(1);
-        QVERIFY(f.rlv->targetWatts() > t0);
-        QCOMPARE(f.hub->requestedTarget(), f.rlv->targetWatts());
+        QVERIFY(f.rlv->sentTargetWatts() > t0);
+        QCOMPARE(f.hub->requestedTarget(), f.rlv->sentTargetWatts());
         f.rlv->controllerShift(-1);
         f.rlv->controllerShift(-1);
-        QVERIFY(f.rlv->targetWatts() < t0);
+        QVERIFY(f.rlv->sentTargetWatts() < t0);
         QCOMPARE(f.rlv->gear().value(QStringLiteral("label")).toString(), f.rlv->gearLabel());
         f.rlv->finish(false);
     }

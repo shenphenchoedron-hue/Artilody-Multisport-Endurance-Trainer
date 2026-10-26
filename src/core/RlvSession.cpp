@@ -19,6 +19,7 @@ namespace watt {
 namespace {
 const QString kSettingMode = QStringLiteral("rlv/mode");
 const QString kSettingDifficulty = QStringLiteral("rlv/difficulty");
+const QString kSettingErgWatts = QStringLiteral("rlv/ergWatts");
 const QString kSettingLastRoute = QStringLiteral("rlv/lastRoute");
 const QString kRefused = QStringLiteral("Another session is running. Stop it before starting a video ride.");
 } // namespace
@@ -45,6 +46,13 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
         if (running() && trainerConnected())
             applyTarget(true);
     });
+    connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, [this] {
+        emit modeChanged();   // simulationFallback / virtualGears
+        emit gearChanged();
+        emit targetChanged();
+        if (running())
+            applyTarget(true);
+    });
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         if (!m_freeRide && !active() && !waiting())
             loadOwnGearing();
@@ -53,8 +61,12 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
         connect(m_library, &RlvLibrary::scanned, this, [this] { emit routeChanged(); });   // routeIndex
     }
 
-    m_mode = m_db->setting(kSettingMode, QStringLiteral("gears")).toString() == QLatin1String("power") ? Mode::Power
-                                                                                                    : Mode::Gears;
+    const QString storedMode = m_db->setting(kSettingMode, QStringLiteral("sim")).toString();
+    m_mode = parseMode(storedMode).value_or(Mode::Sim);
+    if (storedMode != mode())
+        m_db->setSetting(kSettingMode, mode());   // "power" (old) -> "sim"
+    const int storedErg = m_db->setting(kSettingErgWatts, 0).toInt();
+    m_ergTarget = storedErg > 0 ? std::clamp(storedErg, int(kMinErgWatts), int(kMaxWatts)) : defaultErgTarget();
     m_difficulty = std::clamp(m_db->setting(kSettingDifficulty, kDefaultDifficulty).toInt(), 0, 100);
     loadOwnGearing();
 
@@ -172,22 +184,76 @@ void RlvSession::setState(State s)
     emit stateChanged();
 }
 
+QString RlvSession::modeName(Mode m)
+{
+    switch (m) {
+    case Mode::Sim: return QStringLiteral("sim");
+    case Mode::Gears: return QStringLiteral("gears");
+    case Mode::Erg: return QStringLiteral("erg");
+    }
+    return QStringLiteral("sim");
+}
+
+std::optional<RlvSession::Mode> RlvSession::parseMode(const QString &text)
+{
+    if (text == QLatin1String("sim") || text == QLatin1String("power"))
+        return Mode::Sim;
+    if (text == QLatin1String("gears"))
+        return Mode::Gears;
+    if (text == QLatin1String("erg"))
+        return Mode::Erg;
+    return std::nullopt;
+}
+
 void RlvSession::setMode(const QString &modeText)
 {
-    Mode m;
-    if (modeText == QLatin1String("gears"))
-        m = Mode::Gears;
-    else if (modeText == QLatin1String("power"))
-        m = Mode::Power;
-    else
+    const auto parsed = parseMode(modeText);
+    if (!parsed || *parsed == m_mode)
         return;
-    if (m == m_mode)
-        return;
-    m_mode = m;
+    m_mode = *parsed;
     m_db->setSetting(kSettingMode, mode());
+    if (m_mode == Mode::Erg) {
+        // start from what the rider is pushing right now
+        const int now = m_hub->displayPower();
+        if ((active() || waiting()) && now >= kStartPowerWatts)
+            setTargetWatts(int(std::lround(now / 5.0)) * 5);
+    }
+    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
     emit modeChanged();
+    emit positionChanged();   // effectiveGradePercent
+    emit gearChanged();
     emit targetChanged();
     applyTarget(true);
+}
+
+int RlvSession::defaultErgTarget() const
+{
+    const int ftp = m_profiles->current().ftpFor(sport::cycling());
+    const int w = int(std::lround(std::max(1, ftp) * kDefaultErgFtpShare / 5.0)) * 5;
+    return std::clamp(w, int(kMinErgWatts), int(kMaxWatts));
+}
+
+void RlvSession::setTargetWatts(int watts)
+{
+    watts = std::clamp(watts, int(kMinErgWatts), int(kMaxWatts));
+    if (watts == m_ergTarget)
+        return;
+    m_ergTarget = watts;
+    m_db->setSetting(kSettingErgWatts, watts);
+    emit targetChanged();
+    if (m_mode == Mode::Erg)
+        applyTarget(true);
+}
+
+bool RlvSession::simulationFallback() const
+{
+    return m_mode == Mode::Sim && m_hub->trainerSimulationUnsupported();
+}
+
+double RlvSession::simulationGradeToSend() const
+{
+    const double g = std::clamp(effectiveGradePercent(), kMinSimGrade, kMaxSimGrade);
+    return std::round(g * 100.0) / 100.0;
 }
 
 void RlvSession::setDifficulty(int percent)
@@ -307,7 +373,9 @@ double RlvSession::gradePercent() const
 
 double RlvSession::effectiveGradePercent() const
 {
-    return gradePercent() * m_difficulty / 100.0;
+    // ERG: the trainer holds the watts, the difficulty only applies to the
+    // resistance modes - the speed uses the real gradient
+    return m_mode == Mode::Erg ? gradePercent() : gradePercent() * m_difficulty / 100.0;
 }
 
 double RlvSession::elevationM() const
@@ -382,7 +450,7 @@ double RlvSession::speedMps() const
     if (m_state == State::Ready || active())
         return m_speed;
     const int cad = m_hub->cadence();
-    if (m_mode == Mode::Gears && cad >= kCoastCadenceRpm)
+    if (virtualGears() && cad >= kCoastCadenceRpm)
         return gearing().virtualSpeed(cad);
     const int p = m_hub->power();
     return p > 0 ? solveSpeedForPower(p, effectiveGradePercent()) : 0.0;
@@ -413,7 +481,7 @@ int RlvSession::computeGearTarget(double cadenceRpm) const
 
 int RlvSession::gearTargetWatts() const
 {
-    if (m_mode != Mode::Gears)
+    if (!virtualGears())
         return 0;
     const double cad = (m_state == State::Ready || active()) ? m_cadSmooth : double(m_hub->cadence());
     return computeGearTarget(cad);
@@ -421,17 +489,51 @@ int RlvSession::gearTargetWatts() const
 
 int RlvSession::desiredTarget() const
 {
-    if (m_mode == Mode::Power)
-        return 0;   // trainer free ride, speed from power
+    if (m_mode == Mode::Erg)
+        return m_ergTarget;
     if (m_hub->cadence() < kCoastCadenceRpm)
         return 0;   // coasting or no cadence sensor: release
     return computeGearTarget(std::max(m_cadSmooth, double(kCoastCadenceRpm)));
+}
+
+void RlvSession::applySimulation(bool force)
+{
+    const double grade = simulationGradeToSend();
+    const bool first = !std::isfinite(m_lastSimGrade) || m_lastSent > 0;
+    const bool changed = first || std::abs(grade - m_lastSimGrade) >= kSimMinGradeChange - 1e-9;
+    const bool due = first || m_sinceSendMs >= kSimMinIntervalMs;
+    if (force || first || (changed && due) || m_sinceSendMs >= kSimRefreshMs) {
+        m_hub->requestSimulation(grade, 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
+        const bool newGrade = !std::isfinite(m_lastSimGrade) || grade != m_lastSimGrade || m_lastSent != 0;
+        m_lastSimGrade = grade;
+        m_lastSent = 0;
+        m_sinceSendMs = 0;
+        if (newGrade)
+            emit targetChanged();
+    }
 }
 
 void RlvSession::applyTarget(bool force)
 {
     if (!running())
         return;
+    if (m_mode == Mode::Sim && !simulationFallback()) {
+        applySimulation(force);
+        return;
+    }
+    if (std::isfinite(m_lastSimGrade)) {
+        m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
+        force = true;
+    }
+    if (m_mode == Mode::Erg) {
+        if (force || m_lastSent != m_ergTarget) {
+            m_hub->requestTargetPower(m_ergTarget);
+            m_lastSent = m_ergTarget;
+            m_sinceSendMs = 0;
+            emit targetChanged();
+        }
+        return;
+    }
     const int desired = desiredTarget();
     if (desired <= 0) {
         if (force || m_lastSent != 0) {
@@ -456,6 +558,7 @@ void RlvSession::releaseTrainer()
 {
     m_hub->requestFreeRide();
     m_lastSent = -1;
+    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
     emit targetChanged();
 }
 
@@ -515,7 +618,14 @@ void RlvSession::controllerShift(int direction)
 {
     if (direction == 0)
         return;
-    if (m_mode == Mode::Gears) {
+    if (m_mode == Mode::Erg) {
+        const int before = m_ergTarget;
+        adjustTargetWatts(direction > 0 ? kControllerErgStep : -kControllerErgStep);
+        if (m_ergTarget != before)
+            emit shifted(direction);
+        return;
+    }
+    if (virtualGears()) {
         if (direction > 0)
             shiftUp();
         else
@@ -583,6 +693,7 @@ bool RlvSession::start()
     if (!wasReady)
         m_speed = 0;
     m_lastSent = -1;
+    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
     setState(State::Running);
     applyTarget(true);
     emit positionChanged();
@@ -747,21 +858,42 @@ void RlvSession::onTimer()
     process(int(m_clock.restart()));
 }
 
+void RlvSession::integratePower(double watts, double dt)
+{
+    // m·dv/dt = P·η/v − F(v): the kinetic energy follows the rider's power,
+    // so the speed changes smoothly and settles at road::speedForPower().
+    const road::Model model = roadModel(effectiveGradePercent());
+    const double mass = model.massKg + kRotatingMassKg;
+    const double p = std::max(0.0, watts) * model.efficiency;
+    const int steps = std::max(1, int(std::ceil(dt / kIntegrationStepSec - 1e-9)));
+    const double h = dt / steps;
+    for (int i = 0; i < steps; ++i) {
+        const double drive = p / std::max(m_speed, kMinDriveSpeedMps);
+        const double a = (drive - road::resistance(model, m_speed)) / mass;
+        m_speed = std::clamp(m_speed + a * h, 0.0, road::kMaxSpeedMps);
+    }
+    if (m_speed < 0.3 && p <= 0 && model.gradePercent >= 0)
+        m_speed = 0;
+}
+
 void RlvSession::updateModel(double dt)
 {
     const int cad = m_hub->cadence();
     const int power = m_hub->power();
     m_cadSmooth += (cad - m_cadSmooth) * std::min(1.0, dt / kCadenceSmoothingSec);
 
+    if (!virtualGears()) {   // sim / ERG: speed from power
+        integratePower(power >= kStartPowerWatts || m_speed > 0 ? power : 0, dt);
+        return;
+    }
     const road::Model model = roadModel(effectiveGradePercent());
     const double roll = std::clamp(m_speed - road::coastDeceleration(model, m_speed) * dt, 0.0, road::kMaxSpeedMps);
-    if (m_mode == Mode::Gears && cad >= kCoastCadenceRpm) {
+    if (cad >= kCoastCadenceRpm) {
         const double pedal = gearing().virtualSpeed(cad);
         // downhill the bike may roll faster than the pedals turn it
         m_speed = model.gradePercent < 0 ? std::max(pedal, roll) : pedal;
-    } else if (power >= kStartPowerWatts && (m_mode == Mode::Power || cad <= 0)) {
-        const double v = road::speedForPower(model, power);
-        m_speed += (v - m_speed) * std::min(1.0, dt / 2.0);
+    } else if (power >= kStartPowerWatts && cad <= 0) {
+        integratePower(power, dt);   // trainer without cadence
     } else {
         m_speed = roll;
         if (m_speed < 0.3 && model.gradePercent >= 0)
@@ -864,7 +996,7 @@ void RlvSession::recordUpTo(int second)
         s.power = m_hub->power();
         s.cadence = m_hub->cadence();
         s.heartRate = m_hub->heartRate();
-        s.targetPower = 0;
+        s.targetPower = m_mode == Mode::Erg && m_lastSent > 0 ? m_lastSent : 0;
         s.speedMps = m_speed;
         m_samples.append(s);
         m_energyJ += s.power;
@@ -885,7 +1017,7 @@ qint64 RlvSession::saveRide()
     r.workoutName = QStringLiteral("RLV: %1").arg(m_route.name());
     r.startedAt = m_startedAt;
     r.blocks = 0;
-    r.ergMode = false;
+    r.ergMode = m_mode == Mode::Erg;
     r.sport = sport::cycling();
     r.ftp = p.ftpFor(r.sport);
     r.distanceM = riddenMeters();

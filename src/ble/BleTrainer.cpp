@@ -34,7 +34,7 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     m_controlRetry.setSingleShot(true);
     m_controlRetry.setInterval(3000);
     connect(&m_controlRetry, &QTimer::timeout, this, [this] {
-        if (!m_hasControl && (m_pendingTarget >= 0 || m_pendingFreeRide))
+        if (!m_hasControl && m_pending)
             requestControl();
     });
 
@@ -104,7 +104,9 @@ QStringList BleTrainer::capabilities() const
         caps << QStringLiteral("Cadence");
     if (m_features.powerTarget)
         caps << QStringLiteral("ERG Control");
-    if (m_features.simulation || m_features.resistanceTarget)
+    if (simulationSupport() == 1)
+        caps << QStringLiteral("Gradient Simulation");
+    if ((m_features.simulation && !m_simRejected) || m_features.resistanceTarget)
         caps << QStringLiteral("Free Ride");
     if (m_features.heartRate)
         caps << QStringLiteral("Heart Rate");
@@ -142,8 +144,10 @@ void BleTrainer::onRead(const QBluetoothUuid &uuid, const QByteArray &value)
         if (auto f = ftms::parseFeatures(value)) {
             m_features = *f;
             m_featuresKnown = true;
-            emit logMessage(QStringLiteral("FTMS capabilities detected"), true);
+            emit logMessage(QStringLiteral("FTMS capabilities detected%1")
+                                .arg(f->simulation ? QString() : QStringLiteral(" (no gradient simulation)")), true);
             emit capabilitiesChanged();
+            emit simulationSupportChanged();
         }
     }
 }
@@ -166,12 +170,50 @@ void BleTrainer::scheduleControlRetry()
 
 void BleTrainer::restorePendingCommand()
 {
-    if (m_lastWasFreeRide) {
-        m_pendingFreeRide = true;
-        m_pendingTarget = -1;
-    } else if (m_lastTarget >= 0) {
-        m_pendingTarget = m_lastTarget;
-        m_pendingFreeRide = false;
+    if (m_lastRequest != Request::None)
+        m_pending = true;
+}
+
+void BleTrainer::sendLastRequest()
+{
+    m_pending = false;
+    switch (m_lastRequest) {
+    case Request::None: break;
+    case Request::Target: setTargetPower(m_lastTarget); break;
+    case Request::FreeRide: setFreeRide(); break;
+    case Request::Simulation:
+        setSimulation(m_lastSim.grade, m_lastSim.wind, m_lastSim.crr, m_lastSim.cw);
+        break;
+    }
+}
+
+int BleTrainer::simulationSupport() const
+{
+    if (m_simRejected)
+        return 0;
+    if (m_featuresKnown)
+        return m_features.simulation ? 1 : 0;
+    return -1;
+}
+
+void BleTrainer::markSimulationRejected()
+{
+    if (m_simRejected)
+        return;
+    m_simRejected = true;
+    emit logMessage(QStringLiteral("%1 does not support gradient simulation").arg(m_name), false);
+    emit simulationSupportChanged();
+    emit capabilitiesChanged();
+}
+
+void BleTrainer::dropQueuedControlCommands()
+{
+    // Only the latest resistance command matters: drop queued, unsent ones.
+    for (int i = m_queue.size() - 1; i >= 0; --i) {
+        const quint8 op = opOf(m_queue.at(i));
+        if (op == quint8(ftms::OpCode::SetTargetPower) || op == quint8(ftms::OpCode::SetIndoorBikeSimulation)
+            || op == quint8(ftms::OpCode::SetTargetResistance))
+            m_queue.removeAt(i);
     }
 }
 
@@ -223,13 +265,8 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
                         m_hasControl);
         if (m_hasControl) {
             m_queue.prepend(ftms::startOrResume());
-            if (m_pendingTarget >= 0) {
-                const int w = m_pendingTarget;
-                m_pendingTarget = -1;
-                setTargetPower(w);
-            } else if (m_pendingFreeRide) {
-                setFreeRide();
-            }
+            if (m_pending)
+                sendLastRequest();
         } else {
             scheduleControlRetry();
         }
@@ -242,6 +279,13 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             m_queue.clear();
             restorePendingCommand();
             requestControl();
+        } else if (op == ftms::OpCode::SetIndoorBikeSimulation
+                   && r->result == quint8(ftms::ResultCode::NotSupported)) {
+            // No gradient simulation: the app falls back (virtual gears via
+            // ERG); a free ride uses a resistance level instead.
+            markSimulationRejected();
+            if (m_lastRequest == Request::FreeRide)
+                sendFreeRideCommand();
         } else {
             emit logMessage(QStringLiteral("Trainer command 0x%1 failed: %2")
                                 .arg(r->requestOpCode, 2, 16, QLatin1Char('0'))
@@ -253,38 +297,50 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
 
 void BleTrainer::setTargetPower(int watts)
 {
+    m_lastRequest = Request::Target;
     m_lastTarget = watts;
-    m_lastWasFreeRide = false;
-    m_pendingFreeRide = false;
     if (!m_hasControl) {
-        m_pendingTarget = watts;
+        m_pending = true;
         requestControl();   // no-op until the control point is ready
         return;
     }
-    // Only the latest target matters: drop queued, unsent targets.
-    for (int i = m_queue.size() - 1; i >= 0; --i) {
-        if (opOf(m_queue.at(i)) == quint8(ftms::OpCode::SetTargetPower))
-            m_queue.removeAt(i);
-    }
+    m_pending = false;
+    dropQueuedControlCommands();
     enqueue(ftms::setTargetPower(watts));
 }
 
 void BleTrainer::setFreeRide()
 {
-    m_lastWasFreeRide = true;
-    m_pendingTarget = -1;
+    m_lastRequest = Request::FreeRide;
     if (!m_hasControl) {
-        m_pendingFreeRide = true;
+        m_pending = true;
         requestControl();
         return;
     }
-    m_pendingFreeRide = false;
+    m_pending = false;
+    dropQueuedControlCommands();
     sendFreeRideCommand();
+}
+
+void BleTrainer::setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
+{
+    m_lastRequest = Request::Simulation;
+    m_lastSim = { gradePercent, windSpeedMps, crr, cwKgPerM };
+    if (simulationSupport() == 0)
+        return;   // the session falls back to virtual gears (ERG)
+    if (!m_hasControl) {
+        m_pending = true;
+        requestControl();
+        return;
+    }
+    m_pending = false;
+    dropQueuedControlCommands();
+    enqueue(ftms::setIndoorBikeSimulation(windSpeedMps, gradePercent, crr, cwKgPerM));
 }
 
 void BleTrainer::sendFreeRideCommand()
 {
-    if (!m_featuresKnown || m_features.simulation) {
+    if (simulationSupport() != 0) {
         // Flat road: no wind, 0% grade, typical rolling resistance and drag.
         enqueue(ftms::setIndoorBikeSimulation(0.0, 0.0, 0.004, 0.51));
     } else if (m_features.resistanceTarget) {

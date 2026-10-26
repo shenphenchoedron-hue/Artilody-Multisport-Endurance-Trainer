@@ -434,9 +434,12 @@ ApplicationWindow {
         onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(-10) : FreeRide.adjustGrade(-0.5)
     }
 
-    // Video Ride page: ↑ / ↓ shift (Gears) or ±10 % difficulty (Power),
-    // Shift + ↑ / ↓ front shift, PgUp / PgDn difficulty ±10 %, Space start /
-    // pause / resume (not while typing or while a dialog or menu has the keyboard).
+    // Video Ride page, per resistance mode:
+    //   Simulation:    ↑ / ↓ and PgUp / PgDn trainer difficulty ±10 %
+    //   Virtual gears: ↑ / ↓ shift, Shift + ↑ / ↓ front shift, PgUp / PgDn difficulty ±10 %
+    //   ERG:           ↑ / ↓ target ±5 W, PgUp / PgDn ±10 W
+    // Space start / pause / resume (not while typing or while a dialog or
+    // menu has the keyboard).
     readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
     Shortcut {
         sequences: ["Space"]
@@ -446,31 +449,31 @@ ApplicationWindow {
     Shortcut {
         sequences: ["Up", "+", "="]
         enabled: window.videoKeys
-        onActivated: Rlv.controllerShift(1)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(5) : Rlv.controllerShift(1)
     }
     Shortcut {
         sequences: ["Down", "-"]
         enabled: window.videoKeys
-        onActivated: Rlv.controllerShift(-1)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-5) : Rlv.controllerShift(-1)
     }
     Shortcut {
         sequence: "Shift+Up"
-        enabled: window.videoKeys && Rlv.mode === "gears"
+        enabled: window.videoKeys && Rlv.virtualGears
         onActivated: Rlv.shiftFrontUp()
     }
     Shortcut {
         sequence: "Shift+Down"
-        enabled: window.videoKeys && Rlv.mode === "gears"
+        enabled: window.videoKeys && Rlv.virtualGears
         onActivated: Rlv.shiftFrontDown()
     }
     Shortcut {
         sequence: "PgUp"
         enabled: window.videoKeys
-        onActivated: Rlv.adjustDifficulty(10)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(10) : Rlv.adjustDifficulty(10)
     }
     Shortcut {
         sequence: "PgDown"
         enabled: window.videoKeys
-        onActivated: Rlv.adjustDifficulty(-10)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-10) : Rlv.adjustDifficulty(-10)
     }
 }

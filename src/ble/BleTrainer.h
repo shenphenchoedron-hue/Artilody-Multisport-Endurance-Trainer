@@ -30,6 +30,8 @@ public:
 
     void setTargetPower(int watts) override;
     void setFreeRide() override;
+    void setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM) override;
+    int simulationSupport() const override;
     QStringList capabilities() const override;
     bool supportsControl() const override;
 
@@ -44,7 +46,10 @@ private:
     void requestControl();
     void scheduleControlRetry();
     void restorePendingCommand();
+    void sendLastRequest();
     void sendFreeRideCommand();
+    void dropQueuedControlCommands();
+    void markSimulationRejected();
     void enqueue(const QByteArray &command);
     void sendNext();
 
@@ -56,10 +61,17 @@ private:
     bool m_ready = false;             // control point indications configured
     bool m_hasControl = false;
     bool m_controlRequested = false;
-    int m_pendingTarget = -1;         // ERG target waiting for control
-    bool m_pendingFreeRide = false;
-    int m_lastTarget = -1;            // last command requested by the app …
-    bool m_lastWasFreeRide = false;   // … so it can be re-sent after a rejection
+    // Last command requested by the app, re-sent after control was (re)gained
+    // or the link came back.
+    enum class Request { None, Target, FreeRide, Simulation };
+    Request m_lastRequest = Request::None;
+    int m_lastTarget = -1;
+    struct SimParams
+    {
+        double grade = 0, wind = 0, crr = 0.004, cw = 0.51;
+    } m_lastSim;
+    bool m_pending = false;           // m_lastRequest waits for control
+    bool m_simRejected = false;       // 0x11 answered "Op Code not supported"
     QQueue<QByteArray> m_queue;
     QByteArray m_inFlight;            // command written, waiting for its response
     bool m_busy = false;

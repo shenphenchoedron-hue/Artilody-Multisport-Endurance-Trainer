@@ -180,6 +180,10 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
         if (m_trainer && !m_ergTest)
             m_trainer->setFreeRide();
     });
+    connect(m_hub, &SensorHub::simulationRequested, this, [this](double grade, double wind, double crr, double cw) {
+        if (m_trainer && !m_ergTest)
+            m_trainer->setSimulation(grade, wind, crr, cw);
+    });
 
     // keeps "Last scan: x min ago" fresh
     m_uiTimer.setInterval(30000);
@@ -1414,6 +1418,10 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
             sim->setLoad(watts);
     });
     connect(t, &TrainerDevice::capabilitiesChanged, this, &DeviceManager::devicesChanged);
+    auto simSupport = [this, t] { m_hub->setTrainerSimulationSupport(t->simulationSupport()); };
+    connect(t, &TrainerDevice::simulationSupportChanged, this, simSupport);
+    connect(t, &TrainerDevice::capabilitiesChanged, this, simSupport);
+    m_hub->setTrainerSimulationSupport(-1);   // known once connected
     connect(t, &TrainerDevice::rssiChanged, this, [this, t](int rssi) {
         m_trainers.setRssi(t->id(), rssi);
         emit devicesChanged();
@@ -1426,6 +1434,8 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
     });
     connect(t, &TrainerDevice::stateChanged, this, [this, t](LinkState s) {
         m_trainers.setState(t->id(), int(s));
+        if (s == LinkState::Connected)
+            m_hub->setTrainerSimulationSupport(t->simulationSupport());
         m_hub->setTrainerConnected(s == LinkState::Connected);
         if (s != LinkState::Connected && m_ergTest) {
             m_ergTest = false;
@@ -1509,6 +1519,7 @@ void DeviceManager::releaseTrainer()
     t->disconnectDevice();
     t->deleteLater();
     m_hub->setTrainerConnected(false);
+    m_hub->setTrainerSimulationSupport(-1);
     if (m_ergTest) {
         m_ergTest = false;
         emit ergTestChanged();
@@ -1622,6 +1633,8 @@ void DeviceManager::stopErgTest()
     if (m_trainer) {
         if (m_hub->requestedTarget() > 0)
             m_trainer->setTargetPower(m_hub->requestedTarget());
+        else if (m_hub->simulationActive())
+            m_trainer->setSimulation(m_hub->requestedGrade(), 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
         else
             m_trainer->setFreeRide();
     }

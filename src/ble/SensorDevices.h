@@ -58,6 +58,16 @@ public:
 
     virtual void setTargetPower(int watts) = 0;
     virtual void setFreeRide() = 0;          // release ERG, flat road simulation
+    // Gradient simulation (FTMS Set Indoor Bike Simulation Parameters, 0x11):
+    // the trainer computes its resistance from grade, wind, Crr and Cw (kg/m)
+    // and the wheel speed. Default: not supported (ignored).
+    virtual void setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
+    {
+        Q_UNUSED(gradePercent) Q_UNUSED(windSpeedMps) Q_UNUSED(crr) Q_UNUSED(cwKgPerM)
+    }
+    // 1 = supported, 0 = not supported (feature bit missing or the command
+    // was rejected), -1 = not known yet.
+    virtual int simulationSupport() const { return 0; }
     virtual QStringList capabilities() const = 0;
     virtual bool supportsControl() const = 0;
 
@@ -67,6 +77,7 @@ signals:
     void speedMeasured(double kmh);
     void heartRateMeasured(int bpm);         // some trainers forward HR
     void capabilitiesChanged();
+    void simulationSupportChanged();
     // The connected device turned out to be a rowing machine (Concept2 rowing
     // service, or FTMS Rower Data without Indoor Bike Data).
     void rowerDetected();

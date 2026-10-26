@@ -30,6 +30,12 @@ class SensorHub : public QObject
     Q_PROPERTY(bool heartRateConnected READ heartRateConnected NOTIFY heartRateConnectedChanged)
     Q_PROPERTY(int requestedTarget READ requestedTarget NOTIFY requestedTargetChanged)
     Q_PROPERTY(bool ergActive READ ergActive NOTIFY requestedTargetChanged)
+    // Gradient simulation requested (FTMS 0x11) and the grade last requested.
+    Q_PROPERTY(bool simulationActive READ simulationActive NOTIFY requestedTargetChanged)
+    Q_PROPERTY(double requestedGrade READ requestedGrade NOTIFY requestedTargetChanged)
+    // 1 = the trainer supports gradient simulation, 0 = it does not (feature
+    // bit missing or command rejected), -1 = unknown / no trainer.
+    Q_PROPERTY(int trainerSimulationSupport READ trainerSimulationSupport NOTIFY trainerSimulationSupportChanged)
 
 public:
     explicit SensorHub(QObject *parent = nullptr);
@@ -47,6 +53,16 @@ public:
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
     bool ergActive() const { return m_requestedTarget > 0; }
+    bool simulationActive() const { return m_simActive; }
+    double requestedGrade() const { return m_simActive ? m_simGrade : 0.0; }
+    int trainerSimulationSupport() const { return m_simSupport; }
+    bool trainerSimulationUnsupported() const { return m_simSupport == 0; }
+    void setTrainerSimulationSupport(int support);   // set by the device layer
+
+    // FTMS Set Indoor Bike Simulation Parameters defaults, as sent by Zwift
+    // (observed: 11 00 00 <grade> 28 33 -> Crr 0.0040, Cw 0.51 kg/m).
+    static constexpr double kDefaultCrr = 0.004;
+    static constexpr double kDefaultCw = 0.51;
 
     // Values older than this are treated as 0 (sensor dropped out).
     void setStaleTimeoutMs(int ms);
@@ -69,6 +85,9 @@ public slots:
     // Control requests (consumed by the device layer).
     void requestTargetPower(int watts);
     void requestFreeRide();
+    // Gradient simulation: the trainer makes climbs harder by itself.
+    void requestSimulation(double gradePercent, double windSpeedMps = 0.0, double crr = kDefaultCrr,
+                           double cwKgPerM = kDefaultCw);
 
 signals:
     void powerChanged();
@@ -80,9 +99,11 @@ signals:
     void trainerConnectedChanged();
     void heartRateConnectedChanged();
     void requestedTargetChanged();
+    void trainerSimulationSupportChanged();
 
     void targetPowerRequested(int watts);
     void freeRideRequested();
+    void simulationRequested(double gradePercent, double windSpeedMps, double crr, double cwKgPerM);
 
 private:
     int m_power = 0;
@@ -92,6 +113,9 @@ private:
     bool m_trainerConnected = false;
     bool m_hrConnected = false;
     int m_requestedTarget = 0;
+    bool m_simActive = false;
+    double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
+    int m_simSupport = -1;
     int m_staleMs = 3000;
     QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge;
 

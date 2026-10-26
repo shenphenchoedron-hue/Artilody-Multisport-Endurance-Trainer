@@ -121,6 +121,8 @@ void SensorHub::setTrainerConnected(bool connected)
     } else if (m_requestedTarget > 0) {
         // re-apply ERG target after (re)connect
         emit targetPowerRequested(m_requestedTarget);
+    } else if (m_simActive) {
+        emit simulationRequested(m_simGrade, m_simWind, m_simCrr, m_simCw);
     }
 }
 
@@ -149,11 +151,21 @@ void SensorHub::expireStale()
     }
 }
 
+void SensorHub::setTrainerSimulationSupport(int support)
+{
+    support = std::clamp(support, -1, 1);
+    if (support == m_simSupport)
+        return;
+    m_simSupport = support;
+    emit trainerSimulationSupportChanged();
+}
+
 void SensorHub::requestTargetPower(int watts)
 {
     watts = std::max(0, watts);
-    if (watts != m_requestedTarget) {
+    if (watts != m_requestedTarget || m_simActive) {
         m_requestedTarget = watts;
+        m_simActive = false;
         emit requestedTargetChanged();
     }
     emit targetPowerRequested(watts);
@@ -161,11 +173,28 @@ void SensorHub::requestTargetPower(int watts)
 
 void SensorHub::requestFreeRide()
 {
-    if (m_requestedTarget != 0) {
+    if (m_requestedTarget != 0 || m_simActive) {
         m_requestedTarget = 0;
+        m_simActive = false;
         emit requestedTargetChanged();
     }
     emit freeRideRequested();
+}
+
+void SensorHub::requestSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
+{
+    if (!std::isfinite(gradePercent))
+        gradePercent = 0;
+    const bool changed = m_requestedTarget != 0 || !m_simActive || gradePercent != m_simGrade;
+    m_requestedTarget = 0;
+    m_simActive = true;
+    m_simGrade = gradePercent;
+    m_simWind = windSpeedMps;
+    m_simCrr = crr;
+    m_simCw = cwKgPerM;
+    if (changed)
+        emit requestedTargetChanged();
+    emit simulationRequested(gradePercent, windSpeedMps, crr, cwKgPerM);
 }
 
 } // namespace watt

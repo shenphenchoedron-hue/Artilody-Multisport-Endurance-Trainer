@@ -21,6 +21,18 @@ SimulatedTrainer::SimulatedTrainer(QObject *parent)
 {
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, &SimulatedTrainer::step);
+    m_simSupported = qEnvironmentVariableIntValue("WATT_SIM_TRAINER_NO_SIM") <= 0;
+}
+
+void SimulatedTrainer::setSimulationSupported(bool on)
+{
+    if (m_simSupported == on)
+        return;
+    m_simSupported = on;
+    if (!on)
+        m_sim = false;
+    emit capabilitiesChanged();
+    emit simulationSupportChanged();
 }
 
 void SimulatedTrainer::connectDevice()
@@ -51,32 +63,102 @@ void SimulatedTrainer::disconnectDevice()
 void SimulatedTrainer::setTargetPower(int watts)
 {
     m_erg = true;
+    m_sim = false;
     m_target = watts;
 }
 
 void SimulatedTrainer::setFreeRide()
 {
     m_erg = false;
+    m_sim = false;
+}
+
+void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
+{
+    if (!m_simSupported)
+        return;   // like a trainer answering "Op Code not supported"
+    if (!m_sim) {
+        // start in a middle gear; the rider shifts from there
+        m_wheelSpeed = 0;
+        m_gear = 10;
+    }
+    m_erg = false;
+    m_sim = true;
+    m_grade = gradePercent;
+    m_wind = windSpeedMps;
+    m_crr = crr;
+    m_cw = cwKgPerM;
 }
 
 QStringList SimulatedTrainer::capabilities() const
 {
-    return { QStringLiteral("Power"), QStringLiteral("Cadence"), QStringLiteral("ERG Control"),
-             QStringLiteral("Free Ride") };
+    QStringList caps { QStringLiteral("Power"), QStringLiteral("Cadence"), QStringLiteral("ERG Control") };
+    if (m_simSupported)
+        caps << QStringLiteral("Gradient Simulation");
+    caps << QStringLiteral("Free Ride");
+    return caps;
+}
+
+int SimulatedTrainer::gearCount() { return 22; }
+
+double SimulatedTrainer::gearRatio(int index) const
+{
+    // 34×28 (1.21) .. 50×11 (4.55), evenly spaced on a log scale
+    const double lo = 34.0 / 28.0, hi = 50.0 / 11.0;
+    const double t = std::clamp(index, 0, gearCount() - 1) / double(gearCount() - 1);
+    return lo * std::pow(hi / lo, t);
+}
+
+double SimulatedTrainer::brakePower(double v) const
+{
+    const double theta = std::atan(m_grade / 100.0);
+    const double air = v + m_wind;
+    const double force = m_crr * kSimMassKg * 9.80665 * std::cos(theta) + kSimMassKg * 9.80665 * std::sin(theta)
+                         + 0.5 * m_cw * air * std::abs(air);
+    return std::max(0.0, force * v);
+}
+
+double SimulatedTrainer::riderGoal() const
+{
+    const double base = m_freeRidePower + 15.0 * std::sin(m_t / 40.0);
+    return std::clamp(base + kSimWattsPerPercent * m_grade, 0.5 * base, 1.8 * base);
 }
 
 void SimulatedTrainer::step()
 {
     ++m_t;
-    const double goal = m_erg && m_target > 0
-                            ? m_target
-                            : m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
-    m_power += (goal - m_power) * 0.45;
-    const double shown = std::max(0.0, m_power + noise(4.0));
     m_cadence += ((85.0 + 4.0 * std::sin(m_t / 23.0)) - m_cadence) * 0.5;
+    double goal;
+    if (m_erg && m_target > 0) {
+        goal = m_target;
+    } else if (m_sim) {
+        // the brake decides the power; the rider shifts one gear per second
+        // (up to three when far off) towards the effort he wants
+        const double want = riderGoal();
+        auto powerIn = [this](int g) { return brakePower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
+        for (int i = 0; i < 3; ++i) {
+            const double p = powerIn(m_gear);
+            const bool farOff = p > want * 1.3 || p < want * 0.7;
+            if (p > want * 1.08 && m_gear > 0 && std::abs(powerIn(m_gear - 1) - want) < std::abs(p - want))
+                --m_gear;
+            else if (p < want * 0.92 && m_gear < gearCount() - 1
+                     && (powerIn(m_gear + 1) <= want || std::abs(powerIn(m_gear + 1) - want) < std::abs(p - want)))
+                ++m_gear;
+            else
+                break;
+            if (!farOff)
+                break;
+        }
+        m_wheelSpeed = m_cadence / 60.0 * gearRatio(m_gear) * kWheelCircumferenceM;
+        goal = brakePower(m_wheelSpeed);
+    } else {
+        goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
+    }
+    m_power += (goal - m_power) * (m_sim ? 0.7 : 0.45);
+    const double shown = std::max(0.0, m_power + (m_noise ? noise(4.0) : 0.0));
     emit powerMeasured(int(std::lround(shown)));
-    emit cadenceMeasured(std::max(0.0, m_cadence + noise(1.0)));
-    emit speedMeasured(std::cbrt(std::max(0.0, shown)) * 5.2);
+    emit cadenceMeasured(std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0)));
+    emit speedMeasured(m_sim ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2);
 }
 
 // ---------------------------------------------------------------------------

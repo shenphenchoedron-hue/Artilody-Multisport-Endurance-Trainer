@@ -27,7 +27,13 @@ Item {
     readonly property bool locked: Rlv.active || Rlv.waiting
     // only one session at a time (Rlv refuses to start otherwise)
     readonly property bool otherSession: (Training.armedOrActive && !Training.waiting) || Rowing.active || FreeRide.active
-    readonly property bool gears: Rlv.mode === "gears"
+    // resistance mode: "sim" (classic gradient simulation, default), "gears"
+    // (virtual gears via ERG) or "erg" (fixed watts). gears is true whenever
+    // virtual gears are in use, also as the fallback of "sim" on a trainer
+    // without gradient simulation.
+    readonly property bool gears: Rlv.virtualGears
+    readonly property bool simMode: Rlv.mode === "sim" && !Rlv.simulationFallback
+    readonly property bool ergMode: Rlv.mode === "erg"
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
     property bool audioOn: false
     property bool plusDown: false
@@ -362,8 +368,10 @@ Item {
             }
         }
         function onShifted(direction) {
-            var b = direction > 0 ? harderButton : easierButton
-            b.pulse()
+            var b = page.ergMode ? (direction > 0 ? resistanceCard.ergPlus10 : resistanceCard.ergMinus10)
+                  : page.gears ? (direction > 0 ? harderButton : easierButton) : null
+            if (b)
+                b.pulse()
         }
     }
     Connections {
@@ -576,7 +584,8 @@ Item {
                     showPowerAverage: true
                     value: Rlv.displayWatts
                     unit: "W"
-                    footer: page.gears && Rlv.gearTargetWatts > 0 && Rlv.active ? "Target: " + Rlv.gearTargetWatts + " W"
+                    footer: page.ergMode ? "Target: " + Rlv.targetWatts + " W"
+                            : page.gears && Rlv.gearTargetWatts > 0 && Rlv.active ? "Target: " + Rlv.gearTargetWatts + " W"
                             : "Avg: " + Rlv.avgWatts + " W"
                 }
                 RowingMetric {
@@ -588,7 +597,9 @@ Item {
                     iconColor: Theme.cyan
                     value: Rlv.cadence
                     unit: "RPM"
-                    footer: Rlv.active && Rlv.coasting ? "Coasting" : page.gears ? "Gear " + Rlv.gearLabel : "Power mode"
+                    footer: Rlv.active && Rlv.coasting ? "Coasting"
+                            : page.gears ? "Gear " + Rlv.gearLabel
+                            : page.ergMode ? "ERG mode" : "Shift on your bike"
                 }
                 RowingMetric {
                     Layout.fillWidth: true
@@ -680,7 +691,7 @@ Item {
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: page.st === "ready" ? "Waiting for pedaling…"
-                                      : page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  " + (page.gears ? "Gears" : "Power")
+                                      : page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  " + (page.gears ? "Virtual gears" : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
                                       : page.st === "paused" ? "Paused"
                                       : page.st === "finished" ? (Rlv.completed ? "Route complete" : "Finished")
                                       : "Preview"
@@ -703,7 +714,7 @@ Item {
                     radius: 12
                     color: Qt.rgba(0, 0, 0, 0.58)
                     border.width: 2
-                    border.color: page.gradeColor(Rlv.gradePercent)
+                    border.color: page.gradeColor(Rlv.effectiveGradePercent)
                     Column {
                         id: gradeCol
                         anchors.centerIn: parent
@@ -713,20 +724,21 @@ Item {
                             Icon {
                                 name: "mountain"
                                 size: 20
-                                color: page.gradeColor(Rlv.gradePercent)
+                                color: page.gradeColor(Rlv.effectiveGradePercent)
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
-                                text: page.gradeText(Rlv.gradePercent)
+                                // the grade you ride (route × difficulty)
+                                text: page.gradeText(Rlv.effectiveGradePercent)
                                 color: "white"
                                 font.pixelSize: 28
                                 font.weight: Font.Black
                             }
                         }
                         Text {
-                            visible: Rlv.difficultyPercent < 100
+                            visible: Math.abs(Rlv.effectiveGradePercent - Rlv.gradePercent) >= 0.05
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "feels " + page.gradeText(Rlv.effectiveGradePercent)
+                            text: "route " + page.gradeText(Rlv.gradePercent)
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: 13
                         }
@@ -787,8 +799,10 @@ Item {
                     spacing: 8
                     Repeater {
                         model: [
-                            { icon: page.gears ? "cog" : "bolt", text: page.gears ? Rlv.gearLabel : "Power mode", show: true },
-                            { icon: "mountain", text: "Difficulty " + Rlv.difficultyPercent + " %", show: true },
+                            { icon: page.gears ? "cog" : page.ergMode ? "bolt" : "mountain",
+                              text: page.gears ? Rlv.gearLabel : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation",
+                              show: true },
+                            { icon: "mountain", text: "Difficulty " + Rlv.difficultyPercent + " %", show: !page.ergMode },
                             { icon: "play", text: "Video × " + Rlv.playbackRate.toFixed(2), show: Rlv.active }
                         ]
                         Rectangle {
@@ -1412,9 +1426,11 @@ Item {
                 }
             }
 
-            // resistance: gears / power, difficulty
+            // resistance: simulation (classic RLV) / virtual gears / ERG
             Card {
                 id: resistanceCard
+                property Item ergPlus10: null
+                property Item ergMinus10: null
                 width: parent.width
                 height: resCol.y + resCol.implicitHeight + 16
                 title: "Resistance"
@@ -1429,16 +1445,72 @@ Item {
                     SegmentedControl {
                         width: parent.width
                         height: 44
-                        fontSize: 15
+                        fontSize: 14
+                        segmentPadding: 9
                         options: [
-                            { value: "gears", label: "Gears", icon: "cog" },
-                            { value: "power", label: "Power", icon: "bolt" }
+                            { value: "sim", label: "Simulation" },
+                            { value: "gears", label: "Virtual gears" },
+                            { value: "erg", label: "ERG" }
                         ]
                         value: Rlv.mode
                         onActivated: (v) => Rlv.mode = v
                     }
+                    Text {
+                        width: parent.width
+                        text: Rlv.mode === "sim" ? "Climbs get harder like on the road – shift on your bike."
+                              : Rlv.mode === "erg" ? "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
+                              : "The app shifts for you – use Easier/Harder or Zwift Click."
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
+                    }
 
-                    // gears
+                    // simulation not possible on this trainer
+                    Rectangle {
+                        visible: Rlv.simulationFallback
+                        width: parent.width
+                        height: fallbackRow.implicitHeight + 16
+                        radius: 8
+                        color: Theme.cardStrong
+                        border.color: Theme.warning
+                        Row {
+                            id: fallbackRow
+                            x: 10; y: 8
+                            width: parent.width - 20
+                            spacing: 8
+                            Icon { name: "info"; size: 18; color: Theme.warningText }
+                            Text {
+                                width: parent.width - 26
+                                text: "Your trainer doesn't support gradient simulation – using virtual gears instead."
+                                color: Theme.text
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+
+                    // simulation: what the trainer gets
+                    Item {
+                        visible: page.simMode
+                        width: parent.width
+                        height: 26
+                        Text {
+                            text: "Grade sent to trainer"
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
+                            color: Rlv.simulationActive ? page.gradeColor(Rlv.simulationGradePercent) : Theme.textMuted
+                            font.pixelSize: 18
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    // virtual gears
                     RowLayout {
                         visible: page.gears
                         width: parent.width
@@ -1498,22 +1570,122 @@ Item {
                         onClicked: page.openGearSetup()
                     }
                     Text {
-                        visible: !page.gears
+                        visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
                         width: parent.width
-                        text: "Your speed comes from your power on the route's gradient. "
-                              + "The trainer keeps its own resistance – no shifting."
+                        text: "No cadence from your trainer: it rides without virtual gears, and your speed follows your power."
                         color: Theme.textSecondary
-                        font.pixelSize: 14
+                        font.pixelSize: 13
                         wrapMode: Text.WordWrap
                     }
 
-                    Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
-
+                    // ERG: target watts
                     Item {
+                        visible: page.ergMode
+                        width: parent.width
+                        height: ergTarget.implicitHeight
+                        Row {
+                            id: ergTarget
+                            spacing: 6
+                            Text {
+                                id: ergValue
+                                text: Rlv.targetWatts
+                                color: Theme.warningText
+                                font.pixelSize: 54
+                                font.weight: Font.Black
+                                font.letterSpacing: -1
+                            }
+                            Text {
+                                text: "W"
+                                color: Theme.warningText
+                                font.pixelSize: 26
+                                font.weight: Font.Bold
+                                anchors.baseline: ergValue.baseline
+                            }
+                        }
+                        Column {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            Text {
+                                anchors.right: parent.right
+                                text: "Target power"
+                                color: Theme.textSecondary
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                readonly property int diff: Rlv.displayWatts - Rlv.targetWatts
+                                anchors.right: parent.right
+                                text: Rlv.displayWatts > 0 ? "Actual " + Rlv.displayWatts + " W" : "Actual – W"
+                                color: Rlv.displayWatts <= 0 ? Theme.textSecondary
+                                       : Math.abs(diff) <= Math.max(5, Rlv.targetWatts * 0.05) ? Theme.successText : Theme.warningText
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                    }
+                    GridLayout {
+                        visible: page.ergMode
+                        width: parent.width
+                        columns: 3
+                        rowSpacing: 8
+                        columnSpacing: 8
+                        Repeater {
+                            model: [-25, -10, -5, 5, 10, 25]
+                            ShiftButton {
+                                id: ergStep
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 50
+                                label: (modelData > 0 ? "+" : "−") + Math.abs(modelData)
+                                labelSize: 20
+                                Accessible.name: (modelData > 0 ? "Increase target by " : "Decrease target by ") + Math.abs(modelData) + " watts"
+                                tint: modelData > 0 ? Theme.orange : Theme.accent
+                                enabled: modelData > 0 ? Rlv.targetWatts < Rlv.maxTargetWatts : Rlv.targetWatts > Rlv.minTargetWatts
+                                onClicked: Rlv.adjustTargetWatts(modelData)
+                                Component.onCompleted: {
+                                    if (modelData === 10) resistanceCard.ergPlus10 = ergStep
+                                    else if (modelData === -10) resistanceCard.ergMinus10 = ergStep
+                                }
+                            }
+                        }
+                    }
+                    RowLayout {
+                        visible: page.ergMode
+                        width: parent.width
+                        spacing: 8
+                        AppTextField {
+                            id: ergEntry
+                            Layout.fillWidth: true
+                            placeholderText: "Exact target, " + Rlv.minTargetWatts + "–" + Rlv.maxTargetWatts + " W"
+                            font.pixelSize: 15
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 1; top: 9999 }
+                            onAccepted: ergSet.clicked()
+                        }
+                        AppButton {
+                            id: ergSet
+                            Layout.preferredHeight: 44
+                            text: "Set"
+                            fontSize: 15
+                            horizontalPadding: 16
+                            enabled: ergEntry.text.length > 0
+                            onClicked: {
+                                var v = parseInt(ergEntry.text)
+                                if (isNaN(v))
+                                    return
+                                Rlv.targetWatts = v
+                                ergEntry.text = ""
+                                ergEntry.focus = false
+                            }
+                        }
+                    }
+
+                    // difficulty (resistance modes only)
+                    Rectangle { visible: !page.ergMode; width: parent.width; height: 1; color: Theme.cardBorder }
+                    Item {
+                        visible: !page.ergMode
                         width: parent.width
                         height: 24
                         Text {
-                            text: "Difficulty"
+                            text: page.simMode ? "Trainer difficulty" : "Difficulty"
                             color: Theme.text
                             font.pixelSize: 16
                             anchors.verticalCenter: parent.verticalCenter
@@ -1528,6 +1700,7 @@ Item {
                         }
                     }
                     AppSlider {
+                        visible: !page.ergMode
                         width: parent.width
                         from: 0
                         to: 100
@@ -1538,6 +1711,7 @@ Item {
                         onMoved: Rlv.difficultyPercent = Math.round(value)
                     }
                     Text {
+                        visible: !page.ergMode
                         width: parent.width
                         text: Rlv.difficultyPercent >= 100
                               ? "100 % = the real gradients of the route. Lower values flatten climbs and descents."
@@ -1549,8 +1723,9 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
-                                         : "Keys: ↑ / ↓ or PgUp / PgDn difficulty  •  Space pause"
+                        text: page.ergMode ? "Keys: ↑ / ↓ ±5 W  •  PgUp / PgDn ±10 W  •  Space pause"
+                              : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
+                              : "Keys: ↑ / ↓ or PgUp / PgDn difficulty  •  Space pause"
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
@@ -1615,7 +1790,8 @@ Item {
                             }
                             Text {
                                 width: clickCol.width - 36
-                                text: page.gears ? "+ shift harder  •  − shift easier" : "+ / − difficulty ±10 %"
+                                text: page.gears ? "+ shift harder  •  − shift easier"
+                                      : page.ergMode ? "+ / − target ±10 W" : "+ / − trainer difficulty ±10 %"
                                 color: Theme.textSecondary
                                 font.pixelSize: 13
                                 elide: Text.ElideRight

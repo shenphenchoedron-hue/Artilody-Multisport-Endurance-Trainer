@@ -97,6 +97,54 @@ private slots:
         QCOMPARE(ftms::setIndoorBikeSimulation(0, -2.0, 0.004, 0.51).mid(3, 2), bytes({ 0x38, 0xFF }));
     }
 
+    void indoorBikeSimulationEncoding()
+    {
+        // grade -5.5 % = -550 = 0xFDDA (SInt16 LE), what Zwift sends for Crr/Cw
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, -5.5, 0.004, 0.51),
+                 bytes({ 0x11, 0x00, 0x00, 0xDA, 0xFD, 0x28, 0x33 }));
+        // the frame Zwift was logged sending: 11 00 00 ee 00 28 33 = +2.38 %
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, 2.38, 0.004, 0.51),
+                 bytes({ 0x11, 0x00, 0x00, 0xEE, 0x00, 0x28, 0x33 }));
+        // wind SInt16 0.001 m/s, rounding to the 0.01 % grade resolution
+        QCOMPARE(ftms::setIndoorBikeSimulation(-1.5, 0.004, 0.004, 0.51).mid(1, 4),
+                 bytes({ 0x24, 0xFA, 0x00, 0x00 }));
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, 10.0, 0.004, 0.51).mid(3, 2), bytes({ 0xE8, 0x03 }));
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, -10.0, 0.004, 0.51).mid(3, 2), bytes({ 0x18, 0xFC }));
+        // Crr/Cw UInt8 saturate
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, 0, 0.1, 9.0).mid(5, 2), bytes({ 0xFF, 0xFF }));
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, 0, -1, -1).mid(5, 2), bytes({ 0x00, 0x00 }));
+    }
+
+    void featureBitsForResistanceModes()
+    {
+        // target features: bit 3 power target only -> ERG but no simulation
+        auto f = ftms::parseFeatures(bytes({ 0x02, 0x40, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00 }));
+        QVERIFY(f);
+        QVERIFY(f->powerTarget);
+        QVERIFY(!f->simulation);
+        QVERIFY(!f->resistanceTarget);
+        // bit 13 simulation only (0x2000)
+        f = ftms::parseFeatures(bytes({ 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00 }));
+        QVERIFY(f);
+        QVERIFY(f->simulation);
+        QVERIFY(!f->powerTarget);
+        // bit 2 resistance target
+        f = ftms::parseFeatures(bytes({ 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 }));
+        QVERIFY(f && f->resistanceTarget && !f->simulation);
+        // 7 bytes: too short
+        QVERIFY(!ftms::parseFeatures(bytes({ 0x00, 0x00, 0x00, 0x00, 0x08, 0x20, 0x00 })));
+    }
+
+    void simulationRejectedResponse()
+    {
+        // "Op Code not supported" for 0x11 -> fallback
+        const auto r = ftms::parseControlPointResponse(bytes({ 0x80, 0x11, 0x02 }));
+        QVERIFY(r);
+        QCOMPARE(r->requestOpCode, quint8(ftms::OpCode::SetIndoorBikeSimulation));
+        QCOMPARE(r->result, quint8(ftms::ResultCode::NotSupported));
+        QVERIFY(!r->success());
+    }
+
     void controlPointResponse()
     {
         const auto ok = ftms::parseControlPointResponse(bytes({ 0x80, 0x05, 0x01 }));

@@ -14,7 +14,10 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <cmath>
 #include <functional>
+#include <limits>
+#include <optional>
 
 namespace watt {
 
@@ -30,8 +33,23 @@ class TrainingSession;
 // The rider moves along the GPS track of the selected route; the video
 // follows the rider's position.
 //
-// Resistance ("mode"):
-//   "gears" (default) - virtual shifting exactly like the Free Ride: the
+// Resistance ("mode", setting "rlv/mode"):
+//   "sim" (default) - classic RLV gradient simulation (like Tacx, Rouvy,
+//       Kinomap): the trainer itself makes climbs harder. The app sends the
+//       effective grade with FTMS Set Indoor Bike Simulation Parameters (op
+//       0x11) through SensorHub::requestSimulation(): wind 0 m/s, grade
+//       (0.01 %, clamped kMinSimGrade..kMaxSimGrade), Crr 0.0040 and Cw
+//       0.51 kg/m (SensorHub::kDefaultCrr/kDefaultCw, the values Zwift sends).
+//       Sent at the start/resume, then when the grade moved by
+//       >= kSimMinGradeChange but at most every kSimMinIntervalMs, and
+//       refreshed every kSimRefreshMs. The rider shifts on the real bike.
+//       Speed: from the measured power on the effective grade with inertia
+//       (integratePower(): m·dv/dt = P·η/v − F(v)), so it changes smoothly
+//       and settles at road::speedForPower(). If the trainer cannot simulate
+//       (SensorHub::trainerSimulationSupport() == 0: FTMS feature bit 13
+//       missing or 0x11 answered "Op Code not supported") the session uses
+//       virtual gears instead (simulationFallback, see "gears").
+//   "gears" - virtual shifting exactly like the Free Ride: the
 //       gear setup and the current gear are shared with FreeRide (setup
 //       dialog on the Free Ride page, Zwift Click). v = cadence/60 · ratio ·
 //       wheel circumference, the ERG target is the road power for v on the
@@ -41,13 +59,19 @@ class TrainingSession;
 //       kMaxWatts, released while coasting). While coasting, or when the
 //       road is faster than the pedals (descents), the speed follows the
 //       road physics (road::coastDeceleration) instead. A trainer without
-//       cadence falls back to speed from power (below).
-//   "power" - the trainer is left in free ride (its own resistance) and the
-//       speed comes from the measured power: v solves P(v) = watts on the
-//       effective grade (road::speedForPower, bisection).
+//       cadence is released and the speed comes from power (with inertia).
+//   "erg" - fixed watts: the trainer holds targetWatts (FTMS Set Target
+//       Power, kMinErgWatts..kMaxWatts, setting "rlv/ergWatts"); speed and
+//       video come from the power on the effective grade (with inertia), so
+//       climbs make the video slower, not the pedals heavier. Default when
+//       switching to ERG: the rider's current 3 s power while pedaling, else
+//       the last target, else 60 % FTP (rounded to 5 W).
+//   A stored "power" (old mode: trainer free, speed from power) is migrated
+//   to "sim".
 // effective grade = route grade at the rider's distance × difficultyPercent/100
-// (descents are scaled too). difficultyPercent 0..100, default 100, setting
-// "rlv/difficulty"; the mode is stored in "rlv/mode".
+// (descents are scaled too) in "sim" and "gears"; the real route grade in
+// "erg" (the difficulty is a resistance setting). difficultyPercent 0..100, default 100, setting
+// "rlv/difficulty".
 //
 // Video sync contract (QML: MediaPlayer + VideoOutput):
 //   * source: videoUrl.
@@ -138,8 +162,18 @@ class RlvSession : public QObject
 
     // resistance
     Q_PROPERTY(int difficultyPercent READ difficultyPercent WRITE setDifficulty NOTIFY difficultyChanged)
-    Q_PROPERTY(int targetWatts READ targetWatts NOTIFY targetChanged)            // last ERG target sent (0 = released)
+    Q_PROPERTY(int targetWatts READ targetWatts WRITE setTargetWatts NOTIFY targetChanged)   // ERG mode target
+    Q_PROPERTY(int minTargetWatts READ minTargetWatts CONSTANT)
+    Q_PROPERTY(int maxTargetWatts READ maxTargetWatts CONSTANT)
+    Q_PROPERTY(int sentTargetWatts READ sentTargetWatts NOTIFY targetChanged)    // last ERG target sent (0 = none)
     Q_PROPERTY(int gearTargetWatts READ gearTargetWatts NOTIFY targetChanged)
+    // sim mode: grade last sent to the trainer, and whether it is being sent
+    Q_PROPERTY(double simulationGradePercent READ simulationGradePercent NOTIFY targetChanged)
+    Q_PROPERTY(bool simulationActive READ simulationActive NOTIFY targetChanged)
+    // sim mode on a trainer without gradient simulation: virtual gears instead
+    Q_PROPERTY(bool simulationFallback READ simulationFallback NOTIFY modeChanged)
+    // virtual gears in use ("gears", or "sim" with the fallback)
+    Q_PROPERTY(bool virtualGears READ virtualGears NOTIFY modeChanged)
 
     // gear (shared with FreeRide)
     Q_PROPERTY(QVariantMap gear READ gear NOTIFY gearChanged)
@@ -153,7 +187,7 @@ class RlvSession : public QObject
     Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY rideSaved)
 
 public:
-    enum class Mode { Gears, Power };
+    enum class Mode { Sim, Gears, Erg };
     enum class State { Idle, Ready, Running, Paused, Finished };
 
     static constexpr int kStartCadenceRpm = 20;
@@ -166,6 +200,20 @@ public:
     static constexpr double kCadenceSmoothingSec = 1.5;
     static constexpr int kDefaultDifficulty = 100;
     static constexpr int kDifficultyStep = 10;
+    // ERG
+    static constexpr int kMinErgWatts = 25;
+    static constexpr int kControllerErgStep = 10;   // Zwift Click / PgUp / PgDn
+    static constexpr double kDefaultErgFtpShare = 0.6;
+    // gradient simulation
+    static constexpr double kMinSimGrade = -10.0;
+    static constexpr double kMaxSimGrade = 20.0;
+    static constexpr double kSimMinGradeChange = 0.1;   // %
+    static constexpr int kSimMinIntervalMs = 1000;
+    static constexpr int kSimRefreshMs = 3000;
+    // speed from power with inertia
+    static constexpr double kRotatingMassKg = 1.5;      // wheels, equivalent mass
+    static constexpr double kMinDriveSpeedMps = 1.0;    // P/v drive force below this speed
+    static constexpr double kIntegrationStepSec = 0.05;
     static constexpr int kProfileSamples = 500;
     // video sync
     static constexpr double kMinRate = 0.25;
@@ -203,9 +251,12 @@ public:
     bool waiting() const { return m_state == State::Ready; }
     bool finishedRide() const { return m_state == State::Finished; }
     bool completed() const { return m_completed; }
-    QString mode() const { return m_mode == Mode::Power ? QStringLiteral("power") : QStringLiteral("gears"); }
+    QString mode() const { return modeName(m_mode); }
     Mode modeValue() const { return m_mode; }
     void setMode(const QString &mode);
+    static QString modeName(Mode m);
+    // "sim" / "gears" / "erg"; the old "power" -> Sim. nullopt if unknown.
+    static std::optional<Mode> parseMode(const QString &text);
 
     const RlvRoute &route() const { return m_route; }
     bool hasRoute() const { return m_route.isValid(); }
@@ -257,8 +308,18 @@ public:
 
     int difficultyPercent() const { return m_difficulty; }
     void setDifficulty(int percent);
-    int targetWatts() const { return m_lastSent > 0 ? m_lastSent : 0; }
+    int targetWatts() const { return m_ergTarget; }
+    void setTargetWatts(int watts);
+    int minTargetWatts() const { return kMinErgWatts; }
+    int maxTargetWatts() const { return kMaxWatts; }
+    int sentTargetWatts() const { return m_lastSent > 0 ? m_lastSent : 0; }
     int gearTargetWatts() const;
+    double simulationGradePercent() const { return std::isfinite(m_lastSimGrade) ? m_lastSimGrade : 0.0; }
+    bool simulationActive() const { return running() && std::isfinite(m_lastSimGrade); }
+    bool simulationFallback() const;
+    bool virtualGears() const { return m_mode == Mode::Gears || simulationFallback(); }
+    // Grade the sim mode sends for the current position (rounded to 0.01 %).
+    double simulationGradeToSend() const;
 
     const Gearing &gearing() const;
     QVariantMap gear() const;
@@ -296,10 +357,12 @@ public:
     Q_INVOKABLE bool shiftFrontUp();
     Q_INVOKABLE bool shiftFrontDown();
     Q_INVOKABLE void adjustDifficulty(int delta) { setDifficulty(m_difficulty + delta); }
+    Q_INVOKABLE void adjustTargetWatts(int delta) { setTargetWatts(m_ergTarget + delta); }
     Q_INVOKABLE QString formatDistance(double meters) const;   // "1.25 km" / "850 m"
 
 public slots:
-    // Zwift Click / keyboard: gears mode shifts; power mode ±kDifficultyStep %.
+    // Zwift Click / keyboard: virtual gears shift; ERG ±kControllerErgStep W;
+    // sim ±kDifficultyStep %.
     void controllerShift(int direction);
 
 signals:
@@ -329,6 +392,9 @@ private:
     void onTimer();
     void process(int ms);
     void updateModel(double dt);
+    void integratePower(double watts, double dt);
+    void applySimulation(bool force);
+    int defaultErgTarget() const;
     void updateVideo(int ms);
     void updateInformation();
     void recordUpTo(int second);
@@ -355,7 +421,9 @@ private:
 
     RlvRoute m_route;
     QVariantList m_profile;
-    Mode m_mode = Mode::Gears;
+    Mode m_mode = Mode::Sim;
+    int m_ergTarget = 150;
+    double m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();   // NaN = none sent
     State m_state = State::Idle;
     int m_difficulty = kDefaultDifficulty;
     bool m_completed = false;
