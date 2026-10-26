@@ -1400,9 +1400,37 @@ int DeviceManager::controllerBattery() const
     return level;
 }
 
+void DeviceManager::setSimulatedFixedGear(double ratio)
+{
+    m_simFixedGear = ratio > 0 ? ratio : 0.0;
+    if (auto *sim = qobject_cast<SimulatedTrainer *>(m_trainer.data()))
+        sim->setFixedGearRatio(m_simFixedGear);
+}
+
+void DeviceManager::connectSimulatedController()
+{
+    const QString id = QStringLiteral("sim:click");
+    if (controllerFor(id))
+        return;
+    DeviceEntry e;
+    e.id = id;
+    e.name = QStringLiteral("Zwift Click");
+    e.protocol = QStringLiteral("Simulated Zwift Click");
+    e.simulated = true;
+    e.kind = kKindController;
+    e.rssi = -58;
+    m_controllers.upsert(e);
+    auto *c = new SimulatedController(this);
+    attachController(c);
+    c->connectDevice();
+    emit devicesChanged();
+}
+
 void DeviceManager::attachTrainer(TrainerDevice *t)
 {
     m_trainer = t;
+    if (auto *sim = qobject_cast<SimulatedTrainer *>(t))
+        sim->setFixedGearRatio(m_simFixedGear);
     t->setAutoReconnect(m_autoReconnect);
     m_trainers.setState(t->id(), int(LinkState::Connecting));
     connect(t, &TrainerDevice::powerMeasured, m_hub, &SensorHub::updatePower);

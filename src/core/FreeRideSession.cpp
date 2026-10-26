@@ -5,6 +5,7 @@
 #include "RideAnalysis.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
+#include "VirtualGears.h"
 #include "Workout.h"
 
 #include <algorithm>
@@ -20,37 +21,20 @@ int roundTo5(double w)
 {
     return int(std::lround(w / 5.0)) * 5;
 }
-
-QVector<int> toIntList(const QVariantList &list, bool *ok)
-{
-    QVector<int> out;
-    *ok = true;
-    for (const QVariant &v : list) {
-        bool good = false;
-        const double d = v.toDouble(&good);
-        if (!good || !std::isfinite(d) || d != std::floor(d)) {
-            *ok = false;
-            return {};
-        }
-        out.append(int(d));
-    }
-    return out;
-}
 } // namespace
 
-FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorHub *hub, QObject *parent)
+FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears,
+                                 QObject *parent)
     : QObject(parent)
     , m_db(db)
     , m_profiles(profiles)
     , m_hub(hub)
+    , m_gears(gears)
+    , m_res(hub)
 {
     m_timer.setInterval(250);
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &FreeRideSession::onTimer);
-
-    m_saveTimer.setSingleShot(true);
-    m_saveTimer.setInterval(1500);
-    connect(&m_saveTimer, &QTimer::timeout, this, &FreeRideSession::saveSettingsNow);
 
     connect(m_hub, &SensorHub::powerChanged, this, &FreeRideSession::metricsChanged);
     connect(m_hub, &SensorHub::cadenceChanged, this, &FreeRideSession::metricsChanged);
@@ -63,21 +47,23 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
         if (running() && trainerConnected())
             applyTarget(true);   // a (re)connected trainer gets the current target
     });
+    connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &FreeRideSession::resistanceSetupChanged);
+    connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &FreeRideSession::resistanceSetupChanged);
+    connect(m_gears, &VirtualGears::enabledChanged, this, &FreeRideSession::resistanceSetupChanged);
+    auto gearChanged = [this] {
+        emit targetChanged();
+        emit metricsChanged();
+        if (running() && virtualGears())
+            applyTarget(true);   // new gear / bike -> new resistance right away
+    };
+    connect(m_gears, &VirtualGears::gearChanged, this, gearChanged);
+    connect(m_gears, &VirtualGears::gearSetupChanged, this, gearChanged);
 
-    connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
-        if (m_profiles->profileId() == m_setupProfileId)
-            return;   // same rider, e.g. FTP edited
-        if (active() || waiting()) {
-            m_reloadPending = true;   // keep the bike of the running ride
-            return;
-        }
-        loadSetup();
-    });
-
-    const QString mode = m_db->setting(kSettingMode, QStringLiteral("gears")).toString();
-    m_mode = mode == QLatin1String("erg") ? Mode::Erg : mode == QLatin1String("free") ? Mode::Free : Mode::Gears;
+    const QString stored = m_db->setting(kSettingMode, QStringLiteral("ride")).toString();
+    m_mode = parseMode(stored).value_or(Mode::Ride);
+    if (stored != mode())
+        m_db->setSetting(kSettingMode, mode());   // "gears" / "free" (old) -> "ride"
     m_targetWatts = std::clamp(m_db->setting(kSettingTarget, kDefaultErgWatts).toInt(), kMinErgWatts, kMaxWatts);
-    loadSetup();
 }
 
 FreeRideSession::~FreeRideSession()
@@ -86,7 +72,6 @@ FreeRideSession::~FreeRideSession()
         m_training->setStartBlocker(QStringLiteral("freeRide"), {});
     if (active() || waiting())
         releaseTrainer();
-    saveSettingsNow();
 }
 
 // --- wiring --------------------------------------------------------------------
@@ -119,51 +104,6 @@ bool FreeRideSession::startBlocked() const
     return false;
 }
 
-// --- settings ------------------------------------------------------------------
-
-void FreeRideSession::loadSetup()
-{
-    saveSettingsNow();   // a pending change belongs to the previous profile
-    m_reloadPending = false;
-    m_setupProfileId = m_profiles->profileId();
-    const QString json = m_setupProfileId >= 0 ? m_db->gearSetupJson(m_setupProfileId) : QString();
-    m_gearing = Gearing(GearSetup::fromJsonText(json));
-    emit gearSetupChanged();
-    emit gearChanged();
-    emit targetChanged();
-}
-
-void FreeRideSession::scheduleSave()
-{
-    m_savePending = true;
-    if (m_manualClock)
-        return;   // tests call flushSettings()
-    m_saveTimer.start();
-}
-
-void FreeRideSession::flushSettings()
-{
-    saveSettingsNow();
-}
-
-void FreeRideSession::saveSettingsNow()
-{
-    m_saveTimer.stop();
-    if (!m_savePending)
-        return;
-    m_savePending = false;
-    if (m_setupProfileId >= 0)
-        m_db->setGearSetupJson(m_setupProfileId, m_gearing.setup().toJsonText());
-}
-
-void FreeRideSession::setError(const QString &e)
-{
-    if (m_lastError == e)
-        return;
-    m_lastError = e;
-    emit lastErrorChanged();
-}
-
 // --- state -----------------------------------------------------------------------
 
 QString FreeRideSession::state() const
@@ -193,39 +133,40 @@ void FreeRideSession::setState(State s)
     emit stateChanged();
 }
 
+QString FreeRideSession::modeName(Mode m)
+{
+    return m == Mode::Erg ? QStringLiteral("erg") : QStringLiteral("ride");
+}
+
 QString FreeRideSession::mode() const
 {
-    switch (m_mode) {
-    case Mode::Gears: return QStringLiteral("gears");
-    case Mode::Erg: return QStringLiteral("erg");
-    case Mode::Free: return QStringLiteral("free");
-    }
-    return QStringLiteral("gears");
+    return modeName(m_mode);
+}
+
+std::optional<FreeRideSession::Mode> FreeRideSession::parseMode(const QString &text)
+{
+    if (text == QLatin1String("ride") || text == QLatin1String("gears") || text == QLatin1String("free"))
+        return Mode::Ride;
+    if (text == QLatin1String("erg"))
+        return Mode::Erg;
+    return std::nullopt;
 }
 
 void FreeRideSession::setMode(const QString &modeText)
 {
-    Mode m;
-    if (modeText == QLatin1String("gears"))
-        m = Mode::Gears;
-    else if (modeText == QLatin1String("erg"))
-        m = Mode::Erg;
-    else if (modeText == QLatin1String("free"))
-        m = Mode::Free;
-    else
+    const auto parsed = parseMode(modeText);
+    if (!parsed || *parsed == m_mode)
         return;
-    if (m == m_mode)
-        return;
-    if (m == Mode::Erg) {
+    if (*parsed == Mode::Erg) {
         // Continue at the power the rider is doing right now.
         int start = watts();
-        if (start <= 0 && m_mode == Mode::Gears)
-            start = m_lastSent > 0 ? m_lastSent : gearTargetWatts();
+        if (start <= 0 && virtualGears())
+            start = m_res.lastWatts() > 0 ? m_res.lastWatts() : gearTargetWatts();
         if (start > 0)
             m_targetWatts = std::clamp(roundTo5(start), kMinErgWatts, kMaxWatts);
         m_db->setSetting(kSettingTarget, m_targetWatts);
     }
-    m_mode = m;
+    m_mode = *parsed;
     m_db->setSetting(kSettingMode, mode());
     emit modeChanged();
     emit targetChanged();
@@ -234,7 +175,36 @@ void FreeRideSession::setMode(const QString &modeText)
 
 void FreeRideSession::setErgEnabled(bool on)
 {
-    setMode(on ? QStringLiteral("erg") : QStringLiteral("gears"));
+    setMode(on ? QStringLiteral("erg") : QStringLiteral("ride"));
+}
+
+void FreeRideSession::resistanceSetupChanged()
+{
+    emit modeChanged();   // virtualGears / simulationFallback / resistancePath
+    emit targetChanged();
+    emit metricsChanged();
+    if (running())
+        applyTarget(true);
+}
+
+bool FreeRideSession::virtualGears() const
+{
+    return m_mode == Mode::Ride && (m_gears->enabled() || m_hub->trainerSimulationUnsupported());
+}
+
+bool FreeRideSession::simulationFallback() const
+{
+    return m_mode == Mode::Ride && !m_gears->enabled() && m_hub->trainerSimulationUnsupported();
+}
+
+RideResistance::Path FreeRideSession::path() const
+{
+    return RideResistance::choose(m_mode == Mode::Erg, virtualGears(), m_hub);
+}
+
+const Gearing &FreeRideSession::gearing() const
+{
+    return m_gears->gearing();
 }
 
 // --- live values -------------------------------------------------------------------
@@ -252,13 +222,7 @@ bool FreeRideSession::coasting() const
 road::Model FreeRideSession::roadModel(double gradePercent) const
 {
     const Profile &p = active() ? m_rideProfile : m_profiles->current();
-    const GearSetup &s = m_gearing.setup();
-    road::Model m;
-    m.massKg = std::max(30.0, p.weightKg) + s.bikeWeightKg;
-    m.cda = s.cda;
-    m.crr = s.crr;
-    m.gradePercent = gradePercent;
-    return m;
+    return m_gears->roadModel(gradePercent, p.weightKg > 0 ? p.weightKg : m_profiles->current().weightKg);
 }
 
 double FreeRideSession::speedMps() const
@@ -267,10 +231,10 @@ double FreeRideSession::speedMps() const
         return m_speed;
     // idle/finished: instantaneous estimate for the live display
     const int cad = m_hub->cadence();
-    if (m_mode == Mode::Gears && cad >= kCoastCadenceRpm)
-        return m_gearing.virtualSpeed(cad);
+    if (virtualGears() && cad >= kCoastCadenceRpm)
+        return gearing().virtualSpeed(cad);
     const int p = m_hub->power();
-    return p > 0 ? road::speedForPower(roadModel(m_mode == Mode::Gears ? m_grade : 0.0), p) : 0.0;
+    return p > 0 ? road::speedForPower(roadModel(m_mode == Mode::Ride ? m_grade : 0.0), p) : 0.0;
 }
 
 double FreeRideSession::speedKmh() const
@@ -286,14 +250,6 @@ double FreeRideSession::avgSpeedKmh() const
 int FreeRideSession::avgWatts() const
 {
     return m_recordedSec > 0 ? int(std::lround(m_powerSum / m_recordedSec)) : 0;
-}
-
-void FreeRideSession::setClickConnected(bool on)
-{
-    if (m_clickConnected == on)
-        return;
-    m_clickConnected = on;
-    emit devicesChanged();
 }
 
 // --- targets ------------------------------------------------------------------------
@@ -336,331 +292,87 @@ int FreeRideSession::computeGearTarget(double cadenceRpm) const
 {
     if (cadenceRpm < kCoastCadenceRpm)
         return 0;
-    const double v = m_gearing.virtualSpeed(cadenceRpm);
+    const double v = gearing().virtualSpeed(cadenceRpm);
+    if (running() && m_grade < 0 && m_speed > v + 0.3)
+        return kMinGearWatts;   // the road is faster than the pedals (freewheeling downhill)
     const double p = road::powerForSpeed(roadModel(m_grade), v);
     return std::clamp(int(std::lround(p)), kMinGearWatts, kMaxWatts);
 }
 
 int FreeRideSession::gearTargetWatts() const
 {
+    if (!virtualGears())
+        return 0;
     // Smoothed cadence while a ride is armed/running, else the live cadence.
     const double cad = (m_state == State::Ready || active()) ? m_cadSmooth : double(m_hub->cadence());
     return computeGearTarget(cad);
 }
 
-int FreeRideSession::desiredTarget() const
+int FreeRideSession::desiredGearWatts() const
 {
-    switch (m_mode) {
-    case Mode::Erg:
-        return m_targetWatts;
-    case Mode::Free:
-        return 0;
-    case Mode::Gears:
-        if (m_hub->cadence() < kCoastCadenceRpm)
-            return 0;   // coasting: release
-        return computeGearTarget(std::max(m_cadSmooth, double(kCoastCadenceRpm)));
-    }
-    return 0;
+    if (m_hub->cadence() < kCoastCadenceRpm)
+        return 0;   // coasting (or no cadence): release
+    return computeGearTarget(std::max(m_cadSmooth, double(kCoastCadenceRpm)));
+}
+
+double FreeRideSession::gearSimulationGrade() const
+{
+    const road::Model model = roadModel(m_grade);
+    if (m_hub->cadence() < kCoastCadenceRpm)
+        return std::clamp(m_grade, RideResistance::kMinGrade, RideResistance::kMaxGrade);   // coasting
+    road::TrainerModel trainer;
+    trainer.massKg = model.massKg;
+    trainer.crr = SensorHub::kDefaultCrr;
+    trainer.cwKgPerM = SensorHub::kDefaultCw;
+    return road::gearSimulationGrade(model, m_hub->speedMps(), m_gears->gearFactor(), trainer,
+                                     RideResistance::kMinGrade, RideResistance::kMaxGrade);
 }
 
 void FreeRideSession::applyTarget(bool force)
 {
     if (!running())
         return;
-    const int desired = desiredTarget();
-    if (desired <= 0) {
-        if (force || m_lastSent != 0) {
-            m_hub->requestFreeRide();
-            m_lastSent = 0;
-            m_sinceSendMs = 0;
-            emit targetChanged();
-        }
-        return;
+    bool sent = false;
+    switch (path()) {
+    case RideResistance::Path::Erg:
+        sent = m_res.sendErg(m_targetWatts, force);
+        break;
+    case RideResistance::Path::Simulation:
+        sent = m_res.sendGrade(m_grade, force);
+        break;
+    case RideResistance::Path::GearSimulation:
+        sent = m_res.sendGrade(gearSimulationGrade(), force);
+        break;
+    case RideResistance::Path::GearErg:
+        sent = m_res.sendGearWatts(desiredGearWatts(), force);
+        break;
     }
-    const bool changed = m_lastSent <= 0 || std::abs(desired - m_lastSent) >= kMinTargetChangeWatts;
-    // ERG targets and explicit changes (force) go out at once; the
-    // cadence-driven gears target at most every kTargetIntervalMs.
-    const bool due = m_mode != Mode::Gears || m_lastSent <= 0 || m_sinceSendMs >= kTargetIntervalMs;
-    if (force || (changed && due)) {
-        m_hub->requestTargetPower(desired);
-        m_lastSent = desired;
-        m_sinceSendMs = 0;
+    if (sent)
         emit targetChanged();
-    }
 }
 
 void FreeRideSession::releaseTrainer()
 {
-    m_hub->requestFreeRide();
-    m_lastSent = -1;
+    m_res.release();
     emit targetChanged();
-}
-
-// --- gears ------------------------------------------------------------------------------
-
-QVariantMap FreeRideSession::gear() const
-{
-    return QVariantMap { { QStringLiteral("front"), m_gearing.frontIndex() },
-                         { QStringLiteral("rear"), m_gearing.rearIndex() },
-                         { QStringLiteral("frontTeeth"), m_gearing.frontTeeth() },
-                         { QStringLiteral("rearTeeth"), m_gearing.rearTeeth() },
-                         { QStringLiteral("label"), m_gearing.label() },
-                         { QStringLiteral("index"), m_gearing.gearIndex() },
-                         { QStringLiteral("count"), m_gearing.gearCount() },
-                         { QStringLiteral("ratio"), m_gearing.ratio() } };
-}
-
-QVariantList FreeRideSession::gears() const
-{
-    QVariantList out;
-    const QVector<Gear> list = m_gearing.setup().sequential ? m_gearing.sequence() : m_gearing.allGears();
-    for (int i = 0; i < list.size(); ++i) {
-        const Gear &g = list.at(i);
-        out.append(QVariantMap { { QStringLiteral("index"), i },
-                                 { QStringLiteral("label"), Gearing::labelFor(g.frontTeeth, g.rearTeeth) },
-                                 { QStringLiteral("ratio"), g.ratio },
-                                 { QStringLiteral("front"), g.front },
-                                 { QStringLiteral("rear"), g.rear } });
-    }
-    return out;
-}
-
-QVariantMap FreeRideSession::setupToMap(const GearSetup &s)
-{
-    QVariantList rings, cogs;
-    for (int t : s.chainrings)
-        rings.append(t);
-    for (int t : s.cogs)
-        cogs.append(t);
-    return QVariantMap { { QStringLiteral("chainrings"), rings },
-                         { QStringLiteral("cogs"), cogs },
-                         { QStringLiteral("circumferenceMm"), s.circumferenceMm },
-                         { QStringLiteral("sequential"), s.sequential },
-                         { QStringLiteral("bikeWeightKg"), s.bikeWeightKg },
-                         { QStringLiteral("cda"), s.cda },
-                         { QStringLiteral("crr"), s.crr } };
-}
-
-QVariantMap FreeRideSession::gearSetup() const
-{
-    return setupToMap(m_gearing.setup());
-}
-
-QVariantMap FreeRideSession::defaultGearSetup() const
-{
-    return setupToMap(GearSetup::defaults());
-}
-
-QVariantList FreeRideSession::previewGears(const QVariantList &chainrings, const QVariantList &cogs,
-                                           int circumferenceMm, bool seq, int cadenceRpm) const
-{
-    if (!validateGearSetup(chainrings, cogs, circumferenceMm).isEmpty())
-        return {};
-    bool ok = false;
-    GearSetup s = m_gearing.setup();
-    s.chainrings = toIntList(chainrings, &ok);
-    s.cogs = toIntList(cogs, &ok);
-    s.circumferenceMm = circumferenceMm;
-    s.sequential = seq;
-    s.frontIndex = s.rearIndex = 0;
-    const Gearing g(s);
-    const QVector<Gear> list = seq ? g.sequence() : g.allGears();
-    const road::Model flat = roadModel(0.0);
-    const double cadence = std::max(0, cadenceRpm);
-    QVariantList out;
-    for (int i = 0; i < list.size(); ++i) {
-        const Gear &gear = list.at(i);
-        const double v = Gearing::speedFor(cadence, gear.ratio, g.setup().circumferenceMm);
-        out.append(QVariantMap { { QStringLiteral("index"), i },
-                                 { QStringLiteral("label"), Gearing::labelFor(gear.frontTeeth, gear.rearTeeth) },
-                                 { QStringLiteral("ratio"), gear.ratio },
-                                 { QStringLiteral("front"), gear.front },
-                                 { QStringLiteral("rear"), gear.rear },
-                                 { QStringLiteral("frontTeeth"), gear.frontTeeth },
-                                 { QStringLiteral("rearTeeth"), gear.rearTeeth },
-                                 { QStringLiteral("speedKmh"), std::round(v * 36.0) / 10.0 },
-                                 { QStringLiteral("watts"), std::max(0, int(std::lround(road::powerForSpeed(flat, v)))) } });
-    }
-    return out;
-}
-
-void FreeRideSession::afterShift(bool didShift, int direction)
-{
-    if (!didShift)
-        return;
-    scheduleSave();
-    emit gearChanged();
-    emit targetChanged();
-    emit metricsChanged();
-    emit shifted(direction);
-    applyTarget(true);   // new gear -> new resistance right away
-}
-
-bool FreeRideSession::shiftUp()
-{
-    const bool ok = m_gearing.shiftUp();
-    afterShift(ok, 1);
-    return ok;
-}
-
-bool FreeRideSession::shiftDown()
-{
-    const bool ok = m_gearing.shiftDown();
-    afterShift(ok, -1);
-    return ok;
-}
-
-bool FreeRideSession::shiftFrontUp()
-{
-    const bool ok = m_gearing.shiftFrontUp();
-    afterShift(ok, 1);
-    return ok;
-}
-
-bool FreeRideSession::shiftFrontDown()
-{
-    const bool ok = m_gearing.shiftFrontDown();
-    afterShift(ok, -1);
-    return ok;
-}
-
-bool FreeRideSession::setGear(int front, int rear)
-{
-    const double before = m_gearing.ratio();
-    if (!m_gearing.setGear(front, rear))
-        return false;
-    afterShift(true, m_gearing.ratio() >= before ? 1 : -1);
-    return true;
-}
-
-bool FreeRideSession::setGearIndex(int index)
-{
-    const double before = m_gearing.ratio();
-    if (!m_gearing.setGearIndex(index))
-        return false;
-    afterShift(true, m_gearing.ratio() >= before ? 1 : -1);
-    return true;
-}
-
-void FreeRideSession::setSequential(bool on)
-{
-    if (sequential() == on)
-        return;
-    m_gearing.setSequential(on);
-    scheduleSave();
-    emit gearSetupChanged();
-    emit gearChanged();
-    applyTarget(true);
-}
-
-QString FreeRideSession::validateGearSetup(const QVariantList &chainrings, const QVariantList &cogs,
-                                           int circumferenceMm) const
-{
-    bool okRings = false, okCogs = false;
-    const QVector<int> rings = toIntList(chainrings, &okRings);
-    const QVector<int> sprockets = toIntList(cogs, &okCogs);
-    if (!okRings)
-        return QStringLiteral("Chainrings must be whole numbers");
-    if (!okCogs)
-        return QStringLiteral("Cogs must be whole numbers");
-    QString error;
-    if (!GearSetup::validate(rings, sprockets, circumferenceMm, &error))
-        return error;
-    return QString();
-}
-
-bool FreeRideSession::setGearSetup(const QVariantList &chainrings, const QVariantList &cogs, int circumferenceMm,
-                                   bool seq)
-{
-    const QString error = validateGearSetup(chainrings, cogs, circumferenceMm);
-    if (!error.isEmpty()) {
-        setError(error);
-        return false;
-    }
-    bool ok = false;
-    GearSetup s = m_gearing.setup();
-    s.chainrings = toIntList(chainrings, &ok);
-    s.cogs = toIntList(cogs, &ok);
-    s.circumferenceMm = circumferenceMm;
-    s.sequential = seq;
-    s.frontIndex = s.rearIndex = -1;   // -> nearest ratio to the current gear
-    m_gearing.setSetup(s);
-    setError(QString());
-    scheduleSave();
-    emit gearSetupChanged();
-    emit gearChanged();
-    emit targetChanged();
-    applyTarget(true);
-    return true;
-}
-
-bool FreeRideSession::setBikePhysics(double bikeWeightKg, double cda, double crr)
-{
-    if (!std::isfinite(bikeWeightKg) || bikeWeightKg < 0 || bikeWeightKg > 60) {
-        setError(QStringLiteral("Bike weight must be 0–60 kg"));
-        return false;
-    }
-    if (!std::isfinite(cda) || cda < 0.1 || cda > 1.0) {
-        setError(QStringLiteral("CdA must be 0.10–1.00 m²"));
-        return false;
-    }
-    if (!std::isfinite(crr) || crr < 0.001 || crr > 0.05) {
-        setError(QStringLiteral("Crr must be 0.001–0.050"));
-        return false;
-    }
-    GearSetup s = m_gearing.setup();
-    s.bikeWeightKg = bikeWeightKg;
-    s.cda = cda;
-    s.crr = crr;
-    m_gearing.setSetup(s);
-    setError(QString());
-    scheduleSave();
-    emit gearSetupChanged();
-    emit targetChanged();
-    applyTarget(true);
-    return true;
-}
-
-void FreeRideSession::resetGearSetup()
-{
-    m_gearing = Gearing(GearSetup::defaults());
-    setError(QString());
-    scheduleSave();
-    emit gearSetupChanged();
-    emit gearChanged();
-    emit targetChanged();
-    applyTarget(true);
-}
-
-QVariantList FreeRideSession::parseTeeth(const QString &text) const
-{
-    QVariantList out;
-    for (int v : GearSetup::parseTeethList(text))
-        out.append(v);
-    return out;
 }
 
 void FreeRideSession::controllerShift(int direction)
 {
     if (direction == 0)
         return;
-    switch (m_mode) {
-    case Mode::Gears:
-        if (direction > 0)
-            shiftUp();
-        else
-            shiftDown();
-        break;
-    case Mode::Erg: {
+    if (m_mode == Mode::Erg) {
         const int before = m_targetWatts;
         adjustTargetWatts(direction > 0 ? kControllerErgStep : -kControllerErgStep);
         if (m_targetWatts != before)
             emit shifted(direction);
-        break;
+        return;
     }
-    case Mode::Free:
-        break;   // no resistance control: nothing to shift
-    }
+    // ride: always the gears (VirtualGears::shifted drives the page)
+    if (direction > 0)
+        m_gears->shiftUp();
+    else
+        m_gears->shiftDown();
 }
 
 // --- control ---------------------------------------------------------------------------
@@ -678,7 +390,6 @@ void FreeRideSession::clearRecording()
     m_maxWatts = 0;
     m_ergSeconds = 0;
     m_distance = 0;
-    m_sinceSendMs = 0;
     emit seriesChanged();
     emit tick();
 }
@@ -695,8 +406,7 @@ bool FreeRideSession::start()
     }
     if (m_training && m_training->waiting())
         m_training->stop();   // only armed: nothing ridden yet
-    if (m_reloadPending)
-        loadSetup();
+    m_gears->reloadIfPending();
     m_rideProfile = m_profiles->current();
     clearRecording();
     m_lastRideId = -1;
@@ -704,7 +414,7 @@ bool FreeRideSession::start()
     m_cadSmooth = m_hub->cadence();
     if (m_state != State::Ready)
         m_speed = 0;
-    m_lastSent = -1;
+    m_res.reset();
     setState(State::Running);
     applyTarget(true);
     emit started();
@@ -722,8 +432,7 @@ void FreeRideSession::startWhenPedaling()
     }
     if (m_training && m_training->waiting())
         m_training->stop();   // only one armed session
-    if (m_reloadPending)
-        loadSetup();
+    m_gears->reloadIfPending();
     clearRecording();
     m_speed = 0;
     m_cadSmooth = 0;
@@ -761,7 +470,7 @@ void FreeRideSession::resume()
     }
     setState(State::Running);
     m_clock.restart();
-    m_lastSent = -1;
+    m_res.reset();
     applyTarget(true);
 }
 
@@ -789,10 +498,9 @@ qint64 FreeRideSession::finish(bool save)
     releaseTrainer();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
-    saveSettingsNow();
+    m_gears->flushSettings();
     emit finished();
-    if (m_reloadPending)
-        loadSetup();
+    m_gears->reloadIfPending();
     return id;
 }
 
@@ -824,20 +532,29 @@ void FreeRideSession::updateModel(double dt)
 {
     const int cad = m_hub->cadence();
     const int power = m_hub->power();
-    // cadence smoothing for the gears target (first-order low pass)
+    // cadence smoothing for the gear target (first-order low pass)
     m_cadSmooth += (cad - m_cadSmooth) * std::min(1.0, dt / kCadenceSmoothingSec);
 
-    const road::Model model = roadModel(m_mode == Mode::Gears ? m_grade : 0.0);
-    if (m_mode == Mode::Gears && cad >= kCoastCadenceRpm) {
-        // pedaling: the virtual wheel turns with the cranks
-        m_speed = m_gearing.virtualSpeed(cad);
-    } else if (power >= kStartPowerWatts && (m_mode != Mode::Gears || cad <= 0)) {
-        // ERG/free mode, or a trainer without cadence: speed from power
-        const double v = road::speedForPower(model, power);
-        m_speed += (v - m_speed) * std::min(1.0, dt / 2.0);
+    if (!virtualGears()) {
+        // real gears / ERG: speed from power with inertia (ERG on a flat road)
+        const road::Model model = roadModel(m_mode == Mode::Ride ? m_grade : 0.0);
+        m_speed = road::integrateSpeed(model, m_speed, power >= kStartPowerWatts || m_speed > 0 ? power : 0, dt);
+        if (m_speed < 0.3 && power < kStartPowerWatts && model.gradePercent >= 0)
+            m_speed = 0;
+        return;
+    }
+    const road::Model model = roadModel(m_grade);
+    const double roll = std::clamp(m_speed - road::coastDeceleration(model, m_speed) * dt, 0.0, road::kMaxSpeedMps);
+    if (cad >= kCoastCadenceRpm) {
+        // pedaling: the virtual wheel turns with the cranks; downhill the
+        // bike may roll faster than the pedals turn it
+        const double pedal = gearing().virtualSpeed(cad);
+        m_speed = model.gradePercent < 0 ? std::max(pedal, roll) : pedal;
+    } else if (power >= kStartPowerWatts && cad <= 0) {
+        m_speed = road::integrateSpeed(model, m_speed, power, dt);   // trainer without cadence
     } else {
         // coasting: roll out against the road resistance
-        m_speed = std::clamp(m_speed - road::coastDeceleration(model, m_speed) * dt, 0.0, road::kMaxSpeedMps);
+        m_speed = roll;
         if (m_speed < 0.3 && model.gradePercent >= 0)
             m_speed = 0;
     }
@@ -855,7 +572,7 @@ void FreeRideSession::process(int ms)
     if (running()) {
         m_activeMs += ms;
         m_distance += m_speed * dt;
-        m_sinceSendMs += ms;
+        m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
         applyTarget();
         emit tick();

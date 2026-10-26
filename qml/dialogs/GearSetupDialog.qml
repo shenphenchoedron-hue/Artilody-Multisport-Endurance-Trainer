@@ -3,9 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Artilody.Backend
 
-// Bike gearing for virtual shifting (FreeRide): chainrings, cassette, wheel
+// Bike gearing for virtual shifting (Gears, Devices page): chainrings, cassette, wheel
 // size, shifting mode and the road model of the bike. Validation and the
-// preview come from FreeRide (validateGearSetup / previewGears).
+// preview come from Gears (validateGearSetup / previewGears).
 AppDialog {
     id: dlg
     title: "Gear Setup"
@@ -18,17 +18,17 @@ AppDialog {
     property bool advancedOpen: false
     property string saveError: ""
 
-    readonly property var rings: FreeRide.parseTeeth(ringsText)
-    readonly property var cogs: FreeRide.parseTeeth(cogsText)
+    readonly property var rings: Gears.parseTeeth(ringsText)
+    readonly property var cogs: Gears.parseTeeth(cogsText)
     readonly property int circumference: Math.round(circSpin.value)
     readonly property string error: {
         if (ringsText.trim().length > 0 && rings.length === 0)
             return "Chainrings: enter whole numbers separated by commas, e.g. 50, 34"
         if (cogsText.trim().length > 0 && cogs.length === 0)
             return "Cassette: enter whole numbers separated by commas, e.g. 11, 12, 13, 14"
-        return FreeRide.validateGearSetup(rings, cogs, circumference)
+        return Gears.validateGearSetup(rings, cogs, circumference)
     }
-    readonly property var preview: error.length === 0 ? FreeRide.previewGears(rings, cogs, circumference, seq, 90) : []
+    readonly property var preview: error.length === 0 ? Gears.previewGears(rings, cogs, circumference, seq, 90) : []
     readonly property real maxSpeed: preview.length > 0 ? Number(preview[preview.length - 1].speedKmh) : 1
 
     function listText(values, descending) {
@@ -81,33 +81,33 @@ AppDialog {
         Qt.callLater(function() { ringField.cursorPosition = 0; cogField.cursorPosition = 0 })
     }
     function openDialog() {
-        load(FreeRide.gearSetup)
+        load(Gears.gearSetup)
         advancedOpen = false
         open()
     }
     function save() {
         if (error.length > 0)
             return
-        if (!FreeRide.setGearSetup(rings, cogs, circumference, seq)) {
-            saveError = FreeRide.lastError
+        if (!Gears.setGearSetup(rings, cogs, circumference, seq)) {
+            saveError = Gears.lastError
             return
         }
-        if (!FreeRide.setBikePhysics(weightSpin.value, cdaSpin.value, crrSpin.value)) {
-            saveError = FreeRide.lastError
+        if (!Gears.setBikePhysics(weightSpin.value, cdaSpin.value, crrSpin.value)) {
+            saveError = Gears.lastError
             return
         }
         close()
         var w = ApplicationWindow.window
         if (w && typeof w.showToast === "function")
-            w.showToast("Gear setup saved – " + FreeRide.gearCount + " gears")
+            w.showToast("Gear setup saved – " + Gears.gearCount + " gears")
     }
 
     Text {
         x: 28
         y: 72
         width: dlg.panelWidth - 56
-        text: "Enter your bike's gearing. Shifting changes the virtual speed at your cadence, "
-              + "and the trainer sets the power that speed needs on the road. Saved per profile."
+        text: "Enter your bike's gearing. Virtual gears work like your real ones: a harder gear means more "
+              + "speed and more power at the same cadence. Used in Free Ride and Video Ride, saved per profile."
         color: Theme.textSecondary
         font.pixelSize: 15
         wrapMode: Text.WordWrap
@@ -135,7 +135,7 @@ AppDialog {
                 width: 236
                 fontSize: 15
                 textRole: "name"
-                model: dlg.withCustom(FreeRide.chainringPresets)
+                model: dlg.withCustom(Gears.chainringPresets)
                 currentIndex: dlg.presetIndex(model, dlg.rings)
                 onActivated: (index) => {
                     if (index < model.length - 1)
@@ -163,7 +163,7 @@ AppDialog {
                 width: 236
                 fontSize: 15
                 textRole: "name"
-                model: dlg.withCustom(FreeRide.cassettePresets)
+                model: dlg.withCustom(Gears.cassettePresets)
                 currentIndex: dlg.presetIndex(model, dlg.cogs)
                 onActivated: (index) => {
                     if (index < model.length - 1)
@@ -191,7 +191,7 @@ AppDialog {
                 width: 236
                 fontSize: 15
                 textRole: "name"
-                model: dlg.withCustom(FreeRide.wheelPresets)
+                model: dlg.withCustom(Gears.wheelPresets)
                 currentIndex: dlg.wheelIndex(model, dlg.circumference)
                 onActivated: (index) => {
                     if (index < model.length - 1)
@@ -367,7 +367,7 @@ AppDialog {
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             delegate: Rectangle {
-                readonly property bool current: modelData.label === FreeRide.gearLabel
+                readonly property bool current: modelData.label === Gears.gearLabel
                 width: previewList.width - 10
                 height: 27
                 radius: 6
@@ -446,7 +446,7 @@ AppDialog {
             fontSize: 16
             bold: false
             text: "Reset to Defaults"
-            onClicked: dlg.load(FreeRide.defaultGearSetup())
+            onClicked: dlg.load(Gears.defaultGearSetup())
         }
         Item { Layout.fillWidth: true }
         AppButton {

@@ -89,7 +89,7 @@ ApplicationWindow {
         case "history": showPage("history"); screenshotMenu = historyPage.openScreenshotMenu(); break
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
-        case "gearsetup": showPage("freeride"); gearSetupDialog.openDialog(); break
+        case "gearsetup": showPage("dashboard"); gearSetupDialog.openDialog(); break
         case "videofinish": showPage("video"); videoFinishDialog.open(); break
         case "settings": showPage("dashboard"); settingsDialog.open(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
@@ -114,6 +114,24 @@ ApplicationWindow {
 
     function showToast(text) {
         toast.show(text)
+    }
+
+    // Screenshot aid (WATT_SCREENSHOT_CLICK, see main.cpp): scroll the Devices
+    // page to the controllers and the virtual gears card.
+    function revealControllers() {
+        devicesPage.revealControllers()
+    }
+
+    // The Zwift Click routing (VirtualGears::controllerShift) depends on the
+    // open page: a ride page sends +/- to its session, elsewhere it shifts.
+    Binding {
+        target: Gears
+        property: "activePage"
+        value: window.currentPage
+    }
+    Connections {
+        target: Gears
+        function onNotice(text) { window.showToast(text) }
     }
 
     function editWorkout(id) {
@@ -170,12 +188,10 @@ ApplicationWindow {
                 }
                 FreeRidePage {
                     onOpenDevices: window.showPage("devices")
-                    onOpenGearSetup: gearSetupDialog.openDialog()
                     onRequestFinish: freeRideFinishDialog.open()
                 }
                 VideoRidePage {
                     onOpenDevices: window.showPage("devices")
-                    onOpenGearSetup: gearSetupDialog.openDialog()
                     onRequestFinish: videoFinishDialog.open()
                 }
                 RowingPage {
@@ -206,7 +222,10 @@ ApplicationWindow {
                     id: historyPage
                     onMessage: (text) => window.showToast(text)
                 }
-                DevicesPage {}
+                DevicesPage {
+                    id: devicesPage
+                    onOpenGearSetup: gearSetupDialog.openDialog()
+                }
             }
 
             TopBar {
@@ -391,12 +410,12 @@ ApplicationWindow {
     // Free Ride page: shift / ERG target / grade / pause (not while typing or
     // while a dialog or menu has the keyboard).
     readonly property bool freeRideKeys: currentPage === "freeride" && !anyDialogOpen
-    // ↑ / ↓: shift harder / easier (Gears), ±5 W (ERG), nothing in Free mode
+    // ↑ / ↓: shift harder / easier (Ride with virtual gears), ±5 W (ERG)
     function freeRideStep(direction) {
         if (FreeRide.mode === "erg")
             FreeRide.adjustTargetWatts(5 * direction)
-        else if (FreeRide.mode === "gears")
-            direction > 0 ? FreeRide.shiftUp() : FreeRide.shiftDown()
+        else if (FreeRide.virtualGears)
+            direction > 0 ? Gears.shiftUp() : Gears.shiftDown()
     }
     Shortcut {
         sequences: ["Space"]
@@ -415,13 +434,13 @@ ApplicationWindow {
     }
     Shortcut {
         sequence: "Shift+Up"
-        enabled: window.freeRideKeys && FreeRide.mode === "gears"
-        onActivated: FreeRide.shiftFrontUp()
+        enabled: window.freeRideKeys && FreeRide.virtualGears
+        onActivated: Gears.shiftFrontUp()
     }
     Shortcut {
         sequence: "Shift+Down"
-        enabled: window.freeRideKeys && FreeRide.mode === "gears"
-        onActivated: FreeRide.shiftFrontDown()
+        enabled: window.freeRideKeys && FreeRide.virtualGears
+        onActivated: Gears.shiftFrontDown()
     }
     Shortcut {
         sequence: "PgUp"
@@ -434,10 +453,10 @@ ApplicationWindow {
         onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(-10) : FreeRide.adjustGrade(-0.5)
     }
 
-    // Video Ride page, per resistance mode:
-    //   Simulation:    ↑ / ↓ and PgUp / PgDn trainer difficulty ±10 %
-    //   Virtual gears: ↑ / ↓ shift, Shift + ↑ / ↓ front shift, PgUp / PgDn difficulty ±10 %
-    //   ERG:           ↑ / ↓ target ±5 W, PgUp / PgDn ±10 W
+    // Video Ride page:
+    //   Simulation: ↑ / ↓ shift (virtual gears on), Shift + ↑ / ↓ front shift,
+    //               PgUp / PgDn difficulty ±10 %
+    //   ERG:        ↑ / ↓ target ±5 W, PgUp / PgDn ±10 W
     // Space start / pause / resume (not while typing or while a dialog or
     // menu has the keyboard).
     readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
@@ -448,23 +467,23 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: ["Up", "+", "="]
-        enabled: window.videoKeys
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(5) : Rlv.controllerShift(1)
+        enabled: window.videoKeys && (Rlv.mode === "erg" || Rlv.virtualGears)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(5) : Gears.shiftUp()
     }
     Shortcut {
         sequences: ["Down", "-"]
-        enabled: window.videoKeys
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-5) : Rlv.controllerShift(-1)
+        enabled: window.videoKeys && (Rlv.mode === "erg" || Rlv.virtualGears)
+        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-5) : Gears.shiftDown()
     }
     Shortcut {
         sequence: "Shift+Up"
         enabled: window.videoKeys && Rlv.virtualGears
-        onActivated: Rlv.shiftFrontUp()
+        onActivated: Gears.shiftFrontUp()
     }
     Shortcut {
         sequence: "Shift+Down"
         enabled: window.videoKeys && Rlv.virtualGears
-        onActivated: Rlv.shiftFrontDown()
+        onActivated: Gears.shiftFrontDown()
     }
     Shortcut {
         sequence: "PgUp"

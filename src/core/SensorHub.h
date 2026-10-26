@@ -36,6 +36,10 @@ class SensorHub : public QObject
     // 1 = the trainer supports gradient simulation, 0 = it does not (feature
     // bit missing or command rejected), -1 = unknown / no trainer.
     Q_PROPERTY(int trainerSimulationSupport READ trainerSimulationSupport NOTIFY trainerSimulationSupportChanged)
+    // The connected trainer reports its (flywheel) speed: set by the first
+    // speed > 0 after it connected, cleared when it disconnects. Virtual gears
+    // on a simulating trainer need it (see road::gearSimulationGrade()).
+    Q_PROPERTY(bool trainerReportsSpeed READ trainerReportsSpeed NOTIFY trainerReportsSpeedChanged)
 
 public:
     explicit SensorHub(QObject *parent = nullptr);
@@ -49,6 +53,8 @@ public:
     int cadence() const { return m_cadence; }
     int heartRate() const { return m_heartRate; }
     double speedKmh() const { return m_speed; }
+    double speedMps() const { return m_speed / 3.6; }
+    bool trainerReportsSpeed() const { return m_speedReported; }
     bool trainerConnected() const { return m_trainerConnected; }
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
@@ -100,6 +106,7 @@ signals:
     void heartRateConnectedChanged();
     void requestedTargetChanged();
     void trainerSimulationSupportChanged();
+    void trainerReportsSpeedChanged();
 
     void targetPowerRequested(int watts);
     void freeRideRequested();
@@ -116,8 +123,9 @@ private:
     bool m_simActive = false;
     double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
     int m_simSupport = -1;
+    bool m_speedReported = false;
     int m_staleMs = 3000;
-    QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge;
+    QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge, m_speedAge;
 
     qint64 now() const;
     PowerSmoother m_smoother { 3000 };

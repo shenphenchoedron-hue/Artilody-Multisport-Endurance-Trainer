@@ -4,6 +4,7 @@
 // mutual exclusion, shared gearing with the free ride, mode persistence.
 #include "Database.h"
 #include "FreeRideSession.h"
+#include "VirtualGears.h"
 #include "ProfileManager.h"
 #include "RlvLibrary.h"
 #include "RlvSession.h"
@@ -65,6 +66,7 @@ struct Fixture
     std::unique_ptr<ProfileManager> profiles;
     std::unique_ptr<SensorHub> hub;
     std::unique_ptr<TrainingSession> training;
+    std::unique_ptr<VirtualGears> gears;
     std::unique_ptr<FreeRideSession> freeRide;
     std::unique_ptr<RlvLibrary> library;
     std::unique_ptr<RlvSession> rlv;
@@ -81,19 +83,28 @@ struct Fixture
         hub->setTrainerConnected(true);
         training = std::make_unique<TrainingSession>(&db, profiles.get(), hub.get());
         training->setManualClock(true);
-        freeRide = std::make_unique<FreeRideSession>(&db, profiles.get(), hub.get());
+        gears = std::make_unique<VirtualGears>(&db, profiles.get());
+        gears->setManualSave(true);
+        freeRide = std::make_unique<FreeRideSession>(&db, profiles.get(), hub.get(), gears.get());
         freeRide->setManualClock(true);
         freeRide->setTrainingSession(training.get());
         library = std::make_unique<RlvLibrary>(&db);
         library->setLibraryFolder(dir.path());
-        rlv = std::make_unique<RlvSession>(&db, profiles.get(), hub.get(), library.get());
+        rlv = std::make_unique<RlvSession>(&db, profiles.get(), hub.get(), gears.get(), library.get());
         rlv->setManualClock(true);
         rlv->setMinimumSaveSeconds(5);
         rlv->setFreeRideSession(freeRide.get());
         rlv->setTrainingSession(training.get());
         rlv->setStartBlocker(QStringLiteral("freeRide"), [this] { return freeRide->active(); });
         freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active() || rlv->waiting(); });
+        gears->setSessions(freeRide.get(), rlv.get());
         return true;
+    }
+    // simulation with virtual gears (a trainer without speed: path b, ERG)
+    void useGears()
+    {
+        rlv->setMode(QStringLiteral("sim"));
+        gears->setEnabled(true);
     }
     bool addRoute(const QString &name, double lengthM, double speed, const std::function<double(double)> &grade,
                   const QByteArray &infos = {})
@@ -137,7 +148,8 @@ private slots:
         ProfileManager profiles(&db);
         profiles.load();
         SensorHub hub;
-        RlvSession s(&db, &profiles, &hub);
+        VirtualGears gears(&db, &profiles);
+        RlvSession s(&db, &profiles, &hub, &gears);
         QSignalSpy refused(&s, &RlvSession::startRefused);
         QCOMPARE(s.state(), QStringLiteral("idle"));
         QVERIFY(!s.hasRoute());
@@ -155,7 +167,8 @@ private slots:
         QCOMPARE(s.mode(), QStringLiteral("sim"));   // classic RLV by default
         QVERIFY(!s.simulationFallback());
         QVERIFY(!s.virtualGears());
-        QCOMPARE(s.gearLabel(), QStringLiteral("50×21"));   // own gearing (profile setup)
+        QCOMPARE(s.gearing().label(), QStringLiteral("50×21"));   // the shared gears (profile setup)
+        QCOMPARE(s.resistancePath(), QStringLiteral("simulation"));
         QVERIFY(!s.start());
         QCOMPARE(refused.count(), 1);
         s.startWhenPedaling();
@@ -204,7 +217,7 @@ private slots:
         QCOMPARE(seeks.count(), 2);
         QCOMPARE(seeks.at(1).at(0).toLongLong(), qint64(12000));
         // remembered for the next start
-        RlvSession again(&f.db, f.profiles.get(), f.hub.get(), f.library.get());
+        RlvSession again(&f.db, f.profiles.get(), f.hub.get(), f.gears.get(), f.library.get());
         QVERIFY(again.hasRoute());
         QCOMPARE(again.routeName(), QStringLiteral("route"));
     }
@@ -213,14 +226,14 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
         f.pedal(90, 150);
         QVERIFY(f.rlv->start());
         QVERIFY(f.rlv->running());
-        const double v = f.freeRide->gearing().virtualSpeed(90);   // shared gearing, ≈ 7.5 m/s
+        const double v = f.gears->gearing().virtualSpeed(90);   // shared gearing, ≈ 7.5 m/s
         f.ride_for(10000);
         QCOMPARE(f.rlv->elapsedSeconds(), 10);
         QVERIFY(std::abs(f.rlv->distanceMeters() - v * 10) < 0.5);
@@ -252,7 +265,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("flat"), 5000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         f.pedal(90, 150);
@@ -294,7 +307,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("flat"), 5000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
         QSignalSpy seeks(f.rlv.get(), &RlvSession::seekRequested);
@@ -331,8 +344,8 @@ private slots:
         QCOMPARE(f.rlv->playbackRate(), base);
 
         // very slow rider (below the minimum rate): the video waits instead of running ahead
-        QVERIFY(f.rlv->shiftDown());
-        while (f.rlv->shiftDown()) { }
+        QVERIFY(f.gears->shiftDown());
+        while (f.gears->shiftDown()) { }
         f.pedal(25, 80);
         f.ride_for(500);
         QVERIFY(f.rlv->speedKmh() >= RlvSession::kMinPlaySpeedKmh);
@@ -353,7 +366,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double d) { return d < 2000 ? 6.0 : -5.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("hill")));
         QVERIFY(f.rlv->seekToDistance(1000));
@@ -366,7 +379,7 @@ private slots:
         QVERIFY(std::abs(f.rlv->distanceMeters() - 1000) < 1e-9);
         f.ride_for(2000);
         const int full = f.rlv->sentTargetWatts();
-        const double v = f.freeRide->gearing().virtualSpeed(80);
+        const double v = f.gears->gearing().virtualSpeed(80);
         QVERIFY(std::abs(full - road::powerForSpeed(f.rlv->roadModel(f.rlv->effectiveGradePercent()), v)) <= 3);
         f.rlv->setDifficulty(50);
         QVERIFY(std::abs(f.rlv->effectiveGradePercent() - 3.0) < 0.1);
@@ -456,12 +469,19 @@ private slots:
         f.rlv->setDifficulty(50);
         QCOMPARE(int(sims.count()), before + 1);
         QVERIFY(std::abs(sims.last().at(0).toDouble() - 4.0) < 0.05);
-        // Zwift Click / keys in simulation mode: difficulty ±10 %
+        // Zwift Click in simulation mode: shifts gears, never the difficulty
+        const int gearBefore = f.gears->gearIndex();
         f.rlv->controllerShift(1);
-        QCOMPARE(f.rlv->difficultyPercent(), 60);
-        QVERIFY(std::abs(sims.last().at(0).toDouble() - 4.8) < 0.05);
+        QCOMPARE(f.rlv->difficultyPercent(), 50);
+        QCOMPARE(f.gears->gearIndex(), gearBefore + 1);
         f.rlv->controllerShift(-1);
         QCOMPARE(f.rlv->difficultyPercent(), 50);
+        QCOMPARE(f.gears->gearIndex(), gearBefore);
+        // keys PgUp / PgDn: difficulty ±10 %
+        f.rlv->adjustDifficulty(10);
+        QCOMPARE(f.rlv->difficultyPercent(), 60);
+        QVERIFY(std::abs(sims.last().at(0).toDouble() - 4.8) < 0.05);
+        f.rlv->adjustDifficulty(-10);
         // pause releases the trainer, resume sends the grade again
         f.rlv->pause();
         QVERIFY(!f.hub->simulationActive());
@@ -564,14 +584,14 @@ private slots:
         f.ride_for(5000);
         QCOMPARE(int(sims.count()), simCount);
         // gear speed and gear target like the gears mode
-        const double v = f.freeRide->gearing().virtualSpeed(85);
+        const double v = f.gears->gearing().virtualSpeed(85);
         QVERIFY(std::abs(f.rlv->speedMps() - v) < 0.01);
         QVERIFY(std::abs(f.rlv->sentTargetWatts()
                          - road::powerForSpeed(f.rlv->roadModel(f.rlv->effectiveGradePercent()), v)) <= 3);
         // Zwift Click shifts in the fallback
-        const QString gear = f.rlv->gearLabel();
+        const QString gear = f.gears->gearLabel();
         f.rlv->controllerShift(1);
-        QVERIFY(f.rlv->gearLabel() != gear);
+        QVERIFY(f.gears->gearLabel() != gear);
         QCOMPARE(f.rlv->difficultyPercent(), 100);
         // trainer without cadence: released, speed from power
         f.pedal(0, 200);
@@ -682,7 +702,7 @@ private slots:
         // old "power" mode -> classic simulation, setting rewritten
         f.db.setSetting(QStringLiteral("rlv/mode"), QStringLiteral("power"));
         {
-            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get(), f.gears.get());
             QCOMPARE(s.mode(), QStringLiteral("sim"));
             QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("sim"));
             s.setMode(QStringLiteral("power"));   // still accepted, as sim
@@ -693,20 +713,28 @@ private slots:
             s.setTargetWatts(185);
         }
         {
-            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get(), f.gears.get());
             QCOMPARE(s.mode(), QStringLiteral("erg"));
             QCOMPARE(s.targetWatts(), 185);
-            s.setMode(QStringLiteral("gears"));
+            s.setMode(QStringLiteral("gears"));   // the old virtual gears mode: simulation
+            QCOMPARE(s.mode(), QStringLiteral("sim"));
         }
+        // stored "gears" (older versions) -> "sim", rewritten
+        f.db.setSetting(QStringLiteral("rlv/mode"), QStringLiteral("gears"));
         {
-            RlvSession s(&f.db, f.profiles.get(), f.hub.get());
-            QCOMPARE(s.mode(), QStringLiteral("gears"));
+            RlvSession s(&f.db, f.profiles.get(), f.hub.get(), f.gears.get());
+            QCOMPARE(s.mode(), QStringLiteral("sim"));
+            QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("sim"));
+            QVERIFY(!s.virtualGears());   // virtual gears come from the Devices toggle / Click
+            f.gears->setEnabled(true);
             QVERIFY(s.virtualGears());
+            f.gears->setEnabled(false);
         }
         f.db.setSetting(QStringLiteral("rlv/mode"), QStringLiteral("nonsense"));
-        RlvSession s(&f.db, f.profiles.get(), f.hub.get());
+        RlvSession s(&f.db, f.profiles.get(), f.hub.get(), f.gears.get());
         QCOMPARE(s.mode(), QStringLiteral("sim"));
         QCOMPARE(RlvSession::parseMode(QStringLiteral("power")), std::optional<RlvSession::Mode>(RlvSession::Mode::Sim));
+        QCOMPARE(RlvSession::parseMode(QStringLiteral("gears")), std::optional<RlvSession::Mode>(RlvSession::Mode::Sim));
         QVERIFY(!RlvSession::parseMode(QStringLiteral("x")));
         QCOMPARE(RlvSession::modeName(RlvSession::Mode::Erg), QStringLiteral("erg"));
     }
@@ -718,8 +746,9 @@ private slots:
         QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double) { return 4.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("hill")));
         // gears mode, trainer without cadence: speed from power, trainer released
-        f.rlv->setMode(QStringLiteral("gears"));
-        QCOMPARE(f.db.setting(QStringLiteral("rlv/mode")).toString(), QStringLiteral("gears"));
+        f.useGears();
+        QCOMPARE(f.rlv->mode(), QStringLiteral("sim"));
+        QCOMPARE(f.db.setting(QStringLiteral("gears/enabled")).toBool(), true);
         f.pedal(0, 200);
         QVERIFY(f.rlv->start());
         f.ride_for(120000);
@@ -734,7 +763,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("short"), 400, 8, [](double d) { return d < 200 ? 3.0 : 0.0; }));
         QVERIFY(f.selectRoute(QStringLiteral("short")));
         QSignalSpy saved(f.rlv.get(), &RlvSession::rideSaved);
@@ -829,22 +858,20 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rlv->setMode(QStringLiteral("gears"));
+        f.useGears();
         QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
-        QSignalSpy gear(f.rlv.get(), &RlvSession::gearChanged);
-        QSignalSpy shifted(f.rlv.get(), &RlvSession::shifted);
-        const QString before = f.rlv->gearLabel();
-        QCOMPARE(before, f.freeRide->gearLabel());
-        QVERIFY(f.rlv->shiftUp());
-        QVERIFY(f.rlv->gearLabel() != before);
-        QCOMPARE(f.rlv->gearLabel(), f.freeRide->gearLabel());
+        QSignalSpy gear(f.gears.get(), &VirtualGears::gearChanged);
+        QSignalSpy shifted(f.gears.get(), &VirtualGears::shifted);
+        const QString before = f.gears->gearLabel();
+        QVERIFY(f.gears->shiftUp());
+        QVERIFY(f.gears->gearLabel() != before);
+        QCOMPARE(f.rlv->gearing().label(), f.freeRide->gearing().label());   // one gearing
         QVERIFY(gear.count() >= 1);
         QCOMPARE(shifted.count(), 1);
-        // a shift in the free ride (setup page) is the same gear
-        QVERIFY(f.freeRide->shiftDown());
-        QCOMPARE(f.rlv->gearLabel(), before);
-        // controller in gears mode shifts and re-applies the target at once
+        QVERIFY(f.gears->shiftDown());
+        QCOMPARE(f.rlv->gearing().label(), before);
+        // controller shifts and re-applies the target at once
         f.pedal(90, 200);
         QVERIFY(f.rlv->start());
         f.ride_for(2000);
@@ -855,8 +882,133 @@ private slots:
         f.rlv->controllerShift(-1);
         f.rlv->controllerShift(-1);
         QVERIFY(f.rlv->sentTargetWatts() < t0);
-        QCOMPARE(f.rlv->gear().value(QStringLiteral("label")).toString(), f.rlv->gearLabel());
+        QCOMPARE(f.rlv->difficultyPercent(), 100);
         f.rlv->finish(false);
+    }
+
+    // VirtualGears::controllerShift: the single Zwift Click routing
+    void clickRouting()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("hill"), 4000, 5, [](double) { return 5.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("hill")));
+        f.rlv->setDifficulty(70);
+        f.freeRide->setGrade(3.0);
+        QVERIFY(!f.gears->enabled());
+        QSignalSpy notices(f.gears.get(), &VirtualGears::notice);
+        QSignalSpy rlvErg(f.rlv.get(), &RlvSession::shifted);
+        QSignalSpy freeErg(f.freeRide.get(), &FreeRideSession::shifted);
+
+        // no ride, e.g. Devices page: shifts the gear, and turns virtual gears on once
+        f.gears->setActivePage(QStringLiteral("devices"));
+        int gear = f.gears->gearIndex();
+        f.gears->controllerShift(1);
+        QVERIFY(f.gears->enabled());
+        QCOMPARE(notices.count(), 1);
+        QCOMPARE(notices.first().first().toString(), QStringLiteral("Zwift Click detected – using virtual gears"));
+        QCOMPARE(f.gears->gearIndex(), ++gear);
+        f.gears->controllerShift(-1);
+        QCOMPARE(f.gears->gearIndex(), --gear);
+        QCOMPARE(notices.count(), 1);   // already on
+
+        // Video Ride page, simulation: gears; ERG: ±10 W - never the difficulty
+        f.gears->setActivePage(QStringLiteral("video"));
+        f.gears->controllerShift(1);
+        QCOMPARE(f.gears->gearIndex(), ++gear);
+        f.rlv->setMode(QStringLiteral("erg"));
+        const int rlvTarget = f.rlv->targetWatts();
+        f.gears->controllerShift(1);
+        QCOMPARE(f.rlv->targetWatts(), rlvTarget + 10);
+        QCOMPARE(f.gears->gearIndex(), gear);
+        QCOMPARE(rlvErg.count(), 1);
+        f.rlv->setMode(QStringLiteral("sim"));
+
+        // Free Ride page: ride -> gears, ERG -> ±10 W - never the grade
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        f.gears->controllerShift(-1);
+        QCOMPARE(f.gears->gearIndex(), --gear);
+        f.freeRide->setMode(QStringLiteral("erg"));
+        const int freeTarget = f.freeRide->targetWatts();
+        f.gears->controllerShift(-1);
+        QCOMPARE(f.freeRide->targetWatts(), freeTarget - 10);
+        QCOMPARE(freeErg.count(), 1);
+        QCOMPARE(f.gears->gearIndex(), gear);
+        f.freeRide->setMode(QStringLiteral("ride"));
+
+        // a running video ride gets the buttons wherever the user is
+        f.gears->setActivePage(QStringLiteral("history"));
+        f.pedal(85, 200);
+        QVERIFY(f.rlv->start());
+        f.gears->controllerShift(1);
+        QCOMPARE(f.gears->gearIndex(), ++gear);
+        f.rlv->finish(false);
+        // a running free ride too
+        QVERIFY(f.freeRide->start());
+        f.gears->controllerShift(1);
+        QCOMPARE(f.gears->gearIndex(), ++gear);
+        f.freeRide->finish(false);
+
+        QCOMPARE(f.rlv->difficultyPercent(), 70);
+        QCOMPARE(f.freeRide->gradePercent(), 3.0);
+        // a press while off turns them on again (with the notice)
+        f.gears->setEnabled(false);
+        f.gears->controllerShift(1);
+        QVERIFY(f.gears->enabled());
+        QCOMPARE(notices.count(), 2);
+    }
+
+    // Saved on the Devices page -> both rides at once; reloaded when the
+    // Click is recognised and after a restart.
+    void gearSetupSharedAndReloaded()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QSignalSpy freeTargets(f.freeRide.get(), &FreeRideSession::targetChanged);
+        QSignalSpy rlvTargets(f.rlv.get(), &RlvSession::targetChanged);
+        QVERIFY(f.gears->setGearSetup({ 40 }, { 11, 13, 15, 17, 19, 21, 24, 28, 32, 36, 42 }, 2136, false));
+        QVERIFY(f.gears->setBikePhysics(10.0, 0.35, 0.005));
+        QVERIFY(f.gears->setReferenceGear(40, 19));
+        QVERIFY(!f.gears->setReferenceGear(50, 17));   // not on this bike
+        QCOMPARE(f.rlv->gearing().setup().chainrings, QVector<int>({ 40 }));
+        QCOMPARE(f.freeRide->gearing().setup().circumferenceMm, 2136);
+        QCOMPARE(f.rlv->roadModel(0).massKg, f.freeRide->roadModel(0).massKg);
+        QCOMPARE(f.rlv->roadModel(0).cda, 0.35);
+        QVERIFY(freeTargets.count() >= 1);
+        QVERIFY(rlvTargets.count() >= 1);
+        QCOMPARE(f.gears->referenceLabel(), QStringLiteral("40×19"));
+        QCOMPARE(f.gears->summary(), QStringLiteral("1× 40 · 11–42 11-speed · 700×28c · 11 gears"));
+        QVERIFY(f.gears->setGear(0, 4));   // 40×19
+        QCOMPARE(f.gears->gearFactor(), 1.0);
+        f.gears->flushSettings();
+
+        // the Click is recognised: the saved setup is (re)loaded, virtual gears on
+        f.db.setGearSetupJson(f.profiles->profileId(), [&] {
+            GearSetup s = f.gears->setup();
+            s.rearIndex = 5;   // saved meanwhile (e.g. by another instance)
+            return s.toJsonText();
+        }());
+        QVERIFY(!f.gears->enabled());
+        f.gears->setClickConnected(true);
+        QVERIFY(f.gears->enabled());
+        QVERIFY(f.gears->clickConnected());
+        QCOMPARE(f.gears->gearLabel(), QStringLiteral("40×21"));
+        QCOMPARE(f.rlv->gearing().label(), QStringLiteral("40×21"));
+        // the user turns them off while the Click stays connected: respected
+        f.gears->setEnabled(false);
+        f.gears->setClickConnected(true);
+        QVERIFY(!f.gears->enabled());
+        f.gears->setClickConnected(false);
+        QVERIFY(!f.gears->enabled());
+        f.gears->setEnabled(true);
+
+        // restart: setup, gear and the toggle come back
+        f.gears->flushSettings();
+        VirtualGears again(&f.db, f.profiles.get());
+        QVERIFY(again.enabled());
+        QCOMPARE(again.gearLabel(), QStringLiteral("40×21"));
+        QCOMPARE(again.referenceLabel(), QStringLiteral("40×19"));
+        QCOMPARE(again.setup().bikeWeightKg, 10.0);
     }
 };
 

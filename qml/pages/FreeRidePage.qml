@@ -3,21 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Artilody.Backend
 
-// Free ride without a workout: virtual gears (shift to change power and
-// speed), ERG (hold a set wattage) or free (no resistance control).
-// All logic lives in the FreeRide singleton; Zwift Click buttons arrive there
-// directly from Devices.
+// Free ride without a workout: "Ride" (a simulated road with a grade; shift
+// on your bike, or virtually with the gears set up on the Devices page) or
+// ERG (hold a set wattage). All logic lives in the FreeRide and Gears
+// singletons; Zwift Click buttons are routed by Gears.
 Item {
     id: page
     signal openDevices()
-    signal openGearSetup()
     signal requestFinish()
 
     readonly property string st: FreeRide.state
     readonly property bool finished: st === "finished"
     // only one session at a time (FreeRide refuses to start otherwise)
     readonly property bool otherSession: Training.armedOrActive || Rowing.active
-    readonly property var setup: FreeRide.gearSetup
+    readonly property var setup: Gears.gearSetup
     readonly property var rings: setup.chainrings || []
     readonly property var cogs: setup.cogs || []
     readonly property int chartTotal: Math.max(600, Math.ceil((FreeRide.elapsedSeconds + 60) / 600) * 600)
@@ -37,7 +36,15 @@ Item {
     function gradeText(g) {
         return (g > 0 ? "+" : g < 0 ? "−" : "") + Math.abs(g).toFixed(1) + " %"
     }
-    function modeName(m) { return m === "erg" ? "ERG" : m === "free" ? "Free" : "Gears" }
+    function modeName(m) { return m === "erg" ? "ERG" : "Ride" }
+    // "Shifting: …" status line (also on the Video Ride page)
+    function shiftingText() {
+        if (!FreeRide.virtualGears)
+            return "your bike's gears"
+        if (FreeRide.simulationFallback)
+            return "Virtual gears"
+        return Devices.controllerConnected ? "Virtual gears (Zwift Click)" : "Virtual gears (on-screen)"
+    }
     function goTo(name) {
         var w = ApplicationWindow.window
         if (w && typeof w.showPage === "function")
@@ -46,13 +53,18 @@ Item {
 
     Connections {
         target: FreeRide
+        function onShifted(direction) {   // ERG steps (Zwift Click ±10 W)
+            if (FreeRide.mode === "erg")
+                ergControl.pulse(direction)
+        }
+    }
+    Connections {
+        target: Gears
         function onShifted(direction) {
-            if (FreeRide.mode === "gears") {
+            if (FreeRide.virtualGears) {
                 gearDisplay.flash(direction)
                 var b = direction > 0 ? harderButton : easierButton
                 b.pulse()
-            } else if (FreeRide.mode === "erg") {
-                ergControl.pulse(direction)
             }
         }
     }
@@ -93,8 +105,7 @@ Item {
                     }
                     Text {
                         text: FreeRide.mode === "erg" ? "Hold a set wattage in ERG mode – as long as you like."
-                              : FreeRide.mode === "free" ? "Ride without resistance control."
-                              : "Ride without a workout. Shift gears for more watts and speed."
+                              : "Ride a road without a workout. Climbs get harder like outdoors."
                         color: Theme.text
                         font.pixelSize: 21
                     }
@@ -151,9 +162,8 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         height: 46
                         options: [
-                            { value: "gears", label: "Gears", icon: "cog" },
-                            { value: "erg", label: "ERG", icon: "target" },
-                            { value: "free", label: "Free", icon: "freeRide" }
+                            { value: "ride", label: "Ride", icon: "mountain" },
+                            { value: "erg", label: "ERG", icon: "target" }
                         ]
                         value: FreeRide.mode
                         onActivated: (v) => FreeRide.mode = v
@@ -180,7 +190,7 @@ Item {
                     value: Sensors.displayPower
                     unit: "W"
                     footer: FreeRide.mode === "erg" ? "Target: " + FreeRide.targetWatts + " W"
-                            : FreeRide.mode === "gears" && FreeRide.gearTargetWatts > 0
+                            : FreeRide.virtualGears && FreeRide.gearTargetWatts > 0
                               ? "Gear: " + FreeRide.gearTargetWatts + " W"
                               : "Avg: " + FreeRide.avgWatts + " W"
                 }
@@ -205,7 +215,7 @@ Item {
                     value: FreeRide.cadence
                     unit: "RPM"
                     footer: FreeRide.active && FreeRide.coasting ? "Coasting"
-                            : FreeRide.mode === "gears" ? "Gear " + FreeRide.gearLabel : "Max: " + FreeRide.maxWatts + " W"
+                            : FreeRide.virtualGears ? "Gear " + Gears.gearLabel : "Max: " + FreeRide.maxWatts + " W"
                 }
                 RowingMetric {
                     Layout.fillWidth: true
@@ -241,110 +251,149 @@ Item {
                 }
             }
 
-            // gears / ERG / free panel
+            // ride (road + shifting) / ERG panel
             Card {
                 id: controlCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: 362
-                title: FreeRide.mode === "erg" ? "ERG – Target Power"
-                       : FreeRide.mode === "free" ? "Free Mode" : "Virtual Gears"
+                title: FreeRide.mode === "erg" ? "ERG – Target Power" : "Road"
                 headerRight: [
                     Text {
-                        visible: FreeRide.mode === "gears"
-                        text: (FreeRide.sequential ? "Sequential" : "Front + rear") + "  •  "
-                              + page.ringsText() + " × " + page.cassetteText()
-                              + "  •  " + FreeRide.gearCount + " gears"
+                        visible: FreeRide.mode !== "erg"
+                        text: "Shifting: " + page.shiftingText()
                         color: Theme.textSecondary
                         font.pixelSize: 15
                     }
                 ]
 
-                // --- gears ---------------------------------------------------------
+                // --- ride ----------------------------------------------------------
                 RowLayout {
-                    id: gearsRow
-                    visible: FreeRide.mode === "gears"
+                    id: rideRow
+                    visible: FreeRide.mode !== "erg"
                     x: 16
                     y: controlCard.contentTop - 4
                     width: parent.width - 32
                     height: parent.height - y - 42
                     spacing: 16
 
+                    // virtual gears: small on-screen shifter around the gear (read-only setup)
                     ShiftButton {
                         id: easierButton
-                        Layout.preferredWidth: 132
-                        Layout.fillHeight: true
+                        visible: FreeRide.virtualGears
+                        Layout.preferredWidth: 84
+                        Layout.preferredHeight: 150
+                        Layout.alignment: Qt.AlignVCenter
                         iconName: "minus"
+                        iconSize: 30
                         label: "Easier"
-                        sublabel: "↓  or  −"
+                        labelSize: 15
+                        sublabel: "↓"
                         tint: Theme.accent
-                        enabled: FreeRide.canShiftDown
-                        onClicked: FreeRide.shiftDown()
+                        enabled: Gears.canShiftDown
+                        onClicked: Gears.shiftDown()
                     }
-
                     ColumnLayout {
+                        visible: FreeRide.virtualGears
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 300   // the rest of the row goes here
+                        Layout.preferredWidth: 300
                         Layout.fillHeight: true
                         spacing: 6
                         GearDisplay {
                             id: gearDisplay
                             Layout.fillWidth: true
                             Layout.preferredHeight: implicitHeight
-                            frontTeeth: FreeRide.frontTeeth
-                            rearTeeth: FreeRide.rearTeeth
-                            gearIndex: FreeRide.gearIndex
-                            gearCount: FreeRide.gearCount
-                            ratio: FreeRide.gearRatio
+                            frontTeeth: Gears.frontTeeth
+                            rearTeeth: Gears.rearTeeth
+                            gearIndex: Gears.gearIndex
+                            gearCount: Gears.gearCount
+                            ratio: Gears.gearRatio
                             chainrings: page.rings
                             cogs: page.cogs
-                            frontIndex: FreeRide.frontIndex
-                            rearIndex: FreeRide.rearIndex
-                            sequential: FreeRide.sequential
+                            frontIndex: Gears.frontIndex
+                            rearIndex: Gears.rearIndex
+                            sequential: Gears.sequential
                         }
                         Item { Layout.fillHeight: true }
-                        Row {
-                            Layout.alignment: Qt.AlignHCenter
-                            spacing: 10
-                            visible: FreeRide.sequential || page.rings.length > 1
-                            AppButton {
-                                height: 40
-                                kind: "secondary"
-                                fontSize: 15
-                                iconSize: 16
-                                iconSpacing: 8
-                                horizontalPadding: 14
-                                bold: false
-                                iconName: "chevronLeft"
-                                text: FreeRide.sequential ? "Jump 3 easier" : "Small ring"
-                                enabled: FreeRide.canShiftFrontDown
-                                onClicked: FreeRide.shiftFrontDown()
-                            }
-                            AppButton {
-                                height: 40
-                                kind: "secondary"
-                                fontSize: 15
-                                iconSize: 16
-                                iconSpacing: 8
-                                horizontalPadding: 14
-                                bold: false
-                                iconName: "chevronRight"
-                                text: FreeRide.sequential ? "Jump 3 harder" : "Big ring"
-                                enabled: FreeRide.canShiftFrontUp
-                                onClicked: FreeRide.shiftFrontUp()
-                            }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: FreeRide.simulationFallback
+                                  ? "Your trainer can't simulate climbs – using virtual gears."
+                                  : FreeRide.resistancePath === "gearSimulation"
+                                    ? "Leave your bike in " + Gears.referenceLabel + " on the trainer."
+                                    : "The trainer sets the watts your gear needs."
+                            color: FreeRide.simulationFallback ? Theme.warningText : Theme.textSecondary
+                            font.pixelSize: 14
+                            elide: Text.ElideRight
                         }
                     }
-
                     ShiftButton {
                         id: harderButton
-                        Layout.preferredWidth: 132
-                        Layout.fillHeight: true
+                        visible: FreeRide.virtualGears
+                        Layout.preferredWidth: 84
+                        Layout.preferredHeight: 150
+                        Layout.alignment: Qt.AlignVCenter
                         iconName: "plus"
+                        iconSize: 30
                         label: "Harder"
-                        sublabel: "↑  or  +"
+                        labelSize: 15
+                        sublabel: "↑"
                         tint: Theme.orange
-                        enabled: FreeRide.canShiftUp
-                        onClicked: FreeRide.shiftUp()
+                        enabled: Gears.canShiftUp
+                        onClicked: Gears.shiftUp()
+                    }
+
+                    // real gears: the trainer simulates the grade
+                    ColumnLayout {
+                        visible: !FreeRide.virtualGears
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 300
+                        Layout.fillHeight: true
+                        spacing: 10
+                        Item { Layout.fillHeight: true }
+                        Icon {
+                            Layout.alignment: Qt.AlignHCenter
+                            name: "bike"
+                            size: 46
+                            strokeWidth: 2
+                            color: Theme.accentLight
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "Shift on your bike"
+                            color: Theme.text
+                            font.pixelSize: 24
+                            font.weight: Font.Bold
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: "The trainer gets the grade and makes climbs harder, like on the road."
+                            color: Theme.textSecondary
+                            font.pixelSize: 15
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "Grade sent to trainer: " + (FreeRide.simulationActive ? page.gradeText(FreeRide.simulationGradePercent) : "–")
+                            color: Theme.text
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
+                        }
+                        AppButton {
+                            Layout.alignment: Qt.AlignHCenter
+                            height: 40
+                            kind: "secondary"
+                            fontSize: 15
+                            iconSize: 18
+                            iconSpacing: 8
+                            horizontalPadding: 14
+                            bold: false
+                            iconName: "cog"
+                            text: "Virtual gears on Devices"
+                            onClicked: page.openDevices()
+                        }
+                        Item { Layout.fillHeight: true }
                     }
 
                     Rectangle {
@@ -426,9 +475,11 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             Layout.topMargin: 8
-                            text: FreeRide.gearTargetWatts > 0
-                                  ? "This gear at " + FreeRide.cadence + " rpm needs ≈ " + FreeRide.gearTargetWatts + " W"
-                                  : "Shift harder for more watts and speed at the same cadence."
+                            text: FreeRide.virtualGears
+                                  ? (FreeRide.gearTargetWatts > 0
+                                     ? "This gear at " + FreeRide.cadence + " rpm needs ≈ " + FreeRide.gearTargetWatts + " W"
+                                     : "Harder gear = more speed and more watts at the same cadence.")
+                                  : "Climbs get harder like on the road."
                             color: Theme.textSecondary
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap
@@ -438,15 +489,17 @@ Item {
                 }
 
                 Text {
-                    visible: gearsRow.visible
+                    visible: rideRow.visible
                     x: 16
                     width: parent.width - 32
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 12
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
-                    text: "Keys:   ↑ / +  harder   •   ↓ / −  easier   •   Shift + ↑ / ↓  "
-                          + (FreeRide.sequential ? "jump 3 gears" : "front shift") + "   •   PgUp / PgDn  grade   •   Space  pause / resume"
+                    text: FreeRide.virtualGears
+                          ? "Keys:   ↑ / ↓  shift   •   Shift + ↑ / ↓  " + (Gears.sequential ? "jump 3 gears" : "front shift")
+                            + "   •   PgUp / PgDn  grade   •   Space  pause / resume"
+                          : "Keys:   PgUp / PgDn  grade   •   Space  pause / resume"
                     color: Theme.textMuted
                     font.pixelSize: 13
                 }
@@ -459,63 +512,6 @@ Item {
                     y: controlCard.contentTop
                     width: parent.width - 36
                     height: parent.height - y - 18
-                }
-
-                // --- free ------------------------------------------------------------
-                Column {
-                    visible: FreeRide.mode === "free"
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: 14
-                    width: Math.min(parent.width - 60, 640)
-                    spacing: 12
-                    Icon {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        name: "freeRide"
-                        size: 46
-                        strokeWidth: 2.2
-                        color: Theme.accentLight
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "No resistance control"
-                        color: Theme.text
-                        font.pixelSize: 24
-                        font.weight: Font.Bold
-                    }
-                    Text {
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: "The trainer stays in its own free-ride mode. Speed and distance are calculated "
-                              + "from your power on a flat road. Zwift Click buttons are inactive – "
-                              + "choose Gears to shift or ERG to hold a wattage."
-                        color: Theme.textSecondary
-                        font.pixelSize: 16
-                        wrapMode: Text.WordWrap
-                    }
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 12
-                        AppButton {
-                            height: 44
-                            kind: "secondary"
-                            fontSize: 15
-                            iconSize: 18
-                            bold: false
-                            iconName: "cog"
-                            text: "Use Gears"
-                            onClicked: FreeRide.mode = "gears"
-                        }
-                        AppButton {
-                            height: 44
-                            kind: "secondary"
-                            fontSize: 15
-                            iconSize: 18
-                            bold: false
-                            iconName: "target"
-                            text: "Use ERG"
-                            onClicked: FreeRide.mode = "erg"
-                        }
-                    }
                 }
             }
 
@@ -766,12 +762,12 @@ Item {
                 }
             }
 
-            // Zwift Click
+            // shifting (set up on the Devices page) + Zwift Click
             Card {
                 id: clickCard
                 width: parent.width
                 height: clickCol.y + clickCol.implicitHeight + 16
-                title: "Zwift Click"
+                title: "Shifting"
                 titleSize: 18
                 headerRight: [
                     Row {
@@ -804,28 +800,29 @@ Item {
                     Row {
                         spacing: 10
                         Icon {
-                            name: "controller"
-                            size: 30
+                            name: FreeRide.virtualGears ? "cog" : "bike"
+                            size: 28
                             strokeWidth: 2
-                            color: Devices.controllerConnected ? Theme.successText : Theme.textMuted
+                            color: FreeRide.virtualGears ? Theme.orange : Theme.accentLight
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
                             Text {
-                                text: Devices.controllerConnected
-                                      ? (Devices.controllerCount > 1 ? Devices.controllerCount + " pods connected" : "Connected")
-                                      : Devices.controllerState === 1 ? "Connecting…" : "Not connected"
-                                color: Devices.controllerConnected ? Theme.successText : Theme.text
-                                font.pixelSize: 16
+                                width: clickCol.width - 40
+                                text: FreeRide.mode === "erg" ? "ERG – no shifting needed"
+                                      : page.shiftingText().charAt(0).toUpperCase() + page.shiftingText().slice(1)
+                                color: Theme.text
+                                font.pixelSize: 15
                                 font.weight: Font.DemiBold
+                                elide: Text.ElideRight
                             }
                             Text {
                                 width: clickCol.width - 40
                                 text: Devices.controllerConnected
                                       ? Devices.controllerName
                                         + (Devices.controllerBattery >= 0 ? "  •  Battery " + Devices.controllerBattery + " %" : "")
-                                      : "Virtual shifting with Zwift Click v1 / v2"
+                                      : Gears.summary
                                 color: Theme.textSecondary
                                 font.pixelSize: 13
                                 elide: Text.ElideRight
@@ -834,80 +831,25 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: FreeRide.mode === "erg" ? "+ / −  change the ERG target by 10 W"
-                              : FreeRide.mode === "free" ? "Buttons are inactive in Free mode"
-                              : "+  shift harder   •   −  shift easier"
+                        text: FreeRide.mode === "erg" ? "Click + / −  target ±10 W"
+                              : "Click +  harder gear   •   −  easier gear"
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                     }
                     AppButton {
-                        visible: !Devices.controllerConnected
                         width: parent.width
                         height: 40
                         kind: "secondary"
                         fontSize: 15
                         iconSize: 18
                         bold: false
-                        iconName: "bluetooth"
-                        text: "Connect in Devices"
+                        iconName: Devices.controllerConnected ? "cog" : "bluetooth"
+                        text: Devices.controllerConnected ? "Virtual gears on Devices" : "Zwift Click & gears on Devices"
                         onClicked: page.openDevices()
                     }
                 }
             }
-
-            // bike & gears
-            Card {
-                id: bikeCard
-                visible: !page.finished
-                width: parent.width
-                height: bikeCol.y + bikeCol.implicitHeight + 16
-                title: "Bike & Gears"
-                titleSize: 18
-                Column {
-                    id: bikeCol
-                    x: 16
-                    y: bikeCard.contentTop - 4
-                    width: parent.width - 32
-                    spacing: 6
-                    Repeater {
-                        model: ["Chainrings", "Cassette", "Wheel", "Shifting"]
-                        Item {
-                            width: bikeCol.width
-                            height: 22
-                            Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
-                            Text {
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: {
-                                    switch (index) {
-                                    case 0: return page.ringsText() + (page.rings.length === 1 ? " (1×)" : "")
-                                    case 1: return page.cassetteText() + "  (" + page.cogs.length + ")"
-                                    case 2: return (page.setup.circumferenceMm || 0) + " mm"
-                                    default: return (FreeRide.sequential ? "Sequential" : "Front + rear") + "  •  " + FreeRide.gearCount + " gears"
-                                    }
-                                }
-                                color: Theme.text
-                                font.pixelSize: 14
-                                font.weight: Font.DemiBold
-                            }
-                        }
-                    }
-                    Item { width: 1; height: 2 }
-                    AppButton {
-                        width: parent.width
-                        height: 40
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: "cog"
-                        text: "Gear Setup…"
-                        onClicked: page.openGearSetup()
-                    }
-                }
-            }
-
         }
     }
 }

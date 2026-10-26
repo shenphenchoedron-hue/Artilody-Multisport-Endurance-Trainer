@@ -5,6 +5,7 @@ import Artilody.Backend
 
 Item {
     id: page
+    signal openGearSetup()
     property int ergTarget: 150
     property bool trainersOpen: true
     property bool hrOpen: true
@@ -26,6 +27,17 @@ Item {
             page.clickPlus = plus
             page.clickMinus = minus
         }
+    }
+
+    // the controllers section (set by its delegate), for revealControllers()
+    property Item controllerSection: null
+    function revealControllers() {
+        page.controllersOpen = true
+        Qt.callLater(function() {
+            if (page.controllerSection)
+                devFlick.contentY = Math.max(0, Math.min(page.controllerSection.y,
+                                                         devFlick.contentHeight - devFlick.height))
+        })
     }
 
     function paceText(sec) {
@@ -189,11 +201,12 @@ Item {
         ]
 
         Flickable {
+            id: devFlick
             x: 12
             y: 58
             width: parent.width - 24
             height: parent.height - 70
-            contentHeight: devCol.height
+            contentHeight: devCol.height + 12
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -263,6 +276,7 @@ Item {
                         color: Theme.cardStrong
                         border.color: Theme.cardBorder
                         clip: true
+                        Component.onCompleted: if (kindName === "controller") page.controllerSection = section
 
                         Row {
                             x: 14
@@ -616,8 +630,188 @@ Item {
                                     elide: Text.ElideRight
                                 }
                             }
+                            // virtual gears: the bike used with the Zwift Click in
+                            // Free Ride and Video Ride (VirtualGears, "Gears")
+                            Loader {
+                                active: section.kindName === "controller"
+                                visible: active
+                                width: listCol.width
+                                sourceComponent: virtualGearsCard
+                            }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: virtualGearsCard
+        Rectangle {
+            id: vg
+            readonly property var setup: Gears.gearSetup
+            readonly property var rings: (setup.chainrings || []).slice().reverse()
+            readonly property var cogs: setup.cogs || []
+            width: parent ? parent.width : 0
+            height: vgCol.implicitHeight + 24
+            radius: 10
+            color: Theme.navSelected
+            border.color: Gears.enabled ? Theme.orange : Theme.cardBorder
+            border.width: Gears.enabled ? 1.5 : 1
+
+            Connections {
+                target: Gears
+                function onShifted(direction) { gearPulse.restart() }
+            }
+
+            Column {
+                id: vgCol
+                x: 14; y: 12
+                width: parent.width - 28
+                spacing: 8
+
+                Item {
+                    width: parent.width
+                    height: 30
+                    Row {
+                        spacing: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        Icon { name: "cog"; size: 24; color: Theme.orange; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            text: "Virtual gears"
+                            color: Theme.text
+                            font.pixelSize: 18
+                            font.weight: Font.Bold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 10
+                        Text {
+                            text: "Use virtual gears"
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        ToggleSwitch {
+                            width: 46; height: 26
+                            anchors.verticalCenter: parent.verticalCenter
+                            onColor: Theme.orange
+                            checked: Gears.enabled
+                            onToggled: (on) => Gears.enabled = on
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: Gears.summary
+                    color: Theme.text
+                    font.pixelSize: 15
+                    elide: Text.ElideRight
+                }
+
+                // current gear (live) + test shifting + setup
+                Item {
+                    width: parent.width
+                    height: 52
+                    IconButton {
+                        id: vgEasier
+                        width: 44; height: 44
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "minus"
+                        tooltip: "Shift easier"
+                        enabled: Gears.canShiftDown
+                        onClicked: Gears.shiftDown()
+                    }
+                    Column {
+                        id: vgGear
+                        x: vgEasier.width + 10
+                        width: 132
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            id: gearText
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: Gears.gearLabel.replace("×", " × ")
+                            color: Theme.text
+                            font.pixelSize: 24
+                            font.weight: Font.Black
+                            SequentialAnimation {
+                                id: gearPulse
+                                NumberAnimation { target: gearText; property: "scale"; to: 1.12; duration: 80 }
+                                NumberAnimation { target: gearText; property: "scale"; to: 1; duration: 220; easing.type: Easing.OutCubic }
+                            }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
+                            color: Theme.textSecondary
+                            font.pixelSize: 13
+                        }
+                    }
+                    IconButton {
+                        x: vgGear.x + vgGear.width + 10
+                        width: 44; height: 44
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "plus"
+                        tooltip: "Shift harder"
+                        enabled: Gears.canShiftUp
+                        onClicked: Gears.shiftUp()
+                    }
+                    AppButton {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 156
+                        height: 44
+                        kind: "secondary"
+                        fontSize: 15
+                        iconSize: 18
+                        bold: false
+                        iconName: "cog"
+                        text: "Gear Setup…"
+                        onClicked: page.openGearSetup()
+                    }
+                }
+
+                // the real gear on the trainer (reference for the trainer's own simulation)
+                Item {
+                    width: parent.width
+                    height: 42
+                    Text {
+                        text: "Bike on the trainer"
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+                        AppComboBox {
+                            width: 96; height: 40
+                            fontSize: 15
+                            model: vg.rings
+                            currentIndex: vg.rings.indexOf(Gears.referenceFrontTeeth)
+                            onActivated: (index) => Gears.setReferenceGear(vg.rings[index], Gears.referenceRearTeeth)
+                        }
+                        Text { text: "×"; color: Theme.text; font.pixelSize: 17; anchors.verticalCenter: parent.verticalCenter }
+                        AppComboBox {
+                            width: 96; height: 40
+                            fontSize: 15
+                            model: vg.cogs
+                            currentIndex: vg.cogs.indexOf(Gears.referenceRearTeeth)
+                            onActivated: (index) => Gears.setReferenceGear(Gears.referenceFrontTeeth, vg.cogs[index])
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: "Shift with Zwift Click (or the on-screen buttons). Leave your bike in "
+                          + Gears.referenceLabel + " on the trainer."
+                    color: Theme.textSecondary
+                    font.pixelSize: 14
+                    wrapMode: Text.WordWrap
                 }
             }
         }

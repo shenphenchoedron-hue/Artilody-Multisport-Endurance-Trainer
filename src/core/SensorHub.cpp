@@ -99,6 +99,13 @@ void SensorHub::updateHeartRate(int bpm)
 
 void SensorHub::updateSpeed(double kmh)
 {
+    if (!std::isfinite(kmh) || kmh < 0)
+        kmh = 0;
+    m_speedAge.start();
+    if (kmh > 0.5 && m_trainerConnected && !m_speedReported) {
+        m_speedReported = true;
+        emit trainerReportsSpeedChanged();
+    }
     if (!qFuzzyCompare(1.0 + kmh, 1.0 + m_speed)) {
         m_speed = kmh;
         emit speedChanged();
@@ -118,6 +125,10 @@ void SensorHub::setTrainerConnected(bool connected)
         refreshDisplayPower();
         updateCadence(0);
         updateSpeed(0);
+        if (m_speedReported) {
+            m_speedReported = false;
+            emit trainerReportsSpeedChanged();
+        }
     } else if (m_requestedTarget > 0) {
         // re-apply ERG target after (re)connect
         emit targetPowerRequested(m_requestedTarget);
@@ -144,6 +155,10 @@ void SensorHub::expireStale()
     if (m_cadence && (!m_cadenceAge.isValid() || m_cadenceAge.elapsed() > m_staleMs)) {
         m_cadence = 0;
         emit cadenceChanged();
+    }
+    if (m_speed > 0 && (!m_speedAge.isValid() || m_speedAge.elapsed() > m_staleMs)) {
+        m_speed = 0;
+        emit speedChanged();
     }
     if (m_heartRate && (!m_hrAge.isValid() || m_hrAge.elapsed() > m_staleMs * 2)) {
         m_heartRate = 0;

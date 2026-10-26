@@ -7,6 +7,7 @@
 #include "RlvLibrary.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
+#include "VirtualGears.h"
 #include "Workout.h"
 
 #include <QFileInfo>
@@ -24,11 +25,14 @@ const QString kSettingLastRoute = QStringLiteral("rlv/lastRoute");
 const QString kRefused = QStringLiteral("Another session is running. Stop it before starting a video ride.");
 } // namespace
 
-RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, RlvLibrary *library, QObject *parent)
+RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears, RlvLibrary *library,
+                       QObject *parent)
     : QObject(parent)
     , m_db(db)
     , m_profiles(profiles)
     , m_hub(hub)
+    , m_gears(gears)
+    , m_res(hub)
     , m_library(library)
 {
     m_timer.setInterval(250);
@@ -46,17 +50,17 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
         if (running() && trainerConnected())
             applyTarget(true);
     });
-    connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, [this] {
-        emit modeChanged();   // simulationFallback / virtualGears
-        emit gearChanged();
+    connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &RlvSession::resistanceSetupChanged);
+    connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
+    connect(m_gears, &VirtualGears::enabledChanged, this, &RlvSession::resistanceSetupChanged);
+    auto gearChanged = [this] {
         emit targetChanged();
-        if (running())
-            applyTarget(true);
-    });
-    connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
-        if (!m_freeRide && !active() && !waiting())
-            loadOwnGearing();
-    });
+        emit metricsChanged();
+        if (running() && virtualGears())
+            applyTarget(true);   // new gear / bike -> new resistance right away
+    };
+    connect(m_gears, &VirtualGears::gearChanged, this, gearChanged);
+    connect(m_gears, &VirtualGears::gearSetupChanged, this, gearChanged);
     if (m_library) {
         connect(m_library, &RlvLibrary::scanned, this, [this] { emit routeChanged(); });   // routeIndex
     }
@@ -64,11 +68,10 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
     const QString storedMode = m_db->setting(kSettingMode, QStringLiteral("sim")).toString();
     m_mode = parseMode(storedMode).value_or(Mode::Sim);
     if (storedMode != mode())
-        m_db->setSetting(kSettingMode, mode());   // "power" (old) -> "sim"
+        m_db->setSetting(kSettingMode, mode());   // "power" / "gears" (old) -> "sim"
     const int storedErg = m_db->setting(kSettingErgWatts, 0).toInt();
     m_ergTarget = storedErg > 0 ? std::clamp(storedErg, int(kMinErgWatts), int(kMaxWatts)) : defaultErgTarget();
     m_difficulty = std::clamp(m_db->setting(kSettingDifficulty, kDefaultDifficulty).toInt(), 0, 100);
-    loadOwnGearing();
 
     const QString last = m_db->setting(kSettingLastRoute).toString();
     if (!last.isEmpty() && QFileInfo::exists(last)) {
@@ -86,25 +89,6 @@ RlvSession::~RlvSession()
 }
 
 // --- wiring ------------------------------------------------------------------------
-
-void RlvSession::setFreeRideSession(FreeRideSession *freeRide)
-{
-    if (m_freeRide)
-        disconnect(m_freeRide, nullptr, this, nullptr);
-    m_freeRide = freeRide;
-    if (freeRide) {
-        auto changed = [this] {
-            emit gearChanged();
-            emit targetChanged();
-            emit metricsChanged();
-            if (running())
-                applyTarget(true);   // new gear / bike -> new resistance right away
-        };
-        connect(freeRide, &FreeRideSession::gearChanged, this, changed);
-        connect(freeRide, &FreeRideSession::gearSetupChanged, this, changed);
-    }
-    emit gearChanged();
-}
 
 void RlvSession::setTrainingSession(TrainingSession *training)
 {
@@ -134,17 +118,9 @@ bool RlvSession::startBlocked() const
     return false;
 }
 
-void RlvSession::loadOwnGearing()
-{
-    const qint64 id = m_profiles->profileId();
-    m_ownGearing = Gearing(GearSetup::fromJsonText(id >= 0 ? m_db->gearSetupJson(id) : QString()));
-    if (!m_freeRide)
-        emit gearChanged();
-}
-
 const Gearing &RlvSession::gearing() const
 {
-    return m_freeRide ? m_freeRide->gearing() : m_ownGearing;
+    return m_gears->gearing();
 }
 
 void RlvSession::setError(const QString &e)
@@ -188,7 +164,6 @@ QString RlvSession::modeName(Mode m)
 {
     switch (m) {
     case Mode::Sim: return QStringLiteral("sim");
-    case Mode::Gears: return QStringLiteral("gears");
     case Mode::Erg: return QStringLiteral("erg");
     }
     return QStringLiteral("sim");
@@ -196,10 +171,8 @@ QString RlvSession::modeName(Mode m)
 
 std::optional<RlvSession::Mode> RlvSession::parseMode(const QString &text)
 {
-    if (text == QLatin1String("sim") || text == QLatin1String("power"))
+    if (text == QLatin1String("sim") || text == QLatin1String("power") || text == QLatin1String("gears"))
         return Mode::Sim;
-    if (text == QLatin1String("gears"))
-        return Mode::Gears;
     if (text == QLatin1String("erg"))
         return Mode::Erg;
     return std::nullopt;
@@ -218,12 +191,19 @@ void RlvSession::setMode(const QString &modeText)
         if ((active() || waiting()) && now >= kStartPowerWatts)
             setTargetWatts(int(std::lround(now / 5.0)) * 5);
     }
-    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
     emit modeChanged();
     emit positionChanged();   // effectiveGradePercent
-    emit gearChanged();
     emit targetChanged();
     applyTarget(true);
+}
+
+void RlvSession::resistanceSetupChanged()
+{
+    emit modeChanged();   // virtualGears / simulationFallback / resistancePath
+    emit targetChanged();
+    emit metricsChanged();
+    if (running())
+        applyTarget(true);
 }
 
 int RlvSession::defaultErgTarget() const
@@ -247,7 +227,30 @@ void RlvSession::setTargetWatts(int watts)
 
 bool RlvSession::simulationFallback() const
 {
-    return m_mode == Mode::Sim && m_hub->trainerSimulationUnsupported();
+    return m_mode == Mode::Sim && !m_gears->enabled() && m_hub->trainerSimulationUnsupported();
+}
+
+bool RlvSession::virtualGears() const
+{
+    return m_mode == Mode::Sim && (m_gears->enabled() || m_hub->trainerSimulationUnsupported());
+}
+
+RideResistance::Path RlvSession::path() const
+{
+    return RideResistance::choose(m_mode == Mode::Erg, virtualGears(), m_hub);
+}
+
+double RlvSession::gearSimulationGrade() const
+{
+    const road::Model model = roadModel(effectiveGradePercent());
+    if (m_hub->cadence() < kCoastCadenceRpm)
+        return simulationGradeToSend();   // coasting: the plain grade
+    road::TrainerModel trainer;
+    trainer.massKg = model.massKg;
+    trainer.crr = SensorHub::kDefaultCrr;
+    trainer.cwKgPerM = SensorHub::kDefaultCw;
+    return road::gearSimulationGrade(model, m_hub->speedMps(), m_gears->gearFactor(), trainer, kMinSimGrade,
+                                     kMaxSimGrade);
 }
 
 double RlvSession::simulationGradeToSend() const
@@ -429,13 +432,7 @@ bool RlvSession::coasting() const
 road::Model RlvSession::roadModel(double grade) const
 {
     const Profile &p = (active() || waiting()) ? m_rideProfile : m_profiles->current();
-    const GearSetup &s = gearing().setup();
-    road::Model m;
-    m.massKg = std::max(30.0, p.weightKg > 0 ? p.weightKg : m_profiles->current().weightKg) + s.bikeWeightKg;
-    m.cda = s.cda;
-    m.crr = s.crr;
-    m.gradePercent = grade;
-    return m;
+    return m_gears->roadModel(grade, p.weightKg > 0 ? p.weightKg : m_profiles->current().weightKg);
 }
 
 double RlvSession::solveSpeedForPower(double w, double grade) const
@@ -473,7 +470,7 @@ int RlvSession::computeGearTarget(double cadenceRpm) const
     if (cadenceRpm < kCoastCadenceRpm)
         return 0;
     const double v = gearing().virtualSpeed(cadenceRpm);
-    if ((m_state == State::Running) && m_speed > v + 0.3)
+    if (m_state == State::Running && effectiveGradePercent() < 0 && m_speed > v + 0.3)
         return kMinGearWatts;   // the road is faster than the pedals (freewheeling downhill)
     const double p = road::powerForSpeed(roadModel(effectiveGradePercent()), v);
     return std::clamp(int(std::lround(p)), kMinGearWatts, kMaxWatts);
@@ -487,131 +484,40 @@ int RlvSession::gearTargetWatts() const
     return computeGearTarget(cad);
 }
 
-int RlvSession::desiredTarget() const
+int RlvSession::desiredGearWatts() const
 {
-    if (m_mode == Mode::Erg)
-        return m_ergTarget;
     if (m_hub->cadence() < kCoastCadenceRpm)
         return 0;   // coasting or no cadence sensor: release
     return computeGearTarget(std::max(m_cadSmooth, double(kCoastCadenceRpm)));
-}
-
-void RlvSession::applySimulation(bool force)
-{
-    const double grade = simulationGradeToSend();
-    const bool first = !std::isfinite(m_lastSimGrade) || m_lastSent > 0;
-    const bool changed = first || std::abs(grade - m_lastSimGrade) >= kSimMinGradeChange - 1e-9;
-    const bool due = first || m_sinceSendMs >= kSimMinIntervalMs;
-    if (force || first || (changed && due) || m_sinceSendMs >= kSimRefreshMs) {
-        m_hub->requestSimulation(grade, 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
-        const bool newGrade = !std::isfinite(m_lastSimGrade) || grade != m_lastSimGrade || m_lastSent != 0;
-        m_lastSimGrade = grade;
-        m_lastSent = 0;
-        m_sinceSendMs = 0;
-        if (newGrade)
-            emit targetChanged();
-    }
 }
 
 void RlvSession::applyTarget(bool force)
 {
     if (!running())
         return;
-    if (m_mode == Mode::Sim && !simulationFallback()) {
-        applySimulation(force);
-        return;
+    bool sent = false;
+    switch (path()) {
+    case RideResistance::Path::Erg:
+        sent = m_res.sendErg(m_ergTarget, force);
+        break;
+    case RideResistance::Path::Simulation:
+        sent = m_res.sendGrade(simulationGradeToSend(), force);
+        break;
+    case RideResistance::Path::GearSimulation:
+        sent = m_res.sendGrade(gearSimulationGrade(), force);
+        break;
+    case RideResistance::Path::GearErg:
+        sent = m_res.sendGearWatts(desiredGearWatts(), force);
+        break;
     }
-    if (std::isfinite(m_lastSimGrade)) {
-        m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
-        force = true;
-    }
-    if (m_mode == Mode::Erg) {
-        if (force || m_lastSent != m_ergTarget) {
-            m_hub->requestTargetPower(m_ergTarget);
-            m_lastSent = m_ergTarget;
-            m_sinceSendMs = 0;
-            emit targetChanged();
-        }
-        return;
-    }
-    const int desired = desiredTarget();
-    if (desired <= 0) {
-        if (force || m_lastSent != 0) {
-            m_hub->requestFreeRide();
-            m_lastSent = 0;
-            m_sinceSendMs = 0;
-            emit targetChanged();
-        }
-        return;
-    }
-    const bool changed = m_lastSent <= 0 || std::abs(desired - m_lastSent) >= kMinTargetChangeWatts;
-    const bool due = m_lastSent <= 0 || m_sinceSendMs >= kTargetIntervalMs;
-    if (force || (changed && due)) {
-        m_hub->requestTargetPower(desired);
-        m_lastSent = desired;
-        m_sinceSendMs = 0;
+    if (sent)
         emit targetChanged();
-    }
 }
 
 void RlvSession::releaseTrainer()
 {
-    m_hub->requestFreeRide();
-    m_lastSent = -1;
-    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
+    m_res.release();
     emit targetChanged();
-}
-
-// --- gears -------------------------------------------------------------------------------------
-
-QVariantMap RlvSession::gear() const
-{
-    const Gearing &g = gearing();
-    return QVariantMap { { QStringLiteral("front"), g.frontIndex() },   { QStringLiteral("rear"), g.rearIndex() },
-                         { QStringLiteral("frontTeeth"), g.frontTeeth() }, { QStringLiteral("rearTeeth"), g.rearTeeth() },
-                         { QStringLiteral("label"), g.label() },         { QStringLiteral("index"), g.gearIndex() },
-                         { QStringLiteral("count"), g.gearCount() },     { QStringLiteral("ratio"), g.ratio() } };
-}
-
-void RlvSession::afterShift(bool didShift, int direction)
-{
-    if (!didShift)
-        return;
-    if (!m_freeRide) {   // FreeRide's gearChanged does this for the shared gearing
-        emit gearChanged();
-        emit targetChanged();
-        emit metricsChanged();
-        applyTarget(true);
-    }
-    emit shifted(direction);
-}
-
-bool RlvSession::shiftUp()
-{
-    const bool ok = m_freeRide ? m_freeRide->shiftUp() : m_ownGearing.shiftUp();
-    afterShift(ok, 1);
-    return ok;
-}
-
-bool RlvSession::shiftDown()
-{
-    const bool ok = m_freeRide ? m_freeRide->shiftDown() : m_ownGearing.shiftDown();
-    afterShift(ok, -1);
-    return ok;
-}
-
-bool RlvSession::shiftFrontUp()
-{
-    const bool ok = m_freeRide ? m_freeRide->shiftFrontUp() : m_ownGearing.shiftFrontUp();
-    afterShift(ok, 1);
-    return ok;
-}
-
-bool RlvSession::shiftFrontDown()
-{
-    const bool ok = m_freeRide ? m_freeRide->shiftFrontDown() : m_ownGearing.shiftFrontDown();
-    afterShift(ok, -1);
-    return ok;
 }
 
 void RlvSession::controllerShift(int direction)
@@ -625,17 +531,11 @@ void RlvSession::controllerShift(int direction)
             emit shifted(direction);
         return;
     }
-    if (virtualGears()) {
-        if (direction > 0)
-            shiftUp();
-        else
-            shiftDown();
-        return;
-    }
-    const int before = m_difficulty;
-    adjustDifficulty(direction > 0 ? kDifficultyStep : -kDifficultyStep);
-    if (m_difficulty != before)
-        emit shifted(direction);
+    // simulation: always the gears, never the difficulty
+    if (direction > 0)
+        m_gears->shiftUp();
+    else
+        m_gears->shiftDown();
 }
 
 // --- control ---------------------------------------------------------------------------------
@@ -648,7 +548,6 @@ void RlvSession::clearRecording()
     m_energyJ = 0;
     m_powerSum = 0;
     m_maxWatts = 0;
-    m_sinceSendMs = 0;
     emit tick();
 }
 
@@ -681,6 +580,7 @@ bool RlvSession::start()
         m_training->stop();   // only armed: nothing ridden yet
     if (m_freeRide && m_freeRide->waiting())
         m_freeRide->finish(false);
+    m_gears->reloadIfPending();
     const bool wasReady = m_state == State::Ready;
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
@@ -692,8 +592,7 @@ bool RlvSession::start()
     m_cadSmooth = m_hub->cadence();
     if (!wasReady)
         m_speed = 0;
-    m_lastSent = -1;
-    m_lastSimGrade = std::numeric_limits<double>::quiet_NaN();
+    m_res.reset();
     setState(State::Running);
     applyTarget(true);
     emit positionChanged();
@@ -766,7 +665,7 @@ void RlvSession::resume()
     }
     setState(State::Running);
     m_clock.restart();
-    m_lastSent = -1;
+    m_res.reset();
     applyTarget(true);
     updateVideo(0);
 }
@@ -799,7 +698,9 @@ qint64 RlvSession::finish(bool save)
     emit videoChanged();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
+    m_gears->flushSettings();
     emit finished();
+    m_gears->reloadIfPending();
     return id;
 }
 
@@ -863,16 +764,8 @@ void RlvSession::integratePower(double watts, double dt)
     // m·dv/dt = P·η/v − F(v): the kinetic energy follows the rider's power,
     // so the speed changes smoothly and settles at road::speedForPower().
     const road::Model model = roadModel(effectiveGradePercent());
-    const double mass = model.massKg + kRotatingMassKg;
-    const double p = std::max(0.0, watts) * model.efficiency;
-    const int steps = std::max(1, int(std::ceil(dt / kIntegrationStepSec - 1e-9)));
-    const double h = dt / steps;
-    for (int i = 0; i < steps; ++i) {
-        const double drive = p / std::max(m_speed, kMinDriveSpeedMps);
-        const double a = (drive - road::resistance(model, m_speed)) / mass;
-        m_speed = std::clamp(m_speed + a * h, 0.0, road::kMaxSpeedMps);
-    }
-    if (m_speed < 0.3 && p <= 0 && model.gradePercent >= 0)
+    m_speed = road::integrateSpeed(model, m_speed, watts, dt, kRotatingMassKg, kMinDriveSpeedMps, kIntegrationStepSec);
+    if (m_speed < 0.3 && watts <= 0 && model.gradePercent >= 0)
         m_speed = 0;
 }
 
@@ -915,7 +808,7 @@ void RlvSession::process(int ms)
         m_activeMs += ms;
         const double total = totalDistanceM();
         m_distance = std::min(total, m_distance + m_speed * dt);
-        m_sinceSendMs += ms;
+        m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
         emit positionChanged();
         updateInformation();
@@ -996,7 +889,7 @@ void RlvSession::recordUpTo(int second)
         s.power = m_hub->power();
         s.cadence = m_hub->cadence();
         s.heartRate = m_hub->heartRate();
-        s.targetPower = m_mode == Mode::Erg && m_lastSent > 0 ? m_lastSent : 0;
+        s.targetPower = m_mode == Mode::Erg ? m_res.lastWatts() : 0;
         s.speedMps = m_speed;
         m_samples.append(s);
         m_energyJ += s.power;

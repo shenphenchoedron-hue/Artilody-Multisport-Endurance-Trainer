@@ -2,7 +2,7 @@ import QtQuick
 
 // Current virtual gear of the free ride: "50 × 17", its position
 // ("Gear 9 / 16") and a drivetrain sketch (chainrings + cassette, the gear in
-// use highlighted). Pure presentation: every value comes from FreeRide.
+// use highlighted). Pure presentation: every value comes from Gears.
 Item {
     id: gd
     property int frontTeeth: 0

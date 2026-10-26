@@ -136,7 +136,7 @@ void SimulatedTrainer::step()
         // (up to three when far off) towards the effort he wants
         const double want = riderGoal();
         auto powerIn = [this](int g) { return brakePower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 3 && m_fixedRatio <= 0; ++i) {
             const double p = powerIn(m_gear);
             const bool farOff = p > want * 1.3 || p < want * 0.7;
             if (p > want * 1.08 && m_gear > 0 && std::abs(powerIn(m_gear - 1) - want) < std::abs(p - want))
@@ -149,7 +149,7 @@ void SimulatedTrainer::step()
             if (!farOff)
                 break;
         }
-        m_wheelSpeed = m_cadence / 60.0 * gearRatio(m_gear) * kWheelCircumferenceM;
+        m_wheelSpeed = m_cadence / 60.0 * (m_fixedRatio > 0 ? m_fixedRatio : gearRatio(m_gear)) * kWheelCircumferenceM;
         goal = brakePower(m_wheelSpeed);
     } else {
         goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
@@ -159,6 +159,34 @@ void SimulatedTrainer::step()
     emit powerMeasured(int(std::lround(shown)));
     emit cadenceMeasured(std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0)));
     emit speedMeasured(m_sim ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2);
+}
+
+// ---------------------------------------------------------------------------
+
+SimulatedController::SimulatedController(QObject *parent)
+    : ControllerDevice(parent)
+{
+}
+
+void SimulatedController::connectDevice()
+{
+    if (state() != LinkState::Disconnected)
+        return;
+    setRssi(-58);
+    setState(LinkState::Connected);
+    setBatteryLevel(85);
+    emit logMessage(QStringLiteral("Controller connected (%1)").arg(name()), true);
+}
+
+void SimulatedController::disconnectDevice()
+{
+    setState(LinkState::Disconnected);
+}
+
+void SimulatedController::pressButton(int direction)
+{
+    if (state() == LinkState::Connected && direction != 0)
+        emit shiftRequested(direction > 0 ? 1 : -1);
 }
 
 // ---------------------------------------------------------------------------

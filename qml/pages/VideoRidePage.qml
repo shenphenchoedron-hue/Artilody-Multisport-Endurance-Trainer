@@ -19,7 +19,6 @@ import Artilody.Backend
 Item {
     id: page
     signal openDevices()
-    signal openGearSetup()
     signal requestFinish()
 
     readonly property string st: Rlv.state
@@ -27,13 +26,21 @@ Item {
     readonly property bool locked: Rlv.active || Rlv.waiting
     // only one session at a time (Rlv refuses to start otherwise)
     readonly property bool otherSession: (Training.armedOrActive && !Training.waiting) || Rowing.active || FreeRide.active
-    // resistance mode: "sim" (classic gradient simulation, default), "gears"
-    // (virtual gears via ERG) or "erg" (fixed watts). gears is true whenever
-    // virtual gears are in use, also as the fallback of "sim" on a trainer
-    // without gradient simulation.
+    // resistance mode: "sim" (the route as a simulated road, default) or
+    // "erg" (fixed watts). gears: in "sim" the virtual gear sets the
+    // resistance (virtual gears on in Devices / Zwift Click, or the fallback
+    // on a trainer without gradient simulation); otherwise the rider shifts
+    // the real bike and the trainer gets the grade.
     readonly property bool gears: Rlv.virtualGears
-    readonly property bool simMode: Rlv.mode === "sim" && !Rlv.simulationFallback
+    readonly property bool simMode: Rlv.mode === "sim"
     readonly property bool ergMode: Rlv.mode === "erg"
+    function shiftingText() {
+        if (!Rlv.virtualGears)
+            return "your bike's gears"
+        if (Rlv.simulationFallback)
+            return "Virtual gears"
+        return Devices.controllerConnected ? "Virtual gears (Zwift Click)" : "Virtual gears (on-screen)"
+    }
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
     property bool audioOn: false
     property bool plusDown: false
@@ -367,11 +374,17 @@ Item {
                 infoBox.shown = false
             }
         }
-        function onShifted(direction) {
-            var b = page.ergMode ? (direction > 0 ? resistanceCard.ergPlus10 : resistanceCard.ergMinus10)
-                  : page.gears ? (direction > 0 ? harderButton : easierButton) : null
+        function onShifted(direction) {   // ERG steps (Zwift Click ±10 W)
+            var b = page.ergMode ? (direction > 0 ? resistanceCard.ergPlus10 : resistanceCard.ergMinus10) : null
             if (b)
                 b.pulse()
+        }
+    }
+    Connections {
+        target: Gears
+        function onShifted(direction) {
+            if (page.gears)
+                (direction > 0 ? harderButton : easierButton).pulse()
         }
     }
     Connections {
@@ -598,7 +611,7 @@ Item {
                     value: Rlv.cadence
                     unit: "RPM"
                     footer: Rlv.active && Rlv.coasting ? "Coasting"
-                            : page.gears ? "Gear " + Rlv.gearLabel
+                            : page.gears ? "Gear " + Gears.gearLabel
                             : page.ergMode ? "ERG mode" : "Shift on your bike"
                 }
                 RowingMetric {
@@ -800,7 +813,8 @@ Item {
                     Repeater {
                         model: [
                             { icon: page.gears ? "cog" : page.ergMode ? "bolt" : "mountain",
-                              text: page.gears ? Rlv.gearLabel : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation",
+                              text: page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
+                                    : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation",
                               show: true },
                             { icon: "mountain", text: "Difficulty " + Rlv.difficultyPercent + " %", show: !page.ergMode },
                             { icon: "play", text: "Video × " + Rlv.playbackRate.toFixed(2), show: Rlv.active }
@@ -1426,7 +1440,7 @@ Item {
                 }
             }
 
-            // resistance: simulation (classic RLV) / virtual gears / ERG
+            // resistance: simulation (real or virtual gears) / ERG
             Card {
                 id: resistanceCard
                 property Item ergPlus10: null
@@ -1449,7 +1463,6 @@ Item {
                         segmentPadding: 9
                         options: [
                             { value: "sim", label: "Simulation" },
-                            { value: "gears", label: "Virtual gears" },
                             { value: "erg", label: "ERG" }
                         ]
                         value: Rlv.mode
@@ -1457,12 +1470,27 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: Rlv.mode === "sim" ? "Climbs get harder like on the road – shift on your bike."
-                              : Rlv.mode === "erg" ? "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
-                              : "The app shifts for you – use Easier/Harder or Zwift Click."
+                        text: page.ergMode ? "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
+                              : "Climbs get harder like on the road."
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
+                    }
+
+                    // how the rider shifts (set up on the Devices page)
+                    Text {
+                        visible: page.simMode
+                        width: parent.width
+                        text: "Shifting: " + page.shiftingText()
+                              + "   <a href=\"devices\" style=\"text-decoration:none\">Devices ›</a>"
+                        textFormat: Text.StyledText
+                        linkColor: Theme.accentLight
+                        color: Theme.text
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.WordWrap
+                        onLinkActivated: page.openDevices()
+                        HoverHandler { cursorShape: parent.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
                     }
 
                     // simulation not possible on this trainer
@@ -1481,7 +1509,7 @@ Item {
                             Icon { name: "info"; size: 18; color: Theme.warningText }
                             Text {
                                 width: parent.width - 26
-                                text: "Your trainer doesn't support gradient simulation – using virtual gears instead."
+                                text: "Your trainer can't simulate climbs – using virtual gears instead."
                                 color: Theme.text
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
@@ -1491,7 +1519,7 @@ Item {
 
                     // simulation: what the trainer gets
                     Item {
-                        visible: page.simMode
+                        visible: page.simMode && Rlv.resistancePath !== "gearErg"
                         width: parent.width
                         height: 26
                         Text {
@@ -1524,8 +1552,8 @@ Item {
                             iconSize: 26
                             Accessible.name: "Shift easier"
                             tint: Theme.accent
-                            enabled: Rlv.canShiftDown
-                            onClicked: Rlv.shiftDown()
+                            enabled: Gears.canShiftDown
+                            onClicked: Gears.shiftDown()
                         }
                         Column {
                             Layout.fillWidth: true
@@ -1533,14 +1561,14 @@ Item {
                             spacing: 2
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: Rlv.gearLabel.replace("×", " × ")
+                                text: Gears.gearLabel.replace("×", " × ")
                                 color: Theme.text
                                 font.pixelSize: 30
                                 font.weight: Font.Black
                             }
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: "Gear " + (Rlv.gearIndex + 1) + " / " + Rlv.gearCount
+                                text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
                                 color: Theme.textSecondary
                                 font.pixelSize: 13
                             }
@@ -1553,21 +1581,17 @@ Item {
                             iconSize: 26
                             Accessible.name: "Shift harder"
                             tint: Theme.orange
-                            enabled: Rlv.canShiftUp
-                            onClicked: Rlv.shiftUp()
+                            enabled: Gears.canShiftUp
+                            onClicked: Gears.shiftUp()
                         }
                     }
-                    AppButton {
-                        visible: page.gears
+                    Text {
+                        visible: page.gears && Rlv.resistancePath === "gearSimulation"
                         width: parent.width
-                        height: 40
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: "cog"
-                        text: "Gear Setup…"
-                        onClicked: page.openGearSetup()
+                        text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
+                        color: Theme.textSecondary
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
                     }
                     Text {
                         visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
@@ -1685,7 +1709,7 @@ Item {
                         width: parent.width
                         height: 24
                         Text {
-                            text: page.simMode ? "Trainer difficulty" : "Difficulty"
+                            text: "Difficulty"
                             color: Theme.text
                             font.pixelSize: 16
                             anchors.verticalCenter: parent.verticalCenter
@@ -1725,7 +1749,7 @@ Item {
                         width: parent.width
                         text: page.ergMode ? "Keys: ↑ / ↓ ±5 W  •  PgUp / PgDn ±10 W  •  Space pause"
                               : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
-                              : "Keys: ↑ / ↓ or PgUp / PgDn difficulty  •  Space pause"
+                              : "Keys: PgUp / PgDn difficulty  •  Space pause"
                         color: Theme.textMuted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
@@ -1790,8 +1814,7 @@ Item {
                             }
                             Text {
                                 width: clickCol.width - 36
-                                text: page.gears ? "+ shift harder  •  − shift easier"
-                                      : page.ergMode ? "+ / − target ±10 W" : "+ / − trainer difficulty ±10 %"
+                                text: page.ergMode ? "+ / − target ±10 W" : "+ harder gear  •  − easier gear"
                                 color: Theme.textSecondary
                                 font.pixelSize: 13
                                 elide: Text.ElideRight

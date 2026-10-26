@@ -223,7 +223,7 @@ def build(s, env):
     s.section("Sidebar")
     s.table(["Item", "Purpose"], [
         [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
-        [UI("Free Ride"), "Ride without a workout: virtual gears, ERG at a set wattage, Zwift Click (chapter 12)."],
+        [UI("Free Ride"), "Ride without a workout: a road with a grade (your gears or virtual gears) or ERG (chapter 12)."],
         [UI("Video Ride"), "Ride a filmed route (Real Life Video): the video follows your speed (chapter 13)."],
         [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
@@ -382,7 +382,7 @@ def build(s, env):
 
     s.section("Controllers (Zwift Click)")
     s.p(f"A <b>Zwift Click</b> (v1 or v2) is listed under {UI('Controllers (Zwift Click)')} and shifts the "
-        f"virtual gears on the {UI('Free Ride')} page (chapter 12). Press any button on the Click to wake it, then "
+        f"virtual gears in {UI('Free Ride')} and {UI('Video Ride')} (section 5.5). Press any button on the Click to wake it, then "
         f"scan and press {UI('Connect')}. A <b>Click v2</b> consists of two pods – connect both (the section "
         "header then shows <i>2 Zwift Click pods</i>). A connected Click shows its <b>battery</b> level and a live "
         f"<b>button test</b>: the {UI('−')} / {UI('+')} indicators light up while a button is pressed.")
@@ -390,6 +390,62 @@ def build(s, env):
            "encrypted mode is not supported – the connection log says so; update the Click in Zwift Companion. "
            "The left pod of a Click v2 only sends buttons after Zwift has unlocked it (once per 24 hours); the "
            "right pod always works. Zwift Play and Zwift Ride controllers are not supported.")
+
+    s.section("Virtual gears")
+    s.p("Virtual gears work like the gears of a mechanical groupset – some riders simply shift virtually. "
+        "Shifting changes the gear, never the trainer difficulty. Everything about them lives in the "
+        f"{UI('Virtual gears')} card in the {UI('Controllers (Zwift Click)')} section:")
+    s.bullets([
+        "<b>Your bike</b> – e.g. <i>50/34 · 11–34 12-speed · 700×25c · 16 gears</i>; "
+        f"{UI('Gear Setup…')} changes it (section 5.6).",
+        f"<b>Current gear</b> – e.g. <i>50 × 21, Gear 9 / 16</i>, live while you shift; {UI('−')} / {UI('+')} "
+        "shift here too, so you can try the Click without riding.",
+        f"{UI('Use virtual gears')} – on: Free Ride (Ride) and Video Ride (Simulation) ride with the virtual "
+        "gear; off: you shift your real bike and the trainer simulates the gradient. It switches on by itself "
+        "when a Zwift Click connects or a Click button is pressed (<i>Zwift Click detected – using virtual "
+        "gears</i>); you can also switch it on without a Click and shift on screen or with the keys.",
+        f"{UI('Bike on the trainer')} – the real gear your bike stays in while you shift virtually (default "
+        "50 × 17): <i>Shift with Zwift Click (or the on-screen buttons). Leave your bike in 50×17 on the "
+        "trainer.</i>",
+    ])
+    s.p("The setup and the current gear are saved per profile. When the Click is recognised, the saved setup "
+        "is loaded and used until you save a new one; a new setup applies at once to Free Ride and Video Ride.")
+    s.table(["Zwift Click", "Free Ride: Ride / Video Ride: Simulation", "ERG", "Other pages"], [
+        [UI("+"), "Shift harder", "Target +10 W", "Shift harder"],
+        [UI("−"), "Shift easier", "Target −10 W", "Shift easier"],
+    ], [1.0, 2.4, 1.2, 1.2])
+    s.p("<b>How the gear reaches the trainer.</b> On a trainer that simulates gradients and reports its speed, "
+        "the app sends a gear-adjusted grade: with the bike in the reference gear the trainer's flywheel turns "
+        "at v<sub>t</sub>, the virtual bike rides at v<sub>v</sub> = v<sub>t</sub> × R<sub>virtual</sub> / "
+        "R<sub>reference</sub>, and the grade is chosen so that the brake delivers the road power for "
+        "v<sub>v</sub> on the route grade (limited to −10 … +20 %). Other trainers are set (ERG) to the road "
+        "power for the speed from your cadence and gear. Either way a harder gear means more speed and more "
+        "watts at the same cadence, and climbs are harder.")
+
+    s.section("Gear setup")
+    s.figure(SHOTS / "gear-setup.png",
+             "The Gear Setup dialog with a 50/34 compact crankset, an 11–34 12-speed cassette and the preview "
+             "of all 16 sequential gears.", width_frac=0.9)
+    s.p(f"{UI('Gear Setup…')} on the {UI('Virtual gears')} card sets up the bike you ride virtually. The setup "
+        "is saved per profile, shared by Free Ride and Video Ride and can be changed during a ride.")
+    s.table(["Field", "Meaning"], [
+        [UI("Chainrings"), "A preset (50/34 compact, 52/36, 53/39, 48/35, 46/33, GRX, a 50/39/30 triple or a "
+                           "single 1× ring of 32–44 teeth) or your own numbers, e.g. <i>50, 34</i> or <i>40</i>. "
+                           "1 to 3 rings."],
+        [UI("Cassette"), "A preset (11–28 … 11–34, SRAM 10–33/10–36, 1× 10–42 … 10–50) or your own cogs, e.g. "
+                         "<i>11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34</i>."],
+        [UI("Wheel size"), "A tyre preset (700×23c … 29×2.2) or the circumference in millimetres (1000–3000)."],
+        [UI("Shifting"), "<i>Sequential (virtual gears)</i> – one list, ideal for the Zwift Click – or "
+                         "<i>Front + rear (like your bike)</i>."],
+        [UI("Advanced"), "Bike weight (0–60 kg), CdA (air drag, 0.10–1.00 m²; hoods ≈ 0.32, drops ≈ 0.28) and "
+                         "Crr (rolling resistance, 0.001–0.050; road tyres ≈ 0.004). Your own weight comes from "
+                         "the profile."],
+    ], [1.2, 4.6])
+    s.p("The <b>preview</b> lists every resulting gear with its ratio, the speed at 90 rpm and the power that "
+        "speed needs on the flat; the current gear is highlighted. Invalid input is explained in red (for "
+        f"example <i>Cogs must have …–… teeth</i>) and {UI('Save')} stays disabled. "
+        f"{UI('Reset to Defaults')} fills in the default setup (50/34, 11–34 12-speed, 700×25c, sequential); "
+        f"press {UI('Save')} to apply it.")
 
     s.section("Virtual devices")
     s.p(f"{UI('Virtual Trainer')} (Simulated FTMS) and {UI('Virtual HR Sensor')} (Simulated HRS) are built-in "
@@ -657,7 +713,7 @@ def build(s, env):
         "FTP result dialog is open.")
 
     s.section("Free ride without a workout")
-    s.tip(f"For riding without a workout with virtual gears, a grade or a fixed ERG wattage, use the "
+    s.tip(f"For riding without a workout on a road with a grade (your gears or virtual gears) or a fixed ERG wattage, use the "
           f"{UI('Free Ride')} page (chapter 12).")
     s.p(f"Choose {UI('Ride without workout ›')} on the Workouts page. The Dashboard shows <i>Free Ride – ride at "
         "your own pace without structured intervals</i>; there are no targets, ERG is unavailable and the "
@@ -1250,66 +1306,67 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Free Ride & virtual shifting",
-              "Ride without a workout: shift virtual gears for more watts and speed, add a climb, or set a "
-              "wattage and let ERG hold it – with the on-screen buttons, the keyboard or a Zwift Click.")
+              "Ride without a workout: a road with a grade that you climb like outdoors – shifting your bike or "
+              "virtual gears – or a wattage that ERG holds for you.")
     s.figure(SHOTS / "freeride.png",
-             "The Free Ride page in Gears mode: live metrics, the current gear (50 × 21, gear 9 of 16) with "
-             "chainrings and cassette, Easier / Harder buttons, the grade control and the power, speed and "
-             "heart-rate chart.")
+             "The Free Ride page in Ride mode with virtual gears: live metrics, the current gear (50 × 21, gear 9 "
+             "of 16) with chainrings and cassette, small Easier / Harder buttons, the grade control and the "
+             "power, speed and heart-rate chart.")
     s.section("Modes")
-    s.table(["Mode", "What the trainer does"], [
-        [UI("Gears"), "Virtual gears: the app computes your speed from cadence and gear and sets the trainer to "
-                      "the power that speed needs on the road (your weight, the bike and the grade). A harder gear "
-                      "means more watts and more speed at the same cadence. Coasting releases the trainer."],
+    s.table(["Mode", "What happens"], [
+        [UI("Ride"), "A simulated road with the grade you set: climbs get harder like outdoors. How you shift "
+                     "is set on the Devices page (section 5.5): with <b>your bike's gears</b> the trainer gets the "
+                     "grade (gradient simulation) and your speed follows your power; with <b>virtual gears</b> "
+                     "(Zwift Click, on-screen buttons or keys) the virtual gear and the grade set the resistance, "
+                     "exactly like a mechanical groupset – a harder gear means more speed and more watts at the "
+                     "same cadence."],
         [UI("ERG"), "The trainer holds the target wattage regardless of cadence, as long as you like."],
-        [UI("Free"), "No resistance control – the trainer stays in its own free-ride mode. Speed and distance "
-                     "are calculated from your power on a flat road. Zwift Click buttons are inactive."],
     ], [1.0, 4.8])
     s.p("Choose the mode with the selector at the top right of the page. You can change it at any time, also "
         "during a ride; switching to ERG continues at the power you are riding at that moment.")
+    s.note("A trainer that cannot simulate a gradient cannot make a climb harder by itself. In Ride mode the "
+           "app then uses virtual gears automatically (via ERG) and says so on the page.")
 
     s.section("The page")
     s.bullets([
         "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
         "badge shows the rolling average and toggles it, section 15.2), speed (average), "
         "cadence (current gear), heart rate (% of max), time (average power) and distance (energy in kJ).",
-        "<b>Control panel</b> – Virtual Gears, ERG or Free, depending on the mode (below).",
-        f"<b>Chart</b> – power (yellow area), virtual speed (cyan) and heart rate (pink) over time; in ERG mode a "
-        "dashed line marks the target.",
+        f"<b>Road panel</b> (Ride) – the grade control on the right; on the left either the current virtual gear "
+        f"with {UI('Easier')} / {UI('Harder')} or, with your bike's gears, <i>Shift on your bike</i> with the "
+        f"grade sent to the trainer and {UI('Virtual gears on Devices')}. The header shows the "
+        "<i>Shifting:</i> line. In ERG the panel holds the target (below).",
+        f"<b>Chart</b> – power (yellow area), speed (cyan) and heart rate (pink) over time; in ERG a dashed "
+        "line marks the target.",
         f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
-        f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the Zwift Click status; your bike and gears with "
-        f"{UI('Gear Setup…')}. Without a trainer a <i>No trainer connected</i> card with {UI('Open Devices')} "
-        "appears.",
+        f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the {UI('Shifting')} card with the Zwift Click "
+        f"status, its buttons as you press them and a link to the Devices page. Without a trainer a "
+        f"<i>No trainer connected</i> card with {UI('Open Devices')} appears.",
     ])
 
-    s.section("Virtual gears")
-    s.p(f"The current gear is shown large – for example <b>50 × 17</b> (chainring × cog) – with its position "
-        "(<i>Gear 9 / 16</i>), the gear ratio, a position bar and a sketch of the chainrings and the cassette "
-        f"with the gear in use highlighted. {UI('Easier')} (−) and {UI('Harder')} (+) shift one gear; hold a "
-        "button to shift repeatedly. After every shift the gear briefly lights up.")
-    s.bullets([
-        f"<b>Sequential</b> (default): all gears form one list from easiest to hardest; duplicate ratios are "
-        f"skipped. {UI('Jump 3 easier')} / {UI('Jump 3 harder')} move three gears at once.",
-        f"<b>Front + rear</b>: like a real bike – + / − shift the cassette and {UI('Small ring')} / "
-        f"{UI('Big ring')} change the chainring.",
-    ])
+    s.section("Shifting and the grade")
+    s.p(f"With virtual gears the current gear is shown large – for example <b>50 × 17</b> (chainring × cog) – "
+        "with its position (<i>Gear 9 / 16</i>), the gear ratio, a position bar and a sketch of the chainrings "
+        f"and the cassette with the gear in use highlighted. {UI('Easier')} (−) and {UI('Harder')} (+), "
+        f"{K('↓')} / {K('↑')} or the Zwift Click shift one gear; hold a button to shift repeatedly. "
+        "<b>Sequential</b> setups jump three gears with Shift + ↑ / ↓, <b>front + rear</b> setups change the "
+        "chainring. The bike itself (chainrings, cassette, wheel) is set up on the Devices page.")
     s.p(f"The <b>grade</b> control (−15 % to +20 %, {UI('−')} / {UI('+')} in 0.5 % steps, a slider and "
         f"{UI('Flat')}) simulates a climb or descent: uphill you need more power for the same speed, so you "
-        "shift easier – just like outdoors. Below it the app shows the power the current gear needs at your "
-        "cadence.")
+        "shift easier – just like outdoors. With virtual gears the app shows the power the current gear needs "
+        "at your cadence.")
     s.tip("Ride at your usual cadence and use the gears like outdoors: shift harder to go faster, easier when "
-          "you set a steeper grade.")
+          "the road gets steeper. Shifting never changes the grade or the difficulty.")
 
     s.section("ERG mode")
     s.figure(SHOTS / "freeride-erg.png",
-             "ERG mode: target 200 W with step buttons, exact entry, the ERG switch and the target line in the "
-             "chart.", width_frac=0.9)
+             "ERG mode: target 200 W with step buttons, exact entry and the target line in the chart.",
+             width_frac=0.9)
     s.bullets([
         f"The <b>target</b> is shown large; below it the actual power and the difference (green within ±5 %), "
         "and a bar with the marker of your current power.",
         f"Step buttons {UI('−25')} {UI('−10')} {UI('−5')} {UI('+5')} {UI('+10')} {UI('+25')} (hold to repeat), "
         f"or type a value under {UI('Exact target')} and press {UI('Set')} or Enter (25–1500 W).",
-        f"The {UI('ERG mode')} switch turns ERG off and returns to virtual gears.",
         "The Zwift Click changes the target by 10 W; the keyboard by 5 W (↑ / ↓) or 10 W (Page Up / Page Down).",
     ])
 
@@ -1329,53 +1386,20 @@ def build(s, env):
     ])
     s.warning("Rides shorter than <b>30 seconds</b> are not saved.")
 
-    s.section("Zwift Click")
-    s.p(f"Connect the Click under {UI('Devices → Controllers (Zwift Click)')} (section 5.4). On the Free Ride "
-        f"page the {UI('Zwift Click')} card shows the connection, the battery level and the buttons as they are "
-        f"pressed; {UI('Connect in Devices')} opens the Devices page.")
-    s.table(["Button", "Gears", "ERG", "Free"], [
-        [UI("+"), "Shift harder", "Target +10 W", "–"],
-        [UI("−"), "Shift easier", "Target −10 W", "–"],
-    ], [1.0, 1.6, 1.6, 1.6])
-    s.p("Holding a button repeats the shift.")
-
-    s.section("Gear setup")
-    s.figure(SHOTS / "gear-setup.png",
-             "The Gear Setup dialog with a 50/34 compact crankset, an 11–34 12-speed cassette and the preview "
-             "of all 16 sequential gears.", width_frac=0.9)
-    s.p(f"{UI('Gear Setup…')} on the Free Ride page sets up the bike you ride virtually. The setup is saved "
-        "per profile and can be changed during a ride.")
-    s.table(["Field", "Meaning"], [
-        [UI("Chainrings"), "A preset (50/34 compact, 52/36, 53/39, 48/35, 46/33, GRX, a 50/39/30 triple or a "
-                           "single 1× ring of 32–44 teeth) or your own numbers, e.g. <i>50, 34</i> or <i>40</i>. "
-                           "1 to 3 rings."],
-        [UI("Cassette"), "A preset (11–28 … 11–34, SRAM 10–33/10–36, 1× 10–42 … 10–50) or your own cogs, e.g. "
-                         "<i>11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34</i>."],
-        [UI("Wheel size"), "A tyre preset (700×23c … 29×2.2) or the circumference in millimetres (1000–3000)."],
-        [UI("Shifting"), "<i>Sequential (virtual gears)</i> – one list, ideal for the Zwift Click – or "
-                         "<i>Front + rear (like your bike)</i>."],
-        [UI("Advanced"), "Bike weight (0–60 kg), CdA (air drag, 0.10–1.00 m²; hoods ≈ 0.32, drops ≈ 0.28) and "
-                         "Crr (rolling resistance, 0.001–0.050; road tyres ≈ 0.004). Your own weight comes from "
-                         "the profile."],
-    ], [1.2, 4.6])
-    s.p("The <b>preview</b> lists every resulting gear with its ratio, the speed at 90 rpm and the power that "
-        "speed needs on the flat; the current gear is highlighted. Invalid input is explained in red (for "
-        f"example <i>Cogs must have …–… teeth</i>) and {UI('Save')} stays disabled. "
-        f"{UI('Reset to Defaults')} fills in the default setup (50/34, 11–34 12-speed, 700×25c, sequential); "
-        f"press {UI('Save')} to apply it.")
-
-    s.section("Keyboard")
-    s.table(["Key", "Gears", "ERG"], [
-        [K("↑") + " or " + K("+"), "Shift harder", "Target +5 W"],
-        [K("↓") + " or " + K("−"), "Shift easier", "Target −5 W"],
+    s.section("Zwift Click and keyboard")
+    s.table(["Input", "Ride", "ERG"], [
+        ["Zwift Click +", "Shift harder", "Target +10 W"],
+        ["Zwift Click −", "Shift easier", "Target −10 W"],
+        [K("↑") + " or " + K("+") + " / " + K("↓") + " or " + K("−"), "Shift harder / easier (virtual gears)",
+         "Target ±5 W"],
         [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring (sequential: jump 3 gears)", "–"],
         [K("Page Up") + " / " + K("Page Down"), "Grade +0.5 % / −0.5 %", "Target +10 W / −10 W"],
         [K("Space"), "Start / pause / resume", "Start / pause / resume"],
-    ], [1.6, 2.4, 1.8])
-    s.p("The keys work only on the Free Ride page and not while you type in a field or a dialog or menu is "
-        "open.")
+    ], [1.6, 2.6, 1.6])
+    s.p("Pressing the Click while virtual gears are off turns them on (<i>Zwift Click detected – using virtual "
+        "gears</i>). The keys work only on the Free Ride page and not while you type in a field or a dialog or "
+        "menu is open.")
 
-    # =====================================================================
     s.chapter("Real Life Video",
               "Ride filmed routes: the video plays at the speed you ride, the trainer makes the climbs harder "
               "like on the road, and the route's elevation profile shows where you are.")
@@ -1429,289 +1453,36 @@ def build(s, env):
     ])
 
     s.section("Resistance and difficulty")
-    s.p(f"The {UI('Resistance')} card offers three modes; the choice and the ERG target are remembered.")
+    s.p(f"The {UI('Resistance')} card offers two modes; the choice and the ERG target are remembered.")
     s.table(["Mode", "What happens"], [
         [UI("Simulation"), "<b>Default – the classic RLV feel</b> (as in Tacx, Rouvy or Kinomap): <i>climbs get "
-                           "harder like on the road – shift on your bike.</i> The app sends the route's gradient "
-                           "(× trainer difficulty) to the trainer, which sets the resistance itself. Your speed "
-                           "comes from your power on the gradient (your weight, the bike, air and rolling "
-                           "resistance) including the bike's momentum, so it rises and falls smoothly instead of "
-                           f"jumping. The card shows the {UI('Grade sent to trainer')}."],
-        [UI("Virtual gears"), "<i>The app shifts for you – use Easier/Harder or Zwift Click.</i> The Free Ride "
-                              f"gearing and {UI('Gear Setup…')} (chapter 12): your speed comes from cadence and "
-                              "gear, and the trainer is set (ERG) to the power that speed needs on the gradient. "
-                              "For riders who don't want to shift the real bike."],
-        [UI("ERG"), "<i>Climbs make the video slower, not the pedals heavier.</i> Set a target wattage on the card "
-                    f"(big number, {UI('−25')} … {UI('+25')} steps, or an exact value with {UI('Set')}; "
-                    "25–1500 W) and the trainer holds it. Switching to ERG during a ride starts from your current "
+                           "harder like on the road.</i> The <i>Shifting:</i> line shows how you shift (the "
+                           "link opens the Devices page, section 5.5):<br/>"
+                           "• <i>your bike's gears</i> – the app sends the route's gradient (× difficulty) to the "
+                           "trainer, which sets the resistance itself; the card shows the "
+                           f"{UI('Grade sent to trainer')}. Your speed comes from your power on the gradient "
+                           "including the bike's momentum, so it rises and falls smoothly.<br/>"
+                           "• <i>Virtual gears (Zwift Click)</i> – your virtual gear and the gradient set the "
+                           f"resistance, as if you shifted a mechanical groupset: {UI('−')} / {UI('+')} on the "
+                           "card, the keys or the Click. Speed, distance and video follow your gear and cadence."],
+        [UI("ERG"), "<i>The trainer holds your watts. Climbs make the video slower, not the pedals heavier.</i> "
+                    f"Set a target wattage on the card (big number, {UI('−25')} … {UI('+25')} steps, or an exact "
+                    f"value with {UI('Set')}; 25–1500 W). Switching to ERG during a ride starts from your current "
                     "3 s power; otherwise the last target (first time: 60 % of your FTP)."],
     ], [1.2, 4.6])
     s.p("<b>How the gradient reaches the trainer.</b> Simulation uses the FTMS command <i>Set Indoor Bike "
         "Simulation Parameters</i> with wind 0 m/s, the grade (0.01 % steps), rolling resistance Crr 0.004 and "
         "wind resistance Cw 0.51 kg/m – the same values Zwift sends. A new grade is sent when it changes by "
-        "0.1 % or more (at most once a second; otherwise refreshed every 3 seconds). Descents are limited to "
-        "−10 %.")
+        "0.1 % or more (at most once a second; otherwise refreshed every 3 seconds). The grade sent is limited "
+        "to −10 … +20 %. With virtual gears see section 5.5 for how the gear reaches the trainer.")
     s.note("If the trainer cannot simulate a gradient (it does not report the feature, or it rejects the "
-           "command), Simulation automatically uses virtual gears and the card shows <i>Your trainer doesn't "
-           "support gradient simulation – using virtual gears instead.</i> A trainer without cadence is left "
-           "in its free-ride mode; the speed then follows your power.")
-    s.p("<b>Difficulty</b> (0–100 %, Simulation and Virtual gears) scales the gradients: at 100 % you ride the "
-        "real road, at 50 % a 6 % climb feels like 3 %, at 0 % the route is flat (descents are scaled the same "
-        f"way). The slider is on the {UI('Resistance')} card; {K('Page Up')} / {K('Page Down')} change it in "
-        "10 % steps. The setting is remembered. In ERG the difficulty does not apply.")
-
-    s.section("Starting, pausing and finishing")
-    s.bullets([
-        f"With {UI('Start on first stroke')} on (default) the row is armed as soon as it is set up "
-        "(<i>Waiting for first stroke…</i>) and starts with your first stroke. Turn it off to start only "
-        f"with {UI('Start Now')}.",
-        f"{UI('Start Now')} starts at once; without any setup it starts an open Free Row.",
-        "If you leave the Rowing page before the row has started, the setup is cleared, so a stroke on the "
-        "rower cannot start a row while you are on another page. Coming back sets it up again.",
-        f"{UI('Pause Row')} / {UI('Resume')} (or {K('Space')}) stops and continues the clock; distance rowed "
-        "during a pause is not counted.",
-        f"{UI('Finish')} asks <i>Finish row?</i>: {UI('Save &amp; Finish')} saves the row, {UI('Discard')} "
-        "throws it away.",
-        f"{UI('Reset')} (when paused or finished) discards an unfinished row and prepares the same session "
-        f"again. After a row, {UI('Row Again')} starts the same session and {UI('View in History')} opens the "
-        "saved row.",
-    ])
-    s.p("As with rides, rows shorter than 30 seconds are not saved. Values from the monitor are taken relative "
-        "to the start of the session, so it does not matter what the PM5 showed before.")
-
-    s.section("Rowing FTP")
-    s.p(f"Every profile has a separate {UI('Rowing FTP')} (50 – 600 W, default 150 W) in the {UI('User Profile')} "
-        "dialog, next to the cycling FTP. Rowing workouts, the Builder in rowing mode and the zones and TSS of "
-        "rows use it; cycling uses the normal FTP. Rowing power is usually much lower than cycling power for "
-        "the same effort, which is why the two are kept apart.")
-    s.tip("No rowing FTP yet? A common estimate is 95 % of the average watts of an all-out 20-minute row, or "
-          "the average watts of a hard but steady 30-minute row. Update it every few weeks.")
-
-    s.section("Rows in History and export")
-    s.p(f"Saved rows appear in {UI('History')} with a rowing icon, the sport <i>Rowing</i> and the distance "
-        "rowed (e.g. <i>2,002 m rowed</i>); the cadence tile shows the stroke rate in SPM. Use the "
-        f"{UI('All')} / {UI('Cycling')} / {UI('Rowing')} filter at the top to show one sport only – the totals, "
-        "charts and zones follow the filter. Free rows are named <i>Free Row</i> or <i>Row 2000 m</i>, ghost "
-        "races <i>Ghost Race 1000 m</i>, Watt Plans after the workout.")
-    s.p("Rows can be exported as FIT and CSV like rides (section 9.4).")
-    s.note("The FIT file of a row is marked as an <b>indoor rowing</b> activity (sport <i>rowing</i>, "
-           "sub-sport <i>indoor rowing</i>) and contains the distance rowed, the average speed, power, heart "
-           "rate and the stroke rate (as cadence, in strokes per minute). The PM5 reports only the total "
-           "distance, so the distance curve inside the file is estimated: the total is spread over the seconds "
-           "in proportion to the cube root of the power (on an air-braked rower the speed grows with the cube "
-           "root of the power), and it ends exactly at the distance rowed."),
-
-    s.section("Sport type: cycling and rowing workouts")
-    s.p("Every workout has a sport – <b>Cycling</b> or <b>Rowing</b>:")
-    s.bullets([
-        f"<b>Workouts page:</b> cards show a Cycling or Rowing badge, and the filter {UI('All sports')} / "
-        f"{UI('Cycling')} / {UI('Rowing')} at the top limits the library to one sport. For a rowing workout "
-        f"the preview shows {UI('Row Workout')} instead of Start Workout; it opens the workout as a Watt Plan "
-        f"on the Rowing page. {UI('New Workout')} asks for {UI('New cycling workout')} or "
-        f"{UI('New rowing workout')}. Watt values on rowing cards use your rowing FTP.",
-        f"<b>Builder:</b> the {UI('Cycling')} / {UI('Rowing')} selector at the top sets the sport. In rowing "
-        f"mode, watts and {UI('% Rowing FTP')} are based on your rowing FTP, and the cadence field becomes "
-        f"{UI('Stroke Rate (SPM)')}. Switching the sport keeps the blocks (all targets are percentages).",
-        "<b>History:</b> the sport filter and the distance of rows (above).",
-        f"<b>Sharing:</b> {C('.awt')} files keep the sport (Appendix C). Zwift {C('.zwo')} files have no "
-        "rowing type: workouts are always exported and imported as cycling workouts.",
-    ])
-    s.p("All rides and workouts from earlier versions are cycling. The database is upgraded automatically "
-        "the first time version 1.1.0 starts; nothing is lost.")
-
-    # =====================================================================
-    s.chapter("Free Ride & virtual shifting",
-              "Ride without a workout: shift virtual gears for more watts and speed, add a climb, or set a "
-              "wattage and let ERG hold it – with the on-screen buttons, the keyboard or a Zwift Click.")
-    s.figure(SHOTS / "freeride.png",
-             "The Free Ride page in Gears mode: live metrics, the current gear (50 × 21, gear 9 of 16) with "
-             "chainrings and cassette, Easier / Harder buttons, the grade control and the power, speed and "
-             "heart-rate chart.")
-    s.section("Modes")
-    s.table(["Mode", "What the trainer does"], [
-        [UI("Gears"), "Virtual gears: the app computes your speed from cadence and gear and sets the trainer to "
-                      "the power that speed needs on the road (your weight, the bike and the grade). A harder gear "
-                      "means more watts and more speed at the same cadence. Coasting releases the trainer."],
-        [UI("ERG"), "The trainer holds the target wattage regardless of cadence, as long as you like."],
-        [UI("Free"), "No resistance control – the trainer stays in its own free-ride mode. Speed and distance "
-                     "are calculated from your power on a flat road. Zwift Click buttons are inactive."],
-    ], [1.0, 4.8])
-    s.p("Choose the mode with the selector at the top right of the page. You can change it at any time, also "
-        "during a ride; switching to ERG continues at the power you are riding at that moment.")
-
-    s.section("The page")
-    s.bullets([
-        "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
-        "badge shows the rolling average and toggles it, section 15.2), speed (average), "
-        "cadence (current gear), heart rate (% of max), time (average power) and distance (energy in kJ).",
-        "<b>Control panel</b> – Virtual Gears, ERG or Free, depending on the mode (below).",
-        f"<b>Chart</b> – power (yellow area), virtual speed (cyan) and heart rate (pink) over time; in ERG mode a "
-        "dashed line marks the target.",
-        f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
-        f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the Zwift Click status; your bike and gears with "
-        f"{UI('Gear Setup…')}. Without a trainer a <i>No trainer connected</i> card with {UI('Open Devices')} "
-        "appears.",
-    ])
-
-    s.section("Virtual gears")
-    s.p(f"The current gear is shown large – for example <b>50 × 17</b> (chainring × cog) – with its position "
-        "(<i>Gear 9 / 16</i>), the gear ratio, a position bar and a sketch of the chainrings and the cassette "
-        f"with the gear in use highlighted. {UI('Easier')} (−) and {UI('Harder')} (+) shift one gear; hold a "
-        "button to shift repeatedly. After every shift the gear briefly lights up.")
-    s.bullets([
-        f"<b>Sequential</b> (default): all gears form one list from easiest to hardest; duplicate ratios are "
-        f"skipped. {UI('Jump 3 easier')} / {UI('Jump 3 harder')} move three gears at once.",
-        f"<b>Front + rear</b>: like a real bike – + / − shift the cassette and {UI('Small ring')} / "
-        f"{UI('Big ring')} change the chainring.",
-    ])
-    s.p(f"The <b>grade</b> control (−15 % to +20 %, {UI('−')} / {UI('+')} in 0.5 % steps, a slider and "
-        f"{UI('Flat')}) simulates a climb or descent: uphill you need more power for the same speed, so you "
-        "shift easier – just like outdoors. Below it the app shows the power the current gear needs at your "
-        "cadence.")
-    s.tip("Ride at your usual cadence and use the gears like outdoors: shift harder to go faster, easier when "
-          "you set a steeper grade.")
-
-    s.section("ERG mode")
-    s.figure(SHOTS / "freeride-erg.png",
-             "ERG mode: target 200 W with step buttons, exact entry, the ERG switch and the target line in the "
-             "chart.", width_frac=0.9)
-    s.bullets([
-        f"The <b>target</b> is shown large; below it the actual power and the difference (green within ±5 %), "
-        "and a bar with the marker of your current power.",
-        f"Step buttons {UI('−25')} {UI('−10')} {UI('−5')} {UI('+5')} {UI('+10')} {UI('+25')} (hold to repeat), "
-        f"or type a value under {UI('Exact target')} and press {UI('Set')} or Enter (25–1500 W).",
-        f"The {UI('ERG mode')} switch turns ERG off and returns to virtual gears.",
-        "The Zwift Click changes the target by 10 W; the keyboard by 5 W (↑ / ↓) or 10 W (Page Up / Page Down).",
-    ])
-
-    s.section("Starting, pausing and finishing")
-    s.bullets([
-        f"{UI('Start Now')} starts the ride immediately; {UI('Start When Pedaling')} arms it – the status pill "
-        "shows <i>Waiting for pedaling…</i> and the ride starts with the first pedal strokes (cadence ≥ 20 rpm or "
-        f"power ≥ 30 W). {UI('Cancel Auto-Start')} disarms it.",
-        f"{UI('Pause Ride')} (or {K('Space')}) stops the clock and releases the trainer; {UI('Resume')} "
-        "continues.",
-        f"{UI('Finish')} asks <i>Finish free ride?</i> – {UI('Save &amp; Finish')} saves the ride to History "
-        f"under the name <i>Free Ride</i>, {UI('Discard')} throws it away. A summary (time, distance, average and "
-        f"maximum power, average speed, energy) and {UI('View in History')} appear; {UI('Ride Again')} starts a "
-        f"new ride and {UI('Reset')} clears the page.",
-        "Only one session runs at a time: a free ride cannot start while a workout or a row is running "
-        "(and vice versa) – the app tells you with a short message.",
-    ])
-    s.warning("Rides shorter than <b>30 seconds</b> are not saved.")
-
-    s.section("Zwift Click")
-    s.p(f"Connect the Click under {UI('Devices → Controllers (Zwift Click)')} (section 5.4). On the Free Ride "
-        f"page the {UI('Zwift Click')} card shows the connection, the battery level and the buttons as they are "
-        f"pressed; {UI('Connect in Devices')} opens the Devices page.")
-    s.table(["Button", "Gears", "ERG", "Free"], [
-        [UI("+"), "Shift harder", "Target +10 W", "–"],
-        [UI("−"), "Shift easier", "Target −10 W", "–"],
-    ], [1.0, 1.6, 1.6, 1.6])
-    s.p("Holding a button repeats the shift.")
-
-    s.section("Gear setup")
-    s.figure(SHOTS / "gear-setup.png",
-             "The Gear Setup dialog with a 50/34 compact crankset, an 11–34 12-speed cassette and the preview "
-             "of all 16 sequential gears.", width_frac=0.9)
-    s.p(f"{UI('Gear Setup…')} on the Free Ride page sets up the bike you ride virtually. The setup is saved "
-        "per profile and can be changed during a ride.")
-    s.table(["Field", "Meaning"], [
-        [UI("Chainrings"), "A preset (50/34 compact, 52/36, 53/39, 48/35, 46/33, GRX, a 50/39/30 triple or a "
-                           "single 1× ring of 32–44 teeth) or your own numbers, e.g. <i>50, 34</i> or <i>40</i>. "
-                           "1 to 3 rings."],
-        [UI("Cassette"), "A preset (11–28 … 11–34, SRAM 10–33/10–36, 1× 10–42 … 10–50) or your own cogs, e.g. "
-                         "<i>11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34</i>."],
-        [UI("Wheel size"), "A tyre preset (700×23c … 29×2.2) or the circumference in millimetres (1000–3000)."],
-        [UI("Shifting"), "<i>Sequential (virtual gears)</i> – one list, ideal for the Zwift Click – or "
-                         "<i>Front + rear (like your bike)</i>."],
-        [UI("Advanced"), "Bike weight (0–60 kg), CdA (air drag, 0.10–1.00 m²; hoods ≈ 0.32, drops ≈ 0.28) and "
-                         "Crr (rolling resistance, 0.001–0.050; road tyres ≈ 0.004). Your own weight comes from "
-                         "the profile."],
-    ], [1.2, 4.6])
-    s.p("The <b>preview</b> lists every resulting gear with its ratio, the speed at 90 rpm and the power that "
-        "speed needs on the flat; the current gear is highlighted. Invalid input is explained in red (for "
-        f"example <i>Cogs must have …–… teeth</i>) and {UI('Save')} stays disabled. "
-        f"{UI('Reset to Defaults')} fills in the default setup (50/34, 11–34 12-speed, 700×25c, sequential); "
-        f"press {UI('Save')} to apply it.")
-
-    s.section("Keyboard")
-    s.table(["Key", "Gears", "ERG"], [
-        [K("↑") + " or " + K("+"), "Shift harder", "Target +5 W"],
-        [K("↓") + " or " + K("−"), "Shift easier", "Target −5 W"],
-        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring (sequential: jump 3 gears)", "–"],
-        [K("Page Up") + " / " + K("Page Down"), "Grade +0.5 % / −0.5 %", "Target +10 W / −10 W"],
-        [K("Space"), "Start / pause / resume", "Start / pause / resume"],
-    ], [1.6, 2.4, 1.8])
-    s.p("The keys work only on the Free Ride page and not while you type in a field or a dialog or menu is "
-        "open.")
-
-    # =====================================================================
-    s.chapter("Real Life Video",
-              "Ride filmed routes: the video plays at the speed you ride, the trainer makes the climbs harder "
-              "like on the road, and the route's elevation profile shows where you are.")
-    s.figure(SHOTS / "video-ride.png",
-             "The Video Ride page in Simulation mode: live metrics at the top, the route video with the "
-             "gradient, mode and difficulty overlays in the middle and the elevation profile with your position at the bottom. "
-             "Video: cycling.vangestel.online, CC BY-NC-SA 4.0.")
-    s.section("Route folders")
-    s.p("A Real Life Video (RLV) route is a folder with three files that share a name:")
-    s.table(["File", "Content"], [
-        [C(".mp4"), "The video, filmed from the bike. H.264 plays everywhere; see <i>Video formats</i> below."],
-        [C(".gpx"), "The GPS track with elevation – distance, gradient and the profile are computed from it."],
-        [C(".xml"), "Optional route file (common RLV format): title, country, the video's start and end frame "
-                    "and the on-screen texts at their distances (e.g. <i>Mount Glandasse in the background</i>)."],
-    ], [1.0, 4.8])
-    s.p(f"Put route folders into your videos folder – by default {C('Documents/Artilody Videos')} in your home "
-        f"folder – for example {C('Artilody Videos/FR_Le_petit_Menglonnais/FR_Le_petit_Menglonnais.mp4')} "
-        f"(plus the {C('.gpx')} and {C('.xml')} next to it). The folder button next to the route list opens a "
-        f"menu: {UI('Add Folder…')} adds another folder (e.g. on an external drive; a folder can hold many "
-        f"route folders or be a route folder itself), {UI('Choose Videos Folder…')} replaces the videos "
-        f"folder, {UI('Open Videos Folder')} shows it in Finder / Explorer and {UI('Rescan Library')} looks for "
-        "new routes. With an empty library the page explains the layout and offers the same buttons.")
-
-    s.section("Choosing a route")
-    s.p("The drop-down at the top of the page lists every route with its name in bold and below it the "
-        "distance, the climbing, the length of the video and the country, e.g. <i>12.0 km · 142 m ↑ · 29:43 · "
-        "FR</i>. Routes that cannot be loaded are shown greyed out with the reason. Choosing a route shows its "
-        "first frame and its profile; the app remembers the last route. The route cannot be changed during a "
-        "ride.")
-
-    s.section("The page")
-    s.bullets([
-        "<b>Metric tiles</b> – power (3 s average; footer: the ERG target or the power the current virtual gear "
-        "needs), cadence (gear or mode), "
-        "heart rate (% of max), speed (average) and elapsed time (distance ridden and energy).",
-        "<b>Video</b> – plays at your speed: the playback rate follows your riding speed relative to the speed "
-        "of the camera (about 0.25× to 2.5×); it pauses when you stop or coast to a standstill, and a video that "
-        "drifts from your position jumps back in sync. Overlays show the ride status, the gradient you ride "
-        "(coloured; with the route's gradient below it when the difficulty is below 100 %), the resistance mode "
-        "(gear or ERG target), the difficulty, the "
-        "playback rate and the route's on-screen texts. The speaker button turns the sound on – RLV videos are "
-        "usually silent, so it starts muted.",
-        "<b>Distance line</b> – the elevation profile of the whole route, coloured by gradient (green "
-        "descents, blue flat, yellow/orange climbs, red steep), the ridden part strong, your position with "
-        "<i>4.3 / 12.0 km</i>, km marks and small ticks where the route has texts. Above it: distance, "
-        "remaining distance, elevation, climbing done and gradient. Before the start, click the profile to "
-        "start part-way along the route (hovering shows the distance and elevation).",
-        f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
-        f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the {UI('Resistance')} card; the Zwift Click status. "
-        f"Without a trainer a <i>No trainer connected</i> card with {UI('Open Devices')} appears.",
-    ])
-
-    s.section("Resistance and difficulty")
-    s.table(["Mode", "What happens"], [
-        [UI("Gears"), "The trainer simulates the route's gradient with your virtual gears (the Free Ride gearing "
-                      f"and {UI('Gear Setup…')}, chapter 12): your speed comes from cadence and gear, and the "
-                      "trainer is set to the power that speed needs on the gradient. Shift with "
-                      f"{UI('−')} / {UI('+')}, the keyboard or the Zwift Click."],
-        [UI("Power"), "The trainer keeps its own resistance; your speed is computed from your power on the "
-                      "gradient (your weight, the bike, air and rolling resistance)."],
-    ], [1.0, 4.8])
-    s.p("<b>Difficulty</b> (0–100 %) scales the gradients: at 100 % you ride the real road, at 50 % a 6 % "
-        "climb feels like 3 %, at 0 % the route is flat (descents are scaled the same way). The slider is on "
-        f"the {UI('Resistance')} card; {K('Page Up')} / {K('Page Down')} change it in 10 % steps. The setting "
-        "is remembered.")
+           "command), Simulation automatically uses virtual gears and the card shows <i>Your trainer can't "
+           "simulate climbs – using virtual gears instead.</i> A trainer without cadence is left in its "
+           "free-ride mode; the speed then follows your power.")
+    s.p("<b>Difficulty</b> (0–100 %, Simulation) scales the gradients: at 100 % you ride the real road, at 50 % "
+        "a 6 % climb feels like 3 %, at 0 % the route is flat (descents are scaled the same way). Change it with "
+        f"the slider on the {UI('Resistance')} card or {K('Page Up')} / {K('Page Down')} in 10 % steps – "
+        "shifting never changes it. The setting is remembered. In ERG the difficulty does not apply.")
 
     s.section("Starting, pausing and finishing")
     s.bullets([
@@ -1726,16 +1497,15 @@ def build(s, env):
     ])
 
     s.section("Zwift Click and keyboard")
-    s.table(["Input", "Simulation", "Virtual gears", "ERG"], [
-        ["Zwift Click + / −", "Difficulty ±10 %", "Shift harder / easier", "Target ±10 W"],
-        [K("↑") + " / " + K("↓"), "Difficulty ±10 %", "Shift harder / easier", "Target ±5 W"],
-        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "–", "Bigger / smaller chainring", "–"],
-        [K("Page Up") + " / " + K("Page Down"), "Difficulty ±10 %", "Difficulty ±10 %", "Target ±10 W"],
-        [K("Space"), "Start / pause / resume", "Start / pause / resume", "Start / pause / resume"],
-    ], [1.4, 1.5, 1.7, 1.2])
-    s.p("When Simulation falls back to virtual gears, the keys and the Zwift Click shift like in Virtual gears.")
-    s.p("The keys work only on the Video Ride page and not while you type in a field or a dialog or menu is "
-        "open.")
+    s.table(["Input", "Simulation", "ERG"], [
+        ["Zwift Click + / −", "Shift harder / easier", "Target ±10 W"],
+        [K("↑") + " / " + K("↓"), "Shift harder / easier (virtual gears)", "Target ±5 W"],
+        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring (virtual gears)", "–"],
+        [K("Page Up") + " / " + K("Page Down"), "Difficulty ±10 %", "Target ±10 W"],
+        [K("Space"), "Start / pause / resume", "Start / pause / resume"],
+    ], [1.5, 2.8, 1.5])
+    s.p("Pressing the Click while virtual gears are off turns them on. The keys work only on the Video Ride "
+        "page and not while you type in a field or a dialog or menu is open.")
 
     s.section("Video formats and Raspberry Pi")
     s.bullets([
@@ -1984,12 +1754,12 @@ def build(s, env):
         [K("Space"), "Rowing", "Pause / resume a running row."],
         [K("Space"), "Free Ride", "Start now / pause / resume the free ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Free Ride",
-         "Shift harder / easier (Gears); target ±5 W (ERG)."],
-        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Free Ride", "Bigger / smaller chainring; sequential: jump 3 gears."],
-        [K("Page Up") + " / " + K("Page Down"), "Free Ride", "Grade ±0.5 % (Gears); target ±10 W (ERG)."],
+         "Shift harder / easier (Ride with virtual gears); target ±5 W (ERG)."],
+        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Free Ride / Video Ride", "Bigger / smaller chainring; sequential: jump 3 gears."],
+        [K("Page Up") + " / " + K("Page Down"), "Free Ride", "Grade ±0.5 % (Ride); target ±10 W (ERG)."],
         [K("Space"), "Video Ride", "Start now / pause / resume the video ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Video Ride",
-         "Difficulty ±10 % (Simulation); shift harder / easier (Virtual gears); target ±5 W (ERG)."],
+         "Shift harder / easier (Simulation with virtual gears); target ±5 W (ERG)."],
         [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %; target ±10 W (ERG)."],
         [K("Esc"), "Dialogs", "Close the dialog (where it can be closed)."],
         [K("Enter"), "New playlist name", "Create the playlist."],

@@ -1,4 +1,5 @@
-// Gearing model (GearSetup / Gearing), road model and gear setup persistence.
+// Gearing model (GearSetup / Gearing), reference gear, road model (speed
+// integration, gear-adjusted simulation grade "path a") and persistence.
 #include "Database.h"
 #include "Gearing.h"
 
@@ -243,7 +244,9 @@ private slots:
         s.cda = 0.4;
         s.crr = 0.008;
         const GearSetup back = GearSetup::fromJsonText(s.toJsonText());
-        QVERIFY(back == s);
+        QVERIFY(back == s.normalized());   // reference gear snapped to 42×16
+        QCOMPARE(back.referenceFrontTeeth, 42);
+        QCOMPARE(back.referenceRearTeeth, 16);
         QCOMPARE(GearSetup::fromJsonText(QString()), GearSetup::defaults());
         QCOMPARE(GearSetup::fromJsonText(QStringLiteral("garbage")), GearSetup::defaults());
         // invalid gearing falls back to the defaults, valid physics survive
@@ -326,6 +329,94 @@ private slots:
         p.ftp = 300;
         QCOMPARE(db.saveProfile(p), id);
         QCOMPARE(GearSetup::fromJsonText(db.gearSetupJson(id)).chainrings, QVector<int>({ 44 }));
+    }
+
+    void referenceGearAndSummary()
+    {
+        const GearSetup d = GearSetup::defaults();
+        QCOMPARE(d.referenceFrontTeeth, 50);
+        QCOMPARE(d.referenceRearTeeth, 17);
+        QVERIFY(qAbs(d.referenceRatio() - 50.0 / 17.0) < 1e-12);
+        QCOMPARE(d.summary(), QStringLiteral("50/34 · 11–34 12-speed · 700×25c · %1 gears")
+                                  .arg(Gearing(d).gearCount()));
+        // snapped to the setup: largest ring, cog nearest 17
+        GearSetup s = d;
+        s.chainrings = { 36, 52 };
+        s.cogs = { 11, 12, 13, 14, 16, 18, 20, 22, 25, 28 };
+        const GearSetup n = s.normalized();
+        QCOMPARE(n.referenceFrontTeeth, 52);
+        QCOMPARE(n.referenceRearTeeth, 16);
+        // JSON round trip keeps it
+        s.referenceFrontTeeth = 36;
+        s.referenceRearTeeth = 20;
+        const GearSetup back = GearSetup::fromJsonText(s.toJsonText());
+        QCOMPARE(back.referenceFrontTeeth, 36);
+        QCOMPARE(back.referenceRearTeeth, 20);
+        QCOMPARE(GearSetup::wheelName(2136), QStringLiteral("700×28c"));
+        QCOMPARE(GearSetup::wheelName(1234), QStringLiteral("1234 mm"));
+    }
+
+    void integrateSpeed()
+    {
+        road::Model m;
+        m.massKg = 84;
+        m.gradePercent = 3.0;
+        double v = 0;
+        for (int i = 0; i < 400; ++i)
+            v = road::integrateSpeed(m, v, 250, 0.25);
+        QVERIFY(qAbs(v - road::speedForPower(m, 250)) < 0.05);   // settles at the steady speed
+        const double from = 5.0;
+        QVERIFY(road::integrateSpeed(m, from, 600, 1.0) > from);   // accelerates
+        QVERIFY(road::integrateSpeed(m, from, 0, 1.0) < from);     // slows down uphill
+        QCOMPARE(road::integrateSpeed(m, from, 600, 0.0), from);
+    }
+
+    // grade sent to a simulating trainer for a virtual gear (path a)
+    void gearSimulationGrade()
+    {
+        road::Model m;
+        m.massKg = 84;
+        road::TrainerModel t;
+        t.massKg = 84;
+        t.crr = 0.004;
+        t.cwKgPerM = 0.51;
+        for (double grade : { 0.0, 3.0, 8.0 }) {
+            m.gradePercent = grade;
+            const double vt = 8.0;
+            double previous = -1e9;
+            // monotonic: harder virtual gear -> steeper grade at the same trainer speed
+            for (double factor = 0.6; factor <= 1.6; factor += 0.1) {
+                const double g = road::gearSimulationGrade(m, vt, factor, t);
+                QVERIFY(g >= -10.0 && g <= 20.0);
+                QVERIFY2(g >= previous - 1e-9, qPrintable(QStringLiteral("grade %1 factor %2").arg(grade).arg(factor)));
+                if (previous > -10.0 + 1e-6 && previous < 20.0 - 1e-6)
+                    QVERIFY(g > previous);
+                previous = g;
+            }
+            // the trainer then brakes with the road power of the virtual speed
+            const double factor = 1.2;
+            const double g = road::gearSimulationGrade(m, vt, factor, t);
+            if (g > -10 + 1e-6 && g < 20 - 1e-6) {
+                const double theta = std::atan(g / 100.0);
+                const double force = t.massKg * road::kGravity * (std::sin(theta) + t.crr * std::cos(theta))
+                                     + 0.5 * t.cwKgPerM * vt * vt;
+                QVERIFY(qAbs(force * vt - road::powerForSpeed(m, vt * factor)) < 1.0);
+            }
+        }
+        // climbs stay harder than the flat in the same gear
+        m.gradePercent = 0;
+        const double flatGrade = road::gearSimulationGrade(m, 8.0, 1.0, t);
+        m.gradePercent = 5;
+        QVERIFY(road::gearSimulationGrade(m, 8.0, 1.0, t) > flatGrade + 3);
+        // clamped, and no adjustment while (nearly) standing
+        m.gradePercent = 3;
+        QCOMPARE(road::gearSimulationGrade(m, 12.0, 3.0, t), 20.0);
+        m.gradePercent = -15;
+        QCOMPARE(road::gearSimulationGrade(m, 12.0, 0.8, t), -10.0);
+        m.gradePercent = 3;
+        QCOMPARE(road::gearSimulationGrade(m, 0.5, 1.4, t), 3.0);
+        m.gradePercent = 30;
+        QCOMPARE(road::gearSimulationGrade(m, 0.0, 1.0, t), 20.0);
     }
 };
 

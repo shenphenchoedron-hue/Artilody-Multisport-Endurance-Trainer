@@ -19,6 +19,9 @@ namespace watt {
 // climb first makes the pedals heavier and then the rider shifts down.
 // WATT_SIM_TRAINER_NO_SIM=1 makes it a trainer without simulation support
 // (demo of the fallback).
+// setFixedGearRatio(r > 0): the rider shifts virtually (Zwift Click) and
+// leaves the bike in the reference gear r - the simulated rider no longer
+// shifts, the brake power follows the (gear-adjusted) grade the app sends.
 class SimulatedTrainer : public TrainerDevice
 {
     Q_OBJECT
@@ -45,6 +48,8 @@ public:
 
     void setFreeRidePower(int watts) { m_freeRidePower = watts; }
     void setSimulationSupported(bool on);
+    void setFixedGearRatio(double ratio) { m_fixedRatio = ratio > 0 ? ratio : 0.0; }
+    double fixedGearRatio() const { return m_fixedRatio; }
     void setNoise(bool on) { m_noise = on; }   // tests: deterministic values
     double currentPower() const { return m_power; }
     bool simulating() const { return m_sim; }
@@ -72,8 +77,26 @@ private:
     double m_grade = 0, m_wind = 0, m_crr = 0.004, m_cw = 0.51;
     double m_wheelSpeed = 0;
     int m_gear = 10;
+    double m_fixedRatio = 0;
     int m_freeRidePower = 160;
     int m_t = 0;
+};
+
+// Virtual Zwift Click (developer/screenshot aid, never listed by a scan):
+// connects at once, battery 85 %. pressButton() emits a shift request.
+class SimulatedController : public ControllerDevice
+{
+    Q_OBJECT
+public:
+    explicit SimulatedController(QObject *parent = nullptr);
+
+    QString id() const override { return QStringLiteral("sim:click"); }
+    QString name() const override { return QStringLiteral("Zwift Click"); }
+    QString protocol() const override { return QStringLiteral("Simulated Zwift Click"); }
+    bool isSimulated() const override { return true; }
+    void connectDevice() override;
+    void disconnectDevice() override;
+    void pressButton(int direction);
 };
 
 // Virtual heart-rate sensor that responds to the virtual trainer's load.

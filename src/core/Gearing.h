@@ -46,6 +46,12 @@ struct GearSetup
     double bikeWeightKg = 9.0;
     double cda = 0.32;      // m^2, hoods position
     double crr = 0.004;     // rolling resistance, good road tyres
+    // Reference gear: the real gear the bike sits in on the trainer while
+    // shifting virtually ("leave your bike in this gear"). Teeth, not indices;
+    // normalized() snaps them to the setup (largest ring / cog nearest 17).
+    int referenceFrontTeeth = 50;
+    int referenceRearTeeth = 17;
+    static constexpr int kDefaultReferenceCog = 17;
 
     static GearSetup defaults();
     // Checks the lists/values; on error returns false and sets *error.
@@ -64,6 +70,15 @@ struct GearSetup
 
     bool operator==(const GearSetup &o) const;
     bool operator!=(const GearSetup &o) const { return !(*this == o); }
+
+    double referenceRatio() const
+    {
+        return referenceRearTeeth > 0 ? double(referenceFrontTeeth) / referenceRearTeeth : 0.0;
+    }
+    // "50/34 · 11–34 12-speed · 700×25c · 16 gears" (gear count of the
+    // current shifting mode)
+    QString summary() const;
+    static QString wheelName(int circumferenceMm);   // "700×25c" or "2105 mm"
 
     // Presets for the setup UI: [{name, values: [int]}] / [{name, mm}]
     static QVariantList chainringPresets();
@@ -178,6 +193,36 @@ double powerForSpeed(const Model &m, double speedMps);
 double speedForPower(const Model &m, double watts);
 // Deceleration (m/s^2, > 0 slows down, < 0 speeds up downhill) while coasting.
 double coastDeceleration(const Model &m, double speedMps);
+// Speed after riding dt seconds with `watts` at the cranks, with inertia:
+//   (m + extraMass)·dv/dt = P·η / max(v, minDriveSpeed) − F(v)
+// (explicit Euler in steps of at most stepSec), never below 0.
+double integrateSpeed(const Model &m, double speedMps, double watts, double dt, double extraMassKg = 1.5,
+                      double minDriveSpeedMps = 1.0, double stepSec = 0.05);
+
+// Resistance model of a trainer in FTMS gradient simulation (op 0x11):
+//   F = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v²   (Cw in kg/m, no wind)
+struct TrainerModel
+{
+    double massKg = 79.0;
+    double crr = 0.004;
+    double cwKgPerM = 0.51;
+};
+
+// Virtual gears on a trainer that simulates gradients ("path a"): the bike
+// stays in the reference gear, so the trainer's flywheel turns at v_t while
+// the virtual bike rides at
+//     v_v = v_t · R_virtual / R_reference          (gearFactor = R_v / R_ref)
+// The rider must push the road power for v_v on the road grade:
+//     P = powerForSpeed(road, v_v)
+// The trainer delivers P at its own speed v_t when it brakes with
+//     F = P / v_t = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v_t²
+// Solved exactly for θ (sinθ + Crr·cosθ = k, k = (F − ½·Cw·v_t²)/(m·g)):
+//     θ = asin(k / √(1 + Crr²)) − atan(Crr)
+// Returns tan θ in % clamped to minGrade..maxGrade. Below minSpeedMps
+// trainer speed (or a non-positive gear factor) the plain road grade
+// (clamped) is returned.
+double gearSimulationGrade(const Model &road, double trainerSpeedMps, double gearFactor, const TrainerModel &trainer,
+                           double minGrade = -10.0, double maxGrade = 20.0, double minSpeedMps = 1.0);
 
 } // namespace road
 

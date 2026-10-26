@@ -1,5 +1,8 @@
-// FreeRideSession: ERG hold, virtual gearing targets, auto-start, recording,
-// mutual exclusion with workouts/rowing, gear setup persistence.
+// FreeRideSession: modes Ride / ERG (old "gears" / "free" migrated), ERG
+// hold, virtual gear targets (path b) and gear-adjusted grades (path a), real
+// gears with the trainer simulating the grade, Zwift Click routing (never
+// the difficulty / grade), auto-start, recording, mutual exclusion with
+// workouts/rowing, gear setup persistence (VirtualGears).
 #include "CsvExporter.h"
 #include "Database.h"
 #include "FitExporter.h"
@@ -9,6 +12,7 @@
 #include "RowingSession.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
+#include "VirtualGears.h"
 #include "WorkoutPlanner.h"
 
 #include <QSignalSpy>
@@ -23,6 +27,7 @@ struct Fixture
     std::unique_ptr<ProfileManager> profiles;
     std::unique_ptr<SensorHub> hub;
     std::unique_ptr<TrainingSession> training;
+    std::unique_ptr<VirtualGears> gears;
     std::unique_ptr<FreeRideSession> ride;
 
     bool init()
@@ -37,12 +42,21 @@ struct Fixture
         hub->setTrainerConnected(true);
         training = std::make_unique<TrainingSession>(&db, profiles.get(), hub.get());
         training->setManualClock(true);
+        gears = makeGears();
+        // most tests ride with virtual gears (a trainer without speed: path b, ERG)
+        gears->setEnabled(true);
         ride = makeRide();
         return true;
     }
+    std::unique_ptr<VirtualGears> makeGears()
+    {
+        auto g = std::make_unique<VirtualGears>(&db, profiles.get());
+        g->setManualSave(true);
+        return g;
+    }
     std::unique_ptr<FreeRideSession> makeRide()
     {
-        auto r = std::make_unique<FreeRideSession>(&db, profiles.get(), hub.get());
+        auto r = std::make_unique<FreeRideSession>(&db, profiles.get(), hub.get(), gears.get());
         r->setManualClock(true);
         r->setMinimumSaveSeconds(5);
         r->setTrainingSession(training.get());
@@ -73,22 +87,27 @@ private slots:
         ProfileManager profiles(&db);
         profiles.load();
         SensorHub hub;
-        FreeRideSession s(&db, &profiles, &hub);
+        VirtualGears gears(&db, &profiles);
+        FreeRideSession s(&db, &profiles, &hub, &gears);
         QCOMPARE(s.state(), QStringLiteral("idle"));
-        QCOMPARE(s.mode(), QStringLiteral("gears"));
+        QCOMPARE(s.mode(), QStringLiteral("ride"));
+        QVERIFY(!gears.enabled());   // off until a Zwift Click / the toggle
+        QVERIFY(!s.virtualGears());
+        QCOMPARE(s.resistancePath(), QStringLiteral("simulation"));
         QVERIFY(!s.trainerConnected());
-        QVERIFY(!s.clickConnected());
         QCOMPARE(s.speedKmh(), 0.0);
         QCOMPARE(s.watts(), 0);
         QCOMPARE(s.gearTargetWatts(), 0);
         QCOMPARE(s.requestedWatts(), 0);
         QVERIFY(s.powerSeries().isEmpty());
-        QCOMPARE(s.gearLabel(), QStringLiteral("50×21"));
-        QCOMPARE(s.gear().value(QStringLiteral("label")).toString(), s.gearLabel());
-        QCOMPARE(s.gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2105);
-        QVERIFY(!s.chainringPresets().isEmpty());
-        QVERIFY(!s.cassettePresets().isEmpty());
-        QVERIFY(!s.wheelPresets().isEmpty());
+        QCOMPARE(gears.gearLabel(), QStringLiteral("50×21"));
+        QCOMPARE(gears.gear().value(QStringLiteral("label")).toString(), gears.gearLabel());
+        QCOMPARE(gears.gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2105);
+        QCOMPARE(gears.referenceLabel(), QStringLiteral("50×17"));
+        QCOMPARE(gears.summary(), QStringLiteral("50/34 · 11–34 12-speed · 700×25c · %1 gears").arg(gears.gearCount()));
+        QVERIFY(!gears.chainringPresets().isEmpty());
+        QVERIFY(!gears.cassettePresets().isEmpty());
+        QVERIFY(!gears.wheelPresets().isEmpty());
         QCOMPARE(s.finish(true), qint64(-1));
         s.pause();
         s.resume();
@@ -137,13 +156,14 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        QVERIFY(f.ride->setGearIndex(0));
+        QVERIFY(f.gears->setGearIndex(0));
         f.pedal(90, 150);
         QVERIFY(f.ride->start());
         f.ride_for(5000);   // smoothed cadence settles at 90
         int previous = 0;
-        for (int i = 0; i < f.ride->gearCount(); ++i) {
-            QVERIFY(f.ride->setGearIndex(i));
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));   // no trainer speed: path b
+        for (int i = 0; i < f.gears->gearCount(); ++i) {
+            QVERIFY(f.gears->setGearIndex(i));
             f.ride_for(1000);
             const int target = f.hub->requestedTarget();
             // matches the road model at the virtual speed (lowest gears on
@@ -170,14 +190,14 @@ private slots:
         f.ride_for(4000);
         const int before = f.hub->requestedTarget();
         QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
-        QSignalSpy shifted(f.ride.get(), &FreeRideSession::shifted);
-        QVERIFY(f.ride->shiftUp());
+        QSignalSpy shifted(f.gears.get(), &VirtualGears::shifted);
+        QVERIFY(f.gears->shiftUp());
         QCOMPARE(targets.count(), 1);   // no waiting for the next update
         QVERIFY(f.hub->requestedTarget() > before);
         QCOMPARE(shifted.count(), 1);
         QCOMPARE(shifted.first().first().toInt(), 1);
-        QVERIFY(f.ride->shiftDown());
-        QVERIFY(f.ride->shiftDown());
+        QVERIFY(f.gears->shiftDown());
+        QVERIFY(f.gears->shiftDown());
         QVERIFY(f.hub->requestedTarget() < before);
         // grade: uphill needs more power at the same speed
         const int flat = f.hub->requestedTarget();
@@ -253,39 +273,138 @@ private slots:
         QCOMPARE(f.ride->targetWatts(), 185);
         QCOMPARE(f.hub->requestedTarget(), 185);
         f.ride->setErgEnabled(false);
-        QCOMPARE(f.ride->mode(), QStringLiteral("gears"));
+        QCOMPARE(f.ride->mode(), QStringLiteral("ride"));
         QVERIFY(f.hub->requestedTarget() > 0);
-        f.ride->setMode(QStringLiteral("free"));
-        QCOMPARE(f.hub->requestedTarget(), 0);
         f.ride->setMode(QStringLiteral("nonsense"));
-        QCOMPARE(f.ride->mode(), QStringLiteral("free"));
+        QCOMPARE(f.ride->mode(), QStringLiteral("ride"));
+        f.ride->setMode(QStringLiteral("erg"));
         f.ride->finish(false);
         // mode and ERG target are remembered
         auto again = f.makeRide();
-        QCOMPARE(again->mode(), QStringLiteral("free"));
+        QCOMPARE(again->mode(), QStringLiteral("erg"));
         QCOMPARE(again->targetWatts(), 185);
+    }
+
+    void modeReshapeAndMigration()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.ride.reset();
+        // the old "gears" and "free" modes are the road ride now
+        for (const char *old : { "gears", "free" }) {
+            f.db.setSetting(QStringLiteral("freeRide/mode"), QString::fromLatin1(old));
+            auto r = f.makeRide();
+            QCOMPARE(r->mode(), QStringLiteral("ride"));
+            QCOMPARE(f.db.setting(QStringLiteral("freeRide/mode")).toString(), QStringLiteral("ride"));
+        }
+        QVERIFY(FreeRideSession::parseMode(QStringLiteral("gears")) == FreeRideSession::Mode::Ride);
+        QVERIFY(!FreeRideSession::parseMode(QStringLiteral("power")));
+        // ride + real gears: the trainer gets the grade (FTMS 0x11)
+        f.gears->setEnabled(false);
+        f.ride = f.makeRide();
+        QVERIFY(!f.ride->virtualGears());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("simulation"));
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
+        f.ride->setGrade(3.0);
+        f.pedal(85, 220);
+        QVERIFY(f.ride->start());
+        QCOMPARE(sims.count(), 1);
+        QCOMPARE(sims.last().at(0).toDouble(), 3.0);
+        QVERIFY(f.ride->simulationActive());
+        QCOMPARE(f.ride->gearTargetWatts(), 0);
+        f.ride_for(60000);
+        QCOMPARE(targets.count(), 0);
+        // speed from power on the grade, with inertia
+        const double v = road::speedForPower(f.ride->roadModel(3.0), 220);
+        QVERIFY2(qAbs(f.ride->speedKmh() / 3.6 - v) < 0.4, qPrintable(QStringLiteral("%1 vs %2").arg(f.ride->speedKmh() / 3.6).arg(v)));
+        f.ride->setGrade(5.0);
+        QCOMPARE(sims.last().at(0).toDouble(), 5.0);
+        // the Click shifts (and turns virtual gears on) - the grade stays
+        f.gears->setSessions(f.ride.get(), nullptr);
+        QSignalSpy notices(f.gears.get(), &VirtualGears::notice);
+        const int gear = f.gears->gearIndex();
+        f.gears->controllerShift(1);
+        QCOMPARE(notices.count(), 1);
+        QVERIFY(f.gears->enabled());
+        QVERIFY(f.ride->virtualGears());
+        QCOMPARE(f.gears->gearIndex(), gear + 1);
+        QCOMPARE(f.ride->gradePercent(), 5.0);
+        // a trainer that cannot simulate: virtual gears via ERG anyway
+        f.gears->setEnabled(false);
+        f.hub->setTrainerSimulationSupport(0);
+        QVERIFY(f.ride->simulationFallback());
+        QVERIFY(f.ride->virtualGears());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));
+        f.ride->advanceClock(250);
+        QVERIFY(f.hub->requestedTarget() > 0);
+        f.ride->finish(false);
+    }
+
+    void gearSimulationPath()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        // simulating trainer that reports its speed: path a
+        f.hub->setTrainerSimulationSupport(1);
+        f.pedal(85, 200);
+        f.hub->updateSpeed(30.0);
+        QVERIFY(f.hub->trainerReportsSpeed());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearSimulation"));
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
+        f.ride->setGrade(2.0);
+        QVERIFY(f.ride->start());
+        f.ride_for(5000);
+        QVERIFY(sims.count() >= 1);
+        QCOMPARE(targets.count(), 0);
+        const double before = f.ride->simulationGradePercent();
+        QVERIFY(qAbs(before - f.ride->gearSimulationGrade()) < 0.11);
+        // harder gear at the same trainer speed = steeper grade sent, at once
+        const int count = sims.count();
+        QVERIFY(f.gears->shiftUp());
+        QCOMPARE(sims.count(), count + 1);
+        QVERIFY(f.ride->simulationGradePercent() > before);
+        // speed follows the virtual gear, not the trainer
+        f.ride->advanceClock(250);
+        QVERIFY(qAbs(f.ride->speedKmh() / 3.6 - f.gears->gearing().virtualSpeed(85)) < 0.01);
+        // in the reference gear the trainer gets about the road grade
+        QVERIFY(f.gears->setGear(1, f.gears->setup().cogs.indexOf(17)));
+        f.hub->updateSpeed(f.gears->gearing().virtualSpeed(85) * 3.6);
+        f.ride_for(2000);
+        QVERIFY2(qAbs(f.ride->simulationGradePercent() - 2.0) < 1.0, qPrintable(QString::number(f.ride->simulationGradePercent())));
+        f.ride->finish(false);
+        // the trainer disconnects: no speed reported any more -> path b
+        f.hub->setTrainerConnected(false);
+        QVERIFY(!f.hub->trainerReportsSpeed());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));
     }
 
     void controllerButtons()
     {
         Fixture f;
         QVERIFY(f.init());
-        const int gear = f.ride->gearIndex();
+        const int gear = f.gears->gearIndex();
+        f.ride->setGrade(4.0);
         f.ride->controllerShiftUp();
-        QCOMPARE(f.ride->gearIndex(), gear + 1);
+        QCOMPARE(f.gears->gearIndex(), gear + 1);
         f.ride->controllerShift(-1);
         f.ride->controllerShift(-1);
-        QCOMPARE(f.ride->gearIndex(), gear - 1);
+        QCOMPARE(f.gears->gearIndex(), gear - 1);
+        QCOMPARE(f.ride->gradePercent(), 4.0);   // never the grade / difficulty
         f.ride->setMode(QStringLiteral("erg"));
         const int target = f.ride->targetWatts();
         f.ride->controllerShiftUp();
         QCOMPARE(f.ride->targetWatts(), target + FreeRideSession::kControllerErgStep);
-        QCOMPARE(f.ride->gearIndex(), gear - 1);
+        QCOMPARE(f.gears->gearIndex(), gear - 1);
         f.ride->controllerShiftDown();
         QCOMPARE(f.ride->targetWatts(), target);
-        f.ride->setMode(QStringLiteral("free"));
+        // real gears (virtual gears off): the Click still shifts, never the grade
+        f.ride->setMode(QStringLiteral("ride"));
+        f.gears->setEnabled(false);
         f.ride->controllerShiftUp();
-        QCOMPARE(f.ride->gearIndex(), gear - 1);
+        QCOMPARE(f.gears->gearIndex(), gear);
+        QCOMPARE(f.ride->gradePercent(), 4.0);
         QCOMPARE(f.ride->targetWatts(), target);
     }
 
@@ -312,7 +431,7 @@ private slots:
         f.ride->startWhenPedaling();
         f.pedal(0, FreeRideSession::kStartPowerWatts);
         QCOMPARE(f.ride->state(), QStringLiteral("running"));
-        f.ride_for(3000);
+        f.ride_for(8000);
         QVERIFY(f.ride->speedKmh() > 5);   // speed from power
         f.ride->finish(false);
 
@@ -446,12 +565,12 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        const QString before = f.ride->gearLabel();
+        const QString before = f.gears->gearLabel();
         // invalid -> empty
-        QVERIFY(f.ride->previewGears({}, { 11, 12 }, 2105, true).isEmpty());
-        QVERIFY(f.ride->previewGears({ 50 }, { 11 }, 100, true).isEmpty());
+        QVERIFY(f.gears->previewGears({}, { 11, 12 }, 2105, true).isEmpty());
+        QVERIFY(f.gears->previewGears({ 50 }, { 11 }, 100, true).isEmpty());
         // 1x: every cog, easiest first, speed at 90 rpm = 90/60 * ratio * 2.105 m
-        const QVariantList single = f.ride->previewGears({ 40 }, { 11, 21, 42 }, 2105, false);
+        const QVariantList single = f.gears->previewGears({ 40 }, { 11, 21, 42 }, 2105, false);
         QCOMPARE(single.size(), 3);
         const QVariantMap easiest = single.first().toMap();
         QCOMPARE(easiest.value(QStringLiteral("label")).toString(), QStringLiteral("40×42"));
@@ -463,16 +582,16 @@ private slots:
         // 2x: derailleur lists every combination, sequential skips duplicates
         const QVariantList rings { 34, 50 };
         const QVariantList cogs { 11, 12, 13, 14, 15, 17, 19, 21, 24, 27, 30, 34 };
-        QCOMPARE(f.ride->previewGears(rings, cogs, 2105, false).size(), 24);
-        const int seq = f.ride->previewGears(rings, cogs, 2105, true).size();
+        QCOMPARE(f.gears->previewGears(rings, cogs, 2105, false).size(), 24);
+        const int seq = f.gears->previewGears(rings, cogs, 2105, true).size();
         QVERIFY(seq > 12 && seq < 24);
-        const double at60 = f.ride->previewGears(rings, cogs, 2105, false, 60).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
-        const double at90 = f.ride->previewGears(rings, cogs, 2105, false, 90).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
+        const double at60 = f.gears->previewGears(rings, cogs, 2105, false, 60).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
+        const double at90 = f.gears->previewGears(rings, cogs, 2105, false, 90).first().toMap().value(QStringLiteral("speedKmh")).toDouble();
         QVERIFY(qAbs(at60 * 1.5 - at90) < 0.11);
         // nothing stored
-        QCOMPARE(f.ride->gearLabel(), before);
+        QCOMPARE(f.gears->gearLabel(), before);
         // defaults map
-        const QVariantMap def = f.ride->defaultGearSetup();
+        const QVariantMap def = f.gears->defaultGearSetup();
         QCOMPARE(def.value(QStringLiteral("circumferenceMm")).toInt(), GearSetup::kDefaultCircumferenceMm);
         QCOMPARE(def.value(QStringLiteral("chainrings")).toList().size(), 2);
         QCOMPARE(def.value(QStringLiteral("cogs")).toList().size(), 12);
@@ -482,27 +601,30 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        QVERIFY(!f.ride->setGearSetup({ 5 }, { 11, 28 }, 2105, true));
-        QVERIFY(!f.ride->lastError().isEmpty());
-        QVERIFY(!f.ride->setGearSetup({ 50.5 }, { 11, 28 }, 2105, true));
-        QVERIFY(!f.ride->validateGearSetup({ 50 }, { 11 }, 100).isEmpty());
-        QVERIFY(f.ride->validateGearSetup({ 50 }, { 11 }, 2105).isEmpty());
-        QCOMPARE(f.ride->parseTeeth(QStringLiteral("10, 12,14")), QVariantList({ 10, 12, 14 }));
+        QVERIFY(!f.gears->setGearSetup({ 5 }, { 11, 28 }, 2105, true));
+        QVERIFY(!f.gears->lastError().isEmpty());
+        QVERIFY(!f.gears->setGearSetup({ 50.5 }, { 11, 28 }, 2105, true));
+        QVERIFY(!f.gears->validateGearSetup({ 50 }, { 11 }, 100).isEmpty());
+        QVERIFY(f.gears->validateGearSetup({ 50 }, { 11 }, 2105).isEmpty());
+        QCOMPARE(f.gears->parseTeeth(QStringLiteral("10, 12,14")), QVariantList({ 10, 12, 14 }));
 
-        QSignalSpy setupChanged(f.ride.get(), &FreeRideSession::gearSetupChanged);
-        QVERIFY(f.ride->setGearSetup({ 42 }, { 44, 10, 11, 13, 15, 17, 19, 21, 24, 28, 32, 38 }, 2136, false));
-        QVERIFY(f.ride->lastError().isEmpty());
+        QSignalSpy setupChanged(f.gears.get(), &VirtualGears::gearSetupChanged);
+        QVERIFY(f.gears->setGearSetup({ 42 }, { 44, 10, 11, 13, 15, 17, 19, 21, 24, 28, 32, 38 }, 2136, false));
+        QVERIFY(f.gears->lastError().isEmpty());
         QCOMPARE(setupChanged.count(), 1);
-        QCOMPARE(f.ride->gearCount(), 12);
-        QVERIFY(!f.ride->canShiftFrontUp());
-        QVERIFY(f.ride->setBikePhysics(11.0, 0.40, 0.006));
-        QVERIFY(!f.ride->setBikePhysics(-1, 0.40, 0.006));
-        QVERIFY(f.ride->setGear(0, 3));
-        QCOMPARE(f.ride->gearLabel(), QStringLiteral("42×15"));
-        f.ride->flushSettings();
+        QCOMPARE(f.gears->gearCount(), 12);
+        QVERIFY(!f.gears->canShiftFrontUp());
+        QVERIFY(f.gears->setBikePhysics(11.0, 0.40, 0.006));
+        QVERIFY(!f.gears->setBikePhysics(-1, 0.40, 0.006));
+        QVERIFY(f.gears->setGear(0, 3));
+        QCOMPARE(f.gears->gearLabel(), QStringLiteral("42×15"));
+        f.gears->flushSettings();
 
-        // reloaded by a new session
-        auto again = f.makeRide();
+        // reloaded by a new instance (app restart)
+        auto again = f.makeGears();
+        auto againRide = std::make_unique<FreeRideSession>(&f.db, f.profiles.get(), f.hub.get(), again.get());
+        againRide->setManualClock(true);
+        again->setBusyCheck([&] { return againRide->active(); });
         QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
         QCOMPARE(again->gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2136);
         QCOMPARE(again->gearSetup().value(QStringLiteral("bikeWeightKg")).toDouble(), 11.0);
@@ -519,12 +641,13 @@ private slots:
         QVERIFY(f.profiles->selectProfile(first));
         QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
         // a running ride keeps its bike until it is finished
-        QVERIFY(again->start());
+        QVERIFY(againRide->start());
         QVERIFY(f.profiles->selectProfile(second));
         QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
-        again->finish(false);
+        againRide->finish(false);
         QCOMPARE(again->gearSetup().value(QStringLiteral("chainrings")).toList().size(), 2);
         f.ride.reset();
+        againRide.reset();
         again.reset();
         f.training.reset();
     }

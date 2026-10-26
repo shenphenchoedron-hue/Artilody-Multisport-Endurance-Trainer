@@ -115,7 +115,43 @@ GearSetup GearSetup::normalized() const
     s.bikeWeightKg = std::isfinite(bikeWeightKg) ? std::clamp(bikeWeightKg, 0.0, 60.0) : 9.0;
     s.cda = std::isfinite(cda) ? std::clamp(cda, 0.1, 1.0) : 0.32;
     s.crr = std::isfinite(crr) ? std::clamp(crr, 0.001, 0.05) : 0.004;
+    if (!s.chainrings.contains(s.referenceFrontTeeth))
+        s.referenceFrontTeeth = s.chainrings.constLast();
+    if (!s.cogs.contains(s.referenceRearTeeth)) {
+        int best = s.cogs.constFirst();
+        for (int c : std::as_const(s.cogs)) {
+            if (std::abs(c - kDefaultReferenceCog) < std::abs(best - kDefaultReferenceCog))
+                best = c;
+        }
+        s.referenceRearTeeth = best;
+    }
     return s;
+}
+
+QString GearSetup::wheelName(int mm)
+{
+    for (const QVariant &v : wheelPresets()) {
+        const QVariantMap w = v.toMap();
+        if (w.value(QStringLiteral("mm")).toInt() == mm)
+            return w.value(QStringLiteral("name")).toString();
+    }
+    return QStringLiteral("%1 mm").arg(mm);
+}
+
+QString GearSetup::summary() const
+{
+    const GearSetup s = normalized();
+    QStringList rings;
+    for (int i = int(s.chainrings.size()) - 1; i >= 0; --i)
+        rings << QString::number(s.chainrings.at(i));
+    const QString ringText = s.chainrings.size() == 1 ? QStringLiteral("1× %1").arg(s.chainrings.constFirst())
+                                                      : rings.join(QLatin1Char('/'));
+    const QString cassette = QStringLiteral("%1–%2 %3-speed")
+                                 .arg(s.cogs.constFirst())
+                                 .arg(s.cogs.constLast())
+                                 .arg(s.cogs.size());
+    const int count = s.sequential ? int(Gearing::buildSequence(s).size()) : int(s.chainrings.size() * s.cogs.size());
+    return QStringLiteral("%1 · %2 · %3 · %4 gears").arg(ringText, cassette, wheelName(s.circumferenceMm)).arg(count);
 }
 
 QJsonObject GearSetup::toJson() const
@@ -128,7 +164,9 @@ QJsonObject GearSetup::toJson() const
                          { QStringLiteral("rear"), rearIndex },
                          { QStringLiteral("bikeWeightKg"), bikeWeightKg },
                          { QStringLiteral("cda"), cda },
-                         { QStringLiteral("crr"), crr } };
+                         { QStringLiteral("crr"), crr },
+                         { QStringLiteral("refFront"), referenceFrontTeeth },
+                         { QStringLiteral("refRear"), referenceRearTeeth } };
 }
 
 GearSetup GearSetup::fromJson(const QJsonObject &o)
@@ -155,6 +193,8 @@ GearSetup GearSetup::fromJson(const QJsonObject &o)
     s.bikeWeightKg = o.value(QStringLiteral("bikeWeightKg")).toDouble(9.0);
     s.cda = o.value(QStringLiteral("cda")).toDouble(0.32);
     s.crr = o.value(QStringLiteral("crr")).toDouble(0.004);
+    s.referenceFrontTeeth = o.value(QStringLiteral("refFront")).toInt(s.referenceFrontTeeth);
+    s.referenceRearTeeth = o.value(QStringLiteral("refRear")).toInt(s.referenceRearTeeth);
     return s.normalized();
 }
 
@@ -178,7 +218,8 @@ bool GearSetup::operator==(const GearSetup &o) const
     return chainrings == o.chainrings && cogs == o.cogs && circumferenceMm == o.circumferenceMm
            && sequential == o.sequential && frontIndex == o.frontIndex && rearIndex == o.rearIndex
            && qFuzzyCompare(bikeWeightKg + 1, o.bikeWeightKg + 1) && qFuzzyCompare(cda + 1, o.cda + 1)
-           && qFuzzyCompare(crr + 1, o.crr + 1);
+           && qFuzzyCompare(crr + 1, o.crr + 1) && referenceFrontTeeth == o.referenceFrontTeeth
+           && referenceRearTeeth == o.referenceRearTeeth;
 }
 
 QVariantList GearSetup::chainringPresets()
@@ -590,6 +631,39 @@ double coastDeceleration(const Model &m, double v)
     if (!(m.massKg > 0))
         return 0.0;
     return resistance(m, v) / m.massKg;
+}
+
+double integrateSpeed(const Model &m, double v, double watts, double dt, double extraMassKg, double minDriveSpeedMps,
+                      double stepSec)
+{
+    if (!(dt > 0))
+        return v;
+    const double mass = std::max(1.0, m.massKg + extraMassKg);
+    const double p = std::max(0.0, watts) * (m.efficiency > 0 ? m.efficiency : 1.0);
+    const int steps = std::max(1, int(std::ceil(dt / std::max(1e-3, stepSec) - 1e-9)));
+    const double h = dt / steps;
+    for (int i = 0; i < steps; ++i) {
+        const double drive = p / std::max(v, minDriveSpeedMps);
+        const double a = (drive - resistance(m, v)) / mass;
+        v = std::clamp(v + a * h, 0.0, kMaxSpeedMps);
+    }
+    return v;
+}
+
+double gearSimulationGrade(const Model &roadModel, double vt, double gearFactor, const TrainerModel &t, double minGrade,
+                           double maxGrade, double minSpeedMps)
+{
+    if (!(vt >= minSpeedMps) || !(gearFactor > 0) || !(t.massKg > 0))
+        return std::clamp(roadModel.gradePercent, minGrade, maxGrade);
+    const double vv = vt * gearFactor;
+    const double power = powerForSpeed(roadModel, vv);
+    const double force = power / vt;
+    const double weight = t.massKg * kGravity;
+    const double k = (force - 0.5 * t.cwKgPerM * vt * vt) / weight;
+    const double crr = std::max(0.0, t.crr);
+    const double theta = std::asin(std::clamp(k / std::sqrt(1.0 + crr * crr), -1.0, 1.0)) - std::atan(crr);
+    const double grade = std::tan(std::clamp(theta, -1.4, 1.4)) * 100.0;
+    return std::clamp(grade, minGrade, maxGrade);
 }
 
 } // namespace road

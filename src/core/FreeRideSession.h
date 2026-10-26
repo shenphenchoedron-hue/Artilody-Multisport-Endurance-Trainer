@@ -3,6 +3,7 @@
 #include "Gearing.h"
 #include "Profile.h"
 #include "Ride.h"
+#include "RideResistance.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -13,6 +14,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
+#include <optional>
 
 namespace watt {
 
@@ -20,28 +22,33 @@ class Database;
 class ProfileManager;
 class SensorHub;
 class TrainingSession;
+class VirtualGears;
 
 // Free ride without a workout. Exposed to QML as "FreeRide" (Artilody.Backend).
 //
-// Modes ("mode"):
-//   "gears" - virtual shifting. The rider's bike gearing (GearSetup, per
-//             profile) turns cadence into a virtual speed
-//                 v = cadence / 60 · (chainring / cog) · wheel circumference
-//             and the road model (Gearing.h, road::powerForSpeed) turns that
-//             speed into the power the rider would need on a road with the
-//             selected grade:
-//                 P = (Crr·m·g·cosθ + m·g·sinθ + ½·ρ·CdA·v²) · v / η
-//             P is sent to the trainer as ERG target (FTMS Set Target Power),
-//             so this works with every trainer that supports ERG. Shifting
-//             harder raises v at the same cadence and therefore P. The target
-//             uses a smoothed cadence (kCadenceSmoothingSec), is resent at
-//             most every kTargetIntervalMs (shifts and grade changes apply
-//             immediately), clamped to kMinGearWatts..kMaxWatts, and released
-//             (trainer free ride) while coasting (cadence < kCoastCadenceRpm).
-//             While coasting the virtual speed decays with the road
-//             resistance (road::coastDeceleration).
-//   "erg"   - hold targetWatts (ERG) as long as you like.
-//   "free"  - no resistance control at all (trainer's own free ride).
+// Modes ("mode", setting "freeRide/mode"):
+//   "ride" - a simulated road with the grade setting (gradePercent), ridden
+//            like outdoors:
+//            * virtual gears off: the rider shifts the real bike, the trainer
+//              simulates the grade (FTMS 0x11, RideResistance::Simulation);
+//              speed from the measured power with inertia
+//              (road::integrateSpeed).
+//            * virtual gears on (VirtualGears::enabled, e.g. a Zwift Click):
+//              the virtual gear sets the speed
+//                  v = cadence / 60 · (chainring / cog) · wheel circumference
+//              and the road power P = road::powerForSpeed(v, grade) is what the
+//              rider pushes, through RideResistance::GearSimulation ("path a":
+//              gear-adjusted grade, trainer simulates and reports speed) or
+//              RideResistance::GearErg ("path b": ERG target P, every other
+//              trainer). Coasting releases the trainer and the speed rolls out
+//              (road::coastDeceleration); descents may roll faster than the
+//              pedals turn.
+//            * trainer without gradient simulation and virtual gears off:
+//              virtual gears via ERG anyway (simulationFallback), otherwise a
+//              climb could not get harder.
+//   "erg"  - hold targetWatts (ERG) as long as you like; speed from power on
+//            a flat road.
+//   Stored "gears" / "free" (older versions) are migrated to "ride".
 // States ("state"): "idle", "ready" (armed by startWhenPedaling(), starts on
 // the first pedal stroke), "running", "paused", "finished".
 //
@@ -74,37 +81,20 @@ class FreeRideSession : public QObject
     Q_PROPERTY(int heartRate READ heartRate NOTIFY metricsChanged)
     Q_PROPERTY(bool coasting READ coasting NOTIFY metricsChanged)
 
-    // targets
+    // resistance
+    Q_PROPERTY(bool virtualGears READ virtualGears NOTIFY modeChanged)              // the virtual gear sets the resistance
+    Q_PROPERTY(bool simulationFallback READ simulationFallback NOTIFY modeChanged)  // ride mode, trainer cannot simulate
+    Q_PROPERTY(QString resistancePath READ resistancePath NOTIFY modeChanged)       // RideResistance::pathName()
     Q_PROPERTY(int targetWatts READ targetWatts WRITE setTargetWatts NOTIFY targetChanged)       // ERG target
-    Q_PROPERTY(int gearTargetWatts READ gearTargetWatts NOTIFY targetChanged)   // virtual gearing power (gears mode)
-    Q_PROPERTY(int requestedWatts READ requestedWatts NOTIFY targetChanged)     // last value sent (0 = released)
+    Q_PROPERTY(int gearTargetWatts READ gearTargetWatts NOTIFY targetChanged)   // road power of the virtual gear
+    Q_PROPERTY(int requestedWatts READ requestedWatts NOTIFY targetChanged)     // last watts sent (0 = none)
+    Q_PROPERTY(double simulationGradePercent READ simulationGradePercent NOTIFY targetChanged)   // last grade sent
+    Q_PROPERTY(bool simulationActive READ simulationActive NOTIFY targetChanged)
     Q_PROPERTY(double gradePercent READ gradePercent WRITE setGrade NOTIFY gradeChanged)
     Q_PROPERTY(int minTargetWatts READ minTargetWatts CONSTANT)
     Q_PROPERTY(int maxTargetWatts READ maxTargetWatts CONSTANT)
     Q_PROPERTY(double minGrade READ minGrade CONSTANT)
     Q_PROPERTY(double maxGrade READ maxGrade CONSTANT)
-
-    // gear
-    Q_PROPERTY(QVariantMap gear READ gear NOTIFY gearChanged)
-    Q_PROPERTY(QString gearLabel READ gearLabel NOTIFY gearChanged)
-    Q_PROPERTY(int gearIndex READ gearIndex NOTIFY gearChanged)
-    Q_PROPERTY(int gearCount READ gearCount NOTIFY gearChanged)
-    Q_PROPERTY(double gearRatio READ gearRatio NOTIFY gearChanged)
-    Q_PROPERTY(int frontIndex READ frontIndex NOTIFY gearChanged)
-    Q_PROPERTY(int rearIndex READ rearIndex NOTIFY gearChanged)
-    Q_PROPERTY(int frontTeeth READ frontTeeth NOTIFY gearChanged)
-    Q_PROPERTY(int rearTeeth READ rearTeeth NOTIFY gearChanged)
-    Q_PROPERTY(bool canShiftUp READ canShiftUp NOTIFY gearChanged)
-    Q_PROPERTY(bool canShiftDown READ canShiftDown NOTIFY gearChanged)
-    Q_PROPERTY(bool canShiftFrontUp READ canShiftFrontUp NOTIFY gearChanged)
-    Q_PROPERTY(bool canShiftFrontDown READ canShiftFrontDown NOTIFY gearChanged)
-    Q_PROPERTY(QVariantList gears READ gears NOTIFY gearSetupChanged)          // [{index, label, ratio, front, rear}]
-    Q_PROPERTY(QVariantMap gearSetup READ gearSetup NOTIFY gearSetupChanged)
-    Q_PROPERTY(bool sequential READ sequential WRITE setSequential NOTIFY gearSetupChanged)
-    Q_PROPERTY(QVariantList chainringPresets READ chainringPresets CONSTANT)
-    Q_PROPERTY(QVariantList cassettePresets READ cassettePresets CONSTANT)
-    Q_PROPERTY(QVariantList wheelPresets READ wheelPresets CONSTANT)
-    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
     // charts: mean per seriesStep seconds (<= kMaxSeriesPoints values)
     Q_PROPERTY(QVariantList powerSeries READ powerSeries NOTIFY seriesChanged)
@@ -114,11 +104,10 @@ class FreeRideSession : public QObject
 
     // devices
     Q_PROPERTY(bool trainerConnected READ trainerConnected NOTIFY devicesChanged)
-    Q_PROPERTY(bool clickConnected READ clickConnected NOTIFY devicesChanged)
     Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY rideSaved)
 
 public:
-    enum class Mode { Gears, Erg, Free };
+    enum class Mode { Ride, Erg };
     enum class State { Idle, Ready, Running, Paused, Finished };
 
     static constexpr int kStartCadenceRpm = 20;     // same thresholds as TrainingSession
@@ -129,14 +118,15 @@ public:
     static constexpr int kMaxWatts = 1500;
     static constexpr int kDefaultErgWatts = 150;
     static constexpr int kControllerErgStep = 10;   // Zwift Click +/- in ERG mode
-    static constexpr int kTargetIntervalMs = 1000;  // gears mode resend interval
-    static constexpr int kMinTargetChangeWatts = 2;
+    static constexpr int kTargetIntervalMs = RideResistance::kGearIntervalMs;
+    static constexpr int kMinTargetChangeWatts = RideResistance::kMinWattsChange;
     static constexpr double kCadenceSmoothingSec = 1.5;
     static constexpr double kMinGrade = -15.0;
     static constexpr double kMaxGrade = 20.0;
     static constexpr int kMaxSeriesPoints = 720;
 
-    FreeRideSession(Database *db, ProfileManager *profiles, SensorHub *hub, QObject *parent = nullptr);
+    FreeRideSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears,
+                    QObject *parent = nullptr);
     ~FreeRideSession() override;
 
     // Mutual exclusion with the workout session (installs its start guard,
@@ -150,7 +140,6 @@ public:
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
     void setMinimumSaveSeconds(int s) { m_minSaveSec = s; }
-    void flushSettings();   // writes a pending gear setup change now
 
     QString state() const;
     State stateValue() const { return m_state; }
@@ -161,6 +150,9 @@ public:
     QString mode() const;
     Mode modeValue() const { return m_mode; }
     void setMode(const QString &mode);
+    static QString modeName(Mode m);
+    // "ride" / "erg"; the old "gears" and "free" -> Ride. nullopt if unknown.
+    static std::optional<Mode> parseMode(const QString &text);
     bool ergEnabled() const { return m_mode == Mode::Erg; }
     void setErgEnabled(bool on);
 
@@ -177,10 +169,18 @@ public:
     int heartRate() const;
     bool coasting() const;
 
+    bool virtualGears() const;
+    bool simulationFallback() const;
+    RideResistance::Path path() const;
+    QString resistancePath() const { return QString::fromLatin1(RideResistance::pathName(path())); }
+    double simulationGradePercent() const { return m_res.lastGrade(); }
+    bool simulationActive() const { return running() && m_res.simulating(); }
+    // Grade sent in the gear-simulation path for the current cadence/speed.
+    double gearSimulationGrade() const;
     int targetWatts() const { return m_targetWatts; }
     void setTargetWatts(int watts);
     int gearTargetWatts() const;
-    int requestedWatts() const { return m_lastSent > 0 ? m_lastSent : 0; }
+    int requestedWatts() const { return m_res.lastWatts(); }
     double gradePercent() const { return m_grade; }
     void setGrade(double percent);
     int minTargetWatts() const { return kMinErgWatts; }
@@ -188,28 +188,8 @@ public:
     double minGrade() const { return kMinGrade; }
     double maxGrade() const { return kMaxGrade; }
 
-    QVariantMap gear() const;
-    QString gearLabel() const { return m_gearing.label(); }
-    int gearIndex() const { return m_gearing.gearIndex(); }
-    int gearCount() const { return m_gearing.gearCount(); }
-    double gearRatio() const { return m_gearing.ratio(); }
-    int frontIndex() const { return m_gearing.frontIndex(); }
-    int rearIndex() const { return m_gearing.rearIndex(); }
-    int frontTeeth() const { return m_gearing.frontTeeth(); }
-    int rearTeeth() const { return m_gearing.rearTeeth(); }
-    bool canShiftUp() const { return m_gearing.canShiftUp(); }
-    bool canShiftDown() const { return m_gearing.canShiftDown(); }
-    bool canShiftFrontUp() const { return m_gearing.canShiftFrontUp(); }
-    bool canShiftFrontDown() const { return m_gearing.canShiftFrontDown(); }
-    QVariantList gears() const;
-    QVariantMap gearSetup() const;
-    bool sequential() const { return m_gearing.setup().sequential; }
-    void setSequential(bool on);
-    const Gearing &gearing() const { return m_gearing; }
-    static QVariantList chainringPresets() { return GearSetup::chainringPresets(); }
-    static QVariantList cassettePresets() { return GearSetup::cassettePresets(); }
-    static QVariantList wheelPresets() { return GearSetup::wheelPresets(); }
-    QString lastError() const { return m_lastError; }
+    VirtualGears *gears() const { return m_gears; }
+    const Gearing &gearing() const;
 
     QVariantList powerSeries() const;
     QVariantList speedSeries() const;
@@ -218,8 +198,6 @@ public:
     const QVector<Sample> &samples() const { return m_samples; }
 
     bool trainerConnected() const;
-    bool clickConnected() const { return m_clickConnected; }
-    void setClickConnected(bool on);
     qint64 lastRideId() const { return m_lastRideId; }
 
     // Road model for the current rider (profile weight + bike) and grade.
@@ -235,38 +213,13 @@ public:
     Q_INVOKABLE void discard() { finish(false); }
     Q_INVOKABLE void reset();               // finished/ready -> idle (clears the last ride's values)
 
-    Q_INVOKABLE bool shiftUp();
-    Q_INVOKABLE bool shiftDown();
-    Q_INVOKABLE bool shiftFrontUp();
-    Q_INVOKABLE bool shiftFrontDown();
-    Q_INVOKABLE bool setGear(int front, int rear);
-    Q_INVOKABLE bool setGearIndex(int index);
     Q_INVOKABLE void adjustTargetWatts(int delta);
     Q_INVOKABLE void adjustGrade(double delta);
-    // Validates and stores the gear setup of the current profile.
-    // chainrings/cogs: lists of numbers (any order). false + lastError on error.
-    Q_INVOKABLE bool setGearSetup(const QVariantList &chainrings, const QVariantList &cogs, int circumferenceMm,
-                                  bool sequential);
-    Q_INVOKABLE bool setBikePhysics(double bikeWeightKg, double cda, double crr);
-    Q_INVOKABLE void resetGearSetup();
-    // "" when valid, else the error text (no change).
-    Q_INVOKABLE QString validateGearSetup(const QVariantList &chainrings, const QVariantList &cogs,
-                                          int circumferenceMm) const;
-    // "11,12,13-15" style text -> [11,12,13,15]; [] when invalid
-    Q_INVOKABLE QVariantList parseTeeth(const QString &text) const;
-    // Gears of a setup that is not stored yet (gear setup dialog preview), in
-    // the order the given shifting mode uses (easiest first):
-    // [{index, label, ratio, front, rear, frontTeeth, rearTeeth, speedKmh, watts}]
-    // speedKmh at cadenceRpm, watts = power for that speed on a flat road for
-    // the current rider and bike. [] when the setup is invalid.
-    Q_INVOKABLE QVariantList previewGears(const QVariantList &chainrings, const QVariantList &cogs,
-                                          int circumferenceMm, bool sequential, int cadenceRpm = 90) const;
-    // GearSetup::defaults() in the gearSetup map format (setup dialog "Reset").
-    Q_INVOKABLE QVariantMap defaultGearSetup() const;
 
 public slots:
-    // Controller buttons (Zwift Click / keyboard): +1 = plus (harder), -1 = minus.
-    // gears mode: shift up/down; erg mode: target ±kControllerErgStep W.
+    // Controller buttons (Zwift Click via VirtualGears::controllerShift(), keys):
+    // +1 = plus (harder), -1 = minus. Ride: shift the virtual gear (never the
+    // difficulty); ERG: target ±kControllerErgStep W.
     void controllerShift(int direction);
     void controllerShiftUp() { controllerShift(1); }
     void controllerShiftDown() { controllerShift(-1); }
@@ -278,16 +231,13 @@ signals:
     void tick();
     void targetChanged();
     void gradeChanged();
-    void gearChanged();
-    void gearSetupChanged();
     void seriesChanged();
     void devicesChanged();
-    void lastErrorChanged();
     void started();
     void finished();
     void rideSaved(qint64 id);
     void startRefused(const QString &reason);
-    void shifted(int direction);    // a shift (or ERG step) from shiftUp/Down or a controller
+    void shifted(int direction);    // an ERG step from a controller (gear shifts: VirtualGears::shifted)
 
 private:
     void setState(State s);
@@ -297,45 +247,32 @@ private:
     void recordUpTo(int second);
     void checkPedaling();
     void applyTarget(bool force = false);
-    int desiredTarget() const;
+    int desiredGearWatts() const;
     int computeGearTarget(double cadenceRpm) const;
-    void afterShift(bool shifted, int direction);
+    void resistanceSetupChanged();
     void clearRecording();
     qint64 saveRide();
-    void loadSetup();
-    void scheduleSave();
-    void saveSettingsNow();
-    void setError(const QString &e);
     void releaseTrainer();
-    static QVariantMap setupToMap(const GearSetup &s);
     QVariantList downsample(const QVector<double> &data, bool ignoreZero, int decimals) const;
 
     Database *m_db;
     ProfileManager *m_profiles;
     SensorHub *m_hub;
+    VirtualGears *m_gears;
+    RideResistance m_res;
     QPointer<TrainingSession> m_training;
     QHash<QString, std::function<bool()>> m_startBlockers;
 
-    Gearing m_gearing;
-    qint64 m_setupProfileId = -1;
-    bool m_reloadPending = false;
-    QTimer m_saveTimer;
-    bool m_savePending = false;
-
-    Mode m_mode = Mode::Gears;
+    Mode m_mode = Mode::Ride;
     State m_state = State::Idle;
     int m_targetWatts = kDefaultErgWatts;
     double m_grade = 0.0;
-    bool m_clickConnected = false;
-    QString m_lastError;
 
     QTimer m_timer;
     QElapsedTimer m_clock;
     bool m_manualClock = false;
     int m_minSaveSec = 30;
     qint64 m_activeMs = 0;
-    int m_sinceSendMs = 0;
-    int m_lastSent = -1;          // -1 nothing sent yet, 0 released, > 0 ERG target
     double m_cadSmooth = 0;
     double m_speed = 0;           // m/s (model, while ready/running/paused)
     double m_distance = 0;

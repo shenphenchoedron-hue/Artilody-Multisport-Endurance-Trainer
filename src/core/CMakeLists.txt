@@ -25,6 +25,8 @@ qt_add_library(watt_core STATIC
     WorkoutPlanner.h WorkoutPlanner.cpp
     RowingRecords.h RowingRecords.cpp
     Gearing.h Gearing.cpp
+    RideResistance.h RideResistance.cpp
+    VirtualGears.h VirtualGears.cpp
     FreeRideSession.h FreeRideSession.cpp
     RlvRoute.h RlvRoute.cpp
     RlvLibrary.h RlvLibrary.cpp

@@ -154,6 +154,11 @@ public:
     int controllerCount() const;      // connected controllers
     int controllerBattery() const;
     QList<ControllerDevice *> controllerDevices() const;
+    // Virtual trainer: the bike stays in this gear ratio (virtual shifting
+    // on, see VirtualGears), 0 = the simulated rider shifts himself.
+    void setSimulatedFixedGear(double ratio);
+    // Developer/screenshot aid: a connected virtual Zwift Click ("sim:click").
+    void connectSimulatedController();
     static constexpr int kMaxControllers = 2;
 
     // Active rower for C++ consumers (e.g. a RowingSession): connect to
@@ -329,6 +334,7 @@ private:
     bool m_autoReconnect = true;
     bool m_allowMultiple = true;
     bool m_simulatorEnabled = true;
+    double m_simFixedGear = 0;
     bool m_ergTest = false;
     int m_selectedAdapter = 0;
     int m_restHr = 60, m_maxHr = 185, m_ftp = 250;

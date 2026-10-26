@@ -13,6 +13,7 @@
 #include "ProfileManager.h"
 #include "RlvLibrary.h"
 #include "RlvSession.h"
+#include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
 #include "SensorHub.h"
@@ -182,15 +183,18 @@ int main(int argc, char *argv[])
     QObject::connect(&devices, &DeviceManager::rowerChanged, &rowing, &RowingSession::setRower);
     QObject::connect(&rowing, &RowingSession::rideSaved, &history, &HistoryManager::showNewRide);
 
-    // Free ride (virtual gearing / ERG); exclusive with workouts and rowing.
-    FreeRideSession freeRide(&db, &profiles, &hub);
+    // Virtual shifting: one gear setup / current gear for the free ride and
+    // the video ride, configured on the Devices page.
+    VirtualGears gears(&db, &profiles);
+    // Free ride (simulated road / ERG); exclusive with workouts and rowing.
+    FreeRideSession freeRide(&db, &profiles, &hub, &gears);
     freeRide.setTrainingSession(&training);
     freeRide.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
     rowing.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); },
                            QStringLiteral("A free ride is running. Stop it before rowing."));
     QObject::connect(&freeRide, &FreeRideSession::rideSaved, &history, &HistoryManager::showNewRide);
     // Real Life Video rides; exclusive with workouts, rowing and free rides.
-    // The gearing (setup + current gear) is shared with the free ride.
+    // The gearing (setup + current gear) is the shared VirtualGears.
     RlvLibrary videos(&db);
     // Developer aid: WATT_RLV_DIR=<folder> (or WATT_SCREENSHOT_RLV=<route folder>)
     // adds a folder to the video library for this run only (not saved).
@@ -200,7 +204,7 @@ int main(int argc, char *argv[])
             videos.addTemporaryFolder(dir);
     }
     videos.rescan();
-    RlvSession rlv(&db, &profiles, &hub, &videos);
+    RlvSession rlv(&db, &profiles, &hub, &gears, &videos);
     rlv.setFreeRideSession(&freeRide);
     rlv.setTrainingSession(&training);
     rlv.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); });
@@ -210,16 +214,19 @@ int main(int argc, char *argv[])
                            QStringLiteral("A video ride is running. Stop it before rowing."));
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
 
-    // Zwift Click buttons: shift (gears) / ±10 W (ERG) on the free ride, or
-    // shift (gears) / ±10 % difficulty (power mode) on a running video ride.
-    QObject::connect(&devices, &DeviceManager::controllerShift, &rlv, [&](int direction) {
-        if (rlv.active() || rlv.waiting())
-            rlv.controllerShift(direction);
-        else
-            freeRide.controllerShift(direction);
-    });
-    QObject::connect(&devices, &DeviceManager::devicesChanged, &freeRide,
-                     [&] { freeRide.setClickConnected(devices.controllerConnected()); });
+    // Zwift Click buttons: always routed by VirtualGears::controllerShift()
+    // (shift in the road modes, ±10 W in ERG, never the difficulty).
+    gears.setSessions(&freeRide, &rlv);
+    gears.setBusyCheck([&] { return freeRide.active() || freeRide.waiting() || rlv.active() || rlv.waiting(); });
+    QObject::connect(&devices, &DeviceManager::controllerShift, &gears, &VirtualGears::controllerShift);
+    QObject::connect(&devices, &DeviceManager::devicesChanged, &gears,
+                     [&] { gears.setClickConnected(devices.controllerConnected()); });
+    // The virtual trainer keeps the bike in the reference gear while the
+    // rider shifts virtually (screenshots / demos of both paths).
+    auto syncSimGear = [&] { devices.setSimulatedFixedGear(gears.enabled() ? gears.referenceRatio() : 0.0); };
+    QObject::connect(&gears, &VirtualGears::enabledChanged, &devices, syncSimGear);
+    QObject::connect(&gears, &VirtualGears::gearSetupChanged, &devices, syncSimGear);
+    syncSimGear();
     devices.initialize();
 
     MusicPlayer music(&db);
@@ -301,6 +308,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "RowingRecords", &rowingRecords);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rowing", &rowing);
     qmlRegisterSingletonInstance(uri, 1, 0, "FreeRide", &freeRide);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Gears", &gears);
     qmlRegisterSingletonInstance(uri, 1, 0, "Videos", &videos);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
@@ -331,7 +339,8 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_ROWING_SEC     seconds rowed before rowing.png (default 40)
     //   WATT_SCREENSHOT_FREERIDE=1     live free ride on the virtual trainer instead of
     //                                  the cycling workout (freeride.png taken last)
-    //   WATT_SCREENSHOT_FREERIDE_MODE  gears (default) | erg | free
+    //   WATT_SCREENSHOT_FREERIDE_MODE  ride (default) | erg (ERG target 200 W) | gears
+    //                                  (= ride with virtual gears on)
     //   WATT_SCREENSHOT_FREERIDE_SEC   seconds ridden before freeride.png (default 40)
     //   WATT_SCREENSHOT_FREERIDE_FINISH=1  finish the ride (not saved) before the capture
     //   WATT_SCREENSHOT_RLV=<route>    live video ride (folder, .xml or .gpx) on the virtual
@@ -340,7 +349,8 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_RLV_IDLE=1     only select the route (preview / poster frame, no ride)
     //   WATT_SCREENSHOT_RLV_START=<m>  start point in metres (default 0)
     //   WATT_SCREENSHOT_RLV_FINISH=1   finish the video ride (not saved) before the capture
-    //   WATT_SCREENSHOT_RLV_MODE       sim (default) | gears | erg (ERG target 200 W)
+    //   WATT_SCREENSHOT_RLV_MODE       sim (default) | erg (ERG target 200 W) | gears
+    //                                  (= sim with virtual gears on)
     //                                  (WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
     //                                  gradient simulation -> the fallback note)
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
@@ -349,6 +359,11 @@ int main(int argc, char *argv[])
     //                                  (music: the music library dialog,
     //                                  gearsetup: the free ride gear setup dialog,
     //                                  settings: the settings dialog)
+    //   WATT_SCREENSHOT_GEARS=1        virtual gears on (Free Ride / Video Ride)
+    //   WATT_SCREENSHOT_GEAR=34x27     start in this virtual gear
+    //   WATT_SCREENSHOT_CLICK=1        a connected virtual Zwift Click (turns virtual
+    //                                  gears on); devices.png shows the controllers
+    //                                  section with the virtual gears card
     //   WATT_SCREENSHOT_MUSIC=1        seed a long demo playlist (see above)
     //   WATT_SCREENSHOT_SIZE           window size, e.g. 900x560 (default 1584x992)
     const QStringList shotMenus = qEnvironmentVariable("WATT_SCREENSHOT_MENU")
@@ -357,6 +372,7 @@ int main(int argc, char *argv[])
     const bool shotFreeRide = !shotDir.isEmpty() && !shotRowing
                               && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE") > 0;
     const bool shotRlv = !shotRlvPath.isEmpty() && !shotRowing && !shotFreeRide;
+    const bool shotClick = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_CLICK") > 0;
     QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
         ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
     if (!shotDir.isEmpty() && !shotWindow)
@@ -371,6 +387,15 @@ int main(int argc, char *argv[])
         window->resize(shotSize);
         devices.connectDevice(QStringLiteral("sim:trainer"));
         devices.connectDevice(QStringLiteral("sim:hr"));
+        if (shotClick)
+            devices.connectSimulatedController();
+        if (qEnvironmentVariableIntValue("WATT_SCREENSHOT_GEARS") > 0)
+            gears.setEnabled(true);
+        // WATT_SCREENSHOT_GEAR=34x27: start in this virtual gear
+        const QStringList shotGear = qEnvironmentVariable("WATT_SCREENSHOT_GEAR").split(QLatin1Char('x'));
+        if (shotGear.size() == 2)
+            gears.setGear(gears.setup().chainrings.indexOf(shotGear.at(0).toInt()),
+                          gears.setup().cogs.indexOf(shotGear.at(1).toInt()));
         if (shotRowing) {
             devices.connectDevice(QStringLiteral("sim:rower"));
             const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_ROWING_MODE", QStringLiteral("ghost"));
@@ -410,8 +435,10 @@ int main(int argc, char *argv[])
             }
         }
         if (shotFreeRide) {
-            const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_FREERIDE_MODE", QStringLiteral("gears"));
+            const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_FREERIDE_MODE", QStringLiteral("ride"));
             freeRide.setMode(mode);
+            if (mode == QLatin1String("gears"))
+                gears.setEnabled(true);
             if (mode == QLatin1String("erg"))
                 freeRide.setTargetWatts(200);
             else
@@ -420,6 +447,8 @@ int main(int argc, char *argv[])
         if (shotRlv) {
             const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_RLV_MODE", QStringLiteral("sim"));
             rlv.setMode(mode);
+            if (mode == QLatin1String("gears"))
+                gears.setEnabled(true);
             if (mode == QLatin1String("erg"))
                 rlv.setTargetWatts(200);
         }
@@ -500,6 +529,8 @@ int main(int argc, char *argv[])
             const QString name = names.value(page, QStringLiteral("page%1").arg(page));
             if ((s - 3) % 2 == 0) {
                 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, page));
+                if (shotClick && name == QLatin1String("devices"))
+                    QMetaObject::invokeMethod(window, "revealControllers");
                 return;
             }
             if (shotLive && name == livePage && clock->elapsed() < liveSec * 1000) {
