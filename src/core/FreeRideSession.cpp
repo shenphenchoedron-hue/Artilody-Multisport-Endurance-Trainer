@@ -247,8 +247,11 @@ bool FreeRideSession::coasting() const
 
 road::Model FreeRideSession::roadModel(double gradePercent) const
 {
-    const Profile &p = active() ? m_rideProfile : m_profiles->current();
-    return m_gears->roadModel(gradePercent, p.weightKg > 0 ? p.weightKg : m_profiles->current().weightKg);
+    // the rider of the ride; weight / height edits of the same profile apply
+    // at once (like the trainer's weight, SensorHub::riderMassKg)
+    const Profile &cur = m_profiles->current();
+    const Profile &p = active() && m_rideProfile.id != cur.id ? m_rideProfile : cur;
+    return p.weightKg > 0 ? m_gears->roadModel(gradePercent, p) : m_gears->roadModel(gradePercent);
 }
 
 double FreeRideSession::speedMps() const
@@ -362,9 +365,11 @@ bool FreeRideSession::sendResistance(bool force)
     case RideResistance::Path::Erg:
         return m_res.sendErg(m_targetWatts, force);
     case RideResistance::Path::Simulation:
-        return m_res.sendGrade(m_grade, force);
-    case RideResistance::Path::GearSimulation:
-        return m_res.sendGrade(gearSimulationGrade(), force);
+        return m_res.sendGrade(m_grade, force, RideResistance::trainerModel(gearDrive(0)));
+    case RideResistance::Path::GearSimulation: {
+        const RideResistance::GearDrive d = gearDrive(controlCadence());
+        return m_res.sendGrade(RideResistance::gearGrade(d), force, RideResistance::trainerModel(d));
+    }
     case RideResistance::Path::GearErg:
         return m_res.sendGearWatts(desiredGearWatts(), force);
     }

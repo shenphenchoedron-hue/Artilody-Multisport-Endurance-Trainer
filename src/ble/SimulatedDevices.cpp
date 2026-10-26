@@ -118,9 +118,61 @@ double SimulatedTrainer::brakePowerAt(double v, double gradePercent) const
 {
     const double theta = std::atan(gradePercent / 100.0);
     const double air = v + m_wind;
-    const double force = m_crr * kSimMassKg * 9.80665 * std::cos(theta) + kSimMassKg * 9.80665 * std::sin(theta)
-                         + 0.5 * m_cw * air * std::abs(air);
+    const double weight = m_massKg * 9.80665;
+    const double force = m_crr * weight * std::cos(theta) + weight * std::sin(theta) + 0.5 * m_cw * air * std::abs(air);
     return std::max(0.0, force * v);
+}
+
+void SimulatedTrainer::setMassKg(double kg)
+{
+    if (std::isfinite(kg) && kg >= 20 && kg <= 400)
+        m_massKg = kg;
+}
+
+double SimulatedTrainer::riderCapacity() const
+{
+    if (m_ftp <= 0)
+        return 1e9;
+    return m_ftp * (1.0 + (kBurstFactor - 1.0) * std::clamp(m_reserve, 0.0, 1.0));
+}
+
+double SimulatedTrainer::fixedGearDemand(double cadence) const
+{
+    const double v = cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
+    if (m_erg && m_target > 0)
+        return m_target;   // ERG holds the target at any speed
+    return m_sim ? brakePower(v) : brakePowerAt(v, 0.0);
+}
+
+double SimulatedTrainer::riderCadence() const
+{
+    const double preferred = kSimCadenceRpm + 2.0 * std::sin(m_t / 23.0);
+    if (m_ftp <= 0 || m_fixedRatio <= 0)
+        return preferred;
+    const double capacity = riderCapacity();
+    const double demand = fixedGearDemand(preferred);
+    double cadence = preferred;
+    if (demand > capacity) {
+        if (m_erg && m_target > 0) {
+            // ERG: the brake holds the watts whatever the cadence - the legs fade
+            cadence = preferred * capacity / demand;
+        } else {
+            // too hard: the cadence drops until the gear asks for what he has
+            double lo = kSimMinCadenceRpm, hi = preferred;
+            if (fixedGearDemand(lo) >= capacity)
+                return kSimMinCadenceRpm;
+            for (int i = 0; i < 40; ++i) {
+                const double mid = (lo + hi) / 2;
+                (fixedGearDemand(mid) > capacity ? hi : lo) = mid;
+            }
+            cadence = lo;
+        }
+    } else {
+        // easy gear: spin up
+        const double easy = std::clamp(1.0 - demand / (kSimEasyShare * m_ftp), 0.0, 1.0);
+        cadence = preferred + (kSimMaxCadenceRpm - preferred) * easy;
+    }
+    return std::clamp(cadence, kSimMinCadenceRpm, 110.0);
 }
 
 double SimulatedTrainer::riderGoal() const
@@ -137,19 +189,16 @@ void SimulatedTrainer::step()
     double goal;
     if (m_fixedRatio > 0) {
         // Virtual gears: the bike stays in the reference gear and the rider
-        // keeps his cadence (~88 rpm, a few rpm less under a heavy load). No
+        // pedals at the cadence his legs allow in it (riderCadence()). No
         // shifting, no effort target - the power is whatever the brake asks
-        // for at that speed, so the app's resistance (and with it the
-        // virtual gear) decides the watts.
-        const double load = std::clamp((m_power - kSimCadenceLoadWatts) / 50.0, 0.0, kSimMaxCadenceDrop);
-        m_cadence += ((kSimCadenceRpm + 2.0 * std::sin(m_t / 23.0) - load) - m_cadence) * 0.5;
+        // for at that cadence, so the app's resistance (and with it the
+        // virtual gear) decides the watts: the (gear-adjusted) grade, the
+        // ERG target, or the flywheel's basic resistance (free ride).
+        m_cadence += (riderCadence() - m_cadence) * 0.5;
         m_wheelSpeed = m_cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
-        if (m_erg && m_target > 0)
-            goal = m_target;                               // ERG holds the target at any speed
-        else if (m_sim)
-            goal = brakePower(m_wheelSpeed);               // the (gear-adjusted) grade
-        else
-            goal = brakePowerAt(m_wheelSpeed, 0.0);        // free ride: the flywheel's basic resistance
+        goal = fixedGearDemand(m_cadence);
+        if (m_ftp > 0)
+            goal = std::min(goal, riderCapacity());   // never more than his legs give
     } else {
         m_cadence += ((85.0 + 4.0 * std::sin(m_t / 23.0)) - m_cadence) * 0.5;
         if (m_erg && m_target > 0) {
@@ -180,6 +229,15 @@ void SimulatedTrainer::step()
     }
     const bool brake = m_fixedRatio > 0 || m_sim;
     m_power += (goal - m_power) * (brake ? 0.7 : 0.45);
+    if (m_ftp > 0) {
+        // burst reserve: drains above FTP (kBurstSec at the full burst),
+        // refills below it (kRecoverSec)
+        if (m_power > m_ftp)
+            m_reserve -= (m_power - m_ftp) / ((kBurstFactor - 1.0) * m_ftp) / kBurstSec;
+        else
+            m_reserve += (1.0 - m_power / m_ftp) / kRecoverSec * 2.0;
+        m_reserve = std::clamp(m_reserve, 0.0, 1.0);
+    }
     const double shown = std::max(0.0, m_power + (m_noise ? noise(4.0) : 0.0));
     emit powerMeasured(int(std::lround(shown)));
     emit cadenceMeasured(std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0)));

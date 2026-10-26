@@ -341,8 +341,9 @@ void BleTrainer::setSimulation(double gradePercent, double windSpeedMps, double 
 void BleTrainer::sendFreeRideCommand()
 {
     if (simulationSupport() != 0) {
-        // Flat road: no wind, 0% grade, typical rolling resistance and drag.
-        enqueue(ftms::setIndoorBikeSimulation(0.0, 0.0, 0.004, 0.51));
+        // Flat road: no wind, 0% grade, the rider's last rolling resistance
+        // and drag (default Crr 0.004, Cw = ρ·CdA 0.39 kg/m).
+        enqueue(ftms::setIndoorBikeSimulation(0.0, 0.0, m_lastSim.crr, m_lastSim.cw));
     } else if (m_features.resistanceTarget) {
         enqueue(ftms::setTargetResistance(10.0));
     }

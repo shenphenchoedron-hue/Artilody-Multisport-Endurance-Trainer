@@ -100,6 +100,7 @@ struct Rig
         hub->setStaleTimeoutMs(600000);   // the test clock is virtual
         gears = std::make_unique<VirtualGears>(&db, profiles.get());
         gears->setManualSave(true);
+        gears->setHub(hub.get());   // rider + bike -> SensorHub::riderMassKg (main.cpp)
         freeRide = std::make_unique<FreeRideSession>(&db, profiles.get(), hub.get(), gears.get());
         freeRide->setManualClock(true);
         library = std::make_unique<RlvLibrary>(&db);
@@ -115,6 +116,9 @@ struct Rig
         trainer = std::make_unique<SimulatedTrainer>();
         trainer->setNoise(false);
         trainer->setSimulationSupported(trainerSimulates);
+        trainer->setMassKg(hub->riderMassKg());
+        QObject::connect(hub.get(), &SensorHub::riderMassChanged, trainer.get(),
+                         [this] { trainer->setMassKg(hub->riderMassKg()); });
         QObject::connect(trainer.get(), &TrainerDevice::powerMeasured, hub.get(), &SensorHub::updatePower);
         QObject::connect(trainer.get(), &TrainerDevice::cadenceMeasured, hub.get(), &SensorHub::updateCadence);
         QObject::connect(trainer.get(), &TrainerDevice::speedMeasured, hub.get(), &SensorHub::updateSpeed);
@@ -226,6 +230,167 @@ class TestVirtualGears : public QObject
 private slots:
     // -- the shared physics -------------------------------------------------
 
+    // -- rider weight -----------------------------------------------------------
+
+    // A lighter rider pushes fewer watts in the same gear at the same cadence:
+    // much fewer on a climb (mass), noticeably fewer on the flat (auto CdA).
+    void lighterRiderNeedsFewerWatts()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        auto wattsAt = [&](double riderKg, double grade, int front, int rear) {
+            RideResistance::GearDrive d;
+            Profile p = r.profiles->current();
+            p.weightKg = riderKg;
+            p.heightCm = 0;
+            d.road = r.gears->roadModel(grade, p);
+            d.cadenceRpm = 90;
+            d.virtualRatio = double(front) / rear;
+            d.referenceRatio = r.gears->referenceRatio();
+            d.circumferenceMm = r.gears->setup().circumferenceMm;
+            return RideResistance::gearWatts(d);
+        };
+        for (int cog : { 21, 17, 14, 11 }) {
+            const int light = wattsAt(60, 0, 50, cog), heavy = wattsAt(90, 0, 50, cog);
+            QVERIFY2(light < heavy * 0.92, qPrintable(QStringLiteral("flat 50x%1: %2 vs %3 W").arg(cog).arg(light).arg(heavy)));
+            const int lightUp = wattsAt(60, 5, 50, cog), heavyUp = wattsAt(90, 5, 50, cog);
+            QVERIFY2(lightUp < heavyUp * 0.8,
+                     qPrintable(QStringLiteral("5 % 50x%1: %2 vs %3 W").arg(cog).arg(lightUp).arg(heavyUp)));
+        }
+        // the reported gear on the flat: realistic road power for 77 kg + 9 kg
+        QVERIFY2(std::abs(wattsAt(77, 0, 50, 14) - 320) < 20, qPrintable(QString::number(wattsAt(77, 0, 50, 14))));
+
+        // end to end on the virtual trainer (path a): the profile weight
+        // changes what the rider pushes at the same gear and cadence
+        QVERIFY(r.setGear(17));
+        r.freeRide->setGrade(4.0);
+        QVERIFY(r.profiles->saveProfile({ { QStringLiteral("weight"), 60.0 } }));
+        QVERIFY(r.freeRide->start());
+        const double light = r.ride(12);
+        const double lightCad = r.hub->cadence();
+        r.freeRide->finish(false);
+        QVERIFY(r.profiles->saveProfile({ { QStringLiteral("weight"), 90.0 } }));
+        QCOMPARE(r.trainer->massKg(), 99.0);   // the trainer's weight follows the profile
+        QVERIFY(r.freeRide->start());
+        const double heavy = r.ride(12);
+        r.freeRide->finish(false);
+        QVERIFY(std::abs(r.hub->cadence() - lightCad) < 2);   // same cadence (no rider limit here)
+        QVERIFY2(light < heavy * 0.8, qPrintable(QStringLiteral("%1 vs %2 W").arg(light).arg(heavy)));
+    }
+
+    // FTMS 0x11 gets Cw = ρ·CdA of the rider (not Zwift's 0.51) and the
+    // virtual trainer simulates the hub's rider + bike.
+    void simulationParametersFollowTheRider()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        const double weight = r.profiles->weight();
+        QCOMPARE(r.hub->riderMassKg(), weight + 9.0);
+        QCOMPARE(r.trainer->massKg(), weight + 9.0);
+        r.freeRide->setGrade(2.0);
+        QVERIFY(r.freeRide->start());
+        r.ride(4);
+        QVERIFY(r.hub->simulationActive());
+        const double cda = road::autoCda(weight);
+        QCOMPARE(r.hub->simulationCw(), std::round(1.225 * cda * 100) / 100);
+        QVERIFY(r.hub->simulationCw() < 0.45);
+        QCOMPARE(r.hub->simulationCrr(), 0.004);
+        // a weight edit goes out at once with new parameters (and trainer weight)
+        QVERIFY(r.profiles->saveProfile({ { QStringLiteral("weight"), 95.0 } }));
+        r.ride(4);
+        QCOMPARE(r.hub->riderMassKg(), 104.0);
+        QCOMPARE(r.trainer->massKg(), 104.0);
+        QCOMPARE(r.hub->simulationCw(), std::round(1.225 * road::autoCda(95) * 100) / 100);
+        // manual CdA
+        QVERIFY(r.gears->setBikePhysics(9.0, 0.25, 0.005, false));
+        r.ride(4);
+        QCOMPARE(r.hub->simulationCw(), 0.31);
+        QCOMPARE(r.hub->simulationCrr(), 0.005);
+        // real gears (plain grade) send the rider's parameters too
+        r.gears->setEnabled(false);
+        r.trainer->setFixedGearRatio(0);
+        r.ride(4);
+        QCOMPARE(r.freeRide->resistancePath(), QStringLiteral("simulation"));
+        QCOMPARE(r.hub->requestedGrade(), 2.0);
+        QCOMPARE(r.hub->simulationCw(), 0.31);
+        r.freeRide->finish(false);
+    }
+
+    // Path a round trip: the virtual trainer, braking with exactly the sent
+    // grade / Crr / Cw and the hub's mass at the reference gear's speed,
+    // delivers the app's road power for the virtual gear.
+    void pathARoundTrip()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        const double vRef = 90 / 60.0 * r.gears->referenceRatio() * r.gears->setup().circumferenceMm / 1000.0;
+        QCOMPARE(SimulatedTrainer::kWheelCircumferenceM, r.gears->setup().circumferenceMm / 1000.0);
+        for (double kg : { 55.0, 75.0, 95.0 }) {
+            QVERIFY(r.profiles->saveProfile({ { QStringLiteral("weight"), kg } }));
+            for (double grade : { 0.0, 3.0, 6.0 }) {
+                for (int cog : { 24, 19, 15, 12 }) {
+                    RideResistance::GearDrive d;
+                    d.road = r.gears->roadModel(grade);
+                    d.cadenceRpm = 90;
+                    d.virtualRatio = 50.0 / cog;
+                    d.referenceRatio = r.gears->referenceRatio();
+                    d.circumferenceMm = r.gears->setup().circumferenceMm;
+                    const double sent = std::round(RideResistance::gearGrade(d) * 100) / 100;   // as sent
+                    if (sent <= RideResistance::kMinGrade || sent >= RideResistance::kMaxGrade)
+                        continue;
+                    const road::TrainerModel tm = RideResistance::trainerModel(d);
+                    SimulatedTrainer t;
+                    t.setMassKg(r.hub->riderMassKg());
+                    t.setSimulation(sent, 0, tm.crr, tm.cwKgPerM);
+                    const int want = RideResistance::gearWatts(d);
+                    QVERIFY2(std::abs(t.brakePower(vRef) - want) < std::max(2.0, want * 0.01),
+                             qPrintable(QStringLiteral("%1 kg %2 %% 50x%3: %4 vs %5 W")
+                                            .arg(kg).arg(grade).arg(cog).arg(t.brakePower(vRef)).arg(want)));
+                }
+            }
+        }
+    }
+
+    // The simulated rider has an FTP: a far too hard gear makes the cadence
+    // drop (power capped near his capacity), an easy one makes him spin.
+    void simRiderCadenceDropsInBigGears()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        r.trainer->setRiderFtp(200);
+        r.freeRide->setGrade(5.0);
+        QVERIFY(r.setGear(11));
+        QVERIFY(r.freeRide->start());
+        r.ride(10);
+        QVERIFY2(r.trainer->cadenceRpm() < 70, qPrintable(QString::number(r.trainer->cadenceRpm())));
+        QVERIFY(r.trainer->cadenceRpm() >= SimulatedTrainer::kSimMinCadenceRpm - 0.5);
+        QVERIFY2(r.hub->power() <= 200 * SimulatedTrainer::kBurstFactor + 15, qPrintable(QString::number(r.hub->power())));
+        // the burst reserve drains: after a while only ~FTP is left
+        r.ride(120);
+        QVERIFY(r.trainer->riderReserve() < 0.2);
+        QVERIFY2(r.hub->power() < 200 * 1.15, qPrintable(QString::number(r.hub->power())));
+        // a hard but doable gear: close to the preferred cadence
+        r.freeRide->setGrade(0.0);
+        QVERIFY(r.setGear(21));
+        r.ride(30);
+        QVERIFY2(std::abs(r.trainer->cadenceRpm() - SimulatedTrainer::kSimCadenceRpm) < 6,
+                 qPrintable(QString::number(r.trainer->cadenceRpm())));
+        // the easiest gear on the flat: he spins up
+        QVERIFY(r.gears->setGearIndex(0));
+        r.ride(10);
+        QVERIFY2(r.trainer->cadenceRpm() > 95, qPrintable(QString::number(r.trainer->cadenceRpm())));
+        QVERIFY(r.trainer->cadenceRpm() <= SimulatedTrainer::kSimMaxCadenceRpm + 2.5);
+        r.freeRide->finish(false);
+        // no FTP: steady ~88 rpm whatever the gear (the other tests)
+        SimulatedTrainer t;
+        t.setNoise(false);
+        t.setFixedGearRatio(50.0 / 17);
+        t.setSimulation(8.0, 0, 0.004, 0.39);
+        for (int i = 0; i < 10; ++i)
+            t.step();
+        QVERIFY(std::abs(t.cadenceRpm() - SimulatedTrainer::kSimCadenceRpm) < 3);
+    }
+
     void gearResistanceIsMonotonic()
     {
         // path a / path b functions over gears, cadences and road grades
@@ -331,7 +496,7 @@ private slots:
         }
         QVERIFY2(hi - lo <= 25, qPrintable(QStringLiteral("%1..%2 W").arg(lo).arg(hi)));
         QCOMPARE(t.gearIndex(), gear);
-        QVERIFY(std::abs(speed.last().at(0).toDouble() / 3.6 - t.cadenceRpm() / 60.0 * 50.0 / 17 * 2.096) < 0.3);
+        QVERIFY(std::abs(speed.last().at(0).toDouble() / 3.6 - t.cadenceRpm() / 60.0 * 50.0 / 17 * SimulatedTrainer::kWheelCircumferenceM) < 0.3);
         // simulation: steeper (gear-adjusted) grade = more watts, same gear,
         // cadence only a little lower under a heavy load
         double last = 0;
@@ -344,7 +509,6 @@ private slots:
             QCOMPARE(t.gearIndex(), gear);
             QVERIFY(t.cadenceRpm() > 80);
         }
-        QVERIFY(t.cadenceRpm() < 86);   // ~600 W: a few rpm less
         // ERG: holds the target at that cadence
         t.setTargetPower(230);
         for (int i = 0; i < 12; ++i)

@@ -148,6 +148,7 @@ void ProfileManager::applyValues(Profile &p, const QVariantMap &v)
 {
     p.name = v.value(QStringLiteral("name"), p.name).toString().trimmed();
     p.weightKg = v.value(QStringLiteral("weight"), p.weightKg).toDouble();
+    p.heightCm = v.value(QStringLiteral("heightCm"), p.heightCm).toDouble();
     p.ftp = v.value(QStringLiteral("ftp"), p.ftp).toInt();
     p.rowingFtp = v.value(QStringLiteral("rowingFtp"), p.rowingFtp).toInt();
     p.maxHr = v.value(QStringLiteral("maxHr"), p.maxHr).toInt();

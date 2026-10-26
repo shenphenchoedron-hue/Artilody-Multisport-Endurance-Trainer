@@ -42,7 +42,8 @@ class VirtualGears;
 //         real bike and the trainer gets the effective grade with FTMS Set
 //         Indoor Bike Simulation Parameters (op 0x11, SensorHub::
 //         requestSimulation(): wind 0, grade in 0.01 % clamped kMinSimGrade..
-//         kMaxSimGrade, Crr 0.0040, Cw 0.51 kg/m - the values Zwift sends).
+//         kMaxSimGrade, Crr and Cw = ρ·CdA of the rider from
+//         road::trainerModelFor() - the app's road model, see Gearing.h).
 //         Rate limits: RideResistance (first value at once, then on a change
 //         >= kSimMinGradeChange at most every kSimMinIntervalMs, refreshed
 //         every kSimRefreshMs). Speed: from the measured power on the

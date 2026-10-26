@@ -90,6 +90,8 @@ ApplicationWindow {
         case "profile": showPage("dashboard"); screenshotMenu = topBar.openScreenshotMenu(); break
         case "music": showPage("dashboard"); musicLibrary.open(); break
         case "gearsetup": showPage("dashboard"); gearSetupDialog.openDialog(); break
+        case "gearsetup-advanced": showPage("dashboard"); gearSetupDialog.openDialog(); gearSetupDialog.advancedOpen = true; break
+        case "profiledialog": showPage("dashboard"); profileDialog.openFor(false); break
         case "videofinish": showPage("video"); videoFinishDialog.open(); break
         case "settings": showPage("dashboard"); settingsDialog.open(); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
@@ -103,6 +105,8 @@ ApplicationWindow {
             musicLibrary.close()
         if (gearSetupDialog.visible)
             gearSetupDialog.close()
+        if (profileDialog.visible)
+            profileDialog.close()
         if (videoFinishDialog.visible)
             videoFinishDialog.close()
         if (settingsDialog.visible)
@@ -225,6 +229,7 @@ ApplicationWindow {
                 DevicesPage {
                     id: devicesPage
                     onOpenGearSetup: gearSetupDialog.openDialog()
+                    onOpenProfile: profileDialog.openFor(false)
                 }
             }
 

@@ -4,6 +4,7 @@
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
 #include "RlvSession.h"
+#include "SensorHub.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,7 +39,10 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(kSaveDelayMs);
     connect(&m_saveTimer, &QTimer::timeout, this, &VirtualGears::saveNow);
+    connect(this, &VirtualGears::gearSetupChanged, this, &VirtualGears::physicsChanged);
+    connect(this, &VirtualGears::physicsChanged, this, &VirtualGears::syncHub);
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
+        emit physicsChanged();   // weight / height may have changed
         if (m_profiles->profileId() == m_profileId)
             return;   // same rider, e.g. FTP edited
         if (m_busy && m_busy()) {
@@ -54,6 +58,18 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
 VirtualGears::~VirtualGears()
 {
     saveNow();
+}
+
+void VirtualGears::setHub(SensorHub *hub)
+{
+    m_hub = hub;
+    syncHub();
+}
+
+void VirtualGears::syncHub()
+{
+    if (m_hub)
+        m_hub->setRiderMassKg(systemMassKg());
 }
 
 void VirtualGears::setSessions(FreeRideSession *freeRide, RlvSession *rlv)
@@ -186,17 +202,42 @@ double VirtualGears::gearFactor() const
     return ref > 0 ? m_gearing.ratio() / ref : 1.0;
 }
 
-road::Model VirtualGears::roadModel(double gradePercent, double riderKg) const
+road::Model VirtualGears::roadModel(double gradePercent, double riderKg, double heightCm) const
 {
     if (!(riderKg > 0))
         riderKg = m_profiles->current().weightKg;
+    if (!(riderKg > 0))
+        riderKg = road::kDefaultRiderKg;
+    riderKg = std::max(30.0, riderKg);
+    if (heightCm < 0)
+        heightCm = m_profiles->current().heightCm;
     const GearSetup &s = setup();
     road::Model m;
-    m.massKg = std::max(30.0, riderKg) + s.bikeWeightKg;
-    m.cda = s.cda;
+    m.massKg = riderKg + s.bikeWeightKg;
+    m.cda = s.cdaAuto ? road::autoCda(riderKg, heightCm) : s.cda;
     m.crr = s.crr;
     m.gradePercent = gradePercent;
     return m;
+}
+
+double VirtualGears::riderWeightKg() const
+{
+    const double w = m_profiles->current().weightKg;
+    return w > 0 ? w : road::kDefaultRiderKg;
+}
+
+double VirtualGears::autoCda() const
+{
+    return road::autoCda(riderWeightKg(), m_profiles->current().heightCm);
+}
+
+QString VirtualGears::physicsSummary() const
+{
+    const road::Model m = roadModel(0);
+    return QStringLiteral("Rider + bike: %1 kg · CdA %2 (%3)")
+        .arg(QString::number(m.massKg, 'f', std::abs(m.massKg - std::round(m.massKg)) < 0.05 ? 0 : 1))
+        .arg(m.cda, 0, 'f', 2)
+        .arg(cdaAuto() ? QStringLiteral("auto") : QStringLiteral("manual"));
 }
 
 QVariantMap VirtualGears::gear() const
@@ -238,6 +279,7 @@ QVariantMap VirtualGears::setupToMap(const GearSetup &s)
                          { QStringLiteral("circumferenceMm"), s.circumferenceMm },
                          { QStringLiteral("sequential"), s.sequential },
                          { QStringLiteral("bikeWeightKg"), s.bikeWeightKg },
+                         { QStringLiteral("cdaAuto"), s.cdaAuto },
                          { QStringLiteral("cda"), s.cda },
                          { QStringLiteral("crr"), s.crr },
                          { QStringLiteral("referenceFrontTeeth"), s.referenceFrontTeeth },
@@ -361,7 +403,7 @@ bool VirtualGears::setGearSetup(const QVariantList &chainrings, const QVariantLi
     return true;
 }
 
-bool VirtualGears::setBikePhysics(double bikeWeightKg, double cda, double crr)
+bool VirtualGears::setBikePhysics(double bikeWeightKg, double cda, double crr, bool cdaAuto)
 {
     if (!std::isfinite(bikeWeightKg) || bikeWeightKg < 0 || bikeWeightKg > 60) {
         setError(QStringLiteral("Bike weight must be 0–60 kg"));
@@ -377,6 +419,7 @@ bool VirtualGears::setBikePhysics(double bikeWeightKg, double cda, double crr)
     }
     GearSetup s = setup();
     s.bikeWeightKg = bikeWeightKg;
+    s.cdaAuto = cdaAuto;
     s.cda = cda;
     s.crr = crr;
     m_gearing.setSetup(s);

@@ -38,14 +38,28 @@ private slots:
     {
         SimulatedTrainer t;
         t.setNoise(false);
-        t.setSimulation(0.0, 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
+        t.setSimulation(0.0, 0.0, 0.004, 0.51);
         QVERIFY(t.simulating());
         QCOMPARE(t.simulationSupport(), 1);
         QVERIFY(t.capabilities().contains(QStringLiteral("Gradient Simulation")));
-        // P = (Crr·m·g + ½·Cw·v²)·v on the flat
+        // P = (Crr·m·g + ½·Cw·v²)·v on the flat, m = its weight setting
+        QCOMPARE(t.massKg(), SimulatedTrainer::kDefaultMassKg);
         const double v = 8.0;
-        const double expected = (0.004 * SimulatedTrainer::kSimMassKg * 9.80665 + 0.5 * 0.51 * v * v) * v;
+        const double expected = (0.004 * t.massKg() * 9.80665 + 0.5 * 0.51 * v * v) * v;
         QVERIFY(std::abs(t.brakePower(v) - expected) < 0.01);
+        // Cw as sent: the rider's ρ·CdA
+        t.setSimulation(0.0, 0.0, 0.004, 0.39);
+        QVERIFY(std::abs(t.brakePower(v) - (0.004 * t.massKg() * 9.80665 + 0.5 * 0.39 * v * v) * v) < 0.01);
+        // a lighter rider + bike: less to lift
+        t.setSimulation(5.0, 0.0, 0.004, 0.39);
+        const double heavy = t.brakePower(v);
+        t.setMassKg(69.0);
+        QCOMPARE(t.massKg(), 69.0);
+        QVERIFY(t.brakePower(v) < heavy - 50);
+        t.setMassKg(5.0);   // nonsense is ignored
+        QCOMPARE(t.massKg(), 69.0);
+        t.setMassKg(SimulatedTrainer::kDefaultMassKg);
+        t.setSimulation(0.0, 0.0, 0.004, 0.51);
         t.setSimulation(5.0, 0.0, 0.004, 0.51);
         QVERIFY(t.brakePower(v) > expected + 250);   // + m·g·sinθ·v ≈ 325 W
         t.setSimulation(-8.0, 0.0, 0.004, 0.51);
@@ -116,7 +130,9 @@ private slots:
         QCOMPARE(sim.last().at(0).toDouble(), 3.5);
         QCOMPARE(sim.last().at(1).toDouble(), 0.0);
         QCOMPARE(sim.last().at(2).toDouble(), 0.004);
-        QCOMPARE(sim.last().at(3).toDouble(), 0.51);
+        QCOMPARE(sim.last().at(3).toDouble(), SensorHub::kDefaultCw);
+        QCOMPARE(SensorHub::kDefaultCw, 0.39);   // ρ·CdA = 1.225 · 0.32, not Zwift's 0.51
+        QCOMPARE(hub.simulationCw(), 0.39);
         QVERIFY(hub.simulationActive());
         QVERIFY(!hub.ergActive());
         QCOMPARE(hub.requestedTarget(), 0);
@@ -153,6 +169,18 @@ private slots:
         auto *trainer = mgr.findChild<SimulatedTrainer *>();
         QVERIFY(trainer);
         QCOMPARE(hub.trainerSimulationSupport(), 1);
+        // the virtual trainer simulates with the hub's rider + bike and the
+        // rider's FTP - no hard-coded weight
+        QCOMPARE(trainer->massKg(), hub.riderMassKg());
+        hub.setRiderMassKg(69.0);
+        QCOMPARE(trainer->massKg(), 69.0);
+        hub.setRiderMassKg(99.0);
+        QCOMPARE(trainer->massKg(), 99.0);
+        mgr.setRiderPhysiology(60, 180, 210);
+        QCOMPARE(trainer->riderFtp(), 210);
+        hub.requestSimulation(4.25, 0.0, 0.004, 0.34);
+        QCOMPARE(trainer->simulationGrade(), 4.25);
+        QVERIFY(std::abs(trainer->brakePower(8.0) - trainer->brakePowerAt(8.0, 4.25)) < 1e-9);
         hub.requestSimulation(4.25);
         QVERIFY(trainer->simulating());
         QCOMPARE(trainer->simulationGrade(), 4.25);

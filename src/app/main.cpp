@@ -176,8 +176,8 @@ int main(int argc, char *argv[])
         QObject::connect(&hub, &SensorHub::targetPowerRequested, &app,
                          [](int w) { qInfo("trainer: set target power %d W (ERG)", w); });
         QObject::connect(&hub, &SensorHub::freeRideRequested, &app, [] { qInfo("trainer: free ride"); });
-        QObject::connect(&hub, &SensorHub::simulationRequested, &app, [](double g, double, double, double) {
-            qInfo("trainer: simulation grade %.2f %%", g);
+        QObject::connect(&hub, &SensorHub::simulationRequested, &app, [](double g, double, double crr, double cw) {
+            qInfo("trainer: simulation grade %.2f %% Crr %.4f Cw %.2f kg/m", g, crr, cw);
         });
     }
     auto syncPhysiology = [&] {
@@ -198,6 +198,7 @@ int main(int argc, char *argv[])
     // Virtual shifting: one gear setup / current gear for the free ride and
     // the video ride, configured on the Devices page.
     VirtualGears gears(&db, &profiles);
+    gears.setHub(&hub);   // rider + bike -> SensorHub::riderMassKg (virtual trainer)
     // Free ride (simulated road / ERG); exclusive with workouts and rowing.
     FreeRideSession freeRide(&db, &profiles, &hub, &gears);
     freeRide.setTrainingSession(&training);
@@ -617,7 +618,8 @@ int main(int argc, char *argv[])
             const bool onRlv = rlvLive || (!frLive && gears.activePage() == QLatin1String("video"));
             QString sim = QStringLiteral("-");
             if (auto *t = qobject_cast<SimulatedTrainer *>(devices.trainerDevice())) {
-                sim = QStringLiteral("%1 simGrade=%2 gear=%3 fixed=%4 cad=%5 v=%6 P=%7 erg=%8 goal=%9")
+                sim = QStringLiteral("%1 simGrade=%2 gear=%3 fixed=%4 cad=%5 v=%6 P=%7 erg=%8 goal=%9 "
+                                     "m=%10kg Cw=%11 ftp=%12 cap=%13")
                           .arg(t->ergActive() ? QStringLiteral("ERG") : t->simulating() ? QStringLiteral("SIM")
                                                                                          : QStringLiteral("FREE"))
                           .arg(t->simulationGrade(), 0, 'f', 2)
@@ -627,8 +629,13 @@ int main(int argc, char *argv[])
                           .arg(t->wheelSpeedMps() * 3.6, 0, 'f', 1)
                           .arg(t->currentPower(), 0, 'f', 0)
                           .arg(t->targetPower())
-                          .arg(t->riderGoal(), 0, 'f', 0);
+                          .arg(t->riderGoal(), 0, 'f', 0)
+                          .arg(t->massKg(), 0, 'f', 1)
+                          .arg(hub.simulationCw(), 0, 'f', 2)
+                          .arg(t->riderFtp())
+                          .arg(t->riderFtp() > 0 ? t->riderCapacity() : 0.0, 0, 'f', 0);
             }
+            const road::Model rm = gears.roadModel(0);
             const QString session = onRlv ? QStringLiteral("rlv:%1/%2 d=%3m grade=%4 eff=%5")
                                                 .arg(rlv.state(), rlv.mode())
                                                 .arg(rlv.distanceMeters(), 0, 'f', 0)
@@ -638,14 +645,17 @@ int main(int argc, char *argv[])
                                                 .arg(freeRide.state(), freeRide.mode())
                                                 .arg(freeRide.gradePercent(), 0, 'f', 2);
             qInfo("GEARS t=%5.1f page=%s %s gear=%s ratio=%.3f factor=%.3f cad=%d vVirt=%.1f path=%s "
-                  "sent[%s grade=%.2f erg=%d] vTrainer=%.1f | sim[%s] | W=%d disp=%d",
+                  "road[m=%.1fkg rider=%.1f CdA=%.3f%s Crr=%.4f rho=%.3f eta=%.2f] "
+                  "sent[%s grade=%.2f erg=%d Crr=%.4f Cw=%.2f] vTrainer=%.1f | sim[%s] | W=%d disp=%d",
                   dbgClock->elapsed() / 1000.0, qPrintable(gears.activePage()), qPrintable(session),
                   qPrintable(gears.gear().value(QStringLiteral("label")).toString()),
                   gears.gear().value(QStringLiteral("ratio")).toDouble(), gears.gearFactor(), hub.cadence(),
                   onRlv ? rlv.speedKmh() : freeRide.speedKmh(),
-                  qPrintable(onRlv ? rlv.resistancePath() : freeRide.resistancePath()),
-                  hub.simulationActive() ? "SIM" : hub.ergActive() ? "ERG" : "FREE", hub.requestedGrade(),
-                  hub.requestedTarget(), hub.speedKmh(), qPrintable(sim), hub.power(), hub.displayPower());
+                  qPrintable(onRlv ? rlv.resistancePath() : freeRide.resistancePath()), rm.massKg,
+                  gears.riderWeightKg(), rm.cda, gears.cdaAuto() ? "(auto)" : "(manual)", rm.crr, rm.airDensity,
+                  rm.efficiency, hub.simulationActive() ? "SIM" : hub.ergActive() ? "ERG" : "FREE",
+                  hub.requestedGrade(), hub.requestedTarget(), hub.simulationCrr(), hub.simulationCw(), hub.speedKmh(),
+                  qPrintable(sim), hub.power(), hub.displayPower());
         });
         dbgTimer->start(1000);
     }

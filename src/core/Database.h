@@ -27,7 +27,8 @@ public:
     //      tables planned_workouts and rowing_records
     //   3  profiles.gear_setup (JSON, virtual shifting / free ride bike setup),
     //      ride_samples.speed (m/s, free ride virtual speed; NULL = none)
-    static constexpr int kSchemaVersion = 3;
+    //   4  profiles.height_cm (rider height, 0 = not set; air drag of virtual gears)
+    static constexpr int kSchemaVersion = 4;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -110,6 +111,7 @@ private:
     bool createSchemaV1();
     bool migrateToV2();
     bool migrateToV3();
+    bool migrateToV4();
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);
     int userVersion() const;

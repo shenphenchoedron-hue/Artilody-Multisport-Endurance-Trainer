@@ -21,7 +21,8 @@ AppDialog {
         creating = newProfile
         showZones = false
         nameField.text = newProfile ? "" : Profiles.name
-        weight.value = Profiles.weight
+        weight.value = newProfile ? 75 : Profiles.weight
+        heightSpin.lastValue = heightSpin.value = newProfile ? 0 : Profiles.heightCm
         ftp.value = Profiles.ftp
         rowingFtp.value = Profiles.rowingFtp
         maxHr.value = Profiles.maxHr
@@ -47,6 +48,7 @@ AppDialog {
         return {
             name: nameField.text,
             weight: weight.value,
+            heightCm: heightSpin.value,
             ftp: ftp.value,
             rowingFtp: rowingFtp.value,
             maxHr: maxHr.value,
@@ -117,6 +119,33 @@ AppDialog {
 
         Text { text: "Weight"; color: Theme.text; font.pixelSize: 16 }
         UnitSpinBox { id: weight; Layout.fillWidth: true; unit: "kg"; from: 30; to: 200; stepSize: 0.5; decimals: 1 }
+
+        Text { text: "Height"; color: Theme.text; font.pixelSize: 16; Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
+        Column {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            spacing: 4
+            UnitSpinBox {
+                id: heightSpin
+                // 0 = not set; the arrows jump between 0 and 100..230 cm
+                property real lastValue: 0
+                width: parent.width
+                unit: "cm"
+                from: 0; to: 230; stepSize: 1
+                onValueChanged: {
+                    if (value > 0 && value < 100)
+                        value = lastValue >= 100 ? 0 : 170
+                    lastValue = value
+                }
+            }
+            Text {
+                width: parent.width
+                text: "Optional (0 = not set) · sizes your air drag"
+                color: Theme.textSecondary
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+        }
 
         Text { text: "FTP"; color: Theme.text; font.pixelSize: 16; Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
         Column {

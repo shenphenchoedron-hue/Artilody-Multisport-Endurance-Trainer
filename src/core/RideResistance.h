@@ -45,6 +45,8 @@ public:
         double trainerSpeedMps = 0;  // the trainer's reported speed (fallback without cadence)
         double bikeSpeedMps = -1;    // the session's road speed: faster than the pedals
                                      // downhill = freewheeling (< 0: unknown)
+        double trainerMassKg = 0;    // the trainer's own rider weight setting, 0 = unknown
+                                     // (assumed to be road.massKg)
     };
     static constexpr int kCoastCadenceRpm = 15;
     static constexpr int kMinGearWatts = 20;     // lowest gear power while pedaling
@@ -66,7 +68,11 @@ public:
     // the flywheel, and a speed-based grade would then drop with it - the
     // gear must decide, not the feedback; trainer speed only without cadence).
     // Not pedaling: the plain road grade. Clamped to minGrade..maxGrade.
+    // The trainer is modelled with exactly the parameters sendGrade() sends
+    // (trainerModel()): Crr and Cw = ρ·CdA of the rider, mass = rider + bike.
     static double gearGrade(const GearDrive &d, double minGrade = kMinGrade, double maxGrade = kMaxGrade);
+    // FTMS 0x11 parameters for this rider (road::trainerModelFor()).
+    static road::TrainerModel trainerModel(const GearDrive &d);
 
     static constexpr int kGearIntervalMs = 1000;
     static constexpr int kMinWattsChange = 2;
@@ -92,7 +98,9 @@ public:
     // targetChanged()).
     bool sendErg(int watts, bool force);
     bool sendGearWatts(int watts, bool force);   // <= 0: release (coasting)
-    bool sendGrade(double gradePercent, bool force);
+    // FTMS 0x11 with the trainer model's Crr and Cw (its mass is not sent:
+    // FTMS has no weight field).
+    bool sendGrade(double gradePercent, bool force, const road::TrainerModel &trainer);
 
     int lastWatts() const { return m_lastWatts > 0 ? m_lastWatts : 0; }   // last ERG/gear watts sent
     bool sentAnything() const { return m_lastWatts >= 0 || simulating(); }
@@ -105,6 +113,7 @@ private:
     SensorHub *m_hub;
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts
     double m_lastGrade = std::numeric_limits<double>::quiet_NaN();
+    double m_lastCrr = 0, m_lastCw = 0;
     int m_sinceMs = 0;
     quint64 m_serial = 0;    // SensorHub::commandSerial() after our last command
 };

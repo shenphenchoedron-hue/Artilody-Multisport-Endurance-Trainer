@@ -10,12 +10,13 @@ AppDialog {
     id: dlg
     title: "Gear Setup"
     panelWidth: 1010
-    panelHeight: 750
+    panelHeight: advancedOpen ? 800 : 750
 
     property string ringsText: ""
     property string cogsText: ""
     property bool seq: true
     property bool advancedOpen: false
+    property bool cdaAuto: true
     property string saveError: ""
 
     readonly property var rings: Gears.parseTeeth(ringsText)
@@ -76,6 +77,7 @@ AppDialog {
         seq = s.sequential !== false
         weightSpin.value = s.bikeWeightKg !== undefined ? s.bikeWeightKg : 9
         cdaSpin.value = s.cda !== undefined ? s.cda : 0.32
+        cdaAuto = s.cdaAuto !== false
         crrSpin.value = s.crr !== undefined ? s.crr : 0.004
         saveError = ""
         Qt.callLater(function() { ringField.cursorPosition = 0; cogField.cursorPosition = 0 })
@@ -92,7 +94,7 @@ AppDialog {
             saveError = Gears.lastError
             return
         }
-        if (!Gears.setBikePhysics(weightSpin.value, cdaSpin.value, crrSpin.value)) {
+        if (!Gears.setBikePhysics(weightSpin.value, cdaSpin.value, crrSpin.value, cdaAuto)) {
             saveError = Gears.lastError
             return
         }
@@ -247,7 +249,7 @@ AppDialog {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: "Advanced: bike weight, CdA, Crr"
+                    text: "Advanced: bike weight, air drag (CdA), Crr"
                     color: Theme.accentText
                     font.pixelSize: 15
                     anchors.verticalCenter: parent.verticalCenter
@@ -274,11 +276,41 @@ AppDialog {
                 from: 0; to: 60; stepSize: 0.5; decimals: 1
                 unit: "kg"
             }
-            UnitSpinBox {
-                id: cdaSpin
+            Item {
                 width: (fields.width - 20) / 3
-                from: 0.1; to: 1.0; stepSize: 0.01; decimals: 2
-                unit: "m²"
+                height: 46
+                UnitSpinBox {
+                    id: cdaSpin
+                    anchors.fill: parent
+                    visible: !dlg.cdaAuto
+                    from: 0.1; to: 1.0; stepSize: 0.01; decimals: 2
+                    unit: "m²"
+                }
+                // auto: the estimate for the profile's weight (and height)
+                Rectangle {
+                    anchors.fill: parent
+                    visible: dlg.cdaAuto
+                    radius: 9
+                    color: Theme.field
+                    border.width: 1
+                    border.color: Theme.fieldBorder
+                    opacity: 0.85
+                    Text {
+                        x: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Number(Gears.autoCda).toFixed(2)
+                        color: Theme.text
+                        font.pixelSize: 18
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "m² auto"
+                        color: Theme.textSecondary
+                        font.pixelSize: 15
+                    }
+                }
             }
             UnitSpinBox {
                 id: crrSpin
@@ -287,11 +319,39 @@ AppDialog {
                 unit: ""
             }
         }
+        Item {
+            visible: dlg.advancedOpen
+            width: fields.width
+            height: 32
+            ToggleSwitch {
+                id: cdaAutoSwitch
+                width: 46; height: 26
+                anchors.verticalCenter: parent.verticalCenter
+                onColor: Theme.orange
+                checked: dlg.cdaAuto
+                onToggled: (on) => {
+                    if (!on && dlg.cdaAuto)
+                        cdaSpin.value = Math.round(Gears.autoCda * 100) / 100   // start from the estimate
+                    dlg.cdaAuto = on
+                }
+            }
+            Text {
+                x: cdaAutoSwitch.width + 10
+                width: parent.width - x
+                anchors.verticalCenter: parent.verticalCenter
+                text: "CdA auto (from weight" + (Profiles.heightCm > 0 ? " and height)" : ")")
+                      + " · rider + bike " + (Gears.riderWeightKg + weightSpin.value).toFixed(0) + " kg"
+                color: Theme.text
+                font.pixelSize: 14
+                elide: Text.ElideRight
+            }
+        }
         Text {
             visible: dlg.advancedOpen
             width: fields.width
-            text: "Used for the power each virtual speed needs (your weight comes from the profile). "
-                  + "Hoods ≈ 0.32 m², drops ≈ 0.28 m²; good road tyres ≈ 0.004."
+            text: "Mass = profile weight (" + Number(Gears.riderWeightKg).toFixed(1) + " kg) + bike. "
+                  + "Auto CdA = 0.32 m² × (weight / 75 kg)^⅔ (hoods), so lighter riders need fewer watts. "
+                  + "Own value: hoods ≈ 0.32, drops ≈ 0.28 m²."
             color: Theme.textMuted
             font.pixelSize: 12
             wrapMode: Text.WordWrap

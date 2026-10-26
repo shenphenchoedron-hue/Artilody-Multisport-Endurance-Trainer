@@ -271,7 +271,9 @@ def build(s, env):
     s.section("Profile fields")
     s.table(["Field", "Range in the dialog", "Notes"], [
         ["Name", "–", "Must not be empty."],
-        ["Weight", "30 – 200 kg, steps of 0.5", "Used for W/kg (shown under the FTP field)."],
+        ["Weight", "30 – 200 kg, steps of 0.5", "Used for W/kg (shown under the FTP field) and the road "
+         "model of virtual gears (mass and auto air drag)."],
+        ["Height", "0 or 100 – 230 cm", "Optional (0 = not set). Refines the auto air drag (CdA) of virtual gears."],
         ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all cycling workout targets."],
         ["Rowing FTP", "50 – 600 W, steps of 5", "Used for rowing workouts and rows (default 150 W, "
          "section 11.7)."],
@@ -442,10 +444,37 @@ def build(s, env):
         [UI("Wheel size"), "A tyre preset (700×23c … 29×2.2) or the circumference in millimetres (1000–3000)."],
         [UI("Shifting"), "<i>Sequential (virtual gears)</i> – one list, ideal for the Zwift Click – or "
                          "<i>Front + rear (like your bike)</i>."],
-        [UI("Advanced"), "Bike weight (0–60 kg), CdA (air drag, 0.10–1.00 m²; hoods ≈ 0.32, drops ≈ 0.28) and "
-                         "Crr (rolling resistance, 0.001–0.050; road tyres ≈ 0.004). Your own weight comes from "
-                         "the profile."],
+        [UI("Advanced"), "Bike weight (0–60 kg), air drag CdA – <i>CdA auto (from weight)</i> (default) or your "
+                         "own value (0.10–1.00 m²; hoods ≈ 0.32, drops ≈ 0.28) – and Crr (rolling resistance, "
+                         "0.001–0.050; road tyres ≈ 0.004). Your own weight (and height) come from the profile."],
     ], [1.2, 4.6])
+    s.p("<b>Road model – your weight counts.</b> Every virtual speed v needs the road power "
+        "P = (Crr·m·g·cos θ + m·g·sin θ + ½·ρ·CdA·v²)·v / η, with m = your profile weight + the bike weight "
+        "(default 9 kg), θ the grade, Crr 0.004, air density ρ = 1.225 kg/m³ and drivetrain efficiency "
+        "η = 0.97. Example: 40 km/h on the flat with 77 + 9 kg and CdA 0.32 needs about 310 W, in line with "
+        "online power calculators. On a climb the mass dominates, on the flat the air drag – so the CdA follows "
+        "your size too. <i>Auto</i> CdA = 0.32 m² × (weight / 75 kg)<super>2/3</super> on the hoods; with a height "
+        "in your profile 0.32 m² × BSA(weight, height) / BSA(75 kg, 175 cm), where BSA is the body surface area "
+        "after Du Bois (0.007184 · kg<super>0.425</super> · cm<super>0.725</super>) – the frontal area of a "
+        "cyclist scales with it (Heil 2001). A lighter rider therefore needs fewer watts in the same gear at the "
+        "same cadence: at 90 rpm in 50×14 (40.6 km/h) about 280 W on the flat and 670 W at 5 % for 60 kg, "
+        "against 370 W and 940 W for 90 kg.")
+    s.table(["Gear at 90 rpm", "Speed", "60 kg flat", "90 kg flat", "60 kg 5 %", "90 kg 5 %"], [
+        ["34×34", "11.4 km/h", "20 W", "20 W", "124 W", "178 W"],
+        ["34×24", "16.1 km/h", "28 W", "38 W", "184 W", "262 W"],
+        ["50×21", "27.1 km/h", "95 W", "127 W", "357 W", "503 W"],
+        ["50×17", "33.4 km/h", "165 W", "220 W", "489 W", "684 W"],
+        ["50×14", "40.6 km/h", "281 W", "372 W", "674 W", "936 W"],
+        ["50×11", "51.7 km/h", "555 W", "732 W", "1055 W", "1449 W"],
+    ], [1.3, 1.0, 0.9, 0.9, 0.9, 0.9])
+    s.p(f"The {UI('Virtual gears')} card shows the values in use, e.g. <i>Rider + bike: 77 kg · CdA 0.30 "
+        f"(auto)</i>, with links to {UI('Edit weight')} (the profile) and {UI('Bike & air drag')} (this dialog). "
+        "The same constants are used everywhere: Free Ride, Video Ride, the gear-adjusted grade and the "
+        "simulation parameters sent to the trainer (Crr and Cw = ρ·CdA, e.g. 0.37 kg/m for 68 kg) and the "
+        "Virtual Trainer.")
+    s.note("FTMS has no weight field: a real trainer that simulates the grade uses its own rider-weight "
+           "setting (in the manufacturer's app). The app assumes it equals your weight + bike – set it there for "
+           "the best match.")
     s.p("The <b>preview</b> lists every resulting gear with its ratio, the speed at 90 rpm and the power that "
         "speed needs on the flat; the current gear is highlighted. Invalid input is explained in red (for "
         f"example <i>Cogs must have …–… teeth</i>) and {UI('Save')} stays disabled. "
@@ -456,8 +485,10 @@ def build(s, env):
     s.p(f"{UI('Virtual Trainer')} (Simulated FTMS) and {UI('Virtual HR Sensor')} (Simulated HRS) are built-in "
         "simulators marked with a <i>VIRTUAL</i> badge. They let you try every feature – workouts, ERG, "
         "History, the FTP dialog – without any hardware. With virtual gears on, the virtual rider leaves the "
-        "bike in the reference gear and pedals a steady ~88 rpm (a few rpm less under a heavy load) – no "
-        "shifting of his own – so the watts follow your virtual gear and the road; with virtual gears off he "
+        "bike in the reference gear and pedals ~88 rpm – no shifting of his own – so the watts follow your "
+        "virtual gear and the road. He has your profile's FTP as his power (bursts up to 1.5 × FTP for about a "
+        "minute): in a gear that is too hard his cadence drops (down to 40 rpm), in an easy gear he spins up "
+        "to ~105 rpm. The virtual trainer simulates with your weight + bike; with virtual gears off he "
         "shifts his own bike towards the effort he wants. The virtual heart rate reacts to the simulated load "
         "and uses the resting and maximum heart rate of your profile. Hide them with "
         f"{UI('Show virtual devices')} (Connection Preferences or Settings). Rides with virtual devices are "
@@ -1487,7 +1518,7 @@ def build(s, env):
     ], [1.2, 4.6])
     s.p("<b>How the gradient reaches the trainer.</b> Simulation uses the FTMS command <i>Set Indoor Bike "
         "Simulation Parameters</i> with wind 0 m/s, the grade (0.01 % steps), rolling resistance Crr 0.004 and "
-        "wind resistance Cw 0.51 kg/m – the same values Zwift sends. A new grade is sent when it changes by "
+        "wind resistance Cw = ρ·CdA of your rider model (e.g. 0.37 kg/m for 68 kg; section 5.6) A new grade is sent when it changes by "
         "0.1 % or more (at most once a second; otherwise refreshed every 3 seconds). The grade sent is limited "
         "to −10 … +20 %. With virtual gears see section 5.5 for how the gear reaches the trainer.")
     s.note("If the trainer cannot simulate a gradient (it does not report the feature, or it rejects the "

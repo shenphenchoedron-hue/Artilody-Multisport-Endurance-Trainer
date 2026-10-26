@@ -174,6 +174,14 @@ void SensorHub::expireStale()
     }
 }
 
+void SensorHub::setRiderMassKg(double kg)
+{
+    if (!std::isfinite(kg) || kg < 20 || kg > 400 || qFuzzyCompare(kg, m_riderMassKg))
+        return;
+    m_riderMassKg = kg;
+    emit riderMassChanged();
+}
+
 void SensorHub::setTrainerSimulationSupport(int support)
 {
     support = std::clamp(support, -1, 1);
@@ -211,7 +219,8 @@ void SensorHub::requestSimulation(double gradePercent, double windSpeedMps, doub
     if (!std::isfinite(gradePercent))
         gradePercent = 0;
     ++m_commandSerial;
-    const bool changed = m_requestedTarget != 0 || !m_simActive || gradePercent != m_simGrade;
+    const bool changed = m_requestedTarget != 0 || !m_simActive || gradePercent != m_simGrade || crr != m_simCrr
+                         || cwKgPerM != m_simCw;
     m_requestedTarget = 0;
     m_simActive = true;
     m_simGrade = gradePercent;

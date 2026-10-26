@@ -19,6 +19,7 @@ class ProfileManager : public QObject
     Q_PROPERTY(QString name READ name NOTIFY profileChanged)
     Q_PROPERTY(QString initials READ initials NOTIFY profileChanged)
     Q_PROPERTY(double weight READ weight NOTIFY profileChanged)
+    Q_PROPERTY(double heightCm READ heightCm NOTIFY profileChanged)   // 0 = not set
     Q_PROPERTY(int ftp READ ftp NOTIFY profileChanged)
     Q_PROPERTY(int rowingFtp READ rowingFtp WRITE setRowingFtp NOTIFY profileChanged)
     Q_PROPERTY(int maxHr READ maxHr NOTIFY profileChanged)
@@ -43,6 +44,7 @@ public:
     QString name() const { return m_profile.name; }
     QString initials() const;
     double weight() const { return m_profile.weightKg; }
+    double heightCm() const { return m_profile.heightCm; }
     int ftp() const { return m_profile.ftp; }
     int rowingFtp() const { return m_profile.rowingFtp; }
     // Validates (Profile::kMinFtp..kMaxFtp) and persists the rowing FTP of the current profile.
@@ -61,7 +63,7 @@ public:
     QVariantList profiles() const;
     QString lastError() const { return m_lastError; }
 
-    // Saves the edited profile. Keys: name, weight, ftp, maxHr, restHr,
+    // Saves the edited profile. Keys: name, weight, heightCm, ftp, maxHr, restHr,
     // preferredCadence, defaultErg, avatarUrl, rowingFtp, zoneBounds (list of 5 fractions).
     Q_INVOKABLE bool saveProfile(const QVariantMap &values);
     Q_INVOKABLE bool selectProfile(qint64 id);

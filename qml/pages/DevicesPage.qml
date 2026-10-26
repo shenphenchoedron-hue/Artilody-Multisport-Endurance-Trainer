@@ -6,6 +6,7 @@ import Artilody.Backend
 Item {
     id: page
     signal openGearSetup()
+    signal openProfile()
     property int ergTarget: 150
     property bool trainersOpen: true
     property bool hrOpen: true
@@ -668,7 +669,7 @@ Item {
                 id: vgCol
                 x: 14; y: 12
                 width: parent.width - 28
-                spacing: 8
+                spacing: 6
 
                 Item {
                     width: parent.width
@@ -710,6 +711,51 @@ Item {
                     color: Theme.text
                     font.pixelSize: 15
                     elide: Text.ElideRight
+                }
+                // the road model of the rider: what the gears weigh
+                Item {
+                    width: parent.width
+                    height: 22
+                    Text {
+                        id: physicsText
+                        width: parent.width - physicsLinks.width - 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Gears.physicsSummary
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        elide: Text.ElideRight
+                    }
+                    Row {
+                        id: physicsLinks
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 14
+                        Repeater {
+                            model: [
+                                { label: "Edit weight", action: "profile" },
+                                { label: "Bike & air drag", action: "setup" }
+                            ]
+                            Text {
+                                text: modelData.label
+                                color: Theme.accentText
+                                font.pixelSize: 14
+                                font.underline: linkArea.containsMouse
+                                MouseArea {
+                                    id: linkArea
+                                    anchors.fill: parent
+                                    anchors.margins: -4
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (modelData.action === "profile")
+                                            page.openProfile()
+                                        else
+                                            page.openGearSetup()
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // current gear (live) + test shifting + setup

@@ -184,6 +184,12 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
         if (m_trainer && !m_ergTest)
             m_trainer->setSimulation(grade, wind, crr, cw);
     });
+    // the virtual trainer simulates with the app's rider + bike (a real
+    // trainer uses its own weight setting: FTMS 0x11 has no weight)
+    connect(m_hub, &SensorHub::riderMassChanged, this, [this] {
+        if (auto *sim = qobject_cast<SimulatedTrainer *>(m_trainer.data()))
+            sim->setMassKg(m_hub->riderMassKg());
+    });
 
     // keeps "Last scan: x min ago" fresh
     m_uiTimer.setInterval(30000);
@@ -259,6 +265,8 @@ void DeviceManager::setRiderPhysiology(int restHr, int maxHr, int ftp)
     m_ftp = ftp;
     if (auto *sim = qobject_cast<SimulatedHeartRate *>(m_hr.data()))
         sim->setPhysiology(restHr, maxHr, ftp);
+    if (auto *sim = qobject_cast<SimulatedTrainer *>(m_trainer.data()))
+        sim->setRiderFtp(ftp);
 }
 
 // --- adapter ---------------------------------------------------------------
@@ -1438,8 +1446,11 @@ bool DeviceManager::pressSimulatedController(int direction)
 void DeviceManager::attachTrainer(TrainerDevice *t)
 {
     m_trainer = t;
-    if (auto *sim = qobject_cast<SimulatedTrainer *>(t))
+    if (auto *sim = qobject_cast<SimulatedTrainer *>(t)) {
         sim->setFixedGearRatio(m_simFixedGear);
+        sim->setMassKg(m_hub->riderMassKg());
+        sim->setRiderFtp(m_ftp);
+    }
     t->setAutoReconnect(m_autoReconnect);
     m_trainers.setState(t->id(), int(LinkState::Connecting));
     connect(t, &TrainerDevice::powerMeasured, m_hub, &SensorHub::updatePower);
@@ -1671,7 +1682,7 @@ void DeviceManager::stopErgTest()
         if (m_hub->requestedTarget() > 0)
             m_trainer->setTargetPower(m_hub->requestedTarget());
         else if (m_hub->simulationActive())
-            m_trainer->setSimulation(m_hub->requestedGrade(), 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
+            m_trainer->setSimulation(m_hub->requestedGrade(), 0.0, m_hub->simulationCrr(), m_hub->simulationCw());
         else
             m_trainer->setFreeRide();
     }

@@ -54,11 +54,12 @@ double RideResistance::gearGrade(const GearDrive &d, double minGrade, double max
     const double vVirt = gearSpeed(d);
     if (!(vRef >= kMinGearSpeedMps) || !(vVirt > 0))
         return plain;   // coasting / standing: the road as it is
-    road::TrainerModel trainer;
-    trainer.massKg = d.road.massKg;
-    trainer.crr = SensorHub::kDefaultCrr;
-    trainer.cwKgPerM = SensorHub::kDefaultCw;
-    return road::gradeForTrainerPower(gearPower(d, vVirt), vRef, trainer, minGrade, maxGrade);
+    return road::gradeForTrainerPower(gearPower(d, vVirt), vRef, trainerModel(d), minGrade, maxGrade);
+}
+
+road::TrainerModel RideResistance::trainerModel(const GearDrive &d)
+{
+    return road::trainerModelFor(d.road, d.trainerMassKg);
 }
 
 RideResistance::Path RideResistance::choose(bool erg, bool virtualGears, const SensorHub *hub)
@@ -140,18 +141,21 @@ bool RideResistance::sendGearWatts(int watts, bool force)
     return false;
 }
 
-bool RideResistance::sendGrade(double grade, bool force)
+bool RideResistance::sendGrade(double grade, bool force, const road::TrainerModel &trainer)
 {
     if (!std::isfinite(grade))
         grade = 0;
     grade = std::round(std::clamp(grade, kMinGrade, kMaxGrade) * 100.0) / 100.0;
-    const bool first = !simulating() || m_lastWatts > 0;
+    // new rider parameters (weight / CdA edited) go out like a new road
+    const bool first = !simulating() || m_lastWatts > 0 || trainer.crr != m_lastCrr || trainer.cwKgPerM != m_lastCw;
     const bool changed = first || std::abs(grade - m_lastGrade) >= kMinGradeChange - 1e-9;
     const bool due = first || m_sinceMs >= kMinGradeIntervalMs;
     if (!(force || first || (changed && due) || m_sinceMs >= kGradeRefreshMs))
         return false;
-    m_hub->requestSimulation(grade, 0.0, SensorHub::kDefaultCrr, SensorHub::kDefaultCw);
+    m_hub->requestSimulation(grade, 0.0, trainer.crr, trainer.cwKgPerM);
     m_serial = m_hub->commandSerial();
+    m_lastCrr = trainer.crr;
+    m_lastCw = trainer.cwKgPerM;
     const bool newValue = first || grade != m_lastGrade;
     m_lastGrade = grade;
     m_lastWatts = 0;

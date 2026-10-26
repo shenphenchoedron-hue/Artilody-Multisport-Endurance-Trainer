@@ -113,7 +113,7 @@ GearSetup GearSetup::normalized() const
     s.frontIndex = std::clamp(frontIndex, 0, int(s.chainrings.size()) - 1);
     s.rearIndex = std::clamp(rearIndex, 0, int(s.cogs.size()) - 1);
     s.bikeWeightKg = std::isfinite(bikeWeightKg) ? std::clamp(bikeWeightKg, 0.0, 60.0) : 9.0;
-    s.cda = std::isfinite(cda) ? std::clamp(cda, 0.1, 1.0) : 0.32;
+    s.cda = std::isfinite(cda) ? std::clamp(cda, 0.1, 1.0) : road::kReferenceCda;
     s.crr = std::isfinite(crr) ? std::clamp(crr, 0.001, 0.05) : 0.004;
     if (!s.chainrings.contains(s.referenceFrontTeeth))
         s.referenceFrontTeeth = s.chainrings.constLast();
@@ -163,6 +163,7 @@ QJsonObject GearSetup::toJson() const
                          { QStringLiteral("front"), frontIndex },
                          { QStringLiteral("rear"), rearIndex },
                          { QStringLiteral("bikeWeightKg"), bikeWeightKg },
+                         { QStringLiteral("cdaAuto"), cdaAuto },
                          { QStringLiteral("cda"), cda },
                          { QStringLiteral("crr"), crr },
                          { QStringLiteral("refFront"), referenceFrontTeeth },
@@ -191,7 +192,11 @@ GearSetup GearSetup::fromJson(const QJsonObject &o)
     }
     s.sequential = o.value(QStringLiteral("sequential")).toBool(true);
     s.bikeWeightKg = o.value(QStringLiteral("bikeWeightKg")).toDouble(9.0);
-    s.cda = o.value(QStringLiteral("cda")).toDouble(0.32);
+    s.cda = o.value(QStringLiteral("cda")).toDouble(road::kReferenceCda);
+    // setups saved before "Auto (from weight)" existed: the untouched default
+    // CdA becomes auto, a CdA the rider entered stays manual
+    s.cdaAuto = o.contains(QStringLiteral("cdaAuto")) ? o.value(QStringLiteral("cdaAuto")).toBool(true)
+                                                      : std::abs(s.cda - road::kReferenceCda) < 1e-6;
     s.crr = o.value(QStringLiteral("crr")).toDouble(0.004);
     s.referenceFrontTeeth = o.value(QStringLiteral("refFront")).toInt(s.referenceFrontTeeth);
     s.referenceRearTeeth = o.value(QStringLiteral("refRear")).toInt(s.referenceRearTeeth);
@@ -217,7 +222,8 @@ bool GearSetup::operator==(const GearSetup &o) const
 {
     return chainrings == o.chainrings && cogs == o.cogs && circumferenceMm == o.circumferenceMm
            && sequential == o.sequential && frontIndex == o.frontIndex && rearIndex == o.rearIndex
-           && qFuzzyCompare(bikeWeightKg + 1, o.bikeWeightKg + 1) && qFuzzyCompare(cda + 1, o.cda + 1)
+           && qFuzzyCompare(bikeWeightKg + 1, o.bikeWeightKg + 1) && cdaAuto == o.cdaAuto
+           && qFuzzyCompare(cda + 1, o.cda + 1)
            && qFuzzyCompare(crr + 1, o.crr + 1) && referenceFrontTeeth == o.referenceFrontTeeth
            && referenceRearTeeth == o.referenceRearTeeth;
 }
@@ -577,6 +583,34 @@ double Gearing::virtualSpeed(double cadenceRpm) const
 // --- road model ----------------------------------------------------------------
 
 namespace road {
+
+double bodySurfaceArea(double weightKg, double heightCm)
+{
+    if (!(weightKg > 0) || !(heightCm > 0))
+        return 0.0;
+    return 0.007184 * std::pow(weightKg, 0.425) * std::pow(heightCm, 0.725);
+}
+
+double autoCda(double riderKg, double heightCm)
+{
+    if (!(riderKg > 0) || !std::isfinite(riderKg))
+        riderKg = kDefaultRiderKg;
+    double scale;
+    if (heightCm > 0 && std::isfinite(heightCm))
+        scale = bodySurfaceArea(riderKg, heightCm) / bodySurfaceArea(kReferenceRiderKg, kReferenceHeightCm);
+    else
+        scale = std::pow(riderKg / kReferenceRiderKg, 2.0 / 3.0);
+    return std::clamp(kReferenceCda * scale, kMinCda, kMaxCda);
+}
+
+TrainerModel trainerModelFor(const Model &road, double trainerMassKg)
+{
+    TrainerModel t;
+    t.massKg = trainerMassKg > 0 ? trainerMassKg : road.massKg;
+    t.crr = std::round(std::max(0.0, road.crr) * 10000.0) / 10000.0;
+    t.cwKgPerM = std::round(std::max(0.0, road.airDensity * road.cda) * 100.0) / 100.0;
+    return t;
+}
 
 double resistance(const Model &m, double v)
 {

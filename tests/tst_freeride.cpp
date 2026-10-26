@@ -954,7 +954,21 @@ private slots:
         const road::Model m = f.ride->roadModel(3.0);
         QCOMPARE(m.massKg, f.profiles->weight() + 9.0);
         QCOMPARE(m.gradePercent, 3.0);
-        QCOMPARE(m.cda, 0.32);
+        // auto CdA (default): from the rider's size
+        QVERIFY(f.gears->cdaAuto());
+        QCOMPARE(m.cda, road::autoCda(f.profiles->weight(), f.profiles->heightCm()));
+        // weight and height edits apply at once
+        QVERIFY(f.profiles->saveProfile({ { QStringLiteral("weight"), 90.0 }, { QStringLiteral("heightCm"), 185.0 } }));
+        QCOMPARE(f.ride->roadModel(0).massKg, 99.0);
+        QCOMPARE(f.ride->roadModel(0).cda, road::autoCda(90, 185));
+        QVERIFY(f.ride->roadModel(0).cda > 0.34);
+        // manual CdA
+        QVERIFY(f.gears->setBikePhysics(9.0, 0.30, 0.004, false));
+        QCOMPARE(f.ride->roadModel(0).cda, 0.30);
+        QVERIFY(f.gears->setBikePhysics(9.0, 0.30, 0.004, true));
+        QCOMPARE(f.ride->roadModel(0).cda, road::autoCda(90, 185));
+        QCOMPARE(f.gears->physicsSummary(), QStringLiteral("Rider + bike: 99 kg · CdA %1 (auto)")
+                                                .arg(road::autoCda(90, 185), 0, 'f', 2));
     }
 };
 

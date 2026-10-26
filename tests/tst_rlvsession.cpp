@@ -428,7 +428,9 @@ private slots:
         QVERIFY(std::abs(sims.last().at(0).toDouble() - f.rlv->simulationGradeToSend()) < 1e-9);
         QCOMPARE(sims.last().at(1).toDouble(), 0.0);
         QCOMPARE(sims.last().at(2).toDouble(), 0.004);
-        QCOMPARE(sims.last().at(3).toDouble(), 0.51);
+        // Cw = ρ·CdA of the rider (auto CdA from the profile weight), not Zwift's 0.51
+        QCOMPARE(sims.last().at(3).toDouble(), road::trainerModelFor(f.rlv->roadModel(0)).cwKgPerM);
+        QCOMPARE(sims.last().at(3).toDouble(), std::round(1.225 * road::autoCda(f.profiles->weight()) * 100) / 100);
         QVERIFY(f.hub->simulationActive());
         QCOMPARE(f.hub->requestedTarget(), 0);
         QVERIFY(f.rlv->simulationActive());

@@ -20,6 +20,9 @@ bool Profile::isValid(QString *error) const
         return fail(QStringLiteral("Name must not be empty"));
     if (weightKg < 20 || weightKg > 250)
         return fail(QStringLiteral("Weight must be between 20 and 250 kg"));
+    if (heightCm != 0 && (heightCm < kMinHeightCm || heightCm > kMaxHeightCm))
+        return fail(QStringLiteral("Height must be between %1 and %2 cm (or 0 = not set)")
+                        .arg(kMinHeightCm).arg(kMaxHeightCm));
     if (ftp < kMinFtp || ftp > kMaxFtp)
         return fail(QStringLiteral("FTP must be between %1 and %2 W").arg(kMinFtp).arg(kMaxFtp));
     if (rowingFtp < kMinFtp || rowingFtp > kMaxFtp)

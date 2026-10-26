@@ -68,7 +68,7 @@ private:
     int m_lastTarget = -1;
     struct SimParams
     {
-        double grade = 0, wind = 0, crr = 0.004, cw = 0.51;
+        double grade = 0, wind = 0, crr = 0.004, cw = 0.39;   // Cw = ρ·CdA (1.225 · 0.32)
     } m_lastSim;
     bool m_pending = false;           // m_lastRequest waits for control
     bool m_simRejected = false;       // 0x11 answered "Op Code not supported"

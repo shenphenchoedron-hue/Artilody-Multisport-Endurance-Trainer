@@ -16,6 +16,7 @@ class Database;
 class FreeRideSession;
 class ProfileManager;
 class RlvSession;
+class SensorHub;
 
 // Virtual shifting: the ONE gear setup and current gear of the rider, shared
 // by the Free Ride and the Video Ride, configured on the Devices page.
@@ -25,8 +26,14 @@ class RlvSession;
 // changes the gear (and with it the speed at a given cadence and the power
 // the road asks for), never the trainer difficulty.
 //
+// Road model (roadModel()): mass = profile weight (default 75 kg) + bike
+// weight; CdA = road::autoCda(profile weight, height) when the setup's
+// cdaAuto is on (default), else the manual CdA; Crr of the setup. The rider
+// + bike mass also goes to SensorHub::riderMassKg (setHub(): the virtual
+// trainer's weight setting).
+//
 // Persistence: the setup (chainrings, cogs, wheel, sequential, bike weight,
-// CdA, Crr, reference gear) and the current gear are stored per profile in
+// CdA auto/manual, Crr, reference gear) and the current gear are stored per profile in
 // profiles.gear_setup (GearSetup JSON, DB schema v3), written 1.5 s after the
 // last change (flushSettings() writes at once). A different profile loads its
 // own bike; while a ride runs (setBusyCheck()) the switch waits until
@@ -83,6 +90,15 @@ class VirtualGears : public QObject
     Q_PROPERTY(QVariantList wheelPresets READ wheelPresets CONSTANT)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
+    // road model of the rider (profile weight / height + gear setup)
+    Q_PROPERTY(double riderWeightKg READ riderWeightKg NOTIFY physicsChanged)
+    Q_PROPERTY(double systemMassKg READ systemMassKg NOTIFY physicsChanged)     // rider + bike
+    Q_PROPERTY(double cda READ cda NOTIFY physicsChanged)                       // the CdA in use
+    Q_PROPERTY(bool cdaAuto READ cdaAuto NOTIFY physicsChanged)
+    Q_PROPERTY(double autoCda READ autoCda NOTIFY physicsChanged)               // estimate for the profile
+    // "Rider + bike: 86 kg · CdA 0.32 (auto)"
+    Q_PROPERTY(QString physicsSummary READ physicsSummary NOTIFY physicsChanged)
+
 public:
     static constexpr int kSaveDelayMs = 1500;
 
@@ -137,8 +153,23 @@ public:
     static QVariantList wheelPresets() { return GearSetup::wheelPresets(); }
     QString lastError() const { return m_lastError; }
 
-    // Road model for a rider of riderKg on this bike (riderKg <= 0: profile weight).
-    road::Model roadModel(double gradePercent, double riderKg = 0) const;
+    // Road model for a rider of riderKg / heightCm on this bike (riderKg <= 0:
+    // profile weight, then kDefaultRiderKg; heightCm < 0: profile height).
+    road::Model roadModel(double gradePercent, double riderKg = 0, double heightCm = -1) const;
+    road::Model roadModel(double gradePercent, const Profile &rider) const
+    {
+        return roadModel(gradePercent, rider.weightKg, rider.heightCm);
+    }
+    double riderWeightKg() const;
+    double systemMassKg() const { return roadModel(0).massKg; }
+    double cda() const { return roadModel(0).cda; }
+    bool cdaAuto() const { return setup().cdaAuto; }
+    double autoCda() const;
+    QString physicsSummary() const;
+    // Auto CdA for a weight / height (the setup dialog's preview).
+    Q_INVOKABLE double autoCdaFor(double riderKg, double heightCm = 0) const { return road::autoCda(riderKg, heightCm); }
+    // Keeps SensorHub::riderMassKg in sync with the rider + bike.
+    void setHub(SensorHub *hub);
 
     Q_INVOKABLE bool shiftUp();
     Q_INVOKABLE bool shiftDown();
@@ -150,7 +181,9 @@ public:
     // to both rides. chainrings/cogs: numbers in any order. false + lastError.
     Q_INVOKABLE bool setGearSetup(const QVariantList &chainrings, const QVariantList &cogs, int circumferenceMm,
                                   bool sequential);
-    Q_INVOKABLE bool setBikePhysics(double bikeWeightKg, double cda, double crr);
+    // cdaAuto: estimate the CdA from the profile (cda is kept as the manual
+    // value for when auto is turned off).
+    Q_INVOKABLE bool setBikePhysics(double bikeWeightKg, double cda, double crr, bool cdaAuto = false);
     // Teeth of the real gear on the trainer; snapped to the setup.
     Q_INVOKABLE bool setReferenceGear(int frontTeeth, int rearTeeth);
     Q_INVOKABLE void resetGearSetup();
@@ -178,6 +211,7 @@ signals:
     void gearChanged();
     void gearSetupChanged();
     void lastErrorChanged();
+    void physicsChanged();
     void shifted(int direction);            // the gear changed by a shift (+1 harder)
     void notice(const QString &text);       // short message for a toast
 
@@ -188,12 +222,14 @@ private:
     void scheduleSave();
     void saveNow();
     void setError(const QString &e);
+    void syncHub();
     static QVariantMap setupToMap(const GearSetup &s);
 
     Database *m_db;
     ProfileManager *m_profiles;
     QPointer<FreeRideSession> m_freeRide;
     QPointer<RlvSession> m_rlv;
+    QPointer<SensorHub> m_hub;
     std::function<bool()> m_busy;
 
     Gearing m_gearing;

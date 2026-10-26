@@ -96,7 +96,7 @@ private slots:
                 QCOMPARE(w.sport, QStringLiteral("cycling"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 3);
+        QCOMPARE(Database::kSchemaVersion, 4);
         QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
         QVERIFY(columns(path, QStringLiteral("ride_samples")).contains(QStringLiteral("speed")));
         QVERIFY(columns(path, QStringLiteral("workouts")).contains(QStringLiteral("sport")));
@@ -255,12 +255,62 @@ private slots:
             QVERIFY(id > 0);
             QCOMPARE(db.rideSamples(id).first().speedMps, 9.5);
         }
-        QCOMPARE(pragmaVersion(path), 3);
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
         QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
         QVERIFY(columns(path, QStringLiteral("ride_samples")).contains(QStringLiteral("speed")));
+        QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("height_cm")));
         Database again;
         QVERIFY(again.open(path));
         QCOMPARE(again.gearSetupJson(1), QStringLiteral("{\"chainrings\":[42]}"));
+    }
+
+    void upgradesV3ToV4ProfileHeight()
+    {
+        // a v3 database (1.1.4 free ride test builds): the profile keeps its
+        // weight, the new height is 0 (not set) and can be saved
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v3.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+        }
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v3"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            // back to v3: without height_cm (SQLite >= 3.35 can drop columns)
+            QVERIFY(q.exec(QStringLiteral("ALTER TABLE profiles DROP COLUMN height_cm")));
+            QVERIFY(q.exec(QStringLiteral("UPDATE profiles SET weight = 61.5 WHERE id = 1")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 3")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v3"));
+        QVERIFY(!columns(path, QStringLiteral("profiles")).contains(QStringLiteral("height_cm")));
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), 4);
+        auto p = db.profile(1);
+        QVERIFY(p);
+        QCOMPARE(p->weightKg, 61.5);
+        QCOMPARE(p->heightCm, 0.0);
+        Profile changed = *p;
+        changed.heightCm = 168;
+        QCOMPARE(db.saveProfile(changed), qint64(1));
+        QCOMPARE(db.profile(1)->heightCm, 168.0);
+        // validation: 0 (not set) or 100..230 cm
+        changed.heightCm = 50;
+        QVERIFY(!changed.isValid());
+        changed.heightCm = 0;
+        QVERIFY(changed.isValid());
+        // ProfileManager reads and writes it
+        ProfileManager profiles(&db);
+        profiles.load();
+        QVERIFY(profiles.saveProfile({ { QStringLiteral("heightCm"), 181.0 }, { QStringLiteral("weight"), 72.0 } }));
+        QCOMPARE(profiles.heightCm(), 181.0);
+        QCOMPARE(db.profile(profiles.profileId())->heightCm, 181.0);
+        QCOMPARE(db.profile(profiles.profileId())->weightKg, 72.0);
     }
 
     void partiallyMigratedColumnsAreTolerated()

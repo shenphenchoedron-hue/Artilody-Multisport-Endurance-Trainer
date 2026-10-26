@@ -356,6 +356,98 @@ private slots:
         QCOMPARE(GearSetup::wheelName(1234), QStringLiteral("1234 mm"));
     }
 
+    // The road model against published values: 40 km/h on the flat, 77 kg
+    // rider + 9 kg bike, CdA 0.32 (hoods), Crr 0.004, ρ 1.225, η 0.97:
+    // F = 3.4 N rolling + 23.9 N air -> P ≈ 310 W (calculators 280-330 W).
+    void roadPowerReference()
+    {
+        road::Model m;
+        m.massKg = 86;
+        m.cda = 0.32;
+        QCOMPARE(m.crr, 0.004);
+        QCOMPARE(m.airDensity, 1.225);
+        QCOMPARE(m.efficiency, 0.97);
+        const double p = road::powerForSpeed(m, 40 / 3.6);
+        QVERIFY2(std::abs(p - 310) < 310 * 0.05, qPrintable(QString::number(p)));
+        // the gear the user reported: 50×14 at 88 rpm (2105 mm) = 39.7 km/h
+        const double v = Gearing::speedFor(88, 50.0 / 14, 2105);
+        QVERIFY(std::abs(v * 3.6 - 39.7) < 0.1);
+        QVERIFY2(road::powerForSpeed(m, v) < 320, qPrintable(QString::number(road::powerForSpeed(m, v))));
+        // defaults: 75 kg rider + 9 kg bike
+        QCOMPARE(road::Model().massKg, 84.0);
+    }
+
+    void autoCdaScalesWithRider()
+    {
+        // reference rider
+        QCOMPARE(road::autoCda(75), 0.32);
+        QVERIFY(std::abs(road::autoCda(75, 175) - 0.32) < 1e-9);
+        // CdA = 0.32 · (m/75)^(2/3) without height
+        QVERIFY(std::abs(road::autoCda(60) - 0.32 * std::pow(60.0 / 75, 2.0 / 3)) < 1e-9);
+        QVERIFY(std::abs(road::autoCda(60) - 0.276) < 0.002);
+        QVERIFY(std::abs(road::autoCda(90) - 0.361) < 0.002);
+        double last = 0;
+        for (double kg : { 45.0, 55.0, 65.0, 75.0, 85.0, 95.0, 110.0 }) {
+            QVERIFY(road::autoCda(kg) > last);
+            last = road::autoCda(kg);
+        }
+        // with height: Du Bois body surface area ratio
+        QVERIFY(std::abs(road::bodySurfaceArea(75, 175) - 1.90) < 0.01);
+        QVERIFY(road::autoCda(75, 190) > road::autoCda(75, 175));
+        QVERIFY(road::autoCda(75, 160) < road::autoCda(75, 175));
+        QVERIFY(std::abs(road::autoCda(60, 165) - 0.32 * road::bodySurfaceArea(60, 165) / road::bodySurfaceArea(75, 175))
+                < 1e-9);
+        // unknown weight -> reference rider, clamped
+        QCOMPARE(road::autoCda(0), 0.32);
+        QCOMPARE(road::autoCda(400), road::kMaxCda);
+        QCOMPARE(road::autoCda(5), road::kMinCda);
+        // setups saved before cdaAuto: default CdA -> auto, own value -> manual
+        QVERIFY(GearSetup().cdaAuto);
+        QVERIFY(GearSetup::fromJsonText(QStringLiteral("{\"cda\":0.32}")).cdaAuto);
+        const GearSetup manual = GearSetup::fromJsonText(QStringLiteral("{\"cda\":0.28}"));
+        QVERIFY(!manual.cdaAuto);
+        QCOMPARE(manual.cda, 0.28);
+        GearSetup s;
+        s.cdaAuto = false;
+        s.cda = 0.32;
+        QVERIFY(!GearSetup::fromJsonText(s.toJsonText()).cdaAuto);   // explicit flag wins
+        QVERIFY(GearSetup::fromJsonText(s.toJsonText()) == s.normalized());
+    }
+
+    // FTMS 0x11 parameters: Cw = ρ·CdA (not Zwift's 0.51), in FTMS resolution,
+    // mass = rider + bike unless the trainer's own setting is known.
+    void trainerModelForRider()
+    {
+        road::Model m;
+        m.massKg = 69;
+        m.cda = road::autoCda(60);
+        const road::TrainerModel t = road::trainerModelFor(m);
+        QCOMPARE(t.massKg, 69.0);
+        QCOMPARE(t.crr, 0.004);
+        QCOMPARE(t.cwKgPerM, std::round(1.225 * road::autoCda(60) * 100) / 100);   // 0.34
+        QCOMPARE(t.cwKgPerM, 0.34);
+        m.cda = 0.32;
+        QCOMPARE(road::trainerModelFor(m).cwKgPerM, 0.39);
+        QVERIFY(std::abs(road::TrainerModel().cwKgPerM - 1.225 * 0.32) < 0.005);
+        QCOMPARE(road::trainerModelFor(m, 80.0).massKg, 80.0);   // the trainer's own weight setting
+        // round trip (path a): a trainer braking with the sent parameters at
+        // the reference gear's speed delivers the app's road power
+        for (double grade : { 0.0, 2.0, 5.0, 8.0 }) {
+            for (double factor : { 0.7, 1.0, 1.3, 1.6 }) {
+                m.gradePercent = grade;
+                const road::TrainerModel tm = road::trainerModelFor(m);
+                const double vt = 8.5;
+                const double g = road::gearSimulationGrade(m, vt, factor, tm);
+                if (g <= -10 + 1e-6 || g >= 20 - 1e-6)
+                    continue;
+                const double theta = std::atan(g / 100.0);
+                const double force = tm.massKg * road::kGravity * (std::sin(theta) + tm.crr * std::cos(theta))
+                                     + 0.5 * tm.cwKgPerM * vt * vt;
+                QVERIFY(std::abs(force * vt - road::powerForSpeed(m, vt * factor)) < 1.0);
+            }
+        }
+    }
+
     void integrateSpeed()
     {
         road::Model m;

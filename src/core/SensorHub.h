@@ -40,6 +40,10 @@ class SensorHub : public QObject
     // speed > 0 after it connected, cleared when it disconnects. Virtual gears
     // on a simulating trainer need it (see road::gearSimulationGrade()).
     Q_PROPERTY(bool trainerReportsSpeed READ trainerReportsSpeed NOTIFY trainerReportsSpeedChanged)
+    // Rider + bike (kg) of the current profile and gear setup (set by
+    // VirtualGears): the weight setting of the virtual trainer, which
+    // simulates with the app's road model (a real trainer has its own).
+    Q_PROPERTY(double riderMassKg READ riderMassKg NOTIFY riderMassChanged)
 
 public:
     explicit SensorHub(QObject *parent = nullptr);
@@ -71,10 +75,20 @@ public:
     bool trainerSimulationUnsupported() const { return m_simSupport == 0; }
     void setTrainerSimulationSupport(int support);   // set by the device layer
 
-    // FTMS Set Indoor Bike Simulation Parameters defaults, as sent by Zwift
-    // (observed: 11 00 00 <grade> 28 33 -> Crr 0.0040, Cw 0.51 kg/m).
+    // FTMS Set Indoor Bike Simulation Parameters defaults when no rider is
+    // known: Crr 0.004 and Cw = ρ·CdA of the reference rider (1.225 · 0.32 =
+    // 0.39 kg/m). The sessions send the rider's own values
+    // (road::trainerModelFor()). Zwift sends a fixed Cw 0.51 kg/m (observed
+    // 11 00 00 <grade> 28 33), i.e. ½·Cw = 0.255 vs ½·ρ·CdA = 0.196 - that
+    // is not our road model and is no longer used.
     static constexpr double kDefaultCrr = 0.004;
-    static constexpr double kDefaultCw = 0.51;
+    static constexpr double kDefaultCw = 0.39;
+
+    double riderMassKg() const { return m_riderMassKg; }
+    void setRiderMassKg(double kg);   // ignored unless 20..400
+    // Crr / Cw of the last simulation request (FTMS 0x11).
+    double simulationCrr() const { return m_simCrr; }
+    double simulationCw() const { return m_simCw; }
 
     // Values older than this are treated as 0 (sensor dropped out).
     void setStaleTimeoutMs(int ms);
@@ -114,6 +128,7 @@ signals:
     void trainerSimulationSupportChanged();
     void trainerReportsSpeedChanged();
     void cadenceReportedChanged();
+    void riderMassChanged();
 
     void targetPowerRequested(int watts);
     void freeRideRequested();
@@ -131,6 +146,7 @@ private:
     bool m_simActive = false;
     double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
     int m_simSupport = -1;
+    double m_riderMassKg = 84.0;
     bool m_speedReported = false;
     bool m_cadenceReported = false;
     int m_staleMs = 3000;

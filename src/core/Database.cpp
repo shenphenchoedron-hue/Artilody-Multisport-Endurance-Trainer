@@ -39,10 +39,12 @@ Profile profileFromQuery(const QSqlQuery &q)
     p.avatarPath = q.value(8).toString();
     p.zones = ZoneSet::fromJson(jsonArray(q.value(9).toString()));
     p.rowingFtp = q.value(10).isNull() ? 150 : q.value(10).toInt();
+    p.heightCm = q.value(11).isNull() ? 0.0 : q.value(11).toDouble();
     return p;
 }
 
-const char *kProfileColumns = "id, name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones, rowing_ftp";
+const char *kProfileColumns = "id, name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones, rowing_ftp,"
+                              " height_cm";
 const char *kWorkoutColumns = "id, name, category, focus, description, favorite, built_in, times_used, intervals, sport";
 const char *kRideColumns = "id, profile_id, workout_id, workout_name, started_at, duration, blocks, erg, ftp, "
                            "avg_power, max_power, np, avg_hr, max_hr, avg_cadence, kj, if_value, tss, zones, sport, distance_m";
@@ -231,7 +233,7 @@ bool Database::migrate()
     }
     struct Step { int version; bool (Database::*apply)(); };
     const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 },
-                           { 3, &Database::migrateToV3 } };
+                           { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -327,6 +329,13 @@ bool Database::migrateToV3()
            && addColumnIfMissing(QStringLiteral("ride_samples"), QStringLiteral("speed"), QStringLiteral("REAL"));
 }
 
+bool Database::migrateToV4()
+{
+    // rider height (cm, 0 = not set) for the air drag of virtual gears
+    return addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("height_cm"),
+                              QStringLiteral("REAL NOT NULL DEFAULT 0"));
+}
+
 void Database::seedDefaults()
 {
     if (profiles().isEmpty()) {
@@ -418,10 +427,10 @@ qint64 Database::saveProfile(const Profile &p)
     QSqlQuery q(db());
     if (p.id < 0) {
         q.prepare(QStringLiteral("INSERT INTO profiles (name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones,"
-                                 " rowing_ftp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+                                 " rowing_ftp, height_cm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     } else {
         q.prepare(QStringLiteral("UPDATE profiles SET name=?, weight=?, ftp=?, max_hr=?, rest_hr=?, cadence=?,"
-                                 " default_erg=?, avatar=?, zones=?, rowing_ftp=? WHERE id=?"));
+                                 " default_erg=?, avatar=?, zones=?, rowing_ftp=?, height_cm=? WHERE id=?"));
     }
     q.addBindValue(p.name);
     q.addBindValue(p.weightKg);
@@ -433,6 +442,7 @@ qint64 Database::saveProfile(const Profile &p)
     q.addBindValue(p.avatarPath);
     q.addBindValue(jsonText(p.zones.toJson()));
     q.addBindValue(p.rowingFtp);
+    q.addBindValue(p.heightCm);
     if (p.id >= 0)
         q.addBindValue(p.id);
     if (!q.exec()) {

@@ -42,9 +42,13 @@ struct GearSetup
     // current gear (indices into chainrings / cogs, see conventions above)
     int frontIndex = 1;
     int rearIndex = 6;
-    // road model of the rider's bike (rider weight comes from the profile)
+    // road model of the rider's bike (rider weight and height come from the
+    // profile; mass = rider + bike)
     double bikeWeightKg = 9.0;
-    double cda = 0.32;      // m^2, hoods position
+    // Air drag: cdaAuto (default) estimates the CdA from the rider's size
+    // (road::autoCda()); otherwise `cda` is the rider's own value.
+    bool cdaAuto = true;
+    double cda = 0.32;      // m^2, manual value (hoods position)
     double crr = 0.004;     // rolling resistance, good road tyres
     // Reference gear: the real gear the bike sits in on the trainer while
     // shifting virtually ("leave your bike in this gear"). Teeth, not indices;
@@ -161,29 +165,58 @@ private:
     QVector<Gear> m_sequence;
 };
 
-// Steady-state road model used for ERG based virtual shifting.
+// The road model of the app - ONE set of constants for virtual gears, the
+// riding sessions (speed from power), the gear-adjusted grade (path a), the
+// FTMS simulation parameters (trainerModelFor()) and the virtual trainer:
 //
 //   P = (Crr·m·g·cosθ + m·g·sinθ + ½·ρ·CdA·v²) · v / η
 //
-// m = rider + bike mass, θ = atan(grade), ρ = air density, η = drivetrain
-// efficiency. No wind and no acceleration term (FreeRideSession handles
-// inertia while coasting with coastDeceleration()).
+// m = rider (profile weight) + bike (gear setup, default 9 kg), θ =
+// atan(grade), ρ = 1.225 kg/m³, CdA = autoCda(rider) or the manual value of
+// the gear setup, Crr = 0.004 (gear setup), η = 0.97. No wind and no
+// acceleration term here (integrateSpeed() adds inertia).
+// Reference: 40 km/h on the flat, 86 kg, CdA 0.32 -> 309 W.
 namespace road {
 
 constexpr double kGravity = 9.80665;
 constexpr double kAirDensity = 1.225;           // kg/m^3, sea level 15 °C
 constexpr double kDrivetrainEfficiency = 0.97;
 constexpr double kMaxSpeedMps = 30.0;           // 108 km/h, bisection bound
+constexpr double kDefaultCrr = 0.004;
+constexpr double kDefaultBikeKg = 9.0;
+// Reference rider of the CdA estimate: 75 kg, 1.75 m, hoods -> 0.32 m².
+constexpr double kDefaultRiderKg = 75.0;        // also used when the profile has no weight
+constexpr double kReferenceRiderKg = 75.0;
+constexpr double kReferenceHeightCm = 175.0;
+constexpr double kReferenceCda = 0.32;
+constexpr double kMinCda = 0.15;
+constexpr double kMaxCda = 0.60;
 
 struct Model
 {
-    double massKg = 79.0;      // rider + bike
-    double cda = 0.32;
-    double crr = 0.004;
+    double massKg = kDefaultRiderKg + kDefaultBikeKg;   // rider + bike
+    double cda = kReferenceCda;
+    double crr = kDefaultCrr;
     double gradePercent = 0.0;
     double airDensity = kAirDensity;
     double efficiency = kDrivetrainEfficiency;
 };
+
+// Body surface area (m²), Du Bois & Du Bois (1916):
+//   BSA = 0.007184 · W^0.425 · H^0.725   (W in kg, H in cm)
+double bodySurfaceArea(double weightKg, double heightCm);
+// CdA estimated from the rider's size ("Auto (from weight)"). The frontal
+// area of a cyclist scales with the body surface area (Heil 2001, "Body
+// mass scaling of projected frontal area in competitive cyclists", Eur J
+// Appl Physiol 85: A_P ∝ H^0.725·M^0.425 - the Du Bois exponents), Cd stays
+// the same, so relative to the reference rider (75 kg, 175 cm, 0.32 m² on
+// the hoods):
+//   with height:    CdA = 0.32 · BSA(m, h) / BSA(75, 175)
+//   without height: CdA = 0.32 · (m / 75)^(2/3)
+//                   (isometric scaling, h ∝ m^(1/3): 0.425 + 0.725/3 ≈ 2/3)
+// e.g. 60 kg -> 0.276, 75 kg -> 0.320, 90 kg -> 0.361 m². heightCm <= 0:
+// unknown. Clamped to kMinCda..kMaxCda; riderKg <= 0 -> kDefaultRiderKg.
+double autoCda(double riderKg, double heightCm = 0);
 
 // Resisting force (N) at speed v (m/s); negative downhill when gravity wins.
 double resistance(const Model &m, double speedMps);
@@ -201,12 +234,23 @@ double integrateSpeed(const Model &m, double speedMps, double watts, double dt, 
 
 // Resistance model of a trainer in FTMS gradient simulation (op 0x11):
 //   F = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v²   (Cw in kg/m, no wind)
+// FTMS 0x11 carries wind, grade, Crr and Cw - no weight: a real trainer uses
+// its own rider weight setting (its app / FE-C user data), the app assumes
+// it equals rider + bike of the profile (see trainerModelFor()).
 struct TrainerModel
 {
-    double massKg = 79.0;
-    double crr = 0.004;
-    double cwKgPerM = 0.51;
+    double massKg = kDefaultRiderKg + kDefaultBikeKg;
+    double crr = kDefaultCrr;
+    double cwKgPerM = 0.39;   // ρ·CdA of the reference rider (1.225 · 0.32)
 };
+
+// The FTMS simulation parameters for a rider: Cw = ρ·CdA (so ½·Cw·v² is the
+// road's ½·ρ·CdA·v² - not Zwift's fixed 0.51 kg/m), Crr of the road, in the
+// resolution FTMS sends them (Cw 0.01 kg/m, Crr 0.0001), so the grade solved
+// with this model (path a) uses exactly the parameters the trainer gets.
+// trainerMassKg > 0: the trainer's own rider weight setting when known
+// (compensates a trainer that assumes another weight); else the road mass.
+TrainerModel trainerModelFor(const Model &road, double trainerMassKg = 0);
 
 // Grade (%) for FTMS 0x11 that makes a trainer braking at speed vt deliver
 // `power` (W):

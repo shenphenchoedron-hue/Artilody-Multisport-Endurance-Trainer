@@ -14,7 +14,12 @@ struct Profile
 
     qint64 id = -1;
     QString name = QStringLiteral("Rider");
-    double weightKg = 70.0;
+    double weightKg = 75.0;
+    // Optional (0 = not set): with the weight it sizes the rider's air drag
+    // (road::autoCda()) for virtual gears.
+    double heightCm = 0.0;
+    static constexpr double kMinHeightCm = 100.0;
+    static constexpr double kMaxHeightCm = 230.0;
     int ftp = 250;
     int rowingFtp = 150;          // rowing FTP (W); rowing workouts are % of this
     int maxHr = 185;
