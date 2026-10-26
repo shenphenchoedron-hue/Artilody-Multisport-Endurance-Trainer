@@ -66,7 +66,7 @@ class FreeRideSession : public QObject
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)      // armed, waits for pedaling
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
-    Q_PROPERTY(bool ergEnabled READ ergEnabled WRITE setErgEnabled NOTIFY modeChanged)
+    Q_PROPERTY(bool ergEnabled READ ergEnabled NOTIFY modeChanged)   // read-only: mode == "erg"
 
     // live / session values
     Q_PROPERTY(int elapsedSeconds READ elapsedSeconds NOTIFY tick)
@@ -153,8 +153,9 @@ public:
     static QString modeName(Mode m);
     // "ride" / "erg"; the old "gears" and "free" -> Ride. nullopt if unknown.
     static std::optional<Mode> parseMode(const QString &text);
+    // ERG is on exactly in mode "erg" (the Ride | ERG selector is the only
+    // switch); there is no separate setter, so mode and ERG cannot disagree.
     bool ergEnabled() const { return m_mode == Mode::Erg; }
-    void setErgEnabled(bool on);
 
     int elapsedSeconds() const { return int(m_activeMs / 1000); }
     double distanceMeters() const { return m_distance; }

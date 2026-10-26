@@ -4,7 +4,8 @@ import QtQuick.Layouts
 import Artilody.Backend
 
 // ERG panel of the free ride page: hold FreeRide.targetWatts as long as you
-// like. Steps, direct entry and the ERG switch call the FreeRide singleton.
+// like. Only shown in mode "erg" – the page's Ride | ERG selector is the one
+// switch that turns ERG on/off. Steps and direct entry call FreeRide.
 Item {
     id: erg
 
@@ -28,6 +29,7 @@ Item {
             Layout.fillHeight: true
             spacing: 6
 
+            Item { Layout.fillHeight: true }
             Text {
                 text: "Target power"
                 color: Theme.textSecondary
@@ -38,15 +40,15 @@ Item {
                 Text {
                     id: targetText
                     text: FreeRide.targetWatts
-                    color: FreeRide.ergEnabled ? Theme.warningText : Theme.textMuted
-                    font.pixelSize: 88
+                    color: Theme.warningText
+                    font.pixelSize: 96
                     font.weight: Font.Black
                     font.letterSpacing: -2
                 }
                 Text {
                     text: "W"
-                    color: FreeRide.ergEnabled ? Theme.warningText : Theme.textMuted
-                    font.pixelSize: 40
+                    color: Theme.warningText
+                    font.pixelSize: 42
                     font.weight: Font.Bold
                     anchors.baseline: targetText.baseline
                 }
@@ -56,15 +58,14 @@ Item {
                       ? "Actual " + Sensors.displayPower + " W  (" + (erg.diff > 0 ? "+" : erg.diff < 0 ? "−" : "±") + Math.abs(erg.diff) + ")"
                       : "Actual – W"
                 color: Sensors.displayPower <= 0 ? Theme.textSecondary : (erg.onTarget ? Theme.successText : Theme.warningText)
-                font.pixelSize: 17
+                font.pixelSize: 20
                 font.weight: Font.DemiBold
             }
             // actual vs target: the band is ±5 %, the marker the current power
             Item {
                 Layout.fillWidth: true
-                Layout.topMargin: 6
+                Layout.topMargin: 8
                 Layout.preferredHeight: 22
-                visible: FreeRide.ergEnabled
                 readonly property real scaleMax: Math.max(1, FreeRide.targetWatts * 2)
                 Rectangle {
                     id: track
@@ -93,30 +94,6 @@ Item {
                 }
             }
             Item { Layout.fillHeight: true }
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 58
-                radius: 10
-                color: Theme.cardStrong
-                border.color: FreeRide.ergEnabled ? Qt.rgba(0.24, 0.86, 0.36, 0.6) : Theme.cardBorder
-                Column {
-                    x: 14
-                    anchors.verticalCenter: parent.verticalCenter
-                    Text { text: "ERG mode"; color: Theme.text; font.pixelSize: 17; font.weight: Font.DemiBold }
-                    Text {
-                        text: FreeRide.ergEnabled ? "Trainer holds the target" : "Off – back to virtual gears"
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                    }
-                }
-                ToggleSwitch {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    checked: FreeRide.ergEnabled
-                    onToggled: (on) => FreeRide.setErgEnabled(on)
-                }
-            }
         }
 
         // --- steps --------------------------------------------------------------
@@ -180,8 +157,6 @@ Item {
                         if (isNaN(v))
                             return
                         FreeRide.setTargetWatts(v)
-                        if (!FreeRide.ergEnabled)
-                            FreeRide.setErgEnabled(true)
                         entry.text = ""
                         entry.focus = false
                     }
@@ -200,7 +175,7 @@ Item {
                 Icon { name: "controller"; size: 20; color: Theme.accentLight; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     width: 220
-                    text: "Zwift Click + / − changes the target by 10 W"
+                    text: "Zwift Click + / − or PgUp / PgDn: ±10 W"
                     color: Theme.textSecondary
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap
@@ -212,7 +187,7 @@ Item {
                 Icon { name: "keyboard"; size: 20; color: Theme.textSecondary; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     width: 220
-                    text: "↑ / ↓  ±5 W\nPgUp / PgDn  ±10 W"
+                    text: "↑ / ↓: ±5 W  •  Space: pause"
                     color: Theme.textSecondary
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap

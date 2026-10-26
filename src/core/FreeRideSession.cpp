@@ -173,11 +173,6 @@ void FreeRideSession::setMode(const QString &modeText)
     applyTarget(true);
 }
 
-void FreeRideSession::setErgEnabled(bool on)
-{
-    setMode(on ? QStringLiteral("erg") : QStringLiteral("ride"));
-}
-
 void FreeRideSession::resistanceSetupChanged()
 {
     emit modeChanged();   // virtualGears / simulationFallback / resistancePath

@@ -1322,7 +1322,8 @@ def build(s, env):
                      "same cadence."],
         [UI("ERG"), "The trainer holds the target wattage regardless of cadence, as long as you like."],
     ], [1.0, 4.8])
-    s.p("Choose the mode with the selector at the top right of the page. You can change it at any time, also "
+    s.p("Choose the mode with the selector at the top right of the page – it is the only ERG switch: selecting "
+        "ERG sends the target to the trainer, selecting Ride releases it. You can change it at any time, also "
         "during a ride; switching to ERG continues at the power you are riding at that moment.")
     s.note("A trainer that cannot simulate a gradient cannot make a climb harder by itself. In Ride mode the "
            "app then uses virtual gears automatically (via ERG) and says so on the page.")
@@ -1368,6 +1369,8 @@ def build(s, env):
         f"Step buttons {UI('−25')} {UI('−10')} {UI('−5')} {UI('+5')} {UI('+10')} {UI('+25')} (hold to repeat), "
         f"or type a value under {UI('Exact target')} and press {UI('Set')} or Enter (25–1500 W).",
         "The Zwift Click changes the target by 10 W; the keyboard by 5 W (↑ / ↓) or 10 W (Page Up / Page Down).",
+        f"There is no separate ERG switch: ERG is on exactly while {UI('ERG')} is selected at the top of the "
+        f"page. Choose {UI('Ride')} to release the target, or {UI('Pause Ride')} to free-wheel for a moment.",
     ])
 
     s.section("Starting, pausing and finishing")

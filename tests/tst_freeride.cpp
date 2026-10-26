@@ -267,12 +267,12 @@ private slots:
         QVERIFY(f.ride->start());
         f.ride_for(3000);
         QSignalSpy modes(f.ride.get(), &FreeRideSession::modeChanged);
-        f.ride->setErgEnabled(true);
+        f.ride->setMode(QStringLiteral("erg"));
         QCOMPARE(modes.count(), 1);
         QCOMPARE(f.ride->mode(), QStringLiteral("erg"));
         QCOMPARE(f.ride->targetWatts(), 185);
         QCOMPARE(f.hub->requestedTarget(), 185);
-        f.ride->setErgEnabled(false);
+        f.ride->setMode(QStringLiteral("ride"));
         QCOMPARE(f.ride->mode(), QStringLiteral("ride"));
         QVERIFY(f.hub->requestedTarget() > 0);
         f.ride->setMode(QStringLiteral("nonsense"));
@@ -283,6 +283,54 @@ private slots:
         auto again = f.makeRide();
         QCOMPARE(again->mode(), QStringLiteral("erg"));
         QCOMPARE(again->targetWatts(), 185);
+    }
+
+    // The Ride | ERG selector is the only ERG switch: mode "erg" sends the
+    // target at once, "ride" releases it; ergEnabled cannot be set apart.
+    void modeSelectorIsTheErgSwitch()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QMetaObject *mo = f.ride->metaObject();
+        const QMetaProperty ergProp = mo->property(mo->indexOfProperty("ergEnabled"));
+        QVERIFY(ergProp.isValid());
+        QVERIFY(!ergProp.isWritable());
+        QVERIFY(!ergProp.write(f.ride.get(), true));
+        QCOMPARE(f.ride->mode(), QStringLiteral("ride"));
+        QVERIFY(!f.ride->ergEnabled());
+
+        f.pedal(80, 140);
+        QVERIFY(f.ride->start());
+        f.ride_for(2000);
+        f.ride->setTargetWatts(230);   // remembered, but not sent in ride mode
+        QVERIFY(f.ride->resistancePath() != QStringLiteral("erg"));
+        QVERIFY(f.hub->requestedTarget() != 230);
+
+        QSignalSpy modes(f.ride.get(), &FreeRideSession::modeChanged);
+        f.ride->setMode(QStringLiteral("erg"));
+        QCOMPARE(modes.count(), 1);
+        QVERIFY(f.ride->ergEnabled());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("erg"));
+        const int target = f.ride->targetWatts();
+        QVERIFY(target >= FreeRideSession::kMinErgWatts);
+        QCOMPARE(f.hub->requestedTarget(), target);   // sent at once, no extra switch
+        QCOMPARE(f.ride->requestedWatts(), target);
+        f.ride->adjustTargetWatts(10);
+        QCOMPARE(f.hub->requestedTarget(), target + 10);
+
+        f.ride->setMode(QStringLiteral("ride"));
+        QVERIFY(!f.ride->ergEnabled());
+        QVERIFY(f.ride->resistancePath() != QStringLiteral("erg"));
+        f.ride->advanceClock(1500);
+        QVERIFY(f.hub->requestedTarget() != target + 10);   // the ERG hold is gone
+        // pause/resume keeps mode and ERG together
+        f.ride->setMode(QStringLiteral("erg"));
+        f.ride->pause();
+        QCOMPARE(f.ride->mode(), QStringLiteral("erg"));
+        QVERIFY(f.ride->ergEnabled());
+        f.ride->resume();
+        QCOMPARE(f.hub->requestedTarget(), f.ride->targetWatts());
+        f.ride->finish(false);
     }
 
     void modeReshapeAndMigration()

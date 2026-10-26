@@ -1747,7 +1747,7 @@ Item {
                     }
                     Text {
                         width: parent.width
-                        text: page.ergMode ? "Keys: ↑ / ↓ ±5 W  •  PgUp / PgDn ±10 W  •  Space pause"
+                        text: page.ergMode ? "Zwift Click + / − or PgUp / PgDn: ±10 W\n↑ / ↓ ±5 W  •  Space pause"
                               : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
                               : "Keys: PgUp / PgDn difficulty  •  Space pause"
                         color: Theme.textMuted
