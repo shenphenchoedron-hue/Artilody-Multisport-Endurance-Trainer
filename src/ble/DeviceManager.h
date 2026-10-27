@@ -14,6 +14,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QVariantList>
+#include <functional>
 #include <memory>
 
 class QBluetoothLocalDevice;
@@ -226,6 +227,8 @@ public:
     // Plain-text Bluetooth report (adapter, Qt version, every device seen,
     // classification, errors) for the diagnostics dialog / bug reports.
     Q_INVOKABLE QString diagnosticsReport() const;
+    // Extra sections appended to diagnosticsReport() (main.cpp: "[Virtual gears]").
+    void setExtraDiagnostics(std::function<QString()> provider) { m_extraDiagnostics = std::move(provider); }
     Q_INVOKABLE void copyToClipboard(const QString &text) const;
     Q_INVOKABLE void clearScanError();
 
@@ -359,6 +362,7 @@ private:
     QDateTime m_lastScan;
     QString m_scanStatus;
     QString m_knownTrainer, m_knownHr, m_knownRower;
+    std::function<QString()> m_extraDiagnostics;
     bool m_autoConnect = true;
     bool m_autoReconnect = true;
     bool m_allowMultiple = true;

@@ -856,6 +856,89 @@ Item {
                         }
                     }
                 }
+                // the real gear measured from the trainer's speed and cadence
+                Item {
+                    width: parent.width
+                    height: 26
+                    Text {
+                        id: detectedText
+                        width: parent.width - (useDetected.visible ? useDetected.width + 12 : 0)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Gears.detectedRatio > 0
+                              ? "Detected on the trainer: " + (Gears.detectedLabel !== "" ? Gears.detectedLabel + " " : "")
+                                + "(" + Gears.detectedRatio.toFixed(2) + ")"
+                                + (Gears.detectedDiffers ? " – used instead of " + Gears.referenceLabel : "")
+                              : "Detected on the trainer: pedal steadily for a few seconds (needs speed + cadence from the trainer)"
+                        color: Gears.detectedDiffers ? Theme.warningText : Theme.textSecondary
+                        font.pixelSize: 14
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        id: useDetected
+                        visible: Gears.detectedDiffers && Gears.detectedLabel !== ""
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Save " + Gears.detectedLabel
+                        color: Theme.accentText
+                        font.pixelSize: 14
+                        font.underline: useArea.containsMouse
+                        MouseArea {
+                            id: useArea
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Gears.useDetectedGear()
+                        }
+                    }
+                }
+                Text {
+                    visible: Gears.heavyRealGear
+                    width: parent.width
+                    text: "Tip: put the bike in a small real gear, e.g. 34×17, and choose it above. The trainer's "
+                          + "flywheel then spins slower, so the easy virtual gears (and descents) get lighter."
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                // how the virtual gear reaches a trainer that simulates gradients
+                Item {
+                    width: parent.width
+                    height: 44
+                    Text {
+                        text: "Virtual shifting method"
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    SegmentedControl {
+                        objectName: "gearMethodSelector"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 40
+                        fontSize: 14
+                        segmentPadding: 12
+                        options: [
+                            { value: "auto", label: "Auto (recommended)" },
+                            { value: "gradient", label: "Gradient" },
+                            { value: "erg", label: "ERG" }
+                        ]
+                        value: Gears.shiftMethod
+                        onActivated: (v) => Gears.shiftMethod = v
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: Gears.shiftMethod === "auto"
+                          ? "Auto: gradient simulation for real effort, ERG at the gear's watts for light gears and descents – the lightest load your trainer can give."
+                          : Gears.shiftMethod === "gradient"
+                            ? "Gradient: the trainer always gets a gear-adjusted grade. Light gears can feel heavy if your trainer ignores negative grades."
+                            : "ERG: the trainer always holds the watts of your gear. For trainers whose gradient simulation misbehaves."
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
                 Text {
                     width: parent.width
                     text: "Shift with Zwift Click (or the on-screen buttons). Leave your bike in "

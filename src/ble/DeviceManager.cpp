@@ -936,6 +936,8 @@ QString DeviceManager::diagnosticsReport() const
                 << "  handshake " << (z->handshakeDone() ? "ok" : "pending") << (z->isV2() ? "  v2" : "");
         out << "\n";
     }
+    if (m_extraDiagnostics)
+        out << "\n" << m_extraDiagnostics();
     out << "\n[Rower data]\n";
     if (m_rower) {
         out << m_rower->dataDiagnostics() << "\n";

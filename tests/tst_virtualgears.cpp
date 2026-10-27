@@ -14,6 +14,10 @@
 // b (ERG at the gear's road power); no Set Target Power in Ride/Simulation
 // on a simulating trainer; ERG -> Ride releases ERG; the Click shifts like
 // the on-screen buttons.
+//  * Real trainer (JetBlack Victory, 1.3.1): 44×44 needed ~200 W at the start
+//    of a descent - path a sent a negative grade for the 33 km/h flywheel of
+//    the 50×17 reference gear. The "Auto" shifting method (default) sends a
+//    low ERG target for light loads (hybrid* tests); "Gradient" keeps path a.
 #include "Database.h"
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
@@ -32,6 +36,7 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <optional>
 
 using namespace watt;
 
@@ -150,6 +155,17 @@ struct Rig
         for (int i = 0; i < 8; ++i)
             trainer->step();
         return hub->cadence() > 80;
+    }
+    // a bike with a 44 ring and a 44 cog (the reported 44×44), the real bike
+    // still in 50×17 on the trainer
+    bool lightBike()
+    {
+        if (!gears->setGearSetup({ 34, 44, 50 }, { 11, 12, 13, 14, 15, 17, 19, 21, 24, 28, 34, 44 },
+                                 gears->setup().circumferenceMm, false))
+            return false;
+        return gears->referenceLabel() == QStringLiteral("50×17")
+               && gears->setGear(gears->setup().chainrings.indexOf(44), gears->setup().cogs.indexOf(44))
+               && gears->gearLabel() == QStringLiteral("44×44");
     }
     bool setGear(int cog)
     {
@@ -532,6 +548,7 @@ private slots:
     {
         Rig r;
         QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: hybrid* tests)
         r.freeRide->setGrade(1.5);
         QSignalSpy targets(r.hub.get(), &SensorHub::targetPowerRequested);
         QVERIFY(r.freeRide->start());
@@ -606,6 +623,7 @@ private slots:
     {
         Rig r;
         QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: hybrid* tests)
         r.gears->setActivePage(QStringLiteral("freeride"));
         // idle: the ERG hold, then Ride -> the virtual gear (no ERG left)
         r.freeRide->setMode(QStringLiteral("erg"));
@@ -653,6 +671,7 @@ private slots:
     {
         Rig r;
         QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: hybrid* tests)
         QVERIFY(r.addRoute());
         QVERIFY(r.rlv->seekToDistance(400));
         r.rlv->setMode(QStringLiteral("sim"));
@@ -712,6 +731,7 @@ private slots:
     {
         Rig r;
         QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: hybrid* tests)
         QVERIFY(r.addRoute());
         QVERIFY(r.rlv->seekToDistance(2200));
         QVERIFY(r.rlv->start());
@@ -726,6 +746,294 @@ private slots:
             last = g;
         }
         r.rlv->finish(false);
+    }
+
+
+    // -- virtual shifting method / hybrid (real trainers) --------------------------
+
+    void methodChoosesThePath()
+    {
+        SensorHub hub;
+        hub.setTrainerConnected(true);
+        hub.setTrainerSimulationSupport(1);
+        hub.updateCadence(90);
+        using M = RideResistance::GearMethod;
+        using P = RideResistance::Path;
+        QCOMPARE(RideResistance::choose(false, true, &hub, M::Auto), P::GearHybrid);
+        QCOMPARE(RideResistance::choose(false, true, &hub, M::Gradient), P::GearSimulation);
+        QCOMPARE(RideResistance::choose(false, true, &hub, M::Erg), P::GearErg);
+        QCOMPARE(RideResistance::choose(false, true, &hub), P::GearSimulation);   // default: as before
+        QCOMPARE(RideResistance::choose(true, true, &hub, M::Auto), P::Erg);
+        QCOMPARE(RideResistance::choose(false, false, &hub, M::Auto), P::Simulation);
+        hub.setTrainerSimulationSupport(0);
+        QCOMPARE(RideResistance::choose(false, true, &hub, M::Auto), P::GearErg);
+        QCOMPARE(RideResistance::choose(false, true, &hub, M::Gradient), P::GearErg);
+        QCOMPARE(RideResistance::parseMethod(QStringLiteral("Auto")), std::optional<M>(M::Auto));
+        QCOMPARE(RideResistance::parseMethod(QStringLiteral("gradient")), std::optional<M>(M::Gradient));
+        QCOMPARE(RideResistance::parseMethod(QStringLiteral("erg")), std::optional<M>(M::Erg));
+        QVERIFY(!RideResistance::parseMethod(QStringLiteral("x")));
+        QCOMPARE(RideResistance::methodName(M::Gradient), QStringLiteral("gradient"));
+    }
+
+    void methodIsPersisted()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        {
+            VirtualGears g(&db, &profiles);
+            QCOMPARE(g.shiftMethod(), QStringLiteral("auto"));   // default
+            QSignalSpy changed(&g, &VirtualGears::shiftMethodChanged);
+            g.setShiftMethod(QStringLiteral("erg"));
+            QCOMPARE(changed.count(), 1);
+            g.setShiftMethod(QStringLiteral("nonsense"));   // ignored
+            g.setShiftMethod(QStringLiteral("erg"));
+            QCOMPARE(changed.count(), 1);
+            QCOMPARE(g.method(), RideResistance::GearMethod::Erg);
+        }
+        VirtualGears again(&db, &profiles);
+        QCOMPARE(again.shiftMethod(), QStringLiteral("erg"));
+        again.setProperty("shiftMethod", QStringLiteral("gradient"));   // what the QML selector does
+        QCOMPARE(VirtualGears(&db, &profiles).shiftMethod(), QStringLiteral("gradient"));
+    }
+
+    // The reported case in numbers: 44×44 at 90 rpm with the bike in 50×17 on
+    // a simulating trainer. Path a needs a negative grade (the flywheel turns
+    // at 33 km/h); a trainer that brakes "0 %" there takes ~150-200 W. Auto
+    // sends a low ERG target instead, on −3 % and on 0 %.
+    void hybridLightestGearIsLight()
+    {
+        SensorHub hub;
+        hub.setTrainerConnected(true);
+        hub.setTrainerSimulationSupport(1);
+        hub.updateCadence(90);
+        QVERIFY(hub.cadenceReported());
+        for (double grade : { -3.0, 0.0 }) {
+            RideResistance::GearDrive d;
+            d.road.massKg = 85;
+            d.road.gradePercent = grade;
+            d.cadenceRpm = 90;
+            d.virtualRatio = 44.0 / 44;
+            d.referenceRatio = 50.0 / 17;
+            const double vRef = RideResistance::referenceSpeed(d);
+            QVERIFY(std::abs(vRef * 3.6 - 33.4) < 0.2);
+            QVERIFY(std::abs(RideResistance::gearSpeed(d) * 3.6 - 11.4) < 0.1);
+            // what path a would send, and what a trainer clamping it to 0 % brakes
+            const double gradient = RideResistance::gearGrade(d);
+            QVERIFY2(gradient < -1.5, qPrintable(QString::number(gradient)));
+            const road::TrainerModel tm = RideResistance::trainerModel(d);
+            const double atZero = (tm.crr * tm.massKg * 9.81 + 0.5 * tm.cwKgPerM * vRef * vRef) * vRef;
+            QVERIFY2(atZero > 150 && atZero < 230, qPrintable(QString::number(atZero)));
+
+            RideResistance res(&hub);
+            QSignalSpy sims(&hub, &SensorHub::simulationRequested);
+            QVERIFY(res.sendHybrid(d, true, 90, true));
+            QCOMPARE(sims.count(), 0);   // never a gradient here
+            QVERIFY(hub.ergActive());
+            QVERIFY2(hub.requestedTarget() >= RideResistance::kLightMinWatts && hub.requestedTarget() <= 30,
+                     qPrintable(QString::number(hub.requestedTarget())));
+            QVERIFY(res.hybridLight());
+            QCOMPARE(res.gearDebug().decision, QStringLiteral("erg-light"));
+            QVERIFY(std::abs(res.gearDebug().wantedGrade - gradient) < 1e-9);
+            // the Gradient method sends that negative grade (as before)
+            RideResistance old(&hub);
+            QVERIFY(old.sendGrade(RideResistance::gearGrade(d), true, tm));
+            QCOMPARE(hub.requestedGrade(), std::round(gradient * 100) / 100);
+        }
+    }
+
+    void hybridHysteresis()
+    {
+        QVERIFY(RideResistance::lightWanted(false, 0.0, 200));    // grade <= 0
+        QVERIFY(RideResistance::lightWanted(false, 2.0, 59));     // little power
+        QVERIFY(!RideResistance::lightWanted(false, 0.1, 60));
+        QVERIFY(RideResistance::lightWanted(true, 0.4, 200));     // not above the exit grade yet
+        QVERIFY(RideResistance::lightWanted(true, 2.0, 70));      // not enough power yet
+        QVERIFY(!RideResistance::lightWanted(true, 0.6, 75));
+
+        SensorHub hub;
+        hub.setTrainerConnected(true);
+        hub.setTrainerSimulationSupport(1);
+        hub.updateCadence(90);
+        RideResistance res(&hub);
+        RideResistance::GearDrive climb;
+        climb.road.massKg = 85;
+        climb.road.gradePercent = 6;
+        climb.cadenceRpm = 90;
+        climb.virtualRatio = 50.0 / 17;
+        climb.referenceRatio = 50.0 / 17;
+        RideResistance::GearDrive descent = climb;
+        descent.road.gradePercent = -3;
+        descent.virtualRatio = 1.0;
+
+        QVERIFY(res.sendHybrid(climb, false, 90, true));
+        QVERIFY(hub.simulationActive());
+        QVERIFY(hub.requestedGrade() > 3);
+        // the descent starts: not within the same second ...
+        res.sendHybrid(descent, false, 90, true);
+        QVERIFY(hub.simulationActive());
+        res.elapse(500);
+        res.sendHybrid(descent, false, 90, true);
+        QVERIFY(hub.simulationActive());
+        // ... but after kHybridSwitchMs: the light ERG at once
+        res.elapse(500);
+        QVERIFY(res.sendHybrid(descent, false, 90, true));
+        QVERIFY(hub.ergActive());
+        QVERIFY(hub.requestedTarget() <= 30);
+        // climbing again: at most one switch per second
+        res.sendHybrid(climb, false, 90, true);
+        QVERIFY(hub.ergActive());
+        res.elapse(1000);
+        QVERIFY(res.sendHybrid(climb, false, 90, true));
+        QVERIFY(hub.simulationActive());
+        // coasting: released to the trainer's minimum
+        res.elapse(1000);
+        QVERIFY(res.sendHybrid(climb, false, 5, true));
+        QVERIFY(!hub.simulationActive());
+        QVERIFY(!hub.ergActive());
+        QCOMPARE(res.gearDebug().decision, QStringLiteral("free"));
+        // no cadence from the trainer: the gear grade (the speed stands in)
+        RideResistance noCad(&hub);
+        RideResistance::GearDrive bySpeed = descent;
+        bySpeed.cadenceRpm = 0;
+        bySpeed.trainerSpeedMps = 9.0;
+        QVERIFY(noCad.sendHybrid(bySpeed, true, 0, false));
+        QVERIFY(hub.simulationActive());
+    }
+
+    // End to end on the virtual trainer, Video Ride on the −6 % descent in
+    // 44×44: Auto only ever sends low ERG targets, the trainer brakes lightly.
+    void hybridDescentEndToEnd()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        QCOMPARE(r.gears->shiftMethod(), QStringLiteral("auto"));
+        QVERIFY(r.lightBike());
+        QVERIFY(r.addRoute());
+        QVERIFY(r.rlv->seekToDistance(2200));
+        r.commands.clear();
+        QVERIFY(r.rlv->start());
+        QCOMPARE(r.rlv->resistancePath(), QStringLiteral("gearHybrid"));
+        const double power = r.ride(8);
+        QVERIFY(r.rlv->gradePercent() < -5.9);
+        QVERIFY2(!r.commands.join(QLatin1Char(',')).contains(QStringLiteral("sim")), qPrintable(r.commands.join(QLatin1Char(','))));
+        QVERIFY(r.trainer->ergActive());
+        QVERIFY2(r.hub->requestedTarget() <= 30, qPrintable(QString::number(r.hub->requestedTarget())));
+        QVERIFY2(power <= 35, qPrintable(QString::number(power)));
+        QVERIFY(r.rlv->gearSimulationGrade() < -1.0);   // what Gradient would have sent
+        const QString diag = r.gears->diagnosticsText();
+        QVERIFY2(diag.contains(QStringLiteral("[Virtual gears]")) && diag.contains(QStringLiteral("gearHybrid -> erg-light"))
+                     && diag.contains(QStringLiteral("44×44")) && diag.contains(QStringLiteral("Trainer command: ERG")),
+                 qPrintable(diag));
+        QVERIFY(r.gears->debugLine().contains(QStringLiteral("method=auto")));
+        r.rlv->finish(false);
+
+        // Free Ride on the flat in 44×44: light too; a hard gear on a climb: the gradient
+        r.commands.clear();
+        r.freeRide->setGrade(0.0);
+        QVERIFY(r.freeRide->start());
+        r.ride(4);
+        QVERIFY(r.trainer->ergActive());
+        QVERIFY(r.hub->requestedTarget() <= 30);
+        QVERIFY(r.setGear(14));
+        r.freeRide->setGrade(6.0);
+        r.ride(4);
+        QVERIFY(r.trainer->simulating());
+        QVERIFY(r.hub->requestedGrade() > 3.0);
+        r.freeRide->finish(false);
+    }
+
+    void ergMethodIsAlwaysErg()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("erg"));
+        r.freeRide->setGrade(6.0);
+        QSignalSpy sims(r.hub.get(), &SensorHub::simulationRequested);
+        QVERIFY(r.freeRide->start());
+        QCOMPARE(r.freeRide->resistancePath(), QStringLiteral("gearErg"));
+        r.ride(4);
+        QVERIFY(r.trainer->ergActive());
+        QVERIFY(r.hub->requestedTarget() > 200);
+        r.freeRide->setGrade(-4.0);
+        r.ride(4);
+        QVERIFY(r.trainer->ergActive());
+        QCOMPARE(r.hub->requestedTarget(), RideResistance::kMinGearWatts);
+        QCOMPARE(sims.count(), 0);
+        r.freeRide->finish(false);
+    }
+
+    // The real gear on the trainer from its speed and cadence.
+    void realGearIsDetected()
+    {
+        const int c = 2105;
+        auto speedFor = [&](double cad, double ratio) { return cad / 60.0 * ratio * c / 1000.0; };
+        GearRatioDetector det;
+        qint64 t = 0;
+        for (; t < GearRatioDetector::kWindowMs - 500; t += 500)
+            QVERIFY(!det.addSample(t, 90, speedFor(90, 50.0 / 17), c));
+        QVERIFY(!det.valid());   // not long enough yet
+        for (; t <= GearRatioDetector::kWindowMs + 500; t += 500)
+            det.addSample(t, 90, speedFor(90, 50.0 / 17), c);
+        QVERIFY(det.valid());
+        QVERIFY(std::abs(det.ratio() - 50.0 / 17) < 0.01);
+        // not steady (cadence below 50 rpm, accelerating flywheel): no new result
+        for (int i = 0; i < 20; ++i, t += 500)
+            QVERIFY(!det.addSample(t, 40, speedFor(40, 2.0), c));
+        for (int i = 0; i < 20; ++i, t += 500)
+            QVERIFY(!det.addSample(t, 80 + (i % 2) * 15, speedFor(85, 2.0), c));   // ±8 %
+        QVERIFY(std::abs(det.ratio() - 50.0 / 17) < 0.01);
+
+        // through VirtualGears: label, mismatch, never touches the saved gear
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        VirtualGears g(&db, &profiles);
+        QSignalSpy detected(&g, &VirtualGears::detectionChanged);
+        QCOMPARE(g.detectedRatio(), 0.0);
+        QCOMPARE(g.effectiveReferenceRatio(), g.referenceRatio());
+        const int circ = g.setup().circumferenceMm;
+        for (qint64 ms = 0; ms <= 7000; ms += 250)
+            g.addTrainerSample(ms, 88, 88 / 60.0 * 50.0 / 17 * circ / 1000.0);
+        QCOMPARE(g.detectedLabel(), QStringLiteral("50×17"));
+        QVERIFY(!g.detectedDiffers());
+        QVERIFY(g.heavyRealGear());   // 2.94: a small real gear makes the easy gears lighter
+        QCOMPARE(detected.count(), 1);
+        for (qint64 ms = 8000; ms <= 16000; ms += 250)
+            g.addTrainerSample(ms, 92, 92 / 60.0 * 34.0 / 17 * circ / 1000.0);
+        QCOMPARE(g.detectedLabel(), QStringLiteral("34×17"));
+        QVERIFY(std::abs(g.detectedRatio() - 2.0) < 0.01);
+        QVERIFY(g.detectedDiffers());
+        QVERIFY(!g.heavyRealGear());
+        QCOMPARE(g.referenceLabel(), QStringLiteral("50×17"));   // the saved reference stays
+        QVERIFY(std::abs(g.effectiveReferenceRatio() - 2.0) < 0.01);   // path a uses the real gear
+        QVERIFY(g.diagnosticsText().contains(QStringLiteral("detected: 34×17 (2.000)")));
+        g.clearDetection();
+        QCOMPARE(g.detectedRatio(), 0.0);
+        QCOMPARE(g.effectiveReferenceRatio(), g.referenceRatio());
+    }
+
+    // Path a with a detected real gear: v_ref from the detected ratio.
+    void detectedGearDrivesPathA()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        r.gears->setShiftMethod(QStringLiteral("gradient"));
+        r.freeRide->setGrade(2.0);
+        const double before = r.freeRide->gearSimulationGrade();
+        // the bike really sits in 34×17: slower flywheel, so the same virtual
+        // gear needs a steeper grade there
+        r.gears->clearDetection();
+        r.gears->addTrainerSample(1000000, 88, 88 / 60.0 * 2.0 * r.gears->setup().circumferenceMm / 1000.0);
+        for (qint64 ms = 1000250; ms <= 1007500; ms += 250)
+            r.gears->addTrainerSample(ms, 88, 88 / 60.0 * 2.0 * r.gears->setup().circumferenceMm / 1000.0);
+        QVERIFY(std::abs(r.gears->effectiveReferenceRatio() - 2.0) < 0.01);
+        QVERIFY2(r.freeRide->gearSimulationGrade() > before + 1.0,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(r.freeRide->gearSimulationGrade())));
     }
 
     // -- Click = on-screen buttons, same direction on both pages ----------------

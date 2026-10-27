@@ -2,12 +2,46 @@
 
 #include "Gearing.h"
 
+#include <QString>
+#include <QVector>
 #include <QtGlobal>
 #include <limits>
+#include <optional>
 
 namespace watt {
 
 class SensorHub;
+
+// The real gear on the trainer from the trainer's speed and cadence:
+//     R_real = v / (cadence/60 · circumference)
+// (direct-drive trainers report the speed of their flywheel as a wheel speed,
+// so this is the chainring/cog ratio the bike sits in). Only steady pedaling
+// counts: kMinCadenceRpm..kMaxCadenceRpm, at least kMinSpeedMps, and all
+// ratios of the last kWindowMs within ±kMaxSpread of their mean. The result
+// stays until a new steady window gives another one (clear() forgets it).
+class GearRatioDetector
+{
+public:
+    static constexpr double kMinCadenceRpm = 50;
+    static constexpr double kMaxCadenceRpm = 130;
+    static constexpr double kMinSpeedMps = 3.0;
+    static constexpr int kWindowMs = 6000;
+    static constexpr double kMaxSpread = 0.03;     // ±3 %
+    static constexpr double kMinRatio = 0.6;
+    static constexpr double kMaxRatio = 6.0;
+    static constexpr double kChangeThreshold = 0.02;   // a new result differs by more
+
+    // true when ratio() changed
+    bool addSample(qint64 ms, double cadenceRpm, double speedMps, int circumferenceMm);
+    bool valid() const { return m_ratio > 0; }
+    double ratio() const { return m_ratio; }
+    void clear();
+
+private:
+    struct Sample { qint64 ms; double ratio; };
+    QVector<Sample> m_window;
+    double m_ratio = 0;
+};
 
 // Resistance commands of the riding sessions (Free Ride, Video Ride), rate
 // limited, through SensorHub (-> device layer -> FTMS).
@@ -29,10 +63,33 @@ class SensorHub;
 // but at most every kMinGradeIntervalMs, refreshed every kGradeRefreshMs.
 // Gear watts at most every kGearIntervalMs and only when they moved by
 // >= kMinWattsChange. force sends right away (shift, mode or grade change).
+//
+//   GearHybrid     - virtual gears, "Auto" shifting method (default) on a
+//                    simulating trainer that reports cadence: path a for
+//                    real loads, ERG at the gear's watts (floor
+//                    kLightMinWatts) for light ones (sendHybrid()).
+//
+// Why the hybrid: in path a the flywheel turns at the speed of the REAL gear
+// (v_ref = cadence × R_ref × circumference: 50×17 at 90 rpm = 33 km/h). A
+// trainer simulating 0 % at 33 km/h brakes with rolling + air drag of that
+// speed, ~185 W for a 85 kg rider - whatever the virtual gear. A light virtual
+// gear (44×44 = 11 km/h, ~20 W) therefore needs a NEGATIVE grade (≈ −2.2 %),
+// which many FTMS trainers clamp to 0 % or answer with a high minimum
+// resistance: "200 W at the start of a descent in the lightest gear". ERG at
+// the gear's watts asks the brake for (almost) nothing instead.
+//
+// Virtual shifting method (VirtualGears::shiftMethod, "Devices > Virtual gears"):
+//   Auto     - GearHybrid (trainer without cadence / gradient simulation:
+//              GearSimulation / GearErg as before)
+//   Gradient - GearSimulation (the pre-1.3.2 behaviour), GearErg without simulation
+//   Erg      - always GearErg (trainers whose gradient simulation is quirky)
 class RideResistance
 {
 public:
-    enum class Path { Erg, Simulation, GearSimulation, GearErg };
+    enum class Path { Erg, Simulation, GearSimulation, GearErg, GearHybrid };
+    enum class GearMethod { Auto, Gradient, Erg };
+    static QString methodName(GearMethod m);                       // "auto" / "gradient" / "erg"
+    static std::optional<GearMethod> parseMethod(const QString &text);
 
     // What the virtual gear resistance depends on (both pages).
     struct GearDrive
@@ -89,8 +146,34 @@ public:
     static constexpr double kMinGrade = -10.0;       // what is sent with 0x11
     static constexpr double kMaxGrade = 20.0;
 
+    // GearHybrid ("Auto"): light = ERG at lightWatts(), else the gear grade.
+    // Light when the grade path a would send is <= kLightEnterGrade or the
+    // gear asks for less than kLightEnterWatts; back to the grade only when
+    // it is > kLightExitGrade AND >= kLightExitWatts; at most one switch per
+    // kHybridSwitchMs. Coasting (cadence below kGearReleaseCadenceRpm):
+    // released (free ride) like GearErg.
+    static constexpr double kLightEnterGrade = 0.0;   // %
+    static constexpr double kLightExitGrade = 0.5;    // %
+    static constexpr int kLightEnterWatts = 60;
+    static constexpr int kLightExitWatts = 75;
+    static constexpr int kLightMinWatts = 10;         // ERG floor of the light gears
+    static constexpr int kHybridSwitchMs = 1000;
+
+    // The gear's demanded crank power for the light ERG: like gearWatts() but
+    // floored at kLightMinWatts. 0 = not pedaling.
+    static int lightWatts(const GearDrive &d);
+    // The hybrid decision with its hysteresis (light: currently ERG-light).
+    static bool lightWanted(bool light, double gradeToSend, int demandedWatts)
+    {
+        return light ? !(gradeToSend > kLightExitGrade && demandedWatts >= kLightExitWatts)
+                     : (gradeToSend <= kLightEnterGrade || demandedWatts < kLightEnterWatts);
+    }
+    // The trainer speed path a assumes (reference gear at the cadence, else
+    // the trainer's speed); 0 = unknown.
+    static double referenceSpeed(const GearDrive &d);
+
     // erg: ERG mode; virtualGears: the rider shifts virtually.
-    static Path choose(bool erg, bool virtualGears, const SensorHub *hub);
+    static Path choose(bool erg, bool virtualGears, const SensorHub *hub, GearMethod method = GearMethod::Gradient);
     // Virtual gears can use the trainer's gradient simulation (path a).
     static bool gearSimulationPossible(const SensorHub *hub);
     static const char *pathName(Path p);
@@ -103,6 +186,7 @@ public:
     {
         m_sinceMs += ms;
         m_sinceToggleMs += ms;
+        m_sinceHybridMs += ms;
     }
 
     // Each returns true when a new value went out (callers emit their
@@ -119,6 +203,22 @@ public:
     // FTMS 0x11 with the trainer model's Crr and Cw (its mass is not sent:
     // FTMS has no weight field).
     bool sendGrade(double gradePercent, bool force, const road::TrainerModel &trainer);
+    // GearHybrid (see kLightEnterGrade). cadenceReported false: the gear grade
+    // (path a, the trainer's speed stands in for the cadence).
+    bool sendHybrid(const GearDrive &d, bool force, double liveCadenceRpm, bool cadenceReported,
+                    double minGrade = kMinGrade, double maxGrade = kMaxGrade);
+    bool hybridLight() const { return m_light == 1; }
+
+    // What the last gear command was based on (diagnostics / WATT_DEBUG_GEARS).
+    struct GearDebug
+    {
+        int demandedWatts = 0;          // the gear's road power (crank)
+        double wantedGrade = 0;         // the grade path a would send
+        double referenceSpeedMps = 0;   // v_ref
+        double referenceRatio = 0;
+        QString decision;               // "grade" / "erg-light" / "free" / ""
+    };
+    const GearDebug &gearDebug() const { return m_debug; }
 
     int lastWatts() const { return m_lastWatts > 0 ? m_lastWatts : 0; }   // last ERG/gear watts sent
     bool sentAnything() const { return m_lastWatts >= 0 || simulating(); }
@@ -135,6 +235,9 @@ private:
     int m_sinceMs = 0;
     bool m_gearEngaged = false;
     int m_sinceToggleMs = kGearToggleMs;
+    int m_light = -1;                     // hybrid: -1 undecided, 0 grade, 1 light ERG
+    int m_sinceHybridMs = kHybridSwitchMs;
+    GearDebug m_debug;
     quint64 m_serial = 0;    // SensorHub::commandSerial() after our last command
 };
 

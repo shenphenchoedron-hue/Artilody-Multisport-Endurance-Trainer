@@ -55,6 +55,12 @@ class RlvRoute
 public:
     static constexpr double kElevationWindowM = 40.0;   // smoothing window (full width)
     static constexpr double kGradeWindowM = 40.0;       // grade base (full width)
+    // The grade the rider feels (gradeAheadAtDistance()): smoothed elevation
+    // from kFeltBehindM behind to kFeltAheadM ahead, so a descent (or climb)
+    // is felt when it starts instead of when the centred 40 m base has passed
+    // the crest.
+    static constexpr double kFeltBehindM = 10.0;
+    static constexpr double kFeltAheadM = 20.0;
     static constexpr double kMinGrade = -20.0;
     static constexpr double kMaxGrade = 25.0;
     static constexpr double kAscentThresholdM = 2.0;    // hysteresis for ascent / descent
@@ -105,6 +111,9 @@ public:
     // the END of the stop is returned, so a moving rider skips stopped parts.
     double videoTimeAtDistance(double distanceM) const;
     double gradeAtDistance(double distanceM) const;
+    // Grade over [d - kFeltBehindM, d + kFeltAheadM] of the smoothed
+    // elevation (shrinks at the route ends), clamped like gradeAtDistance().
+    double gradeAheadAtDistance(double distanceM) const;
     double elevationAtDistance(double distanceM) const;
     double recordedSpeedAtDistance(double distanceM) const;   // m/s, filmed speed
     double ascentAtDistance(double distanceM) const;           // cumulative ascent

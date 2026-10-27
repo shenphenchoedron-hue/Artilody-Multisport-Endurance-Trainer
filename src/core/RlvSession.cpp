@@ -57,6 +57,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &RlvSession::resistanceSetupChanged);
+    connect(m_gears, &VirtualGears::shiftMethodChanged, this, &RlvSession::resistanceSetupChanged);
     auto gearChanged = [this] {
         emit targetChanged();
         emit metricsChanged();
@@ -65,6 +66,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     };
     connect(m_gears, &VirtualGears::gearChanged, this, gearChanged);
     connect(m_gears, &VirtualGears::gearSetupChanged, this, gearChanged);
+    connect(m_gears, &VirtualGears::detectionChanged, this, gearChanged);   // the real gear (path a)
     if (m_library) {
         connect(m_library, &RlvLibrary::scanned, this, [this] { emit routeChanged(); });   // routeIndex
     }
@@ -312,7 +314,7 @@ bool RlvSession::virtualGears() const
 
 RideResistance::Path RlvSession::path() const
 {
-    return RideResistance::choose(ergNow(), virtualGears(), m_hub);
+    return RideResistance::choose(ergNow(), virtualGears(), m_hub, m_gears->method());
 }
 
 int RlvSession::ergTargetNow() const
@@ -445,7 +447,8 @@ double RlvSession::progress() const
 
 double RlvSession::gradePercent() const
 {
-    return hasRoute() ? m_route.gradeAtDistance(m_distance) : 0.0;
+    // the grade at the rider, looking slightly ahead (a descent is felt when it starts)
+    return hasRoute() ? m_route.gradeAheadAtDistance(m_distance) : 0.0;
 }
 
 double RlvSession::effectiveGradePercent() const
@@ -548,7 +551,7 @@ RideResistance::GearDrive RlvSession::gearDrive(double cadenceRpm) const
     d.road = roadModel(effectiveGradePercent());
     d.cadenceRpm = cadenceRpm;
     d.virtualRatio = gearing().ratio();
-    d.referenceRatio = m_gears->referenceRatio();
+    d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
     d.circumferenceMm = gearing().setup().circumferenceMm;
     // without a cadence the trainer's speed stands in for the reference gear
     d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
@@ -593,6 +596,9 @@ bool RlvSession::sendResistance(bool force)
     case RideResistance::Path::GearErg:
         // with engage/release hysteresis on the live cadence
         return m_res.sendGear(gearDrive(controlCadence()), force, m_hub->cadence());
+    case RideResistance::Path::GearHybrid:
+        return m_res.sendHybrid(gearDrive(controlCadence()), force, m_hub->cadence(), m_hub->cadenceReported(),
+                                kMinSimGrade, kMaxSimGrade);
     }
     return false;
 }

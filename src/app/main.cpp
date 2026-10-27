@@ -839,6 +839,8 @@ int main(int argc, char *argv[])
     //                               after WATT_DEBUG_SHIFT_DELAY_SEC (default 10); through
     //                               the virtual Zwift Click when connected (same route as a
     //                               real Click), else DeviceManager::controllerShift
+    // "[Virtual gears]" in the Bluetooth diagnostics report (Devices page)
+    devices.setExtraDiagnostics([&gears] { return gears.diagnosticsText(); });
     if (qEnvironmentVariableIntValue("WATT_DEBUG_GEARS") > 0) {
         auto *dbgTimer = new QTimer(&app);
         auto dbgClock = std::make_shared<QElapsedTimer>();
@@ -887,6 +889,7 @@ int main(int argc, char *argv[])
                   rm.efficiency, hub.simulationActive() ? "SIM" : hub.ergActive() ? "ERG" : "FREE",
                   hub.requestedGrade(), hub.requestedTarget(), hub.simulationCrr(), hub.simulationCw(), hub.speedKmh(),
                   qPrintable(sim), hub.power(), hub.displayPower());
+            qInfo("GEARS %s", qPrintable(gears.debugLine()));
         });
         dbgTimer->start(1000);
     }

@@ -2,9 +2,11 @@
 
 #include "Gearing.h"
 #include "Profile.h"
+#include "RideResistance.h"
 
 #include <QObject>
 #include <QPointer>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -90,6 +92,22 @@ class VirtualGears : public QObject
     Q_PROPERTY(QVariantList wheelPresets READ wheelPresets CONSTANT)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
+    // How virtual gears drive a trainer that simulates gradients
+    // ("auto" default / "gradient" / "erg", setting "gears/method", see
+    // RideResistance::GearMethod).
+    Q_PROPERTY(QString shiftMethod READ shiftMethod WRITE setShiftMethod NOTIFY shiftMethodChanged)
+    // The real gear on the trainer measured from its speed and cadence
+    // (GearRatioDetector); 0 / "" until detected. Never changes the saved
+    // reference gear; path a uses it instead while it is known
+    // (effectiveReferenceRatio()).
+    Q_PROPERTY(double detectedRatio READ detectedRatio NOTIFY detectionChanged)
+    Q_PROPERTY(QString detectedLabel READ detectedLabel NOTIFY detectionChanged)   // "50×17" (nearest of the setup) or ""
+    // detected and more than kDetectMismatch away from the saved reference gear
+    Q_PROPERTY(bool detectedDiffers READ detectedDiffers NOTIFY detectionChanged)
+    // the real gear is heavier than kHeavyReferenceRatio: suggest a small one
+    Q_PROPERTY(bool heavyRealGear READ heavyRealGear NOTIFY detectionChanged)
+    Q_PROPERTY(double referenceRatio READ referenceRatio NOTIFY gearSetupChanged)
+
     // road model of the rider (profile weight / height + gear setup)
     Q_PROPERTY(double riderWeightKg READ riderWeightKg NOTIFY physicsChanged)
     Q_PROPERTY(double systemMassKg READ systemMassKg NOTIFY physicsChanged)     // rider + bike
@@ -101,6 +119,8 @@ class VirtualGears : public QObject
 
 public:
     static constexpr int kSaveDelayMs = 1500;
+    static constexpr double kDetectMismatch = 0.05;      // 5 %
+    static constexpr double kHeavyReferenceRatio = 2.3;  // above ~ 34×15: the flywheel spins fast
 
     VirtualGears(Database *db, ProfileManager *profiles, QObject *parent = nullptr);
     ~VirtualGears() override;
@@ -152,6 +172,28 @@ public:
     static QVariantList cassettePresets() { return GearSetup::cassettePresets(); }
     static QVariantList wheelPresets() { return GearSetup::wheelPresets(); }
     QString lastError() const { return m_lastError; }
+
+    RideResistance::GearMethod method() const { return m_method; }
+    QString shiftMethod() const { return RideResistance::methodName(m_method); }
+    void setShiftMethod(const QString &method);
+    double detectedRatio() const { return m_detector.ratio(); }
+    QString detectedLabel() const;
+    bool detectedDiffers() const;
+    bool heavyRealGear() const;
+    // The real gear ratio path a works with: detected, else the saved reference.
+    double effectiveReferenceRatio() const { return m_detector.valid() ? m_detector.ratio() : referenceRatio(); }
+    // Feeds the detector (also called from the hub's speed / cadence updates).
+    void addTrainerSample(qint64 ms, double cadenceRpm, double speedMps);
+    Q_INVOKABLE void clearDetection();
+    // Saves the detected gear as "Bike on the trainer" (only on request).
+    Q_INVOKABLE bool useDetectedGear();
+    // "[Virtual gears]" section of the Bluetooth diagnostics report: method,
+    // path, route / effective grade, grade sent, ERG target, trainer speed /
+    // cadence / power, detected ratio, reference gear, demanded power - for
+    // the session that drives the trainer (running ride, else the open page).
+    QString diagnosticsText() const;
+    // The same on one line (WATT_DEBUG_GEARS=1 log).
+    QString debugLine() const;
 
     // The rider of a running / paused ride (FreeRideSession / RlvSession call
     // this on start and clear it when the ride ends; owner = the session, a
@@ -223,6 +265,8 @@ signals:
     void gearSetupChanged();
     void lastErrorChanged();
     void physicsChanged();
+    void shiftMethodChanged();
+    void detectionChanged();
     void shifted(int direction);            // the gear changed by a shift (+1 harder)
     void notice(const QString &text);       // short message for a toast
 
@@ -234,6 +278,8 @@ private:
     void saveNow();
     void setError(const QString &e);
     void syncHub();
+    void sampleHub();
+    bool detectedTeeth(int *front, int *rear) const;   // nearest combination of the setup within 3 %
     static QVariantMap setupToMap(const GearSetup &s);
 
     Database *m_db;
@@ -255,6 +301,9 @@ private:
     QTimer m_saveTimer;
     bool m_savePending = false;
     bool m_manualSave = false;
+    RideResistance::GearMethod m_method = RideResistance::GearMethod::Auto;
+    GearRatioDetector m_detector;
+    QElapsedTimer m_detectClock;
 };
 
 } // namespace watt

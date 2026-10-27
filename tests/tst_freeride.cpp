@@ -451,6 +451,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: tst_virtualgears hybrid*)
         // simulating trainer that reports its speed: path a
         f.hub->setTrainerSimulationSupport(1);
         f.pedal(85, 200);
@@ -787,6 +788,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: tst_virtualgears hybrid*)
         f.realGears();
         FakeTrainer trainer(f.hub.get());
         f.ride->setTargetWatts(210);
@@ -852,6 +854,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: tst_virtualgears hybrid*)
         f.realGears();
         qint64 now = 1000000;   // the hub's clock (3 s display power)
         f.hub->setClockForTesting([&now] { return now; });
@@ -1183,6 +1186,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
+        f.gears->setShiftMethod(QStringLiteral("gradient"));   // path a as such (Auto: tst_virtualgears hybrid*)
         qint64 now = 1000000;
         f.hub->setClockForTesting([&now] { return now; });
         f.hub->setTrainerConnected(false);

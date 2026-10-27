@@ -2141,8 +2141,11 @@ Item {
                             visible: page.simMode && Rlv.resistancePath !== "gearErg"
                             width: parent.width
                             height: 26
+                            // Auto shifting: light gears / descents go out as a low ERG target
+                            readonly property bool lightErg: !Rlv.simulationActive && Rlv.resistancePath === "gearHybrid"
+                                                             && Rlv.running && Rlv.sentTargetWatts > 0
                             Text {
-                                text: "Grade sent to trainer"
+                                text: parent.lightErg ? "Light gear – trainer at" : "Grade sent to trainer"
                                 color: Theme.textSecondary
                                 font.pixelSize: 14
                                 anchors.verticalCenter: parent.verticalCenter
@@ -2150,8 +2153,10 @@ Item {
                             Text {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
-                                color: Rlv.simulationActive ? page.gradeTextColor(Rlv.simulationGradePercent) : Theme.textMuted
+                                text: parent.lightErg ? Rlv.sentTargetWatts + " W"
+                                      : Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
+                                color: parent.lightErg ? Theme.text
+                                       : Rlv.simulationActive ? page.gradeTextColor(Rlv.simulationGradePercent) : Theme.textMuted
                                 font.pixelSize: 18
                                 font.weight: Font.Bold
                             }
@@ -2207,7 +2212,7 @@ Item {
                             }
                         }
                         Text {
-                            visible: page.gears && Rlv.resistancePath === "gearSimulation"
+                            visible: page.gears && (Rlv.resistancePath === "gearSimulation" || Rlv.resistancePath === "gearHybrid")
                             width: parent.width
                             text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
                             color: Theme.textSecondary

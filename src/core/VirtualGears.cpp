@@ -6,6 +6,8 @@
 #include "RlvSession.h"
 #include "SensorHub.h"
 
+#include <QTextStream>
+
 #include <algorithm>
 #include <cmath>
 
@@ -13,6 +15,7 @@ namespace watt {
 
 namespace {
 const QString kSettingEnabled = QStringLiteral("gears/enabled");
+const QString kSettingMethod = QStringLiteral("gears/method");
 
 QVector<int> toIntList(const QVariantList &list, bool *ok)
 {
@@ -40,6 +43,7 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
     m_saveTimer.setInterval(kSaveDelayMs);
     connect(&m_saveTimer, &QTimer::timeout, this, &VirtualGears::saveNow);
     connect(this, &VirtualGears::gearSetupChanged, this, &VirtualGears::physicsChanged);
+    connect(this, &VirtualGears::gearSetupChanged, this, &VirtualGears::detectionChanged);   // detectedDiffers / heavyRealGear
     connect(this, &VirtualGears::physicsChanged, this, &VirtualGears::syncHub);
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         emit physicsChanged();   // weight / height may have changed
@@ -52,6 +56,9 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
         load();
     });
     m_enabled = m_db->setting(kSettingEnabled, false).toBool();
+    m_method = RideResistance::parseMethod(m_db->setting(kSettingMethod, QStringLiteral("auto")).toString())
+                   .value_or(RideResistance::GearMethod::Auto);
+    m_detectClock.start();
     load();
 }
 
@@ -62,8 +69,213 @@ VirtualGears::~VirtualGears()
 
 void VirtualGears::setHub(SensorHub *hub)
 {
+    if (m_hub)
+        disconnect(m_hub, nullptr, this, nullptr);
     m_hub = hub;
+    if (m_hub) {
+        connect(m_hub, &SensorHub::speedChanged, this, &VirtualGears::sampleHub);
+        connect(m_hub, &SensorHub::cadenceChanged, this, &VirtualGears::sampleHub);
+        connect(m_hub, &SensorHub::trainerConnectedChanged, this, [this] {
+            if (!m_hub->trainerConnected())
+                clearDetection();   // another trainer / bike may come
+        });
+    }
     syncHub();
+}
+
+void VirtualGears::sampleHub()
+{
+    if (!m_hub || !m_hub->trainerConnected() || !m_hub->trainerReportsSpeed() || !m_hub->cadenceReported())
+        return;
+    addTrainerSample(m_detectClock.elapsed(), m_hub->cadence(), m_hub->speedMps());
+}
+
+void VirtualGears::addTrainerSample(qint64 ms, double cadenceRpm, double speedMps)
+{
+    if (m_detector.addSample(ms, cadenceRpm, speedMps, setup().circumferenceMm))
+        emit detectionChanged();
+}
+
+void VirtualGears::clearDetection()
+{
+    if (!m_detector.valid()) {
+        m_detector.clear();
+        return;
+    }
+    m_detector.clear();
+    emit detectionChanged();
+}
+
+bool VirtualGears::detectedTeeth(int *front, int *rear) const
+{
+    if (!m_detector.valid())
+        return false;
+    const double r = m_detector.ratio();
+    double bestErr = 1e9;
+    for (int f : setup().chainrings) {
+        for (int c : setup().cogs) {
+            const double err = std::abs(double(f) / c - r) / r;
+            if (err < bestErr) {
+                bestErr = err;
+                *front = f;
+                *rear = c;
+            }
+        }
+    }
+    return bestErr <= 0.03;
+}
+
+QString VirtualGears::detectedLabel() const
+{
+    int f = 0, c = 0;
+    return detectedTeeth(&f, &c) ? Gearing::labelFor(f, c) : QString();
+}
+
+bool VirtualGears::useDetectedGear()
+{
+    int f = 0, c = 0;
+    return detectedTeeth(&f, &c) && setReferenceGear(f, c);
+}
+
+bool VirtualGears::detectedDiffers() const
+{
+    const double ref = referenceRatio();
+    return m_detector.valid() && ref > 0 && std::abs(m_detector.ratio() - ref) > ref * kDetectMismatch;
+}
+
+bool VirtualGears::heavyRealGear() const
+{
+    return effectiveReferenceRatio() > kHeavyReferenceRatio;
+}
+
+namespace {
+struct GearsState
+{
+    QString session = QStringLiteral("none");
+    QString path = QStringLiteral("-");
+    QString decision;
+    double routeGrade = 0, effectiveGrade = 0;
+    bool hasGrade = false;
+    int demanded = 0;
+    double wantedGrade = 0, vRef = 0;
+};
+} // namespace
+
+static GearsState gearsState(const VirtualGears *g, const RlvSession *rlv, const FreeRideSession *fr)
+{
+    GearsState st;
+    const bool onRlv = rlv && (rlv->active() || ((!fr || !fr->active()) && g->activePage() != QLatin1String("freeride")));
+    if (onRlv) {
+        st.session = QStringLiteral("video ride (%1, %2)").arg(rlv->state(), rlv->mode());
+        st.path = rlv->resistancePath();
+        st.routeGrade = rlv->gradePercent();
+        st.effectiveGrade = rlv->effectiveGradePercent();
+        st.hasGrade = true;
+        st.demanded = rlv->gearTargetWatts();
+        st.wantedGrade = rlv->gearSimulationGrade();
+        st.decision = rlv->resistance().gearDebug().decision;
+        st.vRef = rlv->resistance().gearDebug().referenceSpeedMps;
+    } else if (fr) {
+        st.session = QStringLiteral("free ride (%1, %2)").arg(fr->state(), fr->mode());
+        st.path = fr->resistancePath();
+        st.routeGrade = st.effectiveGrade = fr->gradePercent();
+        st.hasGrade = true;
+        st.demanded = fr->gearTargetWatts();
+        st.wantedGrade = fr->gearSimulationGrade();
+        st.decision = fr->resistance().gearDebug().decision;
+        st.vRef = fr->resistance().gearDebug().referenceSpeedMps;
+    }
+    if (st.path != QLatin1String("gearHybrid"))
+        st.decision.clear();
+    return st;
+}
+
+static QString trainerCommand(const SensorHub *hub)
+{
+    if (!hub)
+        return QStringLiteral("-");
+    if (hub->simulationActive())
+        return QStringLiteral("SIM grade %1 %  Crr %2  Cw %3 kg/m")
+            .arg(hub->requestedGrade(), 0, 'f', 2)
+            .arg(hub->simulationCrr(), 0, 'f', 4)
+            .arg(hub->simulationCw(), 0, 'f', 2);
+    if (hub->ergActive())
+        return QStringLiteral("ERG %1 W").arg(hub->requestedTarget());
+    return QStringLiteral("free ride (minimum)");
+}
+
+QString VirtualGears::diagnosticsText() const
+{
+    const GearsState st = gearsState(this, m_rlv, m_freeRide);
+    QString r;
+    QTextStream out(&r);
+    out << "[Virtual gears]\n";
+    out << "Use virtual gears: " << (m_enabled ? "on" : "off") << "  method: " << shiftMethod()
+        << "  Zwift Click: " << (m_clickConnected ? "connected" : "-") << "\n";
+    out << "Session: " << st.session << "  path: " << st.path;
+    if (!st.decision.isEmpty())
+        out << " -> " << st.decision;
+    out << "\n";
+    out << "Gear: " << gearLabel() << QStringLiteral(" (%1)").arg(gearRatio(), 0, 'f', 3)
+        << "  reference (saved): " << referenceLabel() << QStringLiteral(" (%1)").arg(referenceRatio(), 0, 'f', 3)
+        << "  detected: "
+        << (m_detector.valid() ? QStringLiteral("%1 (%2)").arg(detectedLabel().isEmpty() ? QStringLiteral("?") : detectedLabel())
+                                     .arg(detectedRatio(), 0, 'f', 3)
+                               : QStringLiteral("not yet"))
+        << QStringLiteral("  in use: %1").arg(effectiveReferenceRatio(), 0, 'f', 3) << "\n";
+    if (st.hasGrade)
+        out << QStringLiteral("Route grade: %1 %  effective grade: %2 %\n")
+                   .arg(st.routeGrade, 0, 'f', 2)
+                   .arg(st.effectiveGrade, 0, 'f', 2);
+    out << QStringLiteral("Demanded (gear) power: %1 W  gradient path would send: %2 %  v_ref: %3 km/h\n")
+               .arg(st.demanded)
+               .arg(st.wantedGrade, 0, 'f', 2)
+               .arg(st.vRef * 3.6, 0, 'f', 1);
+    out << "Trainer command: " << trainerCommand(m_hub) << "\n";
+    if (m_hub) {
+        out << QStringLiteral("Trainer: %1  speed %2 km/h (%3)  cadence %4 rpm (%5)  power %6 W  gradient simulation: %7\n")
+                   .arg(m_hub->trainerConnected() ? QStringLiteral("connected") : QStringLiteral("not connected"))
+                   .arg(m_hub->speedKmh(), 0, 'f', 1)
+                   .arg(m_hub->trainerReportsSpeed() ? QStringLiteral("reported") : QStringLiteral("not reported"))
+                   .arg(m_hub->cadence())
+                   .arg(m_hub->cadenceReported() ? QStringLiteral("reported") : QStringLiteral("not reported"))
+                   .arg(m_hub->power())
+                   .arg(m_hub->trainerSimulationSupport() > 0    ? QStringLiteral("supported")
+                        : m_hub->trainerSimulationSupport() == 0 ? QStringLiteral("not supported")
+                                                                 : QStringLiteral("unknown"));
+    }
+    out << "Road model: " << physicsSummary() << "\n";
+    return r;
+}
+
+QString VirtualGears::debugLine() const
+{
+    const GearsState st = gearsState(this, m_rlv, m_freeRide);
+    return QStringLiteral("method=%1 session=%2 path=%3%4 grade=%5 eff=%6 demand=%7W wantGrade=%8 vRef=%9km/h "
+                          "gear=%10 ref=%11 det=%12 cmd[%13] trainer[v=%14 cad=%15 P=%16]")
+        .arg(shiftMethod(), st.session, st.path, st.decision.isEmpty() ? QString() : QStringLiteral("->") + st.decision)
+        .arg(st.routeGrade, 0, 'f', 2)
+        .arg(st.effectiveGrade, 0, 'f', 2)
+        .arg(st.demanded)
+        .arg(st.wantedGrade, 0, 'f', 2)
+        .arg(st.vRef * 3.6, 0, 'f', 1)
+        .arg(gearLabel())
+        .arg(referenceRatio(), 0, 'f', 3)
+        .arg(detectedRatio(), 0, 'f', 3)
+        .arg(trainerCommand(m_hub))
+        .arg(m_hub ? m_hub->speedKmh() : 0.0, 0, 'f', 1)
+        .arg(m_hub ? m_hub->cadence() : 0)
+        .arg(m_hub ? m_hub->power() : 0);
+}
+
+void VirtualGears::setShiftMethod(const QString &method)
+{
+    const auto m = RideResistance::parseMethod(method);
+    if (!m || *m == m_method)
+        return;
+    m_method = *m;
+    m_db->setSetting(kSettingMethod, shiftMethod());
+    emit shiftMethodChanged();
 }
 
 void VirtualGears::syncHub()

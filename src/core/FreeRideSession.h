@@ -218,6 +218,7 @@ public:
     bool virtualGears() const;
     bool simulationFallback() const;
     RideResistance::Path path() const;
+    const RideResistance &resistance() const { return m_res; }   // diagnostics
     QString resistancePath() const { return QString::fromLatin1(RideResistance::pathName(path())); }
     double simulationGradePercent() const { return m_res.lastGrade(); }
     bool simulationActive() const { return running() && m_res.simulating(); }

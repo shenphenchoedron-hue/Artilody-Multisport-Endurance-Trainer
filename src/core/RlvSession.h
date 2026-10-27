@@ -407,6 +407,7 @@ public:
     bool simulationFallback() const;
     bool virtualGears() const;
     RideResistance::Path path() const;
+    const RideResistance &resistance() const { return m_res; }   // diagnostics
     QString resistancePath() const { return QString::fromLatin1(RideResistance::pathName(path())); }
     // Grade the sim mode sends with real gears (rounded to 0.01 %).
     double simulationGradeToSend() const;

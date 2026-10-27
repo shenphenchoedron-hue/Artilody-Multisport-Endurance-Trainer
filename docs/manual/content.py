@@ -430,6 +430,35 @@ def build(s, env):
         "turn it you spin freely (a light minimum resistance), whatever the gear. Free Ride and Video Ride use "
         "exactly the same calculation, and it applies as soon as the page is open: shifting changes the "
         "resistance before you press Start, too.")
+    s.p(f"<b>Virtual shifting method</b> ({UI('Virtual shifting method')} on the card, saved):")
+    s.bullets([
+        f"{UI('Auto (recommended)')} – the gear-adjusted grade for real effort; whenever the gear asks for "
+        "little power (the grade to send would be 0 % or less, or below 60 W: easy gears, a light gear on the "
+        "flat, descents) the trainer gets an ERG target of the gear's watts instead (down to 10 W) – the "
+        "lightest load it can give. It returns to the grade above +0.5 % and 75 W and switches at most once "
+        "per second; when you stop pedaling the trainer is released. The Video Ride card then shows "
+        "<i>Light gear – trainer at 17 W</i> instead of the grade sent.",
+        f"{UI('Gradient')} – always the gear-adjusted grade (as in 1.3.1).",
+        f"{UI('ERG')} – always the watts of your gear, for trainers whose gradient simulation misbehaves.",
+    ])
+    s.p("<b>Why light gears need this.</b> The flywheel turns at the speed of the real gear: 50 × 17 at "
+        "90 rpm is 33 km/h. A trainer simulating 0 % at 33 km/h brakes with the rolling and air drag of that "
+        "speed – about 185 W – whatever the virtual gear. 44 × 44 at 90 rpm is 11 km/h and needs about 20 W, "
+        "i.e. a grade of about −2.2 % at the flywheel, and many trainers treat negative grades as 0 % or keep a "
+        "high minimum resistance at that speed. ERG at the gear's watts avoids this.")
+    s.p(f"<b>Detected gear and a small real gear.</b> When the trainer reports speed and cadence, the card shows "
+        "the gear the bike really sits in, measured while you pedal steadily (real ratio = speed ÷ (cadence × "
+        "wheel circumference)), e.g. <i>Detected on the trainer: 50×17 (2.94)</i>. The gradient calculation "
+        f"uses it instead of {UI('Bike on the trainer')}; the saved gear changes only if you click "
+        f"{UI('Save 34×17')}. Tip: put the bike in a small real gear such as 34 × 17 – the flywheel then spins at "
+        "23 km/h instead of 33 km/h at 90 rpm (about 70 W instead of 185 W at 0 %), so the easy virtual gears "
+        "and descents get lighter.")
+    s.p("<b>The grade you feel.</b> Video Ride uses the grade at your position looking slightly ahead "
+        "(the smoothed elevation from 10 m behind to 20 m ahead), so a descent is felt within about 20 m of its "
+        "start. If gears still feel wrong, copy the Bluetooth diagnostics report during the ride: its "
+        "<i>[Virtual gears]</i> section lists method, path, route and effective grade, grade sent, ERG target, "
+        "trainer speed, cadence and power, the detected gear and the demanded power (or start the app with "
+        "<i>WATT_DEBUG_GEARS=1</i> for a log line per second).")
 
     s.section("Gear setup")
     s.figure(SHOTS / "gear-setup.png",

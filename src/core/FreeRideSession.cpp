@@ -54,6 +54,7 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &FreeRideSession::resistanceSetupChanged);
+    connect(m_gears, &VirtualGears::shiftMethodChanged, this, &FreeRideSession::resistanceSetupChanged);
     auto gearChanged = [this] {
         emit targetChanged();
         emit metricsChanged();
@@ -62,6 +63,7 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     };
     connect(m_gears, &VirtualGears::gearChanged, this, gearChanged);
     connect(m_gears, &VirtualGears::gearSetupChanged, this, gearChanged);
+    connect(m_gears, &VirtualGears::detectionChanged, this, gearChanged);   // the real gear (path a)
 
     const QString stored = m_db->setting(kSettingMode, QStringLiteral("ride")).toString();
     m_mode = parseMode(stored).value_or(Mode::Ride);
@@ -266,7 +268,7 @@ bool FreeRideSession::simulationFallback() const
 
 RideResistance::Path FreeRideSession::path() const
 {
-    return RideResistance::choose(m_mode == Mode::Erg, virtualGears(), m_hub);
+    return RideResistance::choose(m_mode == Mode::Erg, virtualGears(), m_hub, m_gears->method());
 }
 
 const Gearing &FreeRideSession::gearing() const
@@ -373,7 +375,7 @@ RideResistance::GearDrive FreeRideSession::gearDrive(double cadenceRpm) const
     d.road = roadModel(m_grade);
     d.cadenceRpm = cadenceRpm;
     d.virtualRatio = gearing().ratio();
-    d.referenceRatio = m_gears->referenceRatio();
+    d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
     d.circumferenceMm = gearing().setup().circumferenceMm;
     // without a cadence the trainer's speed stands in for the reference gear
     d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
@@ -423,6 +425,8 @@ bool FreeRideSession::sendResistance(bool force)
     case RideResistance::Path::GearErg:
         // with engage/release hysteresis on the live cadence
         return m_res.sendGear(gearDrive(controlCadence()), force, m_hub->cadence());
+    case RideResistance::Path::GearHybrid:
+        return m_res.sendHybrid(gearDrive(controlCadence()), force, m_hub->cadence(), m_hub->cadenceReported());
     }
     return false;
 }

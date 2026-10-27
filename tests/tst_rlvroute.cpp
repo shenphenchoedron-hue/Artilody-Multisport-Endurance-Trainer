@@ -262,6 +262,33 @@ private slots:
         QVERIFY(std::abs(prof.last().x() - r.totalDistance()) < 1e-6);
     }
 
+    // The grade the rider feels looks slightly ahead: a descent after a crest
+    // is felt when it starts (within 20 m), not when the centred base passed.
+    void feltGradeLooksAhead()
+    {
+        QVector<SynthPoint> pts;
+        double ele = 200;
+        const double crest = 1000;
+        for (double d = 0; d <= 2000.0 + 1e-6; d += 5.0) {
+            pts.append({ d, ele, 18.0 });
+            ele += (d < crest ? 0.04 : -0.06) * 5;
+        }
+        QTemporaryDir dir;
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("crest.gpx")), gpxFor(pts)));
+        RlvRoute r;
+        QVERIFY(r.load(dir.filePath(QStringLiteral("crest.gpx"))));
+        QVERIFY(std::abs(r.gradeAheadAtDistance(500) - 4.0) < 0.2);    // steady: the same grade
+        QVERIFY(std::abs(r.gradeAheadAtDistance(1500) + 6.0) < 0.2);
+        QVERIFY(r.gradeAheadAtDistance(crest - 40) > 3.5);             // still climbing before
+        QVERIFY2(r.gradeAheadAtDistance(crest) < -1.5, qPrintable(QString::number(r.gradeAheadAtDistance(crest))));
+        const double at20 = r.gradeAheadAtDistance(crest + 20);
+        QVERIFY2(at20 < -5.3, qPrintable(QString::number(at20)));      // (almost) all of the -6 % after 20 m
+        QVERIFY(at20 < r.gradeAtDistance(crest + 20) - 0.5);           // the centred grade lags
+        // route ends: shrinks, stays finite
+        QVERIFY(std::abs(r.gradeAheadAtDistance(0) - 4.0) < 0.5);
+        QVERIFY(std::isfinite(r.gradeAheadAtDistance(r.totalDistance())));
+    }
+
     void gradeIsClampedAndNoiseFiltered()
     {
         // a wall: +30 % for 200 m -> clamped to kMaxGrade; noise ±1 m on flat adds no ascent

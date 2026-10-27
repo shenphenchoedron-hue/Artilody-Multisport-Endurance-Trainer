@@ -733,6 +733,19 @@ double RlvRoute::distanceAtVideoTime(double t) const
 }
 
 double RlvRoute::gradeAtDistance(double d) const { return interpolate(d, &RlvPoint::grade); }
+double RlvRoute::gradeAheadAtDistance(double d) const
+{
+    if (m_points.size() < 2)
+        return 0.0;
+    const double total = totalDistance();
+    const double a = std::clamp(d - kFeltBehindM, 0.0, total);
+    const double b = std::clamp(d + kFeltAheadM, 0.0, total);
+    if (b - a <= 5.0)
+        return gradeAtDistance(d);
+    const double g = (interpolate(b, &RlvPoint::elevation) - interpolate(a, &RlvPoint::elevation)) / (b - a) * 100.0;
+    return std::clamp(g, kMinGrade, kMaxGrade);
+}
+
 double RlvRoute::elevationAtDistance(double d) const { return interpolate(d, &RlvPoint::elevation); }
 double RlvRoute::ascentAtDistance(double d) const { return interpolate(d, &RlvPoint::ascent); }
 

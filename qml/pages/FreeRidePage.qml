@@ -350,7 +350,7 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                             text: FreeRide.simulationFallback
                                   ? "Your trainer can't simulate climbs – using virtual gears."
-                                  : FreeRide.resistancePath === "gearSimulation"
+                                  : FreeRide.resistancePath === "gearSimulation" || FreeRide.resistancePath === "gearHybrid"
                                     ? "Leave your bike in " + Gears.referenceLabel + " on the trainer."
                                     : "The trainer sets the watts your gear needs."
                             color: FreeRide.simulationFallback ? Theme.warningText : Theme.textSecondary
