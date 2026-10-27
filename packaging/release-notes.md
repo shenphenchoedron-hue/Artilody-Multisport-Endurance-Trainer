@@ -1,87 +1,41 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.2.0
+## What's new in 1.3.0
 
-A feature release: ride without a workout, shift virtual gears with a Zwift Click, and ride filmed routes.
+A feature release: plan Free Rides and Video Rides in the calendar, and ride a watts workout during a Video Ride.
 
-- **Free Ride page** (sidebar → *Free Ride*): ride without a workout. **Ride** is a road with a grade setting (−15 % to +20 %): climbs get harder like outdoors – shift on your bike (the trainer gets the gradient) or with **virtual gears**. **ERG** holds a wattage you set (±5/10/25 W or an exact value). Live power, speed, cadence, heart rate, time and distance, a chart, start on pedaling, pause, and save to History (FIT/CSV export).
-- **Zwift Click support**: connect a Zwift Click v1 / v2 under **Devices → Controllers (Zwift Click)** – battery level, a live button test, **+** shifts harder, **−** easier (in ERG ±10 W).
-- **Virtual gears setup on the Devices page**, shared by Free Ride and Video Ride: the *Virtual gears* card holds the *Use virtual gears* switch, the current gear and **Gear Setup…** – your chainrings and cassette (presets or numbers), wheel size, sequential or front + rear shifting, with a live preview of every gear. Saved per profile. Shifting never changes the trainer difficulty.
-- **Real Life Video** (sidebar → *Video Ride*): ride filmed routes (video + GPS/elevation route). The video plays at the speed you ride, with the elevation profile and your position. Resistance: **gradient simulation** (default; your bike's gears or virtual gears), a fixed **ERG** wattage, and a **difficulty** slider that scales the gradients. A **route library** lists every route with distance, climbing and duration; add folders and rescan from the page. Videos that can't be decoded – typically **AV1** without hardware decoding – are detected, and the page explains how to convert them with **HandBrake** to **720p H.264** (*Fast 720p30*, constant framerate). 720p H.264 is also the recommended format on a **Raspberry Pi**.
-- **Weight-aware road physics and auto CdA**: virtual speed and power follow the road equation with your profile weight + bike weight, rolling resistance, gradient and air drag. The air drag (CdA) is estimated automatically from your weight and the new optional profile **Height** (or set your own value). The same model is used in Free Ride, Video Ride and the virtual trainer.
-- **Smooth power (3 s average)**: displayed cycling watts are a rolling 3-second average by default (off, 1, 3, 5 or 10 s under *Settings → Smooth power*, or click the *3 s avg* badge). Recordings, NP/TSS, ERG and FTP tests still use raw per-second power.
-- **Sidebar reorder**: the training pages are together at the top – Dashboard, Free Ride, Video Ride, Rowing – followed by Workouts, Calendar, Builder, History and Devices.
-- **FTP tests detect their protocol**: a **ramp test** sets FTP to **75 % of your best 1-minute power**, a **20-minute test** to **95 % of your best 20-minute power**; implausible results are not offered.
-- **Database upgrade to schema version 4** happens automatically on first start (gear setup, rider height, ride speed). All rides, workouts, profiles and settings are preserved.
-- **Fixes** from code review: Bluetooth (Zwift Click, FTMS, virtual trainer reports crank power), sessions, Real Life Video, music; packaging – the Debian/Ubuntu/Raspberry Pi packages depend on the GStreamer base/good plugins needed for video, and the Windows installer removes stale files from older versions.
-- Updated user manual (Free Ride, virtual gears and Zwift Click, Real Life Video, road model).
+- **Free Ride and Video Ride in the calendar**: the calendar's **Add** dialog has three tabs – **Workout**, **Free Ride** and **Video Ride**.
+  - **Free Ride** options: a planned duration (30/45/60/90/120 min, any value, or *Open*) and **Ride** or **ERG** with the watts.
+  - **Video Ride** options: a route from your video library (distance, climbing, video length, country), **Simulation** with a difficulty or **ERG** with the watts, and optionally a cycling workout to ride during the video, with or without Workout ERG.
+  - Each kind has its own colour and icon (Free Ride green, Video purple, cycling workouts blue, rowing cyan) and a tooltip with the details. Edit (pencil or *Edit…*), drag between days, *Mark as completed*, *Move to…* and *Remove* work as for workouts. A route that is no longer in the video library shows **Route not found**.
+- **Start from the calendar**: **Ride** (or a double-click, or *Start Free Ride* / *Start Video Ride* in the right-click menu) opens the Free Ride page with the mode, ERG watts and planned duration, or the Video Ride page with the route, resistance mode, difficulty/watts and workout loaded.
+- **Completion rules**: a planned Free Ride is ticked off by a saved Free Ride of at least half the planned time (at least 10 min for an *Open* ride); a planned Video Ride by a saved ride on that route that reached the finish or 90 % of the route distance. Discarded rides don't count, and deleting the ride in History reopens the entry.
+- **Ride a watts workout during a Video Ride**: the new **Workout** card on the Video Ride page lists your cycling workouts. The workout's intervals run on the ride's clock (pausing with the ride) and are shown as a **workout strip** above the route's elevation profile – blocks in % FTP coloured by power zone, ramps as slopes, a cursor at the elapsed time – with the current interval, target, time left, next target, workout time and your *in target* share (±10 %). In small windows workout and route share the bottom card as **Route | Workout** tabs; the Power tile shows the target and turns green/yellow/orange with your deviation.
+  - **Workout ERG** (on by default): the trainer holds the workout's watts and the route only sets the video speed. **Intensity** ±5 % (buttons, ↑/↓, PgUp/PgDn or the Zwift Click), **Skip Interval** and **End Workout** (the ride goes on). With Workout ERG off the targets are a guide and the Resistance card applies.
+  - When the workout ends before the route, you continue in Simulation or ERG (as set on the Resistance card); when the route ends first, the ride finishes and is saved. The saved ride records the workout's targets.
+- **Free Ride planned duration**: a Free Ride started from the calendar shows *Planned 60 min • 23:10 left* in the Time tile – an informational target; the ride doesn't stop by itself.
+- **Database upgrade to schema version 5** happens automatically on first start (Free Ride / Video Ride plan entries). All rides, workouts, profiles, plans and settings are preserved.
+- Updated user manual (planning Free Rides and Video Rides, riding a workout during a Video Ride) and screenshots.
 
-## Includes everything from 1.1.4
+## Includes everything from 1.2.0
 
-A Concept2 PM5 fix release on top of 1.1.3 – the **stroke rate is shown again** when power, pace and distance already worked (reported on a Raspberry Pi with BlueZ):
+- **Free Ride page** – ride a road with a grade (shift on your bike or with virtual gears) or hold an ERG wattage; save to History with FIT/CSV export.
+- **Zwift Click support and virtual gears** – Click v1 / v2 under *Devices → Controllers*, a *Virtual gears* card with **Gear Setup…** (chainrings, cassette, wheel, sequential or front + rear shifting), saved per profile and shared by Free Ride and Video Ride.
+- **Real Life Video** – ride filmed routes (video + GPS) at the speed you ride, with gradient simulation, ERG and a difficulty slider; a route library; AV1 detection with HandBrake conversion help.
+- **Weight-aware road physics and auto CdA**, **smooth power (3 s average)**, reordered sidebar, FTP tests that detect their protocol, database schema version 4 and many fixes.
 
-- **Root cause**: the PM5 sends the stroke rate only in *Additional Status 1* (0x0032, byte 5). When that channel stayed silent (a rejected/lost notification subscription on BlueZ) or arrived on the multiplexed channel 0x0080 shorter than the documented 19 bytes, the whole packet was dropped – and nothing noticed, because pace is also derived from power and distance/time/power come from 0x0031/0x0036.
-- **Fixes**: shortened 0x0032 packets (17/18 bytes, direct or multiplexed) are decoded; failed notification subscriptions are detected and the multiplexed channel is used instead; if data flows but 0x0032 stays silent for 5 s, its notifications are enabled again and then moved to the multiplexed channel. The FTMS rower path (split *Rower Data* records, stroke rate only when the *More Data* bit is 0, 0.5 SPM units) keeps the last stroke rate across packets without it.
-- **Stroke rate fallback**: if a rowing machine reports no stroke rate for more than ~6 s while strokes come in, the stroke rate is computed from the time between the last strokes (smoothed over up to 4 strokes, 60 / mean interval, 5–80 SPM, missed stroke packets accounted for), decays when you slow down and drops to 0 after 6 s without a stroke. The monitor's own value is preferred whenever it reports one. Live display, average stroke rate and the saved cadence samples all use it.
-- **Richer Bluetooth diagnostics**: a *Rower data* row on the Devices page shows the active data source (Concept2 rowing service with the direct channels in use, 0x0080 multiplex or FTMS Rower Data) and the stroke rate (≈ when computed). *Details…* adds a *[Rower data]* section: subscription state, packet counter, undecoded packets and the last raw payload (hex) per characteristic (0x31/0x32/0x33/0x36/0x80 incl. each multiplexed id, 0x2AD1), how *Additional Status 1* arrives, the last decoded stroke rate and where the shown stroke rate comes from. Please copy it into a bug report if anything is still wrong.
-
-## Includes everything from 1.1.3
-
-A Bluetooth release on top of 1.1.2 – the **Concept2 PM5 is now found and connected on Raspberry Pi / Linux** (BlueZ):
-
-- **PM5 detected from its FTMS advertisement**: current PM5 firmware advertises the standard Bluetooth fitness-machine service (FTMS, 0x1826) with the machine type *Rower* rather than only the Concept2 services. The app reads the FTMS advertisement data and lists the PM5 under **Rowers** – also when its name arrives late or not at all, as often happens with BlueZ. Before, such a PM5 could end up under *Smart Trainers* or not be listed.
-- **Automatic trainer → rower switch**: a device connected as trainer that offers rowing data (Concept2 rowing service, or FTMS Rower Data without Indoor Bike Data) is moved to **Rowers**, connected with the rower driver and remembered. Every trainer entry also has a **Connect as rower** button.
-- **FTMS rower support**: if the Concept2 rowing service (CE060030) is missing, the standard **FTMS Rower Data** (stroke rate and count, distance, pace, power, calories, heart rate, elapsed time; multi-packet records are merged) is used instead. This also makes other FTMS rowing machines work.
-- **More robust PM5 connection**: notifications are enabled only after the service details are known plus a short settle time (as Concept2 recommends), missing characteristics are tolerated, service discovery that hangs is retried, and longer packets from newer firmware (average power in the 19-byte *Additional Status 1*, work per stroke) are parsed.
-- **More robust discovery on BlueZ**: scans run for 60 s, devices whose name or services arrive later are re-classified, the scan keeps running while connecting, Bluetooth that is off is switched on, and scan errors are shown in red with a hint.
-- **Bluetooth diagnostics**: *Bluetooth Diagnostics → Details…* opens a report you can **Copy** – adapter, Qt version, every device seen with signal, service UUIDs, service data, parsed FTMS machine type and classification, the GATT services/characteristics found after each connection attempt, scan errors and the log. Start the app with `QT_LOGGING_RULES="qt.bluetooth*=true"` for a detailed terminal log.
-- **Show all devices / Connect as rower**: a switch on the Devices page lists every unrecognised Bluetooth LE device under *Other Bluetooth devices*, with a **Connect as rower** button.
-- **macOS launch hardening**: the app no longer fails to start when a `QT_QPA_PLATFORM` value (e.g. from a development shell) is inherited whose platform plugin is not in the app bundle.
-- Raspberry Pi / Debian / Ubuntu packages now list `libqt6bluetooth6`, `bluez` and `dbus` explicitly; updated user manual (section *Rowing machine not found* with Raspberry Pi commands).
-
-## Includes everything from 1.1.2
-
-A small usability release on top of 1.1.1 – reordering and deleting intervals in the **Workout Builder** is now obvious:
-
-- **Grip strip for dragging**: every block card has a ⋮⋮ grip strip at the top (with a tooltip and an open-hand cursor). While you drag, the moved card is dimmed, a copy follows the pointer, a **blue drop indicator** shows exactly where the block will land, and the block list **scrolls automatically** near its edges.
-- **‹ / › move buttons** on each card move a block one place earlier or later (greyed out on the first and last block).
-- **Right-click menu** on a card: *Move earlier*, *Move later*, *Move to start*, *Move to end*, *Duplicate* and *Delete interval*.
-- **Keyboard**: <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> (<kbd>⌥</kbd>+<kbd>←</kbd>/<kbd>→</kbd> on a Mac) moves the selected block; it stays selected so you can keep pressing.
-- **Clear delete button**: the trash button is red and has a tooltip; every button on the card has a tooltip, and a hint line above the block list explains how to reorder and delete.
-- **Fix**: dropping a block in the gap between two blocks no longer sends it to the end of the workout.
-- Updated user manual (new section *Reordering and deleting blocks*) and Builder screenshot.
-
-## Includes everything from 1.1.1
-
-- **Music playlist stays inside its frame**: the *Up Next* list on the Dashboard music card now always stays inside the card: when the card is small (e.g. in a smaller window) the list is clipped at the card frame and scrolls, instead of drawing past the bottom of the card.
-- **Music Library**: the track and playlist lists have scrollbars, playlist names use the available width, and long titles are shortened with "…" instead of overlapping.
-
-## Includes everything from 1.1.0
-
-- **Workout calendar**: the new **Calendar** page shows your training plan as a month view. A single click selects a day or workout; double-click a day, click **+** or press **Add Workout** to add a workout (search, Cycling/Rowing filter, optional notes). Drag workouts between days, and right-click or press and hold a workout for *Ride/Row this workout*, *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (with confirmation). Double-click a planned workout or press **Ride**/**Row** in the side panel to start it – cycling workouts on the Dashboard, rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout started from the calendar, that plan entry is ticked off (on any day); stopped or aborted rides don't count, and deleting a ride reopens its entry. Workouts can also be planned from the Workouts page (**Add to calendar…**).
-- **Rowing with a Concept2 PM5** over Bluetooth LE: connect the PM5 under **Devices → Rowers (Concept2 PM5)** (on the PM5: *More Options → Turn Wireless ON → Connect Device*), or try it with the **Virtual Rower**. The new **Rowing** page has three modes:
-  - **Free Row**: row a distance (or open-ended) and watch your boat move along the course.
-  - **Watt Plan**: row a rowing workout with interval blocks, a rower marker along the plan, target vs. actual watts, interval time left, next target and a compliance score. The PM5 has no ERG mode, so you follow the target yourself.
-  - **Ghost Race**: race your personal best over 500 m, 1k, 2k, 5k, 6k, 10k or a custom distance against a ghost boat, with the gap in metres and seconds. New personal bests are saved automatically (not for paused pieces or implausible times) and listed in a personal-bests table.
-  
-  Rows start on the first stroke (or **Start now**) and can be paused, finished and reset. They are saved to History as *Rowing* with distance and can be exported as FIT (as an indoor-rowing activity with distance) and CSV. A dedicated heart-rate strap takes priority over heart rate from the PM5. Only the PM5 on a rower is supported (not BikeErg or SkiErg).
-- **Sport type for workouts**: workouts are *Cycling* or *Rowing*. The Workouts page shows sport badges and a sport filter and has a **Row Workout** button for rowing workouts; the Builder has a Cycling/Rowing selector (rowing uses stroke rate in SPM). History has a sport filter and shows the distance of rows. `.awt` files keep the sport; `.zwo` files are always cycling.
-- **Rowing FTP**: every profile has a separate rowing FTP; rowing watt plans are a percentage of it.
-- **FIT export for Garmin Connect, Strava, TrainingPeaks, intervals.icu …**: in **History → Export**, save the selected ride as a `.fit` activity file, or export every ride of the selected period as one FIT file per ride. The ride details dialog has an **Export FIT** button too. The files contain 1-second power, heart rate and cadence and a session summary (avg/max power and HR, cadence, NP, TSS, IF, threshold power, work and calories). Indoor rides contain no GPS or distance. The FIT encoder was written independently for this project; FIT is a format by Garmin, and this project is not affiliated with Garmin.
-- **Share workouts**: export any workout (**⋯ → Export…** in the workout preview) as an Artilody `.awt` file or as a Zwift `.zwo` file, or export all your own workouts in one `.awt` file. The new **Import** button on the Workouts page imports `.awt` and `.zwo` files (several at once). Intensities are stored relative to FTP, so shared workouts fit every rider. Duplicates are skipped and name clashes are imported as "… (imported)".
-- **New app icon**.
-- **UI polish**: larger, easier-to-read menus; the CSV export now sits next to FIT in the **Export** menu on the History page; the rowing boat animation lines up exactly with the start and finish lines; <kbd>Space</kbd> also pauses/resumes a row.
-- **Fixes**: light-theme contrast and colour fixes, more robust rowing sessions and PM5 handling, reliable calendar completion, and many smaller fixes from code review.
-- Updated user manual (workout calendar, rowing with a Concept2 PM5, sport types, FIT export, sharing workouts, the `.awt` file format, checksums).
+Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 1.1.2 Builder reordering, 1.1.1 music fix, 1.1.0 calendar, rowing, FIT export and workout sharing) are described on the [Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases).
 
 ## Upgrade notes
 
-- Install 1.2.0 over 1.1.4, 1.1.3, 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
-- On first start of 1.2.0 the database is **upgraded automatically to schema version 4** (gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+- Install 1.3.0 over 1.2.0, 1.1.x or 1.0.0 – no need to uninstall first.
+- On first start of 1.3.0 the database is **upgraded automatically to schema version 5** (Free Ride / Video Ride plan entries; from older versions also schema 4: gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations
 
+- **The Video Ride workout strip shows no actual-power line yet** – only the target blocks and the elapsed-time cursor; your actual power is shown in the Power tile and saved with the ride.
+- **Changing the route of a planned Video Ride replaces the entry** (it is removed and added again with the new route, keeping date and notes).
 - **Zwift Click and gradient simulation have so far only been tested with virtual devices** (the built-in virtual trainer and a Click simulator), not yet with real hardware. Please report your experience.
 - Zwift Play / Click controllers with **encrypted firmware are not supported**. On a **Click v2** the left pod may need to be unlocked in the Zwift app first.
 - **AV1 videos** need AV1 hardware decoding – otherwise convert them to H.264 (720p recommended) with HandBrake, as the Video Ride page explains.
@@ -96,9 +50,9 @@ A small usability release on top of 1.1.1 – reordering and deleting intervals 
 ## Highlights
 
 - **Smart trainer control**: connects to Bluetooth LE smart trainers that use the standard Fitness Machine Service (FTMS) and sets the target power for you in ERG mode.
-- **Free Ride, virtual gears and Real Life Video**: ride a road with a grade or a filmed route, shift virtual gears with a Zwift Click, or hold an ERG wattage.
+- **Free Ride, virtual gears and Real Life Video**: ride a road with a grade or a filmed route – optionally with a watts workout and Workout ERG – shift virtual gears with a Zwift Click, or hold an ERG wattage.
 - **Concept2 rowing**: connects to a Concept2 PM5 for free rows, watt-plan rowing workouts and ghost races against your personal best.
-- **Training calendar**: plan rides and rows by day and start them with a double-click.
+- **Training calendar**: plan workouts, rows, Free Rides and Video Rides by day and start them from the calendar.
 - **Heart-rate sensors**: works with any Bluetooth LE heart-rate strap or armband (standard Heart Rate Service).
 - **Workout library and builder**: ready-made workouts plus a visual drag-and-edit builder with warm-up, steady, interval, recovery, ramp and cool-down blocks. Targets can be set in watts or % of FTP, with cadence and RPE. Workouts can be shared as `.awt` or Zwift `.zwo` files.
 - **Live dashboard**: power, heart rate, cadence, the current interval and the time left, power zones, and a workout chart that updates as you ride.

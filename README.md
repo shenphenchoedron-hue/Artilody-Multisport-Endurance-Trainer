@@ -20,74 +20,66 @@
   <img src="docs/screenshots/dashboard.png" alt="Artilody Watts Trainer dashboard during a workout" width="900">
 </p>
 
-Artilody Watts Trainer is a desktop app for structured, power-based indoor cycling. It connects to Bluetooth LE smart trainers (FTMS) and heart-rate sensors, sets the trainer resistance for you in **ERG mode**, and saves every ride to a local database on your computer. It also connects to **Concept2 rowers (PM5)** for free rows, watt-plan workouts and ghost races against your personal best, and a **training calendar** lets you plan rides and rows ahead. You don't need an account, a subscription or an internet connection.
+Artilody Watts Trainer is a desktop app for structured, power-based indoor cycling and rowing. It connects to Bluetooth LE smart trainers (FTMS), heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride and row to a local database on your computer. You don't need an account, a subscription or an internet connection.
 
 It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Linux (Debian / Ubuntu)** and **Raspberry Pi OS**.
 
+### At a glance
+
+| | |
+|---|---|
+| **Workouts & ERG** | Ride structured workouts – the trainer holds the target watts in ERG mode; intensity ±5 %, skip interval, start on pedaling, FTP test. 8 built-in workouts plus your own. |
+| **Training calendar** | Plan workouts, **Free Rides** and **Video Rides** by day, drag to move, start them from the calendar; entries are ticked off automatically. |
+| **Workout Builder** | Visual block editor (watts or % FTP, ramps, cadence, RPE); share workouts as `.awt` or Zwift `.zwo` files. Create workouts on any computer with the companion **[Artilody Workout Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator)**. |
+| **Free Ride & virtual gears** | Ride a road with a grade or hold an ERG wattage; shift **virtual gears** with a **Zwift Click**, on screen or the keyboard, with weight-aware road physics. |
+| **Video Ride (Real Life Video)** | Ride filmed routes (video + GPS) at the speed you ride, with gradient simulation or ERG – and optionally a watts workout with **Workout ERG** on top. |
+| **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
+| **History & export** | NP / IF / TSS, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
+| **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
+| **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
+
 ---
 
-## Coming next (not released yet)
+## What's new in 1.3.0
 
-- **Free Ride and Video Ride in the calendar** – the calendar's **Add** dialog has three tabs: **Workout**, **Free Ride** (planned duration, Ride or ERG with the watts) and **Video Ride** (a route from your video library, Simulation with difficulty or ERG, optionally a workout to ride during the video). Each kind has its own colour and icon; start, edit, move, tick off or remove them like workouts.
-- **Ride a workout during a Video Ride** – pick one of your cycling workouts on the Video Ride page: its intervals run on the ride's clock and are shown as a block chart above the route profile. With **Workout ERG** the trainer holds the workout's watts while the video follows your speed; intensity ±5 %, skip interval, target and "in target" share on the page. See [Real Life Video](#real-life-video).
+- **Plan Free Rides and Video Rides in the calendar** – the calendar's **Add** dialog now has three tabs: **Workout**, **Free Ride** (planned duration – 30/45/60/90/120 min, any value or *Open* – and Ride or ERG with the watts) and **Video Ride** (a route from your video library with distance, climbing and video length; Simulation with a difficulty or ERG with the watts; optionally a cycling workout to ride during the video, with or without Workout ERG). Each kind has its own colour and icon and a tooltip with the details; edit, move, tick off or remove them like workouts. See [Plan](#plan).
+- **Start from the calendar** – **Ride** (or a double-click) opens the Free Ride page with the mode, ERG watts and planned duration loaded, or the Video Ride page with the route, resistance mode and workout loaded. A route that is no longer in your library shows **Route not found**.
+- **Automatic tick-off** – a planned Free Ride is completed by a saved Free Ride of at least half the planned time (10 min for an open ride); a planned Video Ride by a saved ride on that route that reached the finish or 90 % of the distance.
+- **Ride a watts workout during a Video Ride** – pick one of your cycling workouts on the Video Ride page: its intervals run on the ride's clock and are shown as a **workout strip** (block chart in % FTP, coloured by zone, with a cursor) above the route's elevation profile, with the current target, time left, next target and your *in target* share. With **Workout ERG** (on by default) the trainer holds the workout's watts while the video follows your speed; change the **intensity** ±5 %, skip an interval or end the workout and ride on. See [Real Life Video](#real-life-video).
+- **Free Ride planned duration** – a Free Ride started from the calendar shows the planned time in the Time tile (*Planned 60 min • 23:10 left*) as a target; the ride doesn't stop by itself.
+- **Database upgrade** – on first start the database is upgraded automatically to schema version 5 (Free Ride / Video Ride plan entries); all rides, workouts, profiles, plans and settings are preserved. See the [1.3.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.0).
 
-## What's new in 1.2.0
+<details>
+<summary><b>What's new in 1.2.0</b> – Free Ride, virtual gears with Zwift Click, Real Life Video</summary>
 
-- **Video Ride (Real Life Video)** – ride filmed routes: pick a route from a drop-down (name, distance, climbing and duration), and the video plays at the speed you ride – faster when you push, slower on the climbs, paused when you stop. Power, cadence, heart rate, speed and time at the top, the video in the middle, the route's elevation profile with your position at the bottom. **Simulation** (climbs get harder like on the road – shift on your bike, or with virtual gears and a Zwift Click) or a fixed **ERG** wattage set right on the page, and a difficulty slider. See [Real Life Video](#real-life-video).
-- **Free Ride page** – ride without a workout. **Ride** is a road with a grade setting: climbs get harder like outdoors, and you shift on your bike – or with virtual gears (Zwift Click, on screen or the keyboard), where a harder gear means more watts and more speed at the same cadence. In **ERG** you set a wattage (±5/10/25 W steps or an exact value) and the trainer holds it for as long as you like. Live power, speed, cadence, heart rate, time and distance, a power/speed/heart-rate chart, start on pedaling, pause, and save to History (FIT/CSV export included).
-- **Virtual gears on the Devices page** – connect a **Zwift Click v1 / v2** under **Devices → Controllers (Zwift Click)**; the **Virtual gears** card below it holds your bike (Gear Setup…), the current gear and the *Use virtual gears* switch. When the Click is recognised, your saved setup is loaded and used in Free Ride and Video Ride as if you shifted a mechanical groupset: **+** shifts harder, **−** easier (in ERG ±10 W). Shifting never changes the trainer difficulty. Battery level and a live button test are shown there too.
-- **Smooth power (3 s average)** – cycling watts on the Dashboard, the Free Ride page, the sidebar and the Devices page are shown as a rolling 3-second average by default, so the number no longer jumps with every uneven pedal stroke. Turn it off (raw trainer value) or pick 1 / 3 / 5 / 10 s under **Settings → Smooth power**, or click the small **3 s avg** badge on the power tile. Recorded rides, averages, NP/TSS, ERG and the FTP test still use the raw per-second power.
-- **Sidebar order** – the training pages are now together at the top: **Dashboard** (cycling workouts), **Free Ride**, **Video Ride**, **Rowing**, then Workouts, Calendar, Builder, History and Devices.
-- **Gear setup** (Devices → Virtual gears → **Gear Setup…**) – enter your own chainrings (e.g. 50/34, 53/39 or a single 1× ring) and cassette (e.g. 11–34) from presets or as numbers, the wheel size, and *sequential* virtual gears (one list, easiest to hardest) or *front + rear* shifting like a real bike. A live preview lists every gear with its ratio, the speed at 90 rpm and the power on the flat. Saved per profile and shared by Free Ride and Video Ride.
-- **Weight-aware road physics** – virtual speed and power follow the road equation with your profile weight + bike weight, rolling resistance, gradient and air drag; the air drag (CdA) is estimated automatically from your weight and the new optional **Height** field in the profile (or set your own value in Gear Setup). The same model is used in Free Ride, Video Ride and the virtual trainer.
-- **FTP tests detect their protocol** – a ramp test sets FTP to 75 % of your best 1-minute power, a 20-minute test to 95 % of your best 20-minute power; implausible results are not offered.
-- **Database upgrade** – on first start the database is upgraded automatically to schema version 4 (gear setup, rider height, ride speed); all rides, workouts, profiles and settings are preserved.
-- **Fixes** – many fixes from code review: Bluetooth (Zwift Click, FTMS, virtual trainer), sessions, Real Life Video, music, and packaging (the Linux packages now depend on the GStreamer base/good plugins for video; the Windows installer removes stale files). See the [1.2.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.2.0).
+- **Video Ride (Real Life Video)** – ride filmed routes: pick a route from a drop-down (name, distance, climbing and duration), and the video plays at the speed you ride – faster when you push, slower on the climbs, paused when you stop. **Simulation** (shift on your bike, or with virtual gears and a Zwift Click) or a fixed **ERG** wattage, and a difficulty slider.
+- **Free Ride page** – ride without a workout: **Ride** is a road with a grade setting, **ERG** holds a wattage you set. Live power, speed, cadence, heart rate, time and distance, a chart, start on pedaling, pause, and save to History (FIT/CSV export).
+- **Virtual gears and Zwift Click** – connect a Zwift Click v1 / v2 under **Devices → Controllers**; the **Virtual gears** card holds your bike (**Gear Setup…**: chainrings, cassette, wheel, sequential or front + rear shifting) and is used by Free Ride and Video Ride.
+- **Weight-aware road physics** with automatic air drag (CdA) from your weight and the new optional profile **Height**.
+- **Smooth power (3 s average)** for displayed cycling watts (Settings → Smooth power); recordings still use raw power.
+- **Sidebar order** – Dashboard, Free Ride, Video Ride, Rowing at the top.
+- **FTP tests detect their protocol** (ramp: 75 % of best 1-min power; 20-min: 95 % of best 20-min power).
+- Database schema version 4, many fixes. See the [1.2.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.2.0).
 
-## What's new in 1.1.4
+</details>
 
-- **Concept2 PM5: stroke rate fixed** – the stroke rate stayed empty on some PM5 connections (Raspberry Pi / BlueZ) while power, pace and distance worked: it comes only from the PM5's *Additional Status 1* (0x0032), and when that channel stayed silent or arrived shortened on the multiplexed channel, nothing noticed (pace is also derived from power). Shortened 0x0032 packets are now decoded, a silent 0x0032 is re-enabled and then moved to the multiplexed channel 0x0080, and failed notification subscriptions are detected.
-- **Stroke rate fallback** – if a rowing machine reports no stroke rate for more than ~6 s while strokes come in, the stroke rate is computed from the time between the last strokes (smoothed over 4 strokes, 5–80 SPM) and falls back to 0 after 6 s without a stroke; the monitor's own value is preferred. Averages and the saved cadence samples use it too.
-- **Richer Bluetooth diagnostics** – a *Rower data* row shows the active data source (Concept2 rowing service, 0x0080 multiplex or FTMS Rower Data) and stroke rate; the report adds a *[Rower data]* section with packet counters, subscription state and last raw bytes per characteristic (0x31/0x32/0x33/0x36/0x80/0x2AD1) and the last decoded stroke rate. See the [1.1.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.4).
+### Earlier releases
 
-## What's new in 1.1.3
+- [1.1.4](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.4) – Concept2 PM5 stroke rate fix, stroke-rate fallback, richer rower diagnostics.
+- [1.1.3](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.3) – PM5 found on Raspberry Pi / Linux (FTMS advertisement), FTMS rower support, Bluetooth diagnostics.
+- [1.1.2](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.2) – easier reordering and deleting in the Workout Builder.
+- [1.1.1](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.1) – music playlist layout fix.
+- [1.1.0](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.0) – workout calendar, Concept2 PM5 rowing, sport types and rowing FTP, FIT export, `.awt` / `.zwo` workout sharing.
 
-- **Concept2 PM5 found on Raspberry Pi / Linux** – current PM5 firmware advertises the standard Bluetooth fitness-machine service (FTMS) as a *Rower*; the app now reads that advertisement and lists the PM5 under **Rowers** even when its name arrives late (BlueZ). A rowing machine connected as trainer is moved to Rowers automatically, and every trainer entry has a **Connect as rower** button. Discovery on BlueZ is more robust (longer 60 s scans, late names and services are picked up).
-- **FTMS rower support** – if the Concept2 rowing service is missing, the standard FTMS Rower Data is used; other FTMS rowing machines work too. PM5 data from newer firmware (longer packets) is parsed leniently.
-- **Bluetooth diagnostics** – *Bluetooth Diagnostics → Details…* shows a copyable report (adapter, Qt version, every device seen with services, FTMS machine type and classification, GATT services after connecting, scan errors); **Show all devices** lists unrecognised devices with **Connect as rower**.
-- **macOS**: the app no longer fails to start when `QT_QPA_PLATFORM` is inherited from the environment. See the [1.1.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.3).
-
-## What's new in 1.1.2
-
-- **Easier reordering and deleting in the Workout Builder** – drag a block by the ⋮⋮ grip strip at the top of its card (a blue line shows where it lands and the list scrolls automatically), use the ‹ / › buttons on the card, the right-click menu (*Move earlier/later*, *Move to start/end*, *Duplicate*, *Delete interval*) or Alt+←/→ (⌥←/→ on a Mac). The trash button is red, every button has a tooltip and a hint line explains it all. Fixed: dropping a block between two blocks no longer sends it to the end. See the [1.1.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.2).
-
-## What's new in 1.1.1
-
-- **Music playlist fix** – the *Up Next* list on the Dashboard music card now stays inside the card and scrolls when space is tight, instead of drawing past the card frame; the Music Library lists have scrollbars and long names are shortened with "…". See the [1.1.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.1).
-
-## What's new in 1.1.0
-
-- **Workout calendar** – plan rides and rows by day, drag to move, start with a double-click, automatic tick-off.
-- **Concept2 PM5 rowing** – *Free Row*, *Watt Plan* and *Ghost Race* against your personal best, plus a *Virtual Rower*.
-- **Sport type & Rowing FTP** – cycling and rowing workouts, a sport filter in Workouts and History, a separate rowing FTP.
-- **FIT export** – upload rides and rows to Garmin Connect, Strava, TrainingPeaks, intervals.icu (rows as *indoor rowing* with distance).
-- **Workout sharing** – export/import Artilody `.awt` and Zwift `.zwo` files.
-- **New app icon**, larger and more readable menus, light-theme fixes and many smaller fixes.
-
-Existing data is kept: the database is upgraded automatically on first start. See the [release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.0) for details.
+All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases).
 
 ---
 
 ## Contents
 
-- [What's new in 1.2.0](#whats-new-in-120)
-- [What's new in 1.1.4](#whats-new-in-114)
-- [What's new in 1.1.3](#whats-new-in-113)
-- [What's new in 1.1.2](#whats-new-in-112)
-- [What's new in 1.1.1](#whats-new-in-111)
-- [What's new in 1.1.0](#whats-new-in-110)
+- [What's new in 1.3.0](#whats-new-in-130)
 - [Features](#features)
-  - [Real Life Video](#real-life-video)
+  - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
 - [Download & install](#download--install)
 - [User manual](#user-manual)
@@ -264,22 +256,32 @@ Existing data is kept: the database is upgraded automatically on first start. Se
       <sub><b>Calendar</b>: plan workouts, Free Rides and Video Rides, drag to move</sub>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/freeride-erg.png" alt="Free Ride in ERG mode"><br>
+      <sub><b>Free Ride ERG</b>: the trainer holds the wattage you set</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/dashboard-small.png" alt="Dashboard on a small screen"><br>
+      <sub><b>Small screens</b>: the UI scales down, e.g. for a Raspberry Pi display</sub>
+    </td>
+  </tr>
 </table>
 
 ## Download & install
 
-The current version is **1.2.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.3.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.2.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/ArtilodyWattsTrainer-1.2.0-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.2.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/ArtilodyWattsTrainer-1.2.0-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.2.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/ArtilodyWattsTrainer-1.2.0-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.2.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/artilody-watts-trainer_1.2.0_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.2.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/artilody-watts-trainer_1.2.0_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.2.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/artilody-watts-trainer_1.2.0_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.2.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/ArtilodyWattsTrainer-1.3.0-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/ArtilodyWattsTrainer-1.3.0-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/ArtilodyWattsTrainer-1.3.0-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/artilody-watts-trainer_1.3.0_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/artilody-watts-trainer_1.3.0_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/artilody-watts-trainer_1.3.0_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -289,7 +291,7 @@ The current version is **1.2.0**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.2.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.3.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -315,8 +317,8 @@ The current version is **1.2.0**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.2.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.2.0_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.3.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.3.0_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -332,7 +334,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.2.0_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.3.0_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -355,11 +357,12 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 4. **Choose ERG or Free Ride**, then press **Start Workout**.
 5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> starts the loaded workout, then pauses and resumes it (on the Rowing page it pauses and resumes the row).
 6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis, or use **Export** to save it as a FIT file (for Strava, Garmin Connect, TrainingPeaks, …) or CSV.
-7. **Rowing?** Open **Rowing**, pick *Free Row*, *Ghost Race* or *Watt Plan* and take your first stroke. Use **Calendar** to plan the coming weeks.
+7. **Rowing?** Open **Rowing**, pick *Free Row*, *Ghost Race* or *Watt Plan* and take your first stroke.
+8. **No workout today?** Open **Free Ride** (a road with a grade, or ERG) or **Video Ride** (a filmed route – optionally with a workout and Workout ERG). Use **Calendar** to plan workouts, Free Rides and Video Rides for the coming weeks and start them from there.
 
 ## Sharing workouts
 
-On the **Workouts** page, click **Export** in the filter bar (next to **Import**) and choose **Export selected workout…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. The selected workout can also be exported with the share button next to **Edit** at the bottom of the Workout Preview (or from its **⋯** menu). Use the **Import** button to import one or more files.
+On the **Workouts** page, click **Export** in the filter bar (next to **Import**) and choose **Export selected workout…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. The selected workout can also be exported with the share button next to **Edit** at the bottom of the Workout Preview (or from its **⋯** menu). Use the **Import** button to import one or more files. To write workouts on another computer (or without the app), use the companion **[Artilody Workout Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator)** – it creates `.awt` and `.zwo` cycling and rowing workouts you can import here.
 
 | Format | Best for | Notes |
 |---|---|---|
@@ -375,7 +378,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.2.0",
+  "app": "Artilody Watts Trainer 1.3.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -453,6 +456,7 @@ src/core    watt_core         Domain model (Workout, Interval, Zones), SQLite da
                               (NP/IF/TSS), CSV and FIT export, workout import/export (.awt/.zwo),
                               WorkoutEngine (pure state machine), WorkoutPlanner (calendar),
                               TrainingSession, RowingSession + RowingRecords (watt_rowing),
+                              FreeRideSession, RlvSession (Real Life Video, workout + Workout ERG),
                               SensorHub, profile/library/builder/history managers
 src/ble     watt_bleprotocol  Pure FTMS/HRS/Concept2 PM5 parsing and encoding (QtCore only, fully testable)
             watt_ble          BleLink, BleTrainer, BleHeartRateSensor, Pm5Rower, simulated devices, DeviceManager
