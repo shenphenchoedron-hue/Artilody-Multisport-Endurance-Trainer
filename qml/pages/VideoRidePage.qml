@@ -35,18 +35,15 @@ Item {
     readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     // resistance mode: "sim" (the route as a simulated road, default) or
     // "erg" (fixed watts). gears: in "sim" the virtual gear sets the
-    // resistance (virtual gears on in Devices / Zwift Click, or the fallback
-    // on a trainer without gradient simulation); otherwise the rider shifts
-    // the real bike and the trainer gets the grade.
+    // resistance (a Zwift Click is connected: Zwift protocol or FTMS
+    // gradient, or the fallback on a trainer without gradient simulation);
+    // otherwise the rider shifts the real bike and the trainer gets the grade.
     readonly property bool gears: Rlv.virtualGears
     readonly property bool simMode: Rlv.mode === "sim"
     readonly property bool ergMode: Rlv.mode === "erg"
+    // "Virtual shifting: Zwift protocol" / "… FTMS gradient" / "Shifting: your bike's gears"
     function shiftingText() {
-        if (!Rlv.virtualGears)
-            return "your bike's gears"
-        if (Rlv.simulationFallback)
-            return "Virtual gears"
-        return Devices.controllerConnected ? "Virtual gears (Zwift Click)" : "Virtual gears (on-screen)"
+        return Gears.shiftingStatus
     }
     // (never depends on the video: the ride starts even when the video cannot be played)
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
@@ -1088,7 +1085,7 @@ Item {
                                                              : index === 1 ? "mountain" : index === 2 ? "target" : "play"
                             readonly property string chipText: index === 0
                                 ? (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
-                                   : page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
+                                   : page.gears ? Gears.gearText
                                    : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
                                 : index === 1 ? "Difficulty " + Rlv.difficultyPercent + " %"
                                 : index === 2 ? Rlv.currentIntervalName + " · " + Theme.clock(Rlv.intervalRemainingSec) + " left"
@@ -2100,7 +2097,8 @@ Item {
                         Text {
                             visible: page.simMode
                             width: parent.width
-                            text: "Shifting: " + page.shiftingText()
+                            objectName: "videoShiftingStatus"
+                            text: page.shiftingText()
                                   + "   <a href=\"devices\" style=\"text-decoration:none\">Devices ›</a>"
                             textFormat: Text.StyledText
                             linkColor: Theme.accentText
@@ -2145,7 +2143,8 @@ Item {
                             readonly property bool lightErg: !Rlv.simulationActive && Rlv.resistancePath === "gearHybrid"
                                                              && Rlv.running && Rlv.sentTargetWatts > 0
                             Text {
-                                text: parent.lightErg ? "Light gear – trainer at" : "Grade sent to trainer"
+                                text: parent.lightErg ? "Light gear – trainer at"
+                                      : Rlv.resistancePath === "gearHub" ? "Incline sent (Zwift protocol)" : "Grade sent to trainer"
                                 color: Theme.textSecondary
                                 font.pixelSize: 14
                                 anchors.verticalCenter: parent.verticalCenter
@@ -2185,15 +2184,16 @@ Item {
                                 Layout.alignment: Qt.AlignVCenter
                                 spacing: 2
                                 Text {
+                                    objectName: "videoGearText"
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: Gears.gearLabel.replace("×", " × ")
+                                    text: "Gear " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
                                     color: Theme.text
-                                    font.pixelSize: 30
+                                    font.pixelSize: 24
                                     font.weight: Font.Black
                                 }
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
+                                    text: "ratio " + Gears.gearRatio.toFixed(2)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.small(13)
                                 }

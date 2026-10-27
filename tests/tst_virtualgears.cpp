@@ -157,20 +157,24 @@ struct Rig
             trainer->step();
         return hub->cadence() > 80;
     }
-    // a bike with a 44 ring and a 44 cog (the reported 44×44), the real bike
-    // still in 50×17 on the trainer
+    // a light virtual gear like the reported 44×44 (ratio 1.0): Zwift gear 3
+    // (0.99), the real bike still in 50×17 on the trainer
     bool lightBike()
     {
-        if (!gears->setGearSetup({ 34, 44, 50 }, { 11, 12, 13, 14, 15, 17, 19, 21, 24, 28, 34, 44 },
-                                 gears->setup().circumferenceMm, false))
-            return false;
-        return gears->referenceLabel() == QStringLiteral("50×17")
-               && gears->setGear(gears->setup().chainrings.indexOf(44), gears->setup().cogs.indexOf(44))
-               && gears->gearLabel() == QStringLiteral("44×44");
+        return gears->referenceLabel() == QStringLiteral("50×17") && gears->setGearIndex(2)
+               && gears->gearText() == QStringLiteral("Gear 3/24 (0.99)");
     }
+    // the Zwift gear nearest to 50×cog (Zwift's table has no chainrings /
+    // cogs): 27 -> 9 (1.86), 21 -> 12 (2.40), 17 -> 15 (3.03), 14 -> 17
+    // (3.49), 11 -> 21 (4.54)
     bool setGear(int cog)
     {
-        return gears->setGear(gears->setup().chainrings.indexOf(50), gears->setup().cogs.indexOf(cog));
+        const double want = 50.0 / cog;
+        int best = 0;
+        for (int i = 1; i < zwiftgears::kCount; ++i)
+            if (std::abs(zwiftgears::kRatios[i] - want) < std::abs(zwiftgears::kRatios[best] - want))
+                best = i;
+        return gears->setGearIndex(best);
     }
     bool addRoute()
     {
@@ -776,8 +780,16 @@ private slots:
         QCOMPARE(RideResistance::methodName(M::Gradient), QStringLiteral("gradient"));
     }
 
-    void methodIsPersisted()
+    // The FTMS method is a hidden, experimental option (Bluetooth
+    // diagnostics): never saved, every start is Gradient (simulation); a
+    // value stored by older versions ("gears/method") is ignored, and so is
+    // the old "Use virtual gears" switch ("gears/enabled").
+    void methodIsNeverPersisted()
     {
+        using M = RideResistance::GearMethod;
+        QCOMPARE(VirtualGears::methodFromSetting(QVariant()), M::Gradient);
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("bogus")), M::Gradient);
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("auto")), M::Auto);
         Database db;
         QVERIFY(db.open(QStringLiteral(":memory:")));
         db.seedDefaults();
@@ -786,52 +798,25 @@ private slots:
         {
             VirtualGears g(&db, &profiles);
             QCOMPARE(g.shiftMethod(), QStringLiteral("gradient"));   // default: simulation
-            QVERIFY(!db.setting(QStringLiteral("gears/method")).isValid());   // the default is never written
             QSignalSpy changed(&g, &VirtualGears::shiftMethodChanged);
             g.setShiftMethod(QStringLiteral("erg"));
             QCOMPARE(changed.count(), 1);
             g.setShiftMethod(QStringLiteral("nonsense"));   // ignored
             g.setShiftMethod(QStringLiteral("erg"));
             QCOMPARE(changed.count(), 1);
-            QCOMPARE(g.method(), RideResistance::GearMethod::Erg);
+            QCOMPARE(g.method(), M::Erg);
+            QCOMPARE(g.shiftingMode(), QStringLiteral("bike"));   // no Click: no virtual gears at all
         }
-        VirtualGears again(&db, &profiles);
-        QCOMPARE(again.shiftMethod(), QStringLiteral("erg"));
-        again.setProperty("shiftMethod", QStringLiteral("gradient"));   // what the QML selector does
-        QCOMPARE(VirtualGears(&db, &profiles).shiftMethod(), QStringLiteral("gradient"));
-    }
-
-    // f997b16 (test build) made "auto" the IMPLICIT default (nothing stored).
-    // Riders without an explicit choice get Gradient (simulation) again; an
-    // explicit choice ("gears/method" is written only by setShiftMethod())
-    // is kept.
-    void defaultMethodIsGradientAndImplicitAutoMigrates()
-    {
-        using M = RideResistance::GearMethod;
-        QCOMPARE(VirtualGears::methodFromSetting(QVariant()), M::Gradient);           // nothing chosen
-        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("")), M::Gradient);   // unreadable
-        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("bogus")), M::Gradient);
-        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("gradient")), M::Gradient);
-        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("auto")), M::Auto);   // explicit
-        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("erg")), M::Erg);     // explicit
-
-        Database db;
-        QVERIFY(db.open(QStringLiteral(":memory:")));
-        db.seedDefaults();
-        ProfileManager profiles(&db);
-        profiles.load();
-        // a rider who ran the test build with the implicit "auto" default: nothing stored
-        db.setSetting(QStringLiteral("gears/enabled"), true);
-        {
-            VirtualGears g(&db, &profiles);
-            QCOMPARE(g.method(), M::Gradient);
-            QVERIFY(g.enabled());
-        }
-        // explicit choices survive a restart
-        db.setSetting(QStringLiteral("gears/method"), QStringLiteral("erg"));
-        QCOMPARE(VirtualGears(&db, &profiles).method(), M::Erg);
+        QVERIFY(!db.setting(QStringLiteral("gears/method")).isValid());
+        QCOMPARE(VirtualGears(&db, &profiles).method(), M::Gradient);
+        // older versions' stored values
         db.setSetting(QStringLiteral("gears/method"), QStringLiteral("auto"));
-        QCOMPARE(VirtualGears(&db, &profiles).method(), M::Auto);
+        db.setSetting(QStringLiteral("gears/enabled"), true);
+        db.setSetting(QStringLiteral("gears/backend"), QStringLiteral("zwift"));
+        VirtualGears old(&db, &profiles);
+        QCOMPARE(old.method(), M::Gradient);
+        QVERIFY(!old.enabled());   // only a Zwift Click turns virtual gears on
+        QCOMPARE(old.hubOverride(), QStringLiteral("auto"));
         // a fresh rig (sessions on the virtual trainer) uses gear simulation
         Rig r;
         QVERIFY(r.init(true));
@@ -969,7 +954,7 @@ private slots:
         QVERIFY(r.rlv->gearSimulationGrade() < -1.0);   // what Gradient would have sent
         const QString diag = r.gears->diagnosticsText();
         QVERIFY2(diag.contains(QStringLiteral("[Virtual gears]")) && diag.contains(QStringLiteral("gearHybrid -> erg-light"))
-                     && diag.contains(QStringLiteral("44×44")) && diag.contains(QStringLiteral("Trainer command: ERG")),
+                     && diag.contains(QStringLiteral("Gear 3/24 (0.99)")) && diag.contains(QStringLiteral("Trainer command: ERG")),
                  qPrintable(diag));
         QVERIFY(r.gears->debugLine().contains(QStringLiteral("method=auto")));
         r.rlv->finish(false);
@@ -1037,6 +1022,8 @@ private slots:
         ProfileManager profiles(&db);
         profiles.load();
         VirtualGears g(&db, &profiles);
+        g.setEnabled(true);   // virtual gears (Click) on FTMS gradient: the reference gear matters
+        QCOMPARE(g.shiftingMode(), QStringLiteral("ftms"));
         QSignalSpy detected(&g, &VirtualGears::detectionChanged);
         QCOMPARE(g.detectedRatio(), 0.0);
         QCOMPARE(g.effectiveReferenceRatio(), g.referenceRatio());

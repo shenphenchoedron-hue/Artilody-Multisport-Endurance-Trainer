@@ -337,6 +337,21 @@ int main(int argc, char *argv[])
                      [](int w) { DiagLog::write("CMD", QStringLiteral("trainer <- ERG target %1 W").arg(w)); });
     QObject::connect(&hub, &SensorHub::freeRideRequested, &app,
                      [] { DiagLog::write("CMD", QStringLiteral("trainer <- free ride (release)")); });
+    QObject::connect(&hub, &SensorHub::hubSimulationRequested, &app,
+                     [last = std::make_shared<HubSimulation>(), clock = std::make_shared<QElapsedTimer>()](const HubSimulation &p) {
+        // every session call (rate limits are the driver's): log gear / weight
+        // changes, incline steps >= 0.1 % and otherwise every 5 s
+        const bool gear = p.gearRatio != last->gearRatio || p.riderKg != last->riderKg || p.bikeKg != last->bikeKg
+                          || p.cw != last->cw || p.crr != last->crr;
+        if (!gear && std::abs(p.inclinePercent - last->inclinePercent) < 0.1 && clock->isValid() && clock->elapsed() < 5000)
+            return;
+        *last = p;
+        clock->start();
+        DiagLog::write("CMD", QStringLiteral("trainer <- Zwift protocol: incline %1 % gear ratio %2 CWa %3 kg/m Crr %4 "
+                                              "rider %5 kg bike %6 kg")
+                                  .arg(p.inclinePercent, 0, 'f', 2).arg(p.gearRatio, 0, 'f', 2).arg(p.cw, 0, 'f', 4)
+                                  .arg(p.crr, 0, 'f', 5).arg(p.riderKg, 0, 'f', 1).arg(p.bikeKg, 0, 'f', 1));
+    });
     QObject::connect(&hub, &SensorHub::simulationRequested, &app, [](double g, double wind, double crr, double cw) {
         DiagLog::write("CMD", QStringLiteral("trainer <- simulation grade %1 % wind %2 m/s Crr %3 Cw %4 kg/m")
                                   .arg(g, 0, 'f', 2).arg(wind, 0, 'f', 2).arg(crr, 0, 'f', 4).arg(cw, 0, 'f', 2));
@@ -361,6 +376,7 @@ int main(int argc, char *argv[])
         QObject::connect(&gears, &VirtualGears::gearSetupChanged, cfgTimer, later);
         QObject::connect(&gears, &VirtualGears::physicsChanged, cfgTimer, later);
         QObject::connect(&gears, &VirtualGears::clickConnectedChanged, cfgTimer, later);
+        QObject::connect(&gears, &VirtualGears::shiftingChanged, cfgTimer, later);
         QObject::connect(&rlv, &RlvSession::difficultyChanged, cfgTimer, later);
         QObject::connect(&profiles, &ProfileManager::profileChanged, cfgTimer, later);
     }
@@ -373,11 +389,9 @@ int main(int argc, char *argv[])
                                        .arg(gears.referenceRatio(), 0, 'f', 3));
     });
     QObject::connect(&gears, &VirtualGears::shifted, &app, [&gears](int dir) {
-        DiagLog::write("GEAR", QStringLiteral("shifted %1 -> %2 (ratio %3, gear %4/%5)")
-                                   .arg(dir > 0 ? QStringLiteral("harder") : QStringLiteral("easier"), gears.gearLabel())
-                                   .arg(gears.gearRatio(), 0, 'f', 3)
-                                   .arg(gears.gearIndex() + 1)
-                                   .arg(gears.gearCount()));
+        DiagLog::write("GEAR", QStringLiteral("shifted %1 -> %2 [%3]")
+                                   .arg(dir > 0 ? QStringLiteral("harder") : QStringLiteral("easier"), gears.gearText(),
+                                        gears.shiftingStatus()));
     });
     QObject::connect(&gears, &VirtualGears::notice, &app,
                      [](const QString &t) { DiagLog::write("GEAR", QStringLiteral("notice: %1").arg(t)); });
@@ -627,7 +641,9 @@ int main(int argc, char *argv[])
     //                                  added to the screenshot database when no workout matches)
     //   WATT_SCREENSHOT_RLV_MODE       sim (default) | erg (ERG target 200 W) | gears
     //                                  (= sim with virtual gears on)
-    //                                  (WATT_SIM_TRAINER_REJECT_DESCENTS=1: the virtual trainer
+    //                                  (WATT_SIM_TRAINER_ZWIFT=1: the virtual trainer also offers
+    //                                  the Zwift hub protocol, =fail: its handshake is never
+    //                                  answered; WATT_SIM_TRAINER_REJECT_DESCENTS=1: the virtual trainer
     //                                  answers negative grades with "Invalid parameter";
     //                                  WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
     //                                  gradient simulation -> the fallback note)
@@ -635,7 +651,8 @@ int main(int argc, char *argv[])
     //                                  pages (menu-<name>.png): calendar, workouts,
     //                                  new, workouts-export, history, profile, builder
     //                                  (music: the music library dialog,
-    //                                  gearsetup: the free ride gear setup dialog,
+    //                                  gearsetup: the advanced bike dialog, advanced: the advanced
+    //                                  virtual shifting overrides,
     //                                  settings: the settings dialog,
     //                                  diagnostics / gradienttest: Devices > Bluetooth
     //                                  Diagnostics report / Gradient test dialog,
@@ -644,7 +661,7 @@ int main(int argc, char *argv[])
     //                                  calendar-edit: the Edit dialog of today's first
     //                                  Free Ride / Video Ride)
     //   WATT_SCREENSHOT_GEARS=1        virtual gears on (Free Ride / Video Ride)
-    //   WATT_SCREENSHOT_GEAR=34x27     start in this virtual gear
+    //   WATT_SCREENSHOT_GEAR=7         start in this Zwift virtual gear (1..24)
     //   WATT_SCREENSHOT_CLICK=1        a connected virtual Zwift Click (turns virtual
     //                                  gears on); devices.png shows the controllers
     //                                  section with the virtual gears card
@@ -675,11 +692,14 @@ int main(int argc, char *argv[])
             devices.connectSimulatedController();
         if (qEnvironmentVariableIntValue("WATT_SCREENSHOT_GEARS") > 0)
             gears.setEnabled(true);
-        // WATT_SCREENSHOT_GEAR=34x27: start in this virtual gear
-        const QStringList shotGear = qEnvironmentVariable("WATT_SCREENSHOT_GEAR").split(QLatin1Char('x'));
-        if (shotGear.size() == 2)
-            gears.setGear(gears.setup().chainrings.indexOf(shotGear.at(0).toInt()),
-                          gears.setup().cogs.indexOf(shotGear.at(1).toInt()));
+        // WATT_SCREENSHOT_ZWIFT_PROTOCOL=off: the advanced override (with
+        // WATT_SIM_TRAINER_ZWIFT=1 the virtual trainer offers the Zwift protocol,
+        // used automatically while the (virtual) Click is connected)
+        if (qEnvironmentVariableIsSet("WATT_SCREENSHOT_ZWIFT_PROTOCOL"))
+            gears.setHubOverride(qEnvironmentVariable("WATT_SCREENSHOT_ZWIFT_PROTOCOL"));
+        // WATT_SCREENSHOT_GEAR=7: start in this Zwift gear (1..24)
+        if (qEnvironmentVariableIntValue("WATT_SCREENSHOT_GEAR") > 0)
+            gears.setGearIndex(qEnvironmentVariableIntValue("WATT_SCREENSHOT_GEAR") - 1);
         if (shotRowing) {
             devices.connectDevice(QStringLiteral("sim:rower"));
             const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_ROWING_MODE", QStringLiteral("ghost"));

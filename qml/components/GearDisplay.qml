@@ -1,20 +1,14 @@
 import QtQuick
 
-// Current virtual gear of the free ride: "50 × 17", its position
-// ("Gear 9 / 16") and a drivetrain sketch (chainrings + cassette, the gear in
-// use highlighted). Pure presentation: every value comes from Gears.
+// Current virtual gear (Zwift's 24 gears): the big gear number, "Gear 12 / 24
+// • ratio 2.40", a position bar and the shifting status line ("Virtual
+// shifting: Zwift protocol"). Pure presentation: every value comes from Gears.
 Item {
     id: gd
-    property int frontTeeth: 0
-    property int rearTeeth: 0
     property int gearIndex: 0          // 0 = easiest
-    property int gearCount: 1
+    property int gearCount: 24
     property real ratio: 0
-    property var chainrings: []        // ascending teeth
-    property var cogs: []              // ascending teeth (index 0 = hardest)
-    property int frontIndex: 0
-    property int rearIndex: 0
-    property bool sequential: true
+    property string status: ""         // Gears.shiftingStatus
 
     // Short highlight after a shift (+1 harder, -1 easier).
     function flash(direction) {
@@ -22,10 +16,6 @@ Item {
         flashArrow.color = direction > 0 ? Theme.warningText : Theme.accentText
         flashAnim.restart()
     }
-
-    readonly property int minCog: cogs.length > 0 ? Number(cogs[0]) : 11
-    readonly property int maxCog: cogs.length > 0 ? Number(cogs[cogs.length - 1]) : 34
-    readonly property int maxRing: chainrings.length > 0 ? Number(chainrings[chainrings.length - 1]) : 50
 
     implicitHeight: col.implicitHeight
 
@@ -44,26 +34,20 @@ Item {
                 spacing: 10
                 transformOrigin: Item.Center
                 Text {
-                    id: frontText
-                    text: gd.frontTeeth
+                    id: gearNumber
+                    objectName: "gearNumber"
+                    text: gd.gearIndex + 1
                     color: Theme.accentText
-                    font.pixelSize: 78
+                    font.pixelSize: 84
                     font.weight: Font.Black
                     font.letterSpacing: -2
                 }
                 Text {
-                    text: "×"
+                    text: "/ " + gd.gearCount
                     color: Theme.textMuted
-                    font.pixelSize: 52
+                    font.pixelSize: 34
                     font.weight: Font.Bold
-                    anchors.baseline: frontText.baseline
-                }
-                Text {
-                    text: gd.rearTeeth
-                    color: Theme.text
-                    font.pixelSize: 78
-                    font.weight: Font.Black
-                    font.letterSpacing: -2
+                    anchors.baseline: gearNumber.baseline
                 }
             }
             Text {
@@ -80,7 +64,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Gear " + (gd.gearIndex + 1) + " / " + gd.gearCount + "   •   ratio " + gd.ratio.toFixed(2)
+            text: "Gear " + (gd.gearIndex + 1) + "/" + gd.gearCount + " (" + gd.ratio.toFixed(2) + ")"
             color: Theme.textSecondary
             font.pixelSize: 17
         }
@@ -90,7 +74,6 @@ Item {
             width: parent.width
             height: 18
             Rectangle {
-                id: posTrack
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 20, 420)
                 height: 6
@@ -106,80 +89,14 @@ Item {
             }
         }
 
-        // drivetrain: chainrings (left) and cassette (right, easiest cog first)
-        Item {
-            width: parent.width
-            height: 80
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                spacing: 34
-
-                Row {
-                    anchors.bottom: parent.bottom
-                    spacing: 8
-                    Repeater {
-                        model: gd.chainrings
-                        Column {
-                            anchors.bottom: parent.bottom
-                            spacing: 4
-                            readonly property bool current: index === gd.frontIndex
-                            Rectangle {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: 22 + 34 * Number(modelData) / Math.max(1, gd.maxRing)
-                                height: width
-                                radius: width / 2
-                                color: parent.current ? Qt.rgba(0.13, 0.47, 1.0, 0.25) : "transparent"
-                                border.width: parent.current ? 3 : 2
-                                border.color: parent.current ? Theme.accent : Theme.fieldBorder
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: 7; height: 7; radius: 3.5
-                                    color: parent.parent.current ? Theme.accent : Theme.fieldBorder
-                                }
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: modelData
-                                color: parent.current ? Theme.text : Theme.textMuted
-                                font.pixelSize: 12
-                                font.weight: parent.current ? Font.Bold : Font.Normal
-                            }
-                        }
-                    }
-                }
-
-                Row {
-                    anchors.bottom: parent.bottom
-                    spacing: 5
-                    Repeater {
-                        model: gd.cogs.length
-                        Column {
-                            // easiest (largest) cog on the left, like the Shift Easier button
-                            readonly property int cogIndex: gd.cogs.length - 1 - index
-                            readonly property int teeth: Number(gd.cogs[cogIndex])
-                            readonly property bool current: cogIndex === gd.rearIndex
-                            anchors.bottom: parent.bottom
-                            spacing: 4
-                            Rectangle {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: 13
-                                height: 16 + 40 * (parent.teeth - gd.minCog) / Math.max(1, gd.maxCog - gd.minCog)
-                                radius: 4
-                                color: parent.current ? Theme.accent : Theme.fieldBorder
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: parent.teeth
-                                color: parent.current ? Theme.text : Theme.textMuted
-                                font.pixelSize: 12
-                                font.weight: parent.current ? Font.Bold : Font.Normal
-                            }
-                        }
-                    }
-                }
-            }
+        Text {
+            objectName: "gearShiftingStatus"
+            visible: gd.status.length > 0
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: gd.status
+            color: Theme.orange
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
         }
     }
 

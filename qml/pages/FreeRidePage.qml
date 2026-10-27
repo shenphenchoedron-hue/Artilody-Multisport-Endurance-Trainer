@@ -24,9 +24,6 @@ Item {
     // a ride is saved, so after an unsaved ride a binding would still show the
     // previous ride. Re-read on every state change and on rideSaved.
     property real shownRideId: -1
-    readonly property var setup: Gears.gearSetup
-    readonly property var rings: setup.chainrings || []
-    readonly property var cogs: setup.cogs || []
     readonly property int chartTotal: Math.max(600, Math.ceil((FreeRide.elapsedSeconds + 60) / 600) * 600)
     property bool plusDown: false
     property bool minusDown: false
@@ -46,12 +43,10 @@ Item {
     }
     function modeName(m) { return m === "erg" ? "ERG" : "Ride" }
     // "Shifting: …" status line (also on the Video Ride page)
+    // "Virtual shifting: Zwift protocol" / "Virtual shifting: FTMS gradient" /
+    // "Shifting: your bike's gears" (virtual gears = a Zwift Click is connected)
     function shiftingText() {
-        if (!FreeRide.virtualGears)
-            return "your bike's gears"
-        if (FreeRide.simulationFallback)
-            return "Virtual gears"
-        return Devices.controllerConnected ? "Virtual gears (Zwift Click)" : "Virtual gears (on-screen)"
+        return Gears.shiftingStatus
     }
     function goTo(name) {
         var w = ApplicationWindow.window
@@ -170,7 +165,7 @@ Item {
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: page.st === "idle" ? (FreeRide.ergHolding ? "ERG on  •  " + FreeRide.targetWatts + " W"
-                                                                                : "Gears on  •  " + Gears.gearLabel)
+                                                                                : "Gear " + Gears.gearLabel + "/" + Gears.gearCount)
                                       : page.st === "running" ? (FreeRide.coasting ? "Coasting" : "Riding") + "  •  " + page.modeName(FreeRide.mode)
                                       : page.st === "paused" ? "Paused" : "Finished"
                                 color: Theme.text
@@ -291,7 +286,7 @@ Item {
                 headerRight: [
                     Text {
                         visible: FreeRide.mode !== "erg"
-                        text: "Shifting: " + page.shiftingText()
+                        text: page.shiftingText()
                         color: Theme.textSecondary
                         font.pixelSize: 15
                     }
@@ -333,16 +328,10 @@ Item {
                             id: gearDisplay
                             Layout.fillWidth: true
                             Layout.preferredHeight: implicitHeight
-                            frontTeeth: Gears.frontTeeth
-                            rearTeeth: Gears.rearTeeth
                             gearIndex: Gears.gearIndex
                             gearCount: Gears.gearCount
                             ratio: Gears.gearRatio
-                            chainrings: page.rings
-                            cogs: page.cogs
-                            frontIndex: Gears.frontIndex
-                            rearIndex: Gears.rearIndex
-                            sequential: Gears.sequential
+                            status: Gears.shiftingStatus
                         }
                         Item { Layout.fillHeight: true }
                         Text {
@@ -350,6 +339,7 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                             text: FreeRide.simulationFallback
                                   ? "Your trainer can't simulate climbs – using virtual gears."
+                                  : Gears.zwiftActive ? "Zwift Click • the trainer does the physics."
                                   : FreeRide.resistancePath === "gearSimulation" || FreeRide.resistancePath === "gearHybrid"
                                     ? "Leave your bike in " + Gears.referenceLabel + " on the trainer."
                                     : "The trainer sets the watts your gear needs."
@@ -396,6 +386,13 @@ Item {
                             color: Theme.accentLight
                         }
                         Text {
+                            objectName: "freeRideShiftingStatus"
+                            Layout.alignment: Qt.AlignHCenter
+                            text: Gears.shiftingStatus
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                        }
+                        Text {
                             Layout.alignment: Qt.AlignHCenter
                             text: "Shift on your bike"
                             color: Theme.text
@@ -432,8 +429,8 @@ Item {
                             iconSpacing: 8
                             horizontalPadding: 14
                             bold: false
-                            iconName: "cog"
-                            text: "Virtual gears on Devices"
+                            iconName: "bluetooth"
+                            text: "Virtual gears: connect a Zwift Click"
                             onClicked: page.openDevices()
                         }
                         Item { Layout.fillHeight: true }
@@ -540,7 +537,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
                     text: FreeRide.virtualGears
-                          ? "Keys:   ↑ / ↓  shift   •   Shift + ↑ / ↓  " + (Gears.sequential ? "jump 3 gears" : "front shift")
+                          ? "Keys:   ↑ / ↓  shift   •   Shift + ↑ / ↓  jump 3 gears"
                             + "   •   PgUp / PgDn  grade   •   Space  pause / resume"
                           : "Keys:   PgUp / PgDn  grade   •   Space  pause / resume"
                     color: Theme.textMuted
@@ -847,8 +844,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             Text {
                                 width: clickCol.width - 40
-                                text: FreeRide.mode === "erg" ? "ERG – no shifting needed"
-                                      : page.shiftingText().charAt(0).toUpperCase() + page.shiftingText().slice(1)
+                                text: FreeRide.mode === "erg" ? "ERG – no shifting needed" : page.shiftingText()
                                 color: Theme.text
                                 font.pixelSize: 15
                                 font.weight: Font.DemiBold
@@ -882,7 +878,7 @@ Item {
                         iconSize: 18
                         bold: false
                         iconName: Devices.controllerConnected ? "cog" : "bluetooth"
-                        text: Devices.controllerConnected ? "Virtual gears on Devices" : "Zwift Click & gears on Devices"
+                        text: Devices.controllerConnected ? "Zwift Click on Devices" : "Connect a Zwift Click on Devices"
                         onClicked: page.openDevices()
                     }
                 }

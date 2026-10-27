@@ -20,13 +20,30 @@ class ProfileManager;
 class RlvSession;
 class SensorHub;
 
-// Virtual shifting: the ONE gear setup and current gear of the rider, shared
-// by the Free Ride and the Video Ride, configured on the Devices page.
-// Exposed to QML as "Gears" (Artilody.Backend).
+// Virtual shifting with a Zwift Click, shared by the Free Ride and the Video
+// Ride. Exposed to QML as "Gears" (Artilody.Backend).
 //
-// Virtual gears work like the gears of a mechanical groupset: shifting
-// changes the gear (and with it the speed at a given cadence and the power
-// the road asks for), never the trainer difficulty.
+// Tied to the Zwift Click, not to the trainer (no manual switch):
+//   * Zwift Click connected   -> virtual gears active (enabled()). The rider
+//     shifts Zwift's fixed 24 virtual gears (zwiftgears::kRatios, start gear
+//     12 = 2.40; the chainrings / cogs of the old gear setup are ignored but
+//     kept in the database). How the gear reaches the trainer
+//     (shiftingMode()):
+//       "zwift" - the CONNECTED trainer exposes the Zwift trainer service and
+//                 its handshake succeeded: Zwift hub protocol, the trainer gets
+//                 incline + gear ratio + weights and does the physics
+//                 (RideResistance::Path::GearHub);
+//       "ftms"  - otherwise (no Zwift service, handshake running / failed):
+//                 FTMS gradient virtual gears (gear-adjusted grade, path a);
+//       "erg"   - only a trainer WITHOUT gradient simulation (FTMS ERG at the
+//                 gear's watts; never instead of a working simulation).
+//   * No Zwift Click          -> no virtual gears ("bike"): the rider shifts
+//     the real cassette, the trainer gets plain FTMS gradient simulation
+//     (route grade × difficulty) - even when the trainer has the Zwift
+//     service (it may carry a normal cassette).
+// Advanced (Bluetooth diagnostics only): hubOverride "off" never uses the
+// Zwift protocol; shiftMethod "auto" / "erg" (experimental, not saved).
+// setEnabled() forces virtual gears without a Click (tests / screenshots).
 //
 // Road model (roadModel()): mass = profile weight (default 75 kg) + bike
 // weight; CdA = road::autoCda(profile weight, height) when the setup's
@@ -34,39 +51,33 @@ class SensorHub;
 // + bike mass also goes to SensorHub::riderMassKg (setHub(): the virtual
 // trainer's weight setting).
 //
-// Persistence: the setup (chainrings, cogs, wheel, sequential, bike weight,
-// CdA auto/manual, Crr, reference gear) and the current gear are stored per profile in
-// profiles.gear_setup (GearSetup JSON, DB schema v3), written 1.5 s after the
-// last change (flushSettings() writes at once). A different profile loads its
-// own bike; while a ride runs (setBusyCheck()) the switch waits until
-// reloadIfPending() (called by the sessions when a ride ends).
-//
-// enabled ("Use virtual gears", setting "gears/enabled", default off): when
-// on, the riding sessions use the virtual gear in their road modes (Free Ride
-// "Ride", Video Ride "Simulation"); when off the rider shifts the real bike
-// and the trainer simulates the road grade. A Zwift Click turns it on when it
-// connects (setClickConnected(true), which also reloads the saved setup) and
-// when a button is pressed while it is off (notice()).
+// Persistence: the bike (wheel, bike weight, CdA auto/manual, Crr, reference
+// gear for the FTMS gradient path) is stored per profile in
+// profiles.gear_setup (GearSetup JSON), written 1.5 s after the last change
+// (flushSettings() writes at once). A different profile loads its own bike;
+// while a ride runs (setBusyCheck()) the switch waits until reloadIfPending().
+// The virtual gear itself starts at 12 when the app starts.
 //
 // Zwift Click routing (controllerShift(), the single place):
-//   1. virtual gears off -> turn on + notice "Zwift Click detected – using virtual gears"
-//   2. a video ride is running             -> RlvSession::controllerShift()
-//   3. a free ride is running              -> FreeRideSession::controllerShift()
-//   4. the Video Ride page is open (activePage "video")    -> RlvSession::controllerShift()
-//   5. the Free Ride page is open (activePage "freeride")  -> FreeRideSession::controllerShift()
-//   6. otherwise (e.g. Devices page)        -> shift the gear (test it on the Devices page)
+//   1. a video ride is running             -> RlvSession::controllerShift()
+//   2. a free ride is running              -> FreeRideSession::controllerShift()
+//   3. the Video Ride page is open (activePage "video")    -> RlvSession::controllerShift()
+//   4. the Free Ride page is open (activePage "freeride")  -> FreeRideSession::controllerShift()
+//   5. otherwise (e.g. Devices page)        -> shift the gear (test it on the Devices page)
 // The sessions shift in their road modes and step the ERG target by ±10 W in
 // ERG. Nothing ever changes the difficulty.
 class VirtualGears : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
+    // virtual gears active = a Zwift Click is connected (no manual switch)
+    Q_PROPERTY(bool enabled READ enabled NOTIFY enabledChanged)
     Q_PROPERTY(bool clickConnected READ clickConnected NOTIFY clickConnectedChanged)
     Q_PROPERTY(QString activePage READ activePage WRITE setActivePage NOTIFY activePageChanged)
 
     // current gear
     Q_PROPERTY(QVariantMap gear READ gear NOTIFY gearChanged)
-    Q_PROPERTY(QString gearLabel READ gearLabel NOTIFY gearChanged)
+    Q_PROPERTY(QString gearLabel READ gearLabel NOTIFY gearChanged)            // "12"
+    Q_PROPERTY(QString gearText READ gearText NOTIFY gearChanged)              // "Gear 12/24 (2.40)"
     Q_PROPERTY(int gearIndex READ gearIndex NOTIFY gearChanged)
     Q_PROPERTY(int gearCount READ gearCount NOTIFY gearChanged)
     Q_PROPERTY(double gearRatio READ gearRatio NOTIFY gearChanged)
@@ -92,11 +103,30 @@ class VirtualGears : public QObject
     Q_PROPERTY(QVariantList wheelPresets READ wheelPresets CONSTANT)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
-    // How virtual gears drive a trainer that simulates gradients
-    // ("gradient" default = simulation / "auto" and "erg" optional,
-    // experimental; setting "gears/method", written only by an explicit
-    // choice, see methodFromSetting() and RideResistance::GearMethod).
+    // How FTMS virtual gears drive a trainer that simulates gradients:
+    // "gradient" (always the default = simulation). "auto" / "erg" are hidden,
+    // experimental options of the Bluetooth diagnostics, never saved: every
+    // start is "gradient" again (a value stored by older versions is ignored).
     Q_PROPERTY(QString shiftMethod READ shiftMethod WRITE setShiftMethod NOTIFY shiftMethodChanged)
+    // "zwift" | "ftms" | "erg" | "bike" (see the table above)
+    Q_PROPERTY(QString shiftingMode READ shiftingMode NOTIFY shiftingChanged)
+    // "Virtual shifting: Zwift protocol" / "Virtual shifting: FTMS gradient" /
+    // "Shifting: your bike's gears" (status line of the Devices card / ride pages)
+    Q_PROPERTY(QString shiftingStatus READ shiftingStatus NOTIFY shiftingChanged)
+    // why: "Zwift protocol handshake…", "Zwift protocol failed (…) – FTMS gradient", ...
+    Q_PROPERTY(QString shiftingDetail READ shiftingDetail NOTIFY shiftingChanged)
+    // the Zwift protocol failed / handshake timed out (FTMS gradient fallback in use)
+    Q_PROPERTY(bool shiftingProblem READ shiftingProblem NOTIFY shiftingChanged)
+    // the connected trainer exposes the Zwift trainer service
+    Q_PROPERTY(bool zwiftAvailable READ zwiftAvailable NOTIFY shiftingChanged)
+    // the Zwift protocol carries the virtual gear right now
+    Q_PROPERTY(bool zwiftActive READ zwiftActive NOTIFY shiftingChanged)
+    // Advanced override (Bluetooth diagnostics): "auto" (default) | "off"
+    // (never the Zwift protocol, FTMS gradient only). Saved ("gears/zwiftProtocol").
+    Q_PROPERTY(QString hubOverride READ hubOverride WRITE setHubOverride NOTIFY shiftingChanged)
+    // FTMS gradient virtual gears in use: the bike's real gear on the trainer
+    // (reference) matters - the hint / detection prompt are shown
+    Q_PROPERTY(bool referenceNeeded READ referenceNeeded NOTIFY shiftingChanged)
     // The real gear on the trainer measured from its speed and cadence
     // (GearRatioDetector); 0 / "" until detected. Never changes the saved
     // reference gear and is never used by itself: it only PROMPTS the rider
@@ -149,7 +179,9 @@ public:
     void setManualSave(bool manual) { m_manualSave = manual; }
     void flushSettings();
 
-    bool enabled() const { return m_enabled; }
+    bool enabled() const { return m_clickConnected || m_forced; }
+    // Forces virtual gears without a Click (tests, screenshots, diagnostics);
+    // not saved.
     void setEnabled(bool on);
     bool clickConnected() const { return m_clickConnected; }
     void setClickConnected(bool connected);
@@ -160,6 +192,7 @@ public:
     const GearSetup &setup() const { return m_gearing.setup(); }
     QVariantMap gear() const;
     QString gearLabel() const { return m_gearing.label(); }
+    QString gearText() const;
     int gearIndex() const { return m_gearing.gearIndex(); }
     int gearCount() const { return m_gearing.gearCount(); }
     double gearRatio() const { return m_gearing.ratio(); }
@@ -174,7 +207,11 @@ public:
 
     QVariantList gears() const;
     QVariantMap gearSetup() const;
-    QString summary() const { return setup().summary(); }
+    // "Zwift's 24 virtual gears · 700×25c"
+    QString summary() const
+    {
+        return QStringLiteral("Zwift's 24 virtual gears · %1").arg(GearSetup::wheelName(setup().circumferenceMm));
+    }
     bool sequential() const { return setup().sequential; }
     void setSequential(bool on);
     int referenceFrontTeeth() const { return setup().referenceFrontTeeth; }
@@ -191,6 +228,15 @@ public:
     RideResistance::GearMethod method() const { return m_method; }
     QString shiftMethod() const { return RideResistance::methodName(m_method); }
     void setShiftMethod(const QString &method);
+    QString shiftingMode() const;
+    QString shiftingStatus() const;
+    QString shiftingDetail() const;
+    bool shiftingProblem() const;
+    bool zwiftAvailable() const;
+    bool zwiftActive() const;
+    QString hubOverride() const { return m_hubOverride; }
+    void setHubOverride(const QString &mode);   // "auto" | "off"
+    bool referenceNeeded() const { return shiftingMode() == QLatin1String("ftms"); }
     // The method for a stored "gears/method" value: Gradient when nothing was
     // chosen (invalid QVariant) or the value is unknown; "auto" / "erg" only
     // when the rider picked them (setShiftMethod() is the only writer).
@@ -269,6 +315,8 @@ public:
     // cdaAuto: estimate the CdA from the profile (cda is kept as the manual
     // value for when auto is turned off).
     Q_INVOKABLE bool setBikePhysics(double bikeWeightKg, double cda, double crr, bool cdaAuto = false);
+    // Wheel circumference (mm) for the virtual speed (advanced).
+    Q_INVOKABLE bool setWheelCircumference(int mm);
     // Teeth of the real gear on the trainer; snapped to the setup.
     Q_INVOKABLE bool setReferenceGear(int frontTeeth, int rearTeeth);
     // Any plausible real gear (GearSetup::kMin/kMaxReference*), also outside
@@ -301,11 +349,15 @@ signals:
     void lastErrorChanged();
     void physicsChanged();
     void shiftMethodChanged();
+    void shiftingChanged();
     void detectionChanged();
     void shifted(int direction);            // the gear changed by a shift (+1 harder)
     void notice(const QString &text);       // short message for a toast
 
 private:
+    void syncHubBackend();
+    void enabledMaybeChanged(bool before);
+    void updateShifting();
     void load();
     void afterShift(bool shifted, int direction);
     void setupChanged(bool gearToo);
@@ -329,8 +381,10 @@ private:
     Gearing m_gearing;
     qint64 m_profileId = -1;
     bool m_reloadPending = false;
-    bool m_enabled = false;
+    bool m_forced = false;
     bool m_clickConnected = false;
+    QString m_hubOverride = QStringLiteral("auto");
+    QString m_lastMode;          // shiftingMode() last logged
     QString m_activePage;
     QString m_lastError;
     QTimer m_saveTimer;

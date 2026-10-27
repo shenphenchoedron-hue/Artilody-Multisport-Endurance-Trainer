@@ -15,8 +15,10 @@
 namespace watt {
 
 namespace {
-const QString kSettingEnabled = QStringLiteral("gears/enabled");
-const QString kSettingMethod = QStringLiteral("gears/method");
+// "gears/enabled" (the old "Use virtual gears" switch), "gears/method" and
+// "gears/backend" of earlier versions are ignored: virtual gears follow the
+// Zwift Click, the method is always Gradient unless chosen in the diagnostics.
+const QString kSettingHubOverride = QStringLiteral("gears/zwiftProtocol");
 
 QVector<int> toIntList(const QVariantList &list, bool *ok)
 {
@@ -37,10 +39,8 @@ QVector<int> toIntList(const QVariantList &list, bool *ok)
 
 RideResistance::GearMethod VirtualGears::methodFromSetting(const QVariant &stored)
 {
-    // Only setShiftMethod() (= the rider's choice on the Devices page) writes
-    // "gears/method"; a missing / unreadable value is never an explicit
-    // choice. Default: Gradient (simulation, the 1.3.1 behaviour) - also for
-    // riders who ran the test build that made "auto" the implicit default.
+    // Gradient (simulation) unless the value names another method. Since
+    // 1.3.2 the constructor no longer reads a stored method at all.
     if (!stored.isValid() || stored.isNull())
         return RideResistance::GearMethod::Gradient;
     return RideResistance::parseMethod(stored.toString()).value_or(RideResistance::GearMethod::Gradient);
@@ -67,8 +67,11 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
         }
         load();
     });
-    m_enabled = m_db->setting(kSettingEnabled, false).toBool();
-    m_method = methodFromSetting(m_db->setting(kSettingMethod));
+    m_method = RideResistance::GearMethod::Gradient;   // always simulation by default
+    m_hubOverride = m_db->setting(kSettingHubOverride, QStringLiteral("auto")).toString() == QLatin1String("off")
+                        ? QStringLiteral("off") : QStringLiteral("auto");
+    connect(this, &VirtualGears::enabledChanged, this, &VirtualGears::updateShifting);
+    connect(this, &VirtualGears::shiftMethodChanged, this, &VirtualGears::updateShifting);
     m_detectClock.start();
     load();
 }
@@ -90,8 +93,117 @@ void VirtualGears::setHub(SensorHub *hub)
             if (!m_hub->trainerConnected())
                 clearDetection();   // another trainer / bike may come
         });
+        connect(m_hub, &SensorHub::zwiftHubChanged, this, &VirtualGears::updateShifting);
+        connect(m_hub, &SensorHub::trainerConnectedChanged, this, &VirtualGears::updateShifting);
+        connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &VirtualGears::updateShifting);
     }
     syncHub();
+    syncHubBackend();
+    updateShifting();
+}
+
+void VirtualGears::syncHubBackend()
+{
+    // the CONNECTED trainer may start the Zwift handshake only while virtual
+    // gears are active (Zwift Click connected) - never just because the
+    // trainer supports it
+    if (m_hub)
+        m_hub->setZwiftHubWanted(enabled() && m_hubOverride != QLatin1String("off"));
+}
+
+void VirtualGears::setHubOverride(const QString &mode)
+{
+    const QString m = mode == QLatin1String("off") ? QStringLiteral("off") : QStringLiteral("auto");
+    if (m == m_hubOverride)
+        return;
+    m_hubOverride = m;
+    m_db->setSetting(kSettingHubOverride, m_hubOverride);
+    DiagLog::write("VSHIFT", QStringLiteral("advanced override: Zwift protocol %1").arg(m == QLatin1String("off")
+                                                                                         ? QStringLiteral("OFF (FTMS gradient only)")
+                                                                                         : QStringLiteral("automatic")));
+    syncHubBackend();
+    updateShifting();
+    emit shiftingChanged();
+}
+
+bool VirtualGears::zwiftAvailable() const
+{
+    return m_hub && m_hub->trainerConnected() && m_hub->trainerHasZwiftHub();
+}
+
+bool VirtualGears::zwiftActive() const
+{
+    return enabled() && m_hubOverride != QLatin1String("off") && m_hub && m_hub->trainerZwiftHubActive();
+}
+
+QString VirtualGears::shiftingMode() const
+{
+    if (!enabled())
+        return QStringLiteral("bike");
+    if (zwiftActive())
+        return QStringLiteral("zwift");
+    if (m_method == RideResistance::GearMethod::Erg
+        || (m_hub && m_hub->trainerConnected() && !RideResistance::gearSimulationPossible(m_hub)))
+        return QStringLiteral("erg");
+    return QStringLiteral("ftms");
+}
+
+QString VirtualGears::shiftingStatus() const
+{
+    const QString mode = shiftingMode();
+    if (mode == QLatin1String("zwift"))
+        return QStringLiteral("Virtual shifting: Zwift protocol");
+    if (mode == QLatin1String("ftms"))
+        return QStringLiteral("Virtual shifting: FTMS gradient");
+    if (mode == QLatin1String("erg"))
+        return QStringLiteral("Virtual shifting: FTMS ERG (trainer without gradient simulation)");
+    return QStringLiteral("Shifting: your bike's gears");
+}
+
+bool VirtualGears::shiftingProblem() const
+{
+    return enabled() && m_hubOverride != QLatin1String("off") && m_hub && m_hub->trainerConnected()
+           && m_hub->trainerZwiftHubState() == SensorHub::HubFailed;
+}
+
+QString VirtualGears::shiftingDetail() const
+{
+    if (!enabled())
+        return QStringLiteral("No Zwift Click connected – shift your bike's real gears; the trainer simulates the road grade.");
+    if (!m_hub || !m_hub->trainerConnected())
+        return QStringLiteral("Zwift Click connected – Zwift's 24 virtual gears. Connect a trainer.");
+    if (m_hubOverride == QLatin1String("off") && m_hub->trainerHasZwiftHub())
+        return QStringLiteral("Zwift protocol turned off in Bluetooth diagnostics – FTMS gradient.");
+    switch (m_hub->trainerZwiftHubState()) {
+    case SensorHub::HubActive:
+        return QStringLiteral("The trainer does the physics (incline + gear ratio).");
+    case SensorHub::HubStarting:
+        return QStringLiteral("Zwift protocol handshake… (FTMS gradient meanwhile)");
+    case SensorHub::HubAvailable:
+        return QStringLiteral("Trainer has the Zwift trainer service – starting the Zwift protocol…");
+    case SensorHub::HubFailed: {
+        const QString why = m_hub->trainerZwiftHubStatus();
+        return QStringLiteral("Zwift protocol failed%1 – using FTMS gradient.")
+            .arg(why.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(why));
+    }
+    default:
+        break;
+    }
+    if (shiftingMode() == QLatin1String("erg"))
+        return QStringLiteral("This trainer cannot simulate gradients – the gear's power is set with ERG.");
+    return QStringLiteral("Trainer without the Zwift trainer service – gear-adjusted grade via FTMS.");
+}
+
+void VirtualGears::updateShifting()
+{
+    const QString mode = shiftingMode();
+    if (mode != m_lastMode) {
+        DiagLog::write("VSHIFT", QStringLiteral("shifting mode %1 -> %2: %3 | %4")
+                                     .arg(m_lastMode.isEmpty() ? QStringLiteral("-") : m_lastMode, mode, shiftingStatus(),
+                                          shiftingDetail()));
+        m_lastMode = mode;
+    }
+    emit shiftingChanged();
 }
 
 void VirtualGears::sampleHub()
@@ -129,7 +241,7 @@ void VirtualGears::addTrainerSample(qint64 ms, double cadenceRpm, double speedMp
         // a "real gear" equal to the current virtual gear (that is not the
         // reference) means the trainer reports its simulated speed
         const double ref = referenceRatio();
-        const bool looksVirtual = m_enabled && m_detector.valid() && std::abs(gearRatio() - ref) > ref * kDetectMismatch
+        const bool looksVirtual = enabled() && m_detector.valid() && std::abs(gearRatio() - ref) > ref * kDetectMismatch
                                   && std::abs(m_detector.ratio() - gearRatio()) <= gearRatio() * 0.02;
         if (looksVirtual != m_detectLooksVirtual) {
             m_detectLooksVirtual = looksVirtual;
@@ -194,7 +306,9 @@ bool VirtualGears::detectedTeeth(int *front, int *rear) const
 
 QString VirtualGears::referencePrompt() const
 {
-    if (!detectedDiffers() || !detectedStable() || m_detectLooksVirtual)
+    // only for FTMS gradient virtual gears (the Zwift protocol and the real
+    // gears do not use the reference gear)
+    if (!referenceNeeded() || !detectedDiffers() || !detectedStable() || m_detectLooksVirtual)
         return QString();
     if (m_promptDismissedRatio > 0 && std::abs(m_promptDismissedRatio - m_detector.ratio()) <= m_detector.ratio() * 0.02)
         return QString();
@@ -305,13 +419,15 @@ QString VirtualGears::diagnosticsText() const
     QString r;
     QTextStream out(&r);
     out << "[Virtual gears]\n";
-    out << "Use virtual gears: " << (m_enabled ? "on" : "off") << "  method: " << shiftMethod()
-        << "  Zwift Click: " << (m_clickConnected ? "connected" : "-") << "\n";
+    out << "Zwift Click: " << (m_clickConnected ? "connected" : "-") << "  virtual gears: "
+        << (enabled() ? (m_clickConnected ? "active" : "active (forced)") : "off (real gears)")
+        << "  FTMS method: " << shiftMethod() << "  Zwift protocol override: " << m_hubOverride << "\n";
+    out << shiftingStatus() << " – " << shiftingDetail() << "\n";
     out << "Session: " << st.session << "  path: " << st.path;
     if (!st.decision.isEmpty())
         out << " -> " << st.decision;
     out << "\n";
-    out << "Gear: " << gearLabel() << QStringLiteral(" (%1)").arg(gearRatio(), 0, 'f', 3)
+    out << "Gear: " << gearText() << " (Zwift's 24 gears)"
         << "  reference (saved): " << referenceLabel() << QStringLiteral(" (%1)").arg(referenceRatio(), 0, 'f', 3)
         << "  detected: "
         << (m_detector.valid() ? QStringLiteral("%1 (%2)").arg(detectedLabel().isEmpty() ? QStringLiteral("?") : detectedLabel())
@@ -374,10 +490,11 @@ QString VirtualGears::settingsLine() const
     const GearSetup &s = setup();
     const road::Model rm = roadModel(0);
     const Profile &who = rider();
-    return QStringLiteral("virtualGears=%1 method=%2 click=%3 gear=%4 (ratio %5) reference=%6 (ratio %7) "
-                          "detected=%8 setup[rings %9 cogs %10 wheel %11 mm %12] rider[%13 %14 kg] "
+    return QStringLiteral("shifting=%1 zwiftOverride=%2 ").arg(shiftingMode(), m_hubOverride)
+           + QStringLiteral("virtualGears=%1 method=%2 click=%3 gear=%4 (ratio %5) reference=%6 (ratio %7) "
+                          "detected=%8 old-setup(ignored)[rings %9 cogs %10] wheel %11 mm %12 rider[%13 %14 kg] "
                           "bike %15 kg mass %16 kg CdA %17 (%18) Crr %19 rho %20 eta %21")
-        .arg(m_enabled ? QStringLiteral("on") : QStringLiteral("off"), shiftMethod(),
+        .arg(enabled() ? QStringLiteral("on") : QStringLiteral("off"), shiftMethod(),
              m_clickConnected ? QStringLiteral("connected") : QStringLiteral("-"), gearLabel())
         .arg(gearRatio(), 0, 'f', 3)
         .arg(referenceLabel())
@@ -387,7 +504,7 @@ QString VirtualGears::settingsLine() const
                                 : QStringLiteral("-"))
         .arg(join(s.chainrings), join(s.cogs))
         .arg(s.circumferenceMm)
-        .arg(s.sequential ? QStringLiteral("sequential") : QStringLiteral("front/rear"))
+        .arg(QStringLiteral("zwift24"))
         .arg(who.name)
         .arg(riderWeightKg(), 0, 'f', 1)
         .arg(s.bikeWeightKg, 0, 'f', 1)
@@ -404,8 +521,9 @@ void VirtualGears::setShiftMethod(const QString &method)
     const auto m = RideResistance::parseMethod(method);
     if (!m || *m == m_method)
         return;
-    m_method = *m;
-    m_db->setSetting(kSettingMethod, shiftMethod());
+    m_method = *m;   // not saved: the next start is Gradient again
+    DiagLog::write("VSHIFT", QStringLiteral("advanced: FTMS virtual shifting method %1%2").arg(shiftMethod(),
+                       m_method == RideResistance::GearMethod::Gradient ? QString() : QStringLiteral(" (experimental)")));
     emit shiftMethodChanged();
 }
 
@@ -429,7 +547,10 @@ void VirtualGears::load()
     m_reloadPending = false;
     m_profileId = m_profiles->profileId();
     const QString json = m_profileId >= 0 ? m_db->gearSetupJson(m_profileId) : QString();
-    m_gearing = Gearing(GearSetup::fromJsonText(json));
+    // Zwift's fixed 24 gears: the stored chainrings / cogs (and their gear)
+    // are kept in the database but not used; the current virtual gear stays
+    const int gear = m_gearing.isZwift() ? m_gearing.zwiftGear() : zwiftgears::kStartGear;
+    m_gearing = Gearing::zwift(GearSetup::fromJsonText(json), gear);
     emit gearSetupChanged();
     emit gearChanged();
 }
@@ -477,30 +598,34 @@ void VirtualGears::setError(const QString &e)
 
 // --- switches ------------------------------------------------------------------------
 
+void VirtualGears::enabledMaybeChanged(bool before)
+{
+    if (enabled() == before)
+        return;
+    DiagLog::write("VSHIFT", enabled() ? QStringLiteral("virtual gears ACTIVE (%1) – Zwift's 24 gears, %2")
+                                             .arg(m_clickConnected ? QStringLiteral("Zwift Click connected")
+                                                                   : QStringLiteral("forced"),
+                                                  gearText())
+                                       : QStringLiteral("virtual gears OFF (no Zwift Click) – real gears, plain FTMS gradient simulation"));
+    syncHubBackend();
+    emit enabledChanged();
+}
+
 void VirtualGears::setEnabled(bool on)
 {
-    if (m_enabled == on)
-        return;
-    m_enabled = on;
-    m_db->setSetting(kSettingEnabled, on);
-    emit enabledChanged();
+    const bool before = enabled();
+    m_forced = on;
+    enabledMaybeChanged(before);
 }
 
 void VirtualGears::setClickConnected(bool connected)
 {
     if (m_clickConnected == connected)
         return;
+    const bool before = enabled();
     m_clickConnected = connected;
-    if (connected) {
-        // recognised: ride with the saved bike, shifting virtually (a ride in
-        // progress keeps its bike, the saved one comes after it)
-        if (m_busy && m_busy())
-            m_reloadPending = true;
-        else
-            reload();
-        setEnabled(true);
-    }
     emit clickConnectedChanged();
+    enabledMaybeChanged(before);
 }
 
 void VirtualGears::setActivePage(const QString &page)
@@ -515,10 +640,6 @@ void VirtualGears::controllerShift(int direction)
 {
     if (direction == 0)
         return;
-    if (!m_enabled) {
-        setEnabled(true);
-        emit notice(QStringLiteral("Zwift Click detected – using virtual gears"));
-    }
     // a ride that runs gets the buttons wherever the rider is;
     // a paused one only on its own page (else the open page's session does)
     const bool onVideo = m_activePage == QLatin1String("video");
@@ -631,14 +752,21 @@ QVariantMap VirtualGears::gear() const
                          { QStringLiteral("ratio"), m_gearing.ratio() } };
 }
 
+QString VirtualGears::gearText() const
+{
+    return QStringLiteral("Gear %1/%2 (%3)").arg(m_gearing.gearIndex() + 1).arg(m_gearing.gearCount())
+        .arg(m_gearing.ratio(), 0, 'f', 2);
+}
+
 QVariantList VirtualGears::gears() const
 {
     QVariantList out;
-    const QVector<Gear> list = setup().sequential ? m_gearing.sequence() : m_gearing.allGears();
+    const QVector<Gear> list = m_gearing.sequence();
     for (int i = 0; i < list.size(); ++i) {
         const Gear &g = list.at(i);
         out.append(QVariantMap { { QStringLiteral("index"), i },
-                                 { QStringLiteral("label"), Gearing::labelFor(g.frontTeeth, g.rearTeeth) },
+                                 { QStringLiteral("label"), m_gearing.isZwift() ? QString::number(i + 1)
+                                                                                : Gearing::labelFor(g.frontTeeth, g.rearTeeth) },
                                  { QStringLiteral("ratio"), g.ratio },
                                  { QStringLiteral("front"), g.front },
                                  { QStringLiteral("rear"), g.rear } });
@@ -679,7 +807,7 @@ void VirtualGears::afterShift(bool didShift, int direction)
 {
     if (!didShift)
         return;
-    scheduleSave();
+    // the virtual gear is not saved (Zwift's table, start gear 12)
     emit gearChanged();
     emit shifted(direction);
 }
@@ -847,9 +975,25 @@ bool VirtualGears::setReferenceGearAny(int frontTeeth, int rearTeeth)
     return true;
 }
 
+bool VirtualGears::setWheelCircumference(int mm)
+{
+    if (mm < GearSetup::kMinCircumferenceMm || mm > GearSetup::kMaxCircumferenceMm) {
+        setError(QStringLiteral("Wheel circumference must be %1–%2 mm").arg(GearSetup::kMinCircumferenceMm)
+                     .arg(GearSetup::kMaxCircumferenceMm));
+        return false;
+    }
+    if (mm == setup().circumferenceMm)
+        return true;
+    GearSetup s = setup();
+    s.circumferenceMm = mm;
+    m_gearing.setSetup(s);
+    setupChanged(true);   // the virtual speed changes
+    return true;
+}
+
 void VirtualGears::resetGearSetup()
 {
-    m_gearing = Gearing(GearSetup::defaults());
+    m_gearing = Gearing::zwift(GearSetup::defaults(), m_gearing.isZwift() ? m_gearing.zwiftGear() : zwiftgears::kStartGear);
     setupChanged(true);
 }
 

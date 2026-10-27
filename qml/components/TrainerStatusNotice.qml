@@ -6,15 +6,18 @@ import Artilody.Backend
 // something is wrong (a rejected / unanswered command, control lost, another
 // mode than requested: Devices.trainerControlStatus) and the reference gear
 // prompt of the virtual gears ("Your trainer reports 44×14 (3.14) but the
-// setting is 50×17 (2.94) — use the detected gear?"). Hidden (no space) when
-// there is nothing to say. compact: smaller text for narrow panels.
+// setting is 50×17 (2.94) — use the detected gear?", FTMS gradient virtual
+// shifting only) and a failed Zwift protocol handshake ("Zwift protocol
+// failed (…) – using FTMS gradient."). Hidden (no space) when there is
+// nothing to say.
 Rectangle {
     id: notice
     property bool gears: false          // virtual gears in use on the page
     property string namePrefix: ""
     readonly property bool showStatus: Devices.trainerState === 2 && Devices.trainerControlProblem
     readonly property bool showPrompt: gears && Gears.referencePrompt.length > 0
-    readonly property bool shown: showStatus || showPrompt
+    readonly property bool showShifting: gears && Gears.shiftingProblem
+    readonly property bool shown: showStatus || showPrompt || showShifting
 
     visible: shown
     implicitHeight: shown ? col.implicitHeight + 16 : 0
@@ -34,6 +37,15 @@ Rectangle {
             visible: notice.showStatus
             width: parent.width
             text: Devices.trainerControlStatus
+            color: Theme.warningText
+            font.pixelSize: 13
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            objectName: notice.namePrefix + "ShiftingProblemText"
+            visible: notice.showShifting
+            width: parent.width
+            text: Gears.shiftingDetail
             color: Theme.warningText
             font.pixelSize: 13
             wrapMode: Text.WordWrap

@@ -5,7 +5,7 @@ import Artilody.Backend
 
 Item {
     id: page
-    signal openGearSetup()
+    signal openGearSetup()   // the advanced bike dialog (wheel, weight, air drag)
     signal openProfile()
     property int ergTarget: 150
     property bool trainersOpen: true
@@ -651,18 +651,14 @@ Item {
         }
     }
 
+    // Virtual shifting = the Zwift Click (no switch, no gear setup): Zwift's
+    // 24 gears while a Click is connected, sent with the Zwift protocol when
+    // the connected trainer has the Zwift trainer service, else as an FTMS
+    // gradient; without a Click the rider shifts the real gears.
     Component {
         id: virtualGearsCard
         Rectangle {
             id: vg
-            readonly property var setup: Gears.gearSetup
-            readonly property var rings: (setup.chainrings || []).slice().reverse()
-            readonly property var cogs: setup.cogs || []
-            // the reference gear may be outside the setup (Zwift Cog preset, detected gear)
-            readonly property var refRings: rings.indexOf(Gears.referenceFrontTeeth) < 0
-                                            ? rings.concat([Gears.referenceFrontTeeth]) : rings
-            readonly property var refCogs: cogs.indexOf(Gears.referenceRearTeeth) < 0
-                                           ? cogs.concat([Gears.referenceRearTeeth]) : cogs
             width: parent ? parent.width : 0
             height: vgCol.implicitHeight + 24
             radius: 10
@@ -687,93 +683,34 @@ Item {
                     Row {
                         spacing: 10
                         anchors.verticalCenter: parent.verticalCenter
-                        Icon { name: "cog"; size: 24; color: Theme.orange; anchors.verticalCenter: parent.verticalCenter }
+                        Icon { name: "cog"; size: 24; color: Gears.enabled ? Theme.orange : Theme.textSecondary; anchors.verticalCenter: parent.verticalCenter }
                         Text {
-                            text: "Virtual gears"
+                            objectName: "shiftingStatus"
+                            text: Gears.shiftingStatus
                             color: Theme.text
                             font.pixelSize: 18
                             font.weight: Font.Bold
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
-                    Row {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-                        Text {
-                            text: "Use virtual gears"
-                            color: Theme.textSecondary
-                            font.pixelSize: 14
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        ToggleSwitch {
-                            width: 46; height: 26
-                            anchors.verticalCenter: parent.verticalCenter
-                            onColor: Theme.orange
-                            checked: Gears.enabled
-                            onToggled: (on) => Gears.enabled = on
-                        }
-                    }
                 }
                 Text {
+                    objectName: "shiftingDetail"
                     width: parent.width
-                    text: Gears.summary
-                    color: Theme.text
-                    font.pixelSize: 15
-                    elide: Text.ElideRight
-                }
-                // the road model of the rider: what the gears weigh
-                Item {
-                    width: parent.width
-                    height: 22
-                    Text {
-                        id: physicsText
-                        width: parent.width - physicsLinks.width - 12
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: Gears.physicsSummary
-                        color: Theme.textSecondary
-                        font.pixelSize: 14
-                        elide: Text.ElideRight
-                    }
-                    Row {
-                        id: physicsLinks
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 14
-                        Repeater {
-                            model: [
-                                { label: "Edit weight", action: "profile" },
-                                { label: "Bike & air drag", action: "setup" }
-                            ]
-                            Text {
-                                text: modelData.label
-                                color: Theme.accentText
-                                font.pixelSize: 14
-                                font.underline: linkArea.containsMouse
-                                MouseArea {
-                                    id: linkArea
-                                    anchors.fill: parent
-                                    anchors.margins: -4
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (modelData.action === "profile")
-                                            page.openProfile()
-                                        else
-                                            page.openGearSetup()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    text: Gears.shiftingDetail
+                    color: Gears.shiftingProblem ? Theme.warningText : Theme.textSecondary
+                    font.pixelSize: 14
+                    wrapMode: Text.WordWrap
                 }
 
-                // current gear (live) + test shifting + setup
+                // current gear + on-screen shift buttons (only with a Zwift Click)
                 Item {
+                    visible: Gears.enabled
                     width: parent.width
-                    height: 52
+                    height: visible ? 52 : 0
                     IconButton {
                         id: vgEasier
+                        objectName: "devicesShiftEasier"
                         width: 44; height: 44
                         anchors.verticalCenter: parent.verticalCenter
                         iconName: "minus"
@@ -784,14 +721,15 @@ Item {
                     Column {
                         id: vgGear
                         x: vgEasier.width + 10
-                        width: 132
+                        width: 190
                         anchors.verticalCenter: parent.verticalCenter
                         Text {
                             id: gearText
+                            objectName: "devicesGearText"
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: Gears.gearLabel.replace("×", " × ")
+                            text: Gears.gearText
                             color: Theme.text
-                            font.pixelSize: 24
+                            font.pixelSize: 22
                             font.weight: Font.Black
                             SequentialAnimation {
                                 id: gearPulse
@@ -801,12 +739,13 @@ Item {
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
+                            text: "Zwift's 24 virtual gears"
                             color: Theme.textSecondary
                             font.pixelSize: 13
                         }
                     }
                     IconButton {
+                        objectName: "devicesShiftHarder"
                         x: vgGear.x + vgGear.width + 10
                         width: 44; height: 44
                         anchors.verticalCenter: parent.verticalCenter
@@ -815,81 +754,28 @@ Item {
                         enabled: Gears.canShiftUp
                         onClicked: Gears.shiftUp()
                     }
-                    AppButton {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 156
-                        height: 44
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: "cog"
-                        text: "Gear Setup…"
-                        onClicked: page.openGearSetup()
-                    }
+                }
+                Text {
+                    visible: !Gears.enabled
+                    width: parent.width
+                    text: "Connect a Zwift Click for virtual shifting with Zwift's 24 gears – nothing to set up. "
+                          + "Trainers with the Zwift trainer service (e.g. Zwift Hub, Jetblack Victory) then get the Zwift protocol automatically."
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
                 }
 
-                // the real gear on the trainer (reference for the trainer's own simulation)
-                Item {
-                    width: parent.width
-                    height: 42
-                    Text {
-                        text: "Bike on the trainer"
-                        color: Theme.textSecondary
-                        font.pixelSize: 14
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                    Row {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 8
-                        AppComboBox {
-                            width: 96; height: 40
-                            fontSize: 15
-                            model: vg.refRings
-                            currentIndex: vg.refRings.indexOf(Gears.referenceFrontTeeth)
-                            onActivated: (index) => Gears.setReferenceGearAny(vg.refRings[index], Gears.referenceRearTeeth)
-                        }
-                        Text { text: "×"; color: Theme.text; font.pixelSize: 17; anchors.verticalCenter: parent.verticalCenter }
-                        AppComboBox {
-                            width: 96; height: 40
-                            fontSize: 15
-                            model: vg.refCogs
-                            currentIndex: vg.refCogs.indexOf(Gears.referenceRearTeeth)
-                            onActivated: (index) => Gears.setReferenceGearAny(Gears.referenceFrontTeeth, vg.refCogs[index])
-                        }
-                        // single-cog trainers (Jetblack Victory, Zwift Hub, Kickr Core: 14T Zwift Cog)
-                        AppComboBox {
-                            objectName: "zwiftCogPresets"
-                            width: 168; height: 40
-                            fontSize: 14
-                            model: ["Zwift Cog…"].concat(Gears.cogPresets.map(p => p.label))
-                            currentIndex: 0
-                            onActivated: (index) => {
-                                if (index > 0) {
-                                    const p = Gears.cogPresets[index - 1]
-                                    Gears.setReferenceGearAny(p.front, p.rear)
-                                }
-                                currentIndex = 0
-                            }
-                        }
-                    }
-                }
-                // the real gear measured from the trainer's speed and cadence:
-                // only a PROMPT, never applied by itself
+                // FTMS gradient only: the real gear on the trainer matters
                 Text {
+                    visible: Gears.referenceNeeded && Gears.referencePrompt === ""
                     width: parent.width
-                    visible: Gears.referencePrompt === ""
-                    text: Gears.detectedRatio > 0
-                          ? "Detected on the trainer: " + (Gears.detectedLabel !== "" ? Gears.detectedLabel + " " : "")
-                            + "(" + Gears.detectedRatio.toFixed(2) + ")"
-                            + (Gears.detectedLooksVirtual ? " – follows the virtual gear (the trainer reports a simulated speed)"
-                               : Gears.detectedDiffers && !Gears.detectedStable ? " – checking…" : "")
-                          : "Detected on the trainer: pedal steadily for a few seconds (needs speed + cadence from the trainer)"
+                    text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
+                          + (Gears.detectedRatio > 0 && !Gears.detectedLooksVirtual
+                             ? "  Detected: " + (Gears.detectedLabel !== "" ? Gears.detectedLabel + " " : "")
+                               + "(" + Gears.detectedRatio.toFixed(2) + ")" : "")
                     color: Theme.textSecondary
-                    font.pixelSize: 14
-                    elide: Text.ElideRight
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
                 }
                 Rectangle {
                     objectName: "referencePrompt"
@@ -932,60 +818,36 @@ Item {
                         }
                     }
                 }
-                Text {
-                    visible: Gears.heavyRealGear
-                    width: parent.width
-                    text: "Tip: put the bike in a small real gear, e.g. 34×17, and choose it above. The trainer's "
-                          + "flywheel then spins slower, so the easy virtual gears (and descents) get lighter."
-                    color: Theme.textSecondary
-                    font.pixelSize: 13
-                    wrapMode: Text.WordWrap
-                }
 
-                // how the virtual gear reaches a trainer that simulates gradients
+                // the road model of the rider: what the gears weigh
                 Item {
                     width: parent.width
-                    height: 44
+                    height: 22
                     Text {
-                        text: "Virtual shifting method"
+                        width: parent.width - weightLink.width - 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Gears.physicsSummary
                         color: Theme.textSecondary
                         font.pixelSize: 14
-                        anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
                     }
-                    SegmentedControl {
-                        objectName: "gearMethodSelector"
+                    Text {
+                        id: weightLink
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        height: 40
-                        fontSize: 14
-                        segmentPadding: 12
-                        options: [
-                            { value: "gradient", label: "Gradient (default)" },
-                            { value: "auto", label: "Auto (experimental)" },
-                            { value: "erg", label: "ERG (experimental)" }
-                        ]
-                        value: Gears.shiftMethod
-                        onActivated: (v) => Gears.shiftMethod = v
+                        text: "Edit weight"
+                        color: Theme.accentText
+                        font.pixelSize: 14
+                        font.underline: weightArea.containsMouse
+                        MouseArea {
+                            id: weightArea
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.openProfile()
+                        }
                     }
-                }
-                Text {
-                    width: parent.width
-                    text: Gears.shiftMethod === "auto"
-                          ? "Auto (optional, experimental): gradient simulation for real effort, but ERG at the gear's watts for light gears and descents. Not the standard simulation – switch back to Gradient if in doubt."
-                          : Gears.shiftMethod === "gradient"
-                            ? "Gradient (default): the trainer simulates the road with a gear-adjusted grade (real simulation, as in 1.3.1)."
-                            : "ERG (optional, experimental): the trainer always holds the watts of your gear instead of simulating the road."
-                    color: Theme.textSecondary
-                    font.pixelSize: 13
-                    wrapMode: Text.WordWrap
-                }
-                Text {
-                    width: parent.width
-                    text: "Shift with Zwift Click (or the on-screen buttons). Leave your bike in "
-                          + Gears.referenceLabel + " on the trainer."
-                    color: Theme.textSecondary
-                    font.pixelSize: 14
-                    wrapMode: Text.WordWrap
                 }
             }
         }
@@ -1148,11 +1010,14 @@ Item {
                 // what the trainer ACTUALLY does (from its answers), or the problem
                 Text {
                     objectName: "trainerControlStatus"
-                    visible: Devices.trainerState === 2 && Devices.trainerControlStatus.length > 0
+                    visible: Devices.trainerState === 2
                     width: trainerCard.width - 200 - 18
-                    text: Devices.trainerControlStatus
+                    // the shifting status line (Zwift Click: Zwift protocol / FTMS
+                    // gradient; else the bike's gears), then what the trainer does
+                    text: Gears.shiftingStatus
+                          + (Devices.trainerControlStatus.length > 0 ? "  •  " + Devices.trainerControlStatus : "")
                           + (Devices.trainerInclinationNote.length > 0 ? "  •  " + Devices.trainerInclinationNote : "")
-                    color: Devices.trainerControlProblem ? Theme.warningText : Theme.textSecondary
+                    color: Devices.trainerControlProblem || Gears.shiftingProblem ? Theme.warningText : Theme.textSecondary
                     font.pixelSize: 14
                     elide: Text.ElideRight
                     ToolTip.visible: statusHover.containsMouse
@@ -1527,6 +1392,15 @@ Item {
                 bold: false
                 onClicked: gradientDialog.open()
             }
+            AppButton {
+                objectName: "advancedShiftingButton"
+                kind: "secondary"
+                iconName: "cog"
+                text: "Advanced…"
+                fontSize: 16
+                bold: false
+                onClicked: advancedDialog.open()
+            }
             Text {
                 id: copiedHint
                 visible: false
@@ -1554,6 +1428,102 @@ Item {
         }
     }
 
+    // --- advanced virtual shifting overrides (not part of the normal UI) -----------------
+    AppDialog {
+        id: advancedDialog
+        objectName: "advancedShiftingDialog"
+        title: "Advanced: virtual shifting"
+        panelWidth: 760
+        panelHeight: 520
+        Column {
+            x: 28; y: 72
+            width: advancedDialog.panelWidth - 56
+            spacing: 12
+            Text {
+                width: parent.width
+                text: "Normally nothing needs to be set: with a Zwift Click connected the app uses Zwift's 24 virtual gears, "
+                      + "with the Zwift protocol on trainers that offer it and an FTMS gradient otherwise. "
+                      + "These overrides are for troubleshooting only. Now: " + Gears.shiftingStatus + "."
+                color: Theme.textSecondary
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+            }
+            Item {
+                width: parent.width
+                height: 44
+                Text {
+                    text: "Zwift trainer protocol"
+                    color: Theme.text
+                    font.pixelSize: 15
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                SegmentedControl {
+                    objectName: "hubOverrideSelector"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 40
+                    fontSize: 14
+                    segmentPadding: 12
+                    options: [
+                        { value: "auto", label: "Automatic (default)" },
+                        { value: "off", label: "Off – FTMS gradient only" }
+                    ]
+                    value: Gears.hubOverride
+                    onActivated: (v) => Gears.hubOverride = v
+                }
+            }
+            Item {
+                width: parent.width
+                height: 44
+                Text {
+                    text: "FTMS virtual shifting"
+                    color: Theme.text
+                    font.pixelSize: 15
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                SegmentedControl {
+                    objectName: "gearMethodSelector"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 40
+                    fontSize: 14
+                    segmentPadding: 12
+                    options: [
+                        { value: "gradient", label: "Gradient (default)" },
+                        { value: "auto", label: "Auto (experimental)" },
+                        { value: "erg", label: "ERG (experimental)" }
+                    ]
+                    value: Gears.shiftMethod
+                    onActivated: (v) => Gears.shiftMethod = v
+                }
+            }
+            Text {
+                width: parent.width
+                text: "Gradient is the simulation (gear-adjusted grade). Auto / ERG are experimental, used only on the "
+                      + "FTMS path and reset to Gradient when the app restarts."
+                color: Theme.textSecondary
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            AppButton {
+                kind: "secondary"
+                iconName: "cog"
+                text: "Bike: wheel, weight, air drag…"
+                fontSize: 15
+                bold: false
+                onClicked: { advancedDialog.close(); page.openGearSetup() }
+            }
+        }
+        AppButton {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            kind: "secondary"
+            text: "Close"
+            onClicked: advancedDialog.close()
+        }
+    }
+
     // Screenshot aid (WATT_SCREENSHOT_MENU=diagnostics / gradienttest, see Main.qml):
     // "" closes both.
     function openScreenshotDialog(name) {
@@ -1561,6 +1531,10 @@ Item {
             diagDialog.show()
         else if (diagDialog.visible)
             diagDialog.close()
+        if (name === "advanced")
+            advancedDialog.open()
+        else if (advancedDialog.visible)
+            advancedDialog.close()
         if (name === "gradienttest")
             gradientDialog.open()
         else if (gradientDialog.visible && !Devices.gradientTest.running)

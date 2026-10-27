@@ -53,6 +53,8 @@ FreeRideSession::FreeRideSession(Database *db, ProfileManager *profiles, SensorH
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &FreeRideSession::resistanceSetupChanged);
+    // Zwift hub protocol became active / failed: switch path at once
+    connect(m_hub, &SensorHub::zwiftHubChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &FreeRideSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::shiftMethodChanged, this, &FreeRideSession::resistanceSetupChanged);
     auto gearChanged = [this] {
@@ -303,7 +305,8 @@ double FreeRideSession::speedMps() const
         return m_speed;
     // idle/finished: instantaneous estimate for the live display
     const int cad = m_hub->cadence();
-    if (virtualGears() && cad >= kCoastCadenceRpm)
+    // Zwift protocol: the trainer does the physics - speed from the power
+    if (virtualGears() && cad >= kCoastCadenceRpm && path() != RideResistance::Path::GearHub)
         return gearing().virtualSpeed(cad);
     const int p = m_hub->power();
     return p > 0 ? road::speedForPower(roadModel(m_mode == Mode::Ride ? m_grade : 0.0), p) : 0.0;
@@ -377,6 +380,7 @@ RideResistance::GearDrive FreeRideSession::gearDrive(double cadenceRpm) const
     d.virtualRatio = gearing().ratio();
     d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
     d.circumferenceMm = gearing().setup().circumferenceMm;
+    d.riderKg = m_gears->riderWeightKg();
     // without a cadence the trainer's speed stands in for the reference gear
     d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
     d.bikeSpeedMps = running() ? m_speed : -1.0;
@@ -394,8 +398,8 @@ double FreeRideSession::controlCadence() const
 
 int FreeRideSession::gearTargetWatts() const
 {
-    if (!virtualGears())
-        return 0;
+    if (!virtualGears() || path() == RideResistance::Path::GearHub)
+        return 0;   // Zwift protocol: the trainer computes the power itself
     // Smoothed cadence during a ride, else the live cadence.
     const double cad = active() ? m_cadSmooth : double(m_hub->cadence());
     return RideResistance::gearWatts(gearDrive(cad));
@@ -427,6 +431,9 @@ bool FreeRideSession::sendResistance(bool force)
         return m_res.sendGear(gearDrive(controlCadence()), force, m_hub->cadence());
     case RideResistance::Path::GearHybrid:
         return m_res.sendHybrid(gearDrive(controlCadence()), force, m_hub->cadence(), m_hub->cadenceReported());
+    case RideResistance::Path::GearHub:
+        // Zwift hub protocol: the trainer gets the road + the virtual gear
+        return m_res.sendHub(gearDrive(controlCadence()));
     }
     return false;
 }
@@ -643,8 +650,10 @@ void FreeRideSession::updateModel(double dt)
     // cadence smoothing for the gear target (first-order low pass)
     m_cadSmooth += (cad - m_cadSmooth) * std::min(1.0, dt / kCadenceSmoothingSec);
 
-    if (!virtualGears()) {
-        // real gears / ERG: speed from power with inertia (ERG on a flat road)
+    if (!virtualGears() || path() == RideResistance::Path::GearHub) {
+        // real gears / ERG: speed from power with inertia (ERG on a flat road);
+        // Zwift protocol: the trainer brakes with its own physics for the
+        // incline and the virtual gear, the bike's speed follows the power
         const road::Model model = roadModel(m_mode == Mode::Ride ? m_grade : 0.0);
         m_speed = road::integrateSpeed(model, m_speed, power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
         if (m_speed < 0.3 && power < kPedalPowerWatts && model.gradePercent >= 0)

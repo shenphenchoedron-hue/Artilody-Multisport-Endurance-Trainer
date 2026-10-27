@@ -56,6 +56,8 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &RlvSession::resistanceSetupChanged);
+    // Zwift hub protocol became active / failed: switch path at once
+    connect(m_hub, &SensorHub::zwiftHubChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::enabledChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_gears, &VirtualGears::shiftMethodChanged, this, &RlvSession::resistanceSetupChanged);
     auto gearChanged = [this] {
@@ -527,7 +529,8 @@ double RlvSession::speedMps() const
     if (active())
         return m_speed;
     const int cad = m_hub->cadence();
-    if (virtualGears() && cad >= kCoastCadenceRpm)
+    // Zwift protocol: the trainer does the physics - speed from the power
+    if (virtualGears() && cad >= kCoastCadenceRpm && path() != RideResistance::Path::GearHub)
         return gearing().virtualSpeed(cad);
     const int p = m_hub->power();
     return p > 0 ? solveSpeedForPower(p, effectiveGradePercent()) : 0.0;
@@ -553,6 +556,7 @@ RideResistance::GearDrive RlvSession::gearDrive(double cadenceRpm) const
     d.virtualRatio = gearing().ratio();
     d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
     d.circumferenceMm = gearing().setup().circumferenceMm;
+    d.riderKg = m_gears->riderWeightKg();
     // without a cadence the trainer's speed stands in for the reference gear
     d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
     d.bikeSpeedMps = m_state == State::Running ? m_speed : -1.0;
@@ -570,8 +574,8 @@ double RlvSession::controlCadence() const
 
 int RlvSession::gearTargetWatts() const
 {
-    if (!virtualGears())
-        return 0;
+    if (!virtualGears() || path() == RideResistance::Path::GearHub)
+        return 0;   // Zwift protocol: the trainer computes the power itself
     const double cad = active() ? m_cadSmooth : double(m_hub->cadence());
     return RideResistance::gearWatts(gearDrive(cad));
 }
@@ -599,6 +603,9 @@ bool RlvSession::sendResistance(bool force)
     case RideResistance::Path::GearHybrid:
         return m_res.sendHybrid(gearDrive(controlCadence()), force, m_hub->cadence(), m_hub->cadenceReported(),
                                 kMinSimGrade, kMaxSimGrade);
+    case RideResistance::Path::GearHub:
+        // Zwift hub protocol: the trainer gets the road + the virtual gear
+        return m_res.sendHub(gearDrive(controlCadence()));
     }
     return false;
 }
@@ -916,7 +923,9 @@ void RlvSession::updateModel(double dt)
     const int power = m_hub->power();
     m_cadSmooth += (cad - m_cadSmooth) * std::min(1.0, dt / kCadenceSmoothingSec);
 
-    if (!virtualGears()) {   // sim / ERG: speed from power
+    // sim / ERG: speed from power; Zwift protocol: the trainer brakes with its
+    // own physics (incline + virtual gear), the video follows the power
+    if (!virtualGears() || path() == RideResistance::Path::GearHub) {
         integratePower(power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
         return;
     }

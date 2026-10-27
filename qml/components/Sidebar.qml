@@ -118,7 +118,7 @@ Rectangle {
                       : live.freeRide
                         ? Theme.clock(FreeRide.elapsedSeconds) + " • "
                           + (FreeRide.mode === "erg" ? "ERG • "
-                             : FreeRide.virtualGears ? Gears.gearLabel + " • " : "")
+                             : FreeRide.virtualGears ? "Gear " + Gears.gearLabel + " • " : "")
                           + Sensors.displayPower + " W"
                         : live.video
                           ? (live.videoWorkout

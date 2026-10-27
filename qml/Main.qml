@@ -103,6 +103,7 @@ ApplicationWindow {
         case "settings": showPage("dashboard"); settingsDialog.open(); break
         case "diagnostics": showPage("devices"); devicesPage.openScreenshotDialog("diagnostics"); break
         case "gradienttest": showPage("devices"); devicesPage.openScreenshotDialog("gradienttest"); break
+        case "advanced": showPage("devices"); devicesPage.openScreenshotDialog("advanced"); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
         // show the keyboard highlight (the destructive entry on the calendar menu)

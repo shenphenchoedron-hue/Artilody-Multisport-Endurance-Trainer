@@ -190,7 +190,7 @@ private slots:
         QCOMPARE(s.mode(), QStringLiteral("sim"));   // classic RLV by default
         QVERIFY(!s.simulationFallback());
         QVERIFY(!s.virtualGears());
-        QCOMPARE(s.gearing().label(), QStringLiteral("50×21"));   // the shared gears (profile setup)
+        QCOMPARE(s.gearing().label(), QStringLiteral("12"));   // the shared gears: Zwift's 24, start gear 12
         QCOMPARE(s.resistancePath(), QStringLiteral("simulation"));
         QVERIFY(!s.start());
         QCOMPARE(refused.count(), 1);
@@ -850,7 +850,7 @@ private slots:
         // gears mode, trainer without cadence: speed from power, trainer released
         f.useGears();
         QCOMPARE(f.rlv->mode(), QStringLiteral("sim"));
-        QCOMPARE(f.db.setting(QStringLiteral("gears/enabled")).toBool(), true);
+        QVERIFY(!f.db.setting(QStringLiteral("gears/enabled")).isValid());   // never saved any more
         f.pedal(0, 200);
         QVERIFY(f.rlv->start());
         f.ride_for(120000);
@@ -998,21 +998,18 @@ private slots:
         f.rlv->setDifficulty(70);
         f.freeRide->setGrade(3.0);
         QVERIFY(!f.gears->enabled());
-        QSignalSpy notices(f.gears.get(), &VirtualGears::notice);
         QSignalSpy rlvErg(f.rlv.get(), &RlvSession::shifted);
         QSignalSpy freeErg(f.freeRide.get(), &FreeRideSession::shifted);
 
-        // no ride, e.g. Devices page: shifts the gear, and turns virtual gears on once
+        // the Click connects: virtual gears on. No ride, e.g. Devices page: shifts the gear
+        f.gears->setClickConnected(true);
+        QVERIFY(f.gears->enabled());
         f.gears->setActivePage(QStringLiteral("devices"));
         int gear = f.gears->gearIndex();
         f.gears->controllerShift(1);
-        QVERIFY(f.gears->enabled());
-        QCOMPARE(notices.count(), 1);
-        QCOMPARE(notices.first().first().toString(), QStringLiteral("Zwift Click detected – using virtual gears"));
         QCOMPARE(f.gears->gearIndex(), ++gear);
         f.gears->controllerShift(-1);
         QCOMPARE(f.gears->gearIndex(), --gear);
-        QCOMPARE(notices.count(), 1);   // already on
 
         // Video Ride page, simulation: gears; ERG: ±10 W - never the difficulty
         f.gears->setActivePage(QStringLiteral("video"));
@@ -1053,15 +1050,15 @@ private slots:
 
         QCOMPARE(f.rlv->difficultyPercent(), 70);
         QCOMPARE(f.freeRide->gradePercent(), 3.0);
-        // a press while off turns them on again (with the notice)
-        f.gears->setEnabled(false);
-        f.gears->controllerShift(1);
-        QVERIFY(f.gears->enabled());
-        QCOMPARE(notices.count(), 2);
+        // the Click goes away: no virtual gears (real gears, plain simulation)
+        f.gears->setClickConnected(false);
+        QVERIFY(!f.gears->enabled());
+        QCOMPARE(f.rlv->resistancePath(), QStringLiteral("simulation"));
     }
 
-    // Saved on the Devices page -> both rides at once; reloaded when the
-    // Click is recognised and after a restart.
+    // The bike (wheel, weight, CdA, reference gear) is shared by both rides
+    // and saved per profile; the virtual gear is Zwift's table (start gear
+    // 12), the Click turns virtual gears on/off, nothing is a saved toggle.
     void gearSetupSharedAndReloaded()
     {
         Fixture f;
@@ -1079,38 +1076,32 @@ private slots:
         QVERIFY(freeTargets.count() >= 1);
         QVERIFY(rlvTargets.count() >= 1);
         QCOMPARE(f.gears->referenceLabel(), QStringLiteral("40×19"));
-        QCOMPARE(f.gears->summary(), QStringLiteral("1× 40 · 11–42 11-speed · 700×28c · 11 gears"));
-        QVERIFY(f.gears->setGear(0, 4));   // 40×19
-        QCOMPARE(f.gears->gearFactor(), 1.0);
+        QVERIFY(!f.gears->setGear(0, 4));
+        QVERIFY(f.gears->setGearIndex(9));   // 2.04
+        QCOMPARE(f.rlv->gearing().label(), QStringLiteral("10"));
+        QCOMPARE(f.freeRide->gearing().ratio(), 2.04);
+        QVERIFY(qAbs(f.gears->gearFactor() - 2.04 / (40.0 / 19.0)) < 1e-9);
+        QVERIFY(f.gears->setWheelCircumference(2096));
+        QVERIFY(!f.gears->setWheelCircumference(200));
+        QCOMPARE(f.freeRide->gearing().setup().circumferenceMm, 2096);
         f.gears->flushSettings();
 
-        // the Click is recognised: the saved setup is (re)loaded, virtual gears on
-        f.db.setGearSetupJson(f.profiles->profileId(), [&] {
-            GearSetup s = f.gears->setup();
-            s.rearIndex = 5;   // saved meanwhile (e.g. by another instance)
-            return s.toJsonText();
-        }());
+        // the Click connects: virtual gears on, the current gear stays
         QVERIFY(!f.gears->enabled());
         f.gears->setClickConnected(true);
         QVERIFY(f.gears->enabled());
         QVERIFY(f.gears->clickConnected());
-        QCOMPARE(f.gears->gearLabel(), QStringLiteral("40×21"));
-        QCOMPARE(f.rlv->gearing().label(), QStringLiteral("40×21"));
-        // the user turns them off while the Click stays connected: respected
-        f.gears->setEnabled(false);
-        f.gears->setClickConnected(true);
-        QVERIFY(!f.gears->enabled());
+        QCOMPARE(f.gears->gearText(), QStringLiteral("Gear 10/24 (2.04)"));
         f.gears->setClickConnected(false);
         QVERIFY(!f.gears->enabled());
-        f.gears->setEnabled(true);
 
-        // restart: setup, gear and the toggle come back
-        f.gears->flushSettings();
+        // restart: the bike comes back, the gear starts at 12, no toggle
         VirtualGears again(&f.db, f.profiles.get());
-        QVERIFY(again.enabled());
-        QCOMPARE(again.gearLabel(), QStringLiteral("40×21"));
+        QVERIFY(!again.enabled());
+        QCOMPARE(again.gearText(), QStringLiteral("Gear 12/24 (2.40)"));
         QCOMPARE(again.referenceLabel(), QStringLiteral("40×19"));
         QCOMPARE(again.setup().bikeWeightKg, 10.0);
+        QCOMPARE(again.setup().circumferenceMm, 2096);
     }
 
     // Pedaling never starts (or resumes) a video ride, on any page; only

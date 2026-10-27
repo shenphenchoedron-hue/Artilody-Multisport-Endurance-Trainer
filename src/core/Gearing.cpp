@@ -335,8 +335,21 @@ Gearing::Gearing(const GearSetup &setup)
     snapToSequence();
 }
 
+Gearing Gearing::zwift(const GearSetup &setup, int gear)
+{
+    Gearing g(setup);
+    g.m_zwift = true;
+    g.m_zIndex = std::clamp(gear, 1, zwiftgears::kCount) - 1;
+    g.rebuild();
+    return g;
+}
+
 void Gearing::setSetup(const GearSetup &setup)
 {
+    if (m_zwift) {
+        m_setup = setup.normalized();   // wheel / physics; the Zwift gear stays
+        return;
+    }
     const double previous = ratio();
     const GearSetup n = setup.normalized();
     const bool indicesGiven = setup.frontIndex == n.frontIndex && setup.rearIndex == n.rearIndex;
@@ -349,6 +362,8 @@ void Gearing::setSetup(const GearSetup &setup)
 
 void Gearing::setSequential(bool on)
 {
+    if (m_zwift)
+        return;
     if (m_setup.sequential == on)
         return;
     m_setup.sequential = on;
@@ -369,6 +384,16 @@ void Gearing::snapToSequence()
 
 void Gearing::rebuild()
 {
+    if (m_zwift) {
+        m_sequence.clear();
+        for (int i = 0; i < zwiftgears::kCount; ++i) {
+            Gear g;
+            g.rear = i;
+            g.ratio = zwiftgears::kRatios[i];
+            m_sequence.append(g);
+        }
+        return;
+    }
     m_sequence = buildSequence(m_setup);
 }
 
@@ -383,11 +408,13 @@ Gear Gearing::gearAt(int front, int rear) const
     return g;
 }
 
-int Gearing::frontTeeth() const { return m_setup.chainrings.value(m_setup.frontIndex); }
-int Gearing::rearTeeth() const { return m_setup.cogs.value(m_setup.rearIndex); }
+int Gearing::frontTeeth() const { return m_zwift ? 0 : m_setup.chainrings.value(m_setup.frontIndex); }
+int Gearing::rearTeeth() const { return m_zwift ? 0 : m_setup.cogs.value(m_setup.rearIndex); }
 
 double Gearing::ratio() const
 {
+    if (m_zwift)
+        return zwiftgears::kRatios[m_zIndex];
     const int r = rearTeeth();
     return r > 0 ? double(frontTeeth()) / r : 0.0;
 }
@@ -397,11 +424,13 @@ QString Gearing::labelFor(int frontTeeth, int rearTeeth)
     return QStringLiteral("%1×%2").arg(frontTeeth).arg(rearTeeth);
 }
 
-QString Gearing::label() const { return labelFor(frontTeeth(), rearTeeth()); }
-Gear Gearing::current() const { return gearAt(m_setup.frontIndex, m_setup.rearIndex); }
+QString Gearing::label() const { return m_zwift ? QString::number(zwiftGear()) : labelFor(frontTeeth(), rearTeeth()); }
+Gear Gearing::current() const { return m_zwift ? m_sequence.value(m_zIndex) : gearAt(m_setup.frontIndex, m_setup.rearIndex); }
 
 QVector<Gear> Gearing::allGears() const
 {
+    if (m_zwift)
+        return m_sequence;
     QVector<Gear> all;
     for (int f = 0; f < m_setup.chainrings.size(); ++f)
         for (int r = 0; r < m_setup.cogs.size(); ++r)
@@ -480,6 +509,8 @@ void Gearing::selectNearest(double target)
 
 int Gearing::gearIndex() const
 {
+    if (m_zwift)
+        return m_zIndex;
     if (m_setup.sequential)
         return sequenceIndex();
     const QVector<Gear> all = allGears();
@@ -492,11 +523,15 @@ int Gearing::gearIndex() const
 
 int Gearing::gearCount() const
 {
+    if (m_zwift)
+        return zwiftgears::kCount;
     return m_setup.sequential ? int(m_sequence.size()) : int(m_setup.chainrings.size() * m_setup.cogs.size());
 }
 
 bool Gearing::canShiftUp() const
 {
+    if (m_zwift)
+        return m_zIndex < zwiftgears::kCount - 1;
     if (m_setup.sequential)
         return sequenceIndex() < m_sequence.size() - 1;
     return m_setup.rearIndex > 0;
@@ -504,6 +539,8 @@ bool Gearing::canShiftUp() const
 
 bool Gearing::canShiftDown() const
 {
+    if (m_zwift)
+        return m_zIndex > 0;
     if (m_setup.sequential)
         return sequenceIndex() > 0;
     return m_setup.rearIndex < m_setup.cogs.size() - 1;
@@ -511,20 +548,26 @@ bool Gearing::canShiftDown() const
 
 bool Gearing::canShiftFrontUp() const
 {
-    if (m_setup.sequential)
+    if (m_zwift || m_setup.sequential)
         return canShiftUp();
     return m_setup.frontIndex < m_setup.chainrings.size() - 1;
 }
 
 bool Gearing::canShiftFrontDown() const
 {
-    if (m_setup.sequential)
+    if (m_zwift || m_setup.sequential)
         return canShiftDown();
     return m_setup.frontIndex > 0;
 }
 
 bool Gearing::setGearIndex(int index)
 {
+    if (m_zwift) {
+        if (index < 0 || index >= zwiftgears::kCount)
+            return false;
+        m_zIndex = index;
+        return true;
+    }
     if (m_setup.sequential) {
         if (index < 0 || index >= m_sequence.size())
             return false;
@@ -545,6 +588,8 @@ bool Gearing::shiftUp()
 {
     if (!canShiftUp())
         return false;
+    if (m_zwift)
+        return setGearIndex(m_zIndex + 1);
     if (m_setup.sequential)
         return setGearIndex(sequenceIndex() + 1);
     --m_setup.rearIndex;
@@ -555,6 +600,8 @@ bool Gearing::shiftDown()
 {
     if (!canShiftDown())
         return false;
+    if (m_zwift)
+        return setGearIndex(m_zIndex - 1);
     if (m_setup.sequential)
         return setGearIndex(sequenceIndex() - 1);
     ++m_setup.rearIndex;
@@ -565,6 +612,8 @@ bool Gearing::shiftFrontUp()
 {
     if (!canShiftFrontUp())
         return false;
+    if (m_zwift)
+        return setGearIndex(std::min(zwiftgears::kCount - 1, m_zIndex + kSequentialJump));
     if (m_setup.sequential)
         return setGearIndex(std::min(int(m_sequence.size()) - 1, sequenceIndex() + kSequentialJump));
     ++m_setup.frontIndex;
@@ -575,6 +624,8 @@ bool Gearing::shiftFrontDown()
 {
     if (!canShiftFrontDown())
         return false;
+    if (m_zwift)
+        return setGearIndex(std::max(0, m_zIndex - kSequentialJump));
     if (m_setup.sequential)
         return setGearIndex(std::max(0, sequenceIndex() - kSequentialJump));
     --m_setup.frontIndex;
@@ -583,6 +634,8 @@ bool Gearing::shiftFrontDown()
 
 bool Gearing::setGear(int front, int rear)
 {
+    if (m_zwift)
+        return false;   // no chainring / cog combinations
     if (front < 0 || front >= m_setup.chainrings.size() || rear < 0 || rear >= m_setup.cogs.size())
         return false;
     m_setup.frontIndex = front;

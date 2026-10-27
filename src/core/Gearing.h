@@ -111,6 +111,24 @@ struct Gear
     double ratio = 0;
 };
 
+// Zwift's fixed virtual gear table (24 gears, used with the Zwift Click /
+// Play / Ride and by Zwift-protocol trainers). Ratio = chainring / cog
+// equivalent, easiest first; start gear 12 (2.40). Values cross-checked in
+// two independent public sources: Incyclist (incyclist/devices,
+// src/modes/antble-smarttrainer.ts, gearRatios, startGear default 12) and
+// qdomyos-zwift (src/devices/bike.cpp, bike::gearsZwiftRatio()).
+namespace zwiftgears {
+constexpr int kCount = 24;
+constexpr int kStartGear = 12;   // 1-based
+constexpr double kRatios[kCount] = { 0.75, 0.87, 0.99, 1.11, 1.23, 1.38, 1.53, 1.68, 1.86, 2.04, 2.22, 2.40,
+                                     2.61, 2.82, 3.03, 3.24, 3.49, 3.74, 3.99, 4.24, 4.54, 4.84, 5.14, 5.49 };
+// ratio of gear 1..24 (clamped)
+inline double ratio(int gear)
+{
+    return kRatios[gear < 1 ? 0 : gear > kCount ? kCount - 1 : gear - 1];
+}
+} // namespace zwiftgears
+
 class Gearing
 {
 public:
@@ -119,6 +137,15 @@ public:
 
     Gearing();
     explicit Gearing(const GearSetup &setup);
+    // Zwift's fixed 24 gears (zwiftgears::kRatios) instead of the setup's
+    // chainrings / cogs; the setup still gives the wheel circumference (and
+    // the road physics). gear: 1..24 (default 12). In this mode
+    // frontTeeth()/rearTeeth() are 0, label() is the gear number ("12"),
+    // setGear(front, rear) fails, the front shifts jump kSequentialJump
+    // gears and setSetup()/setSequential() keep the current gear.
+    static Gearing zwift(const GearSetup &setup, int gear = zwiftgears::kStartGear);
+    bool isZwift() const { return m_zwift; }
+    int zwiftGear() const { return m_zIndex + 1; }   // 1..24 (Zwift mode)
 
     // Replaces the setup (normalized). The requested gear indices are used
     // when valid, else the gear with the nearest ratio to the previous one.
@@ -173,6 +200,8 @@ private:
 
     GearSetup m_setup;
     QVector<Gear> m_sequence;
+    bool m_zwift = false;
+    int m_zIndex = zwiftgears::kStartGear - 1;
 };
 
 // The road model of the app - ONE set of constants for virtual gears, the

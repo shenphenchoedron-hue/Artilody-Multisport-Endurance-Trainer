@@ -149,7 +149,7 @@ private slots:
         FreeRideSession s(&db, &profiles, &hub, &gears);
         QCOMPARE(s.state(), QStringLiteral("idle"));
         QCOMPARE(s.mode(), QStringLiteral("ride"));
-        QVERIFY(!gears.enabled());   // off until a Zwift Click / the toggle
+        QVERIFY(!gears.enabled());   // off until a Zwift Click connects
         QVERIFY(!s.virtualGears());
         QCOMPARE(s.resistancePath(), QStringLiteral("simulation"));
         QVERIFY(!s.trainerConnected());
@@ -158,11 +158,14 @@ private slots:
         QCOMPARE(s.gearTargetWatts(), 0);
         QCOMPARE(s.requestedWatts(), 0);
         QVERIFY(s.powerSeries().isEmpty());
-        QCOMPARE(gears.gearLabel(), QStringLiteral("50×21"));
+        // Zwift's 24 gears, start gear 12 (2.40)
+        QCOMPARE(gears.gearLabel(), QStringLiteral("12"));
+        QCOMPARE(gears.gearText(), QStringLiteral("Gear 12/24 (2.40)"));
+        QCOMPARE(gears.gearCount(), 24);
         QCOMPARE(gears.gear().value(QStringLiteral("label")).toString(), gears.gearLabel());
         QCOMPARE(gears.gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2105);
         QCOMPARE(gears.referenceLabel(), QStringLiteral("50×17"));
-        QCOMPARE(gears.summary(), QStringLiteral("50/34 · 11–34 12-speed · 700×25c · %1 gears").arg(gears.gearCount()));
+        QCOMPARE(gears.summary(), QStringLiteral("Zwift's 24 virtual gears · 700×25c"));
         QVERIFY(!gears.chainringPresets().isEmpty());
         QVERIFY(!gears.cassettePresets().isEmpty());
         QVERIFY(!gears.wheelPresets().isEmpty());
@@ -426,18 +429,17 @@ private slots:
         QVERIFY2(qAbs(f.ride->speedKmh() / 3.6 - v) < 0.4, qPrintable(QStringLiteral("%1 vs %2").arg(f.ride->speedKmh() / 3.6).arg(v)));
         f.ride->setGrade(5.0);
         QCOMPARE(sims.last().at(0).toDouble(), 5.0);
-        // the Click shifts (and turns virtual gears on) - the grade stays
+        // the Click connects (virtual gears on) and shifts - the grade stays
         f.gears->setSessions(f.ride.get(), nullptr);
-        QSignalSpy notices(f.gears.get(), &VirtualGears::notice);
         const int gear = f.gears->gearIndex();
+        f.gears->setClickConnected(true);
         f.gears->controllerShift(1);
-        QCOMPARE(notices.count(), 1);
         QVERIFY(f.gears->enabled());
         QVERIFY(f.ride->virtualGears());
         QCOMPARE(f.gears->gearIndex(), gear + 1);
         QCOMPARE(f.ride->gradePercent(), 5.0);
         // a trainer that cannot simulate: virtual gears via ERG anyway
-        f.gears->setEnabled(false);
+        f.gears->setClickConnected(false);
         f.hub->setTrainerSimulationSupport(0);
         QVERIFY(f.ride->simulationFallback());
         QVERIFY(f.ride->virtualGears());
@@ -475,8 +477,10 @@ private slots:
         // speed follows the virtual gear, not the trainer
         f.ride->advanceClock(250);
         QVERIFY(qAbs(f.ride->speedKmh() / 3.6 - f.gears->gearing().virtualSpeed(85)) < 0.01);
-        // in the reference gear the trainer gets about the road grade
-        QVERIFY(f.gears->setGear(1, f.gears->setup().cogs.indexOf(17)));
+        // in the gear nearest the reference (50×17 = 2.94 ≈ Zwift gear 15, 3.03)
+        // the trainer gets about the road grade
+        QVERIFY(!f.gears->setGear(1, f.gears->setup().cogs.indexOf(17)));   // no chainring/cog combinations
+        QVERIFY(f.gears->setGearIndex(14));
         f.hub->updateSpeed(f.gears->gearing().virtualSpeed(85) * 3.6);
         f.ride_for(2000);
         QVERIFY2(qAbs(f.ride->simulationGradePercent() - 2.0) < 1.0, qPrintable(QString::number(f.ride->simulationGradePercent())));
@@ -737,15 +741,18 @@ private slots:
         QCOMPARE(f.gears->parseTeeth(QStringLiteral("10, 12,14")), QVariantList({ 10, 12, 14 }));
 
         QSignalSpy setupChanged(f.gears.get(), &VirtualGears::gearSetupChanged);
+        // the old chainring / cog setup is still stored, but virtual shifting
+        // always uses Zwift's 24 gears
         QVERIFY(f.gears->setGearSetup({ 42 }, { 44, 10, 11, 13, 15, 17, 19, 21, 24, 28, 32, 38 }, 2136, false));
         QVERIFY(f.gears->lastError().isEmpty());
         QCOMPARE(setupChanged.count(), 1);
-        QCOMPARE(f.gears->gearCount(), 12);
-        QVERIFY(!f.gears->canShiftFrontUp());
+        QCOMPARE(f.gears->gearCount(), 24);
+        QVERIFY(f.gears->canShiftFrontUp());   // jumps 3 Zwift gears
         QVERIFY(f.gears->setBikePhysics(11.0, 0.40, 0.006));
         QVERIFY(!f.gears->setBikePhysics(-1, 0.40, 0.006));
-        QVERIFY(f.gears->setGear(0, 3));
-        QCOMPARE(f.gears->gearLabel(), QStringLiteral("42×15"));
+        QVERIFY(!f.gears->setGear(0, 3));
+        QVERIFY(f.gears->setGearIndex(6));
+        QCOMPARE(f.gears->gearLabel(), QStringLiteral("7"));
         f.gears->flushSettings();
 
         // reloaded by a new instance (app restart)
@@ -753,8 +760,9 @@ private slots:
         auto againRide = std::make_unique<FreeRideSession>(&f.db, f.profiles.get(), f.hub.get(), again.get());
         againRide->setManualClock(true);
         again->setBusyCheck([&] { return againRide->active(); });
-        QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
+        QCOMPARE(again->gearLabel(), QStringLiteral("12"));   // every start: Zwift gear 12
         QCOMPARE(again->gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2136);
+        QCOMPARE(again->setup().chainrings, QVector<int>({ 42 }));   // data kept
         QCOMPARE(again->gearSetup().value(QStringLiteral("bikeWeightKg")).toDouble(), 11.0);
         QVERIFY(!again->sequential());
 
@@ -764,14 +772,15 @@ private slots:
         QVERIFY(second > 0);
         QVERIFY(f.profiles->selectProfile(second));
         QCOMPARE(again->gearSetup().value(QStringLiteral("chainrings")).toList().size(), 2);   // defaults
-        again->shiftUp();
+        again->shiftUp();   // the Zwift gear is the rider's current gear, whichever profile
         again->flushSettings();
         QVERIFY(f.profiles->selectProfile(first));
-        QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
+        QCOMPARE(again->gearLabel(), QStringLiteral("13"));
+        QCOMPARE(again->gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2136);
         // a running ride keeps its bike until it is finished
         QVERIFY(againRide->start());
         QVERIFY(f.profiles->selectProfile(second));
-        QCOMPARE(again->gearLabel(), QStringLiteral("42×15"));
+        QCOMPARE(again->gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2136);
         againRide->finish(false);
         QCOMPARE(again->gearSetup().value(QStringLiteral("chainrings")).toList().size(), 2);
         f.ride.reset();
@@ -1172,11 +1181,13 @@ private slots:
         QVERIFY(f.db.setGearSetupJson(f.profiles->profileId(), other.toJsonText()));
         f.pedal(90, 200);
         QVERIFY(f.ride->start());
+        f.gears->shiftDown();
+        const QString gear = f.gears->gearText();
         f.gears->setClickConnected(true);
-        QCOMPARE(f.gears->summary(), before);   // reload deferred
-        f.ride->finish(false);                   // -> the saved bike
-        QVERIFY(f.gears->summary() != before);
-        QCOMPARE(f.gears->setup().chainrings, (QVector<int> { 36, 52 }));
+        QCOMPARE(f.gears->summary(), before);   // nothing reloaded
+        QCOMPARE(f.gears->gearText(), gear);     // the gear stays
+        f.ride->finish(false);
+        QCOMPARE(f.gears->gearText(), gear);
     }
 
     // Right after connecting, cadence / speed reporting is unknown: virtual
