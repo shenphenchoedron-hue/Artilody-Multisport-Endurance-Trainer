@@ -101,6 +101,8 @@ private:
     bool m_selIsFtpTest = false;
     int m_selBest1min = 0;
     int m_selEstimatedFtp = 0;   // 0 when not plausible
+    int m_selBest20min = 0;
+    QString m_selFtpMethod;      // "ramp" / "20min" / "" (analysis::ftpTestEstimate)
     QString m_lastMessage;
 };
 

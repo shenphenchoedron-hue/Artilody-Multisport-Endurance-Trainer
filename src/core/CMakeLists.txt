@@ -19,6 +19,7 @@ qt_add_library(watt_core STATIC
     BuilderBackend.h
     WorkoutBuilder.h WorkoutBuilder.cpp
     AppBuilderBackend.h AppBuilderBackend.cpp
+    SessionClock.h
     TrainingSession.h TrainingSession.cpp
     HistoryManager.h HistoryManager.cpp
     PlanTypes.h

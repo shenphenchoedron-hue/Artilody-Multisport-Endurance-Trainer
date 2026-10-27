@@ -2,6 +2,7 @@
 // integration, gear-adjusted simulation grade "path a") and persistence.
 #include "Database.h"
 #include "Gearing.h"
+#include "RideResistance.h"
 
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -431,7 +432,8 @@ private slots:
         QVERIFY(std::abs(road::TrainerModel().cwKgPerM - 1.225 * 0.32) < 0.005);
         QCOMPARE(road::trainerModelFor(m, 80.0).massKg, 80.0);   // the trainer's own weight setting
         // round trip (path a): a trainer braking with the sent parameters at
-        // the reference gear's speed delivers the app's road power
+        // the reference gear's speed takes the app's road power at the wheel
+        // (crank power · η, the power convention in Gearing.h)
         for (double grade : { 0.0, 2.0, 5.0, 8.0 }) {
             for (double factor : { 0.7, 1.0, 1.3, 1.6 }) {
                 m.gradePercent = grade;
@@ -443,7 +445,11 @@ private slots:
                 const double theta = std::atan(g / 100.0);
                 const double force = tm.massKg * road::kGravity * (std::sin(theta) + tm.crr * std::cos(theta))
                                      + 0.5 * tm.cwKgPerM * vt * vt;
-                QVERIFY(std::abs(force * vt - road::powerForSpeed(m, vt * factor)) < 1.0);
+                QVERIFY(std::abs(force * vt - road::wheelPowerForSpeed(m, vt * factor)) < 1.0);
+                QVERIFY(std::abs(road::wheelPowerForSpeed(m, vt * factor)
+                                 - road::powerForSpeed(m, vt * factor) * road::kDrivetrainEfficiency) < 1e-9);
+                if (factor == 1.0)   // reference gear: the road grade itself (up to FTMS rounding)
+                    QVERIFY2(std::abs(g - grade) < 0.05, qPrintable(QStringLiteral("%1 vs %2").arg(g).arg(grade)));
             }
         }
     }
@@ -492,7 +498,7 @@ private slots:
                 const double theta = std::atan(g / 100.0);
                 const double force = t.massKg * road::kGravity * (std::sin(theta) + t.crr * std::cos(theta))
                                      + 0.5 * t.cwKgPerM * vt * vt;
-                QVERIFY(qAbs(force * vt - road::powerForSpeed(m, vt * factor)) < 1.0);
+                QVERIFY(qAbs(force * vt - road::wheelPowerForSpeed(m, vt * factor)) < 1.0);
             }
         }
         // climbs stay harder than the flat in the same gear
@@ -533,6 +539,67 @@ private slots:
         QCOMPARE(road::gearSimulationGrade(m, 0.5, 1.4, t), 3.0);
         m.gradePercent = 30;
         QCOMPARE(road::gearSimulationGrade(m, 0.0, 1.0, t), 20.0);
+    }
+
+    // Sequential shifting: setGear() always lands on a gear of the sequence.
+    void setGearSnapsInSequentialMode()
+    {
+        Gearing g;
+        QVERIFY(g.setup().sequential);
+        auto inSequence = [&g] {
+            for (const Gear &s : g.sequence()) {
+                if (s.front == g.frontIndex() && s.rear == g.rearIndex())
+                    return true;
+            }
+            return false;
+        };
+        int snapped = 0;
+        for (int f = 0; f < g.setup().chainrings.size(); ++f) {
+            for (int r = 0; r < g.setup().cogs.size(); ++r) {
+                const double wanted = double(g.setup().chainrings.at(f)) / g.setup().cogs.at(r);
+                QVERIFY(g.setGear(f, r));
+                QVERIFY2(inSequence(), qPrintable(g.label()));
+                QVERIFY(std::abs(g.ratio() - wanted) / wanted < 0.08);   // the nearest gear of the list
+                snapped += g.frontIndex() != f || g.rearIndex() != r;
+            }
+        }
+        QVERIFY(snapped > 0);   // 34×11 etc. are not in the list
+        g.setSequential(false);
+        QVERIFY(g.setGear(0, 0));   // derailleur: any combination
+        QCOMPARE(g.frontIndex(), 0);
+        QCOMPARE(g.rearIndex(), 0);
+        QVERIFY(!g.setGear(5, 0));
+    }
+
+    // One power convention (Gearing.h): in the reference gear the gear-
+    // adjusted grade is the road grade, and the speed the rider gets from
+    // the gear watts on that road is the virtual speed.
+    void referenceGearGradeIsRoadGrade()
+    {
+        QCOMPARE(std::round(road::powerForSpeed(road::Model { 86, 0.32 }, 40 / 3.6) * 10) / 10, 315.8);
+        QCOMPARE(std::round(road::wheelPowerForSpeed(road::Model { 86, 0.32 }, 40 / 3.6) * 10) / 10, 306.3);
+        for (double grade : { -2.0, 0.0, 1.5, 4.0, 8.0 }) {
+            for (double kg : { 60.0, 84.0 }) {
+                RideResistance::GearDrive d;
+                d.road = road::Model { kg, road::autoCda(kg - 9), 0.004, grade };
+                d.cadenceRpm = 85;
+                d.referenceRatio = 50.0 / 17;
+                d.virtualRatio = d.referenceRatio;
+                d.circumferenceMm = 2105;
+                const double g = RideResistance::gearGrade(d);
+                const int watts = RideResistance::gearWatts(d);
+                const double v = RideResistance::gearSpeed(d);
+                if (watts > RideResistance::kMinGearWatts) {   // not clamped (descents: the minimum load)
+                    // FTMS resolution of Crr / Cw is the only difference
+                    QVERIFY2(std::abs(g - grade) < 0.03,
+                             qPrintable(QStringLiteral("%1 kg %2 %%: %3").arg(kg).arg(grade).arg(g)));
+                    QVERIFY(std::abs(road::speedForPower(d.road, watts) - v) < 0.05);
+                }
+                // a harder virtual gear: steeper than the road
+                d.virtualRatio = 50.0 / 14;
+                QVERIFY(RideResistance::gearGrade(d) > g || RideResistance::gearGrade(d) >= RideResistance::kMaxGrade);
+            }
+        }
     }
 };
 

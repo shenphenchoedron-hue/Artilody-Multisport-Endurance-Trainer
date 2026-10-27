@@ -157,6 +157,31 @@ int mainBlock(const QVector<Interval> &intervals, int *count)
 }
 } // namespace
 
+Workout::FtpTestKind Workout::ftpTestKind() const
+{
+    if (!isFtpTest())
+        return FtpTestKind::None;
+    if (name.contains(QStringLiteral("ramp"), Qt::CaseInsensitive)
+        || focus.contains(QStringLiteral("ramp"), Qt::CaseInsensitive))
+        return FtpTestKind::Ramp;
+    auto isEffort = [](const Interval &i) {
+        return i.type != BlockType::WarmUp && i.type != BlockType::Recovery && i.type != BlockType::CoolDown;
+    };
+    // the main block: the longest effort (warm-up / recovery / cool-down do not count)
+    const Interval *main = nullptr;
+    for (const Interval &i : intervals) {
+        if (isEffort(i) && (!main || i.durationSec > main->durationSec))
+            main = &i;
+    }
+    if (main && main->isRamp() && main->endPercent > main->startPercent)
+        return FtpTestKind::Ramp;
+    for (const Interval &i : intervals) {
+        if (i.durationSec >= kTwentyMinuteTestSec && !i.isRamp() && isEffort(i))
+            return FtpTestKind::TwentyMinute;
+    }
+    return FtpTestKind::None;
+}
+
 QString Workout::summary(int ftp) const
 {
     int count = 0;

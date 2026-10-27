@@ -61,12 +61,14 @@ public:
     static constexpr double kStopSpeedKmh = 0.5;        // gps speed below: standing (no distance)
     static constexpr double kInfoMinShowM = 150.0;      // overlay shown at least this far ...
     static constexpr double kInfoMinShowSec = 10.0;     // ... or for this many filmed seconds
+    static constexpr double kMinDistanceM = 100.0;      // shorter tracks are not a route (isValid())
 
     RlvRoute() = default;
 
     bool load(const QString &path, QString *error = nullptr);
     static RlvRoute fromPath(const QString &path, QString *error = nullptr);
-    bool isValid() const { return m_points.size() >= 2; }
+    // At least two points and kMinDistanceM of track.
+    bool isValid() const { return m_points.size() >= 2 && totalDistance() >= kMinDistanceM; }
 
     // Builds the route from parsed track points (tests / programmatic use).
     // Points need time/lat/lon/rawElevation (+ optional gpsSpeed, hr, cad).
@@ -119,6 +121,8 @@ public:
     static double haversine(double lat1, double lon1, double lat2, double lon2);
     // HTML named entities -> characters (XML's five are kept), literal "\n" -> newline.
     static QString decodeText(const QString &text);
+    // On the raw bytes (ASCII "&name;" -> "&#N;"), any 8-bit encoding is kept;
+    // UTF-16/32 input (BOM or NUL bytes) is returned unchanged.
     static QByteArray replaceHtmlEntities(const QByteArray &xml);
     static bool isRouteXml(const QString &path);   // root element <gpx-import>
     static QString findVideoFor(const QString &gpxOrXmlPath);
@@ -129,6 +133,7 @@ private:
     int segmentAt(double distanceM) const;   // last i with d_i <= d (0..n-2)
     double interpolate(double distanceM, double RlvPoint::*field) const;
     void computeDerived();
+    static void fillMissingElevation(QVector<RlvPoint> &points, const QVector<bool> &hasElevation);
 
     QString m_name, m_title, m_country, m_id, m_folder, m_source, m_gpxPath, m_videoPath;
     double m_framerate = 30.0;

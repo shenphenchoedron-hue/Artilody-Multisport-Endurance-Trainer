@@ -62,6 +62,15 @@ public:
     // A cadence > 0 arrived since the trainer connected (cleared when it
     // disconnects): virtual gears take the reference gear's speed from it.
     bool cadenceReported() const { return m_cadenceReported; }
+    // A connected trainer has reported neither a cadence nor a speed yet, and
+    // has not been pedaled for kFeedbackProbeMs (power > 0) without them:
+    // it may still report them (RideResistance::gearSimulationPossible()).
+    // Changes are announced with cadenceReportedChanged().
+    bool trainerFeedbackUnknown() const
+    {
+        return m_trainerConnected && !m_cadenceReported && !m_speedReported && !m_noFeedback;
+    }
+    static constexpr int kFeedbackProbeMs = 5000;
     bool trainerConnected() const { return m_trainerConnected; }
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
@@ -149,6 +158,8 @@ private:
     double m_riderMassKg = 84.0;
     bool m_speedReported = false;
     bool m_cadenceReported = false;
+    bool m_noFeedback = false;        // pedaled kFeedbackProbeMs without cadence / speed
+    qint64 m_poweredSinceMs = -1;
     int m_staleMs = 3000;
     QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge, m_speedAge;
 

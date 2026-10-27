@@ -2,6 +2,7 @@
 
 #include "Profile.h"
 #include "Ride.h"
+#include "Workout.h"
 #include "Zones.h"
 
 #include <QVector>
@@ -48,6 +49,21 @@ int estimateFtpFromRamp(const QVector<Sample> &samples);
 // The estimate only when it is plausible: at least kMinFtpTestSec of samples
 // and within the valid profile FTP range (50-600 W); otherwise 0.
 int plausibleRampFtp(const QVector<Sample> &samples);
+
+// 20-minute test: FTP = round(0.95 x best 20-minute power).
+constexpr int kTwentyMinuteTestWindowSec = 20 * 60;
+constexpr double kTwentyMinuteTestFtpFactor = 0.95;
+// 0 with fewer than 20 minutes of samples or outside the profile FTP range.
+int plausibleTwentyMinuteFtp(const QVector<Sample> &samples);
+
+struct FtpEstimate
+{
+    int ftp = 0;          // 0: no plausible result
+    int bestPower = 0;    // best 1-minute (ramp) / 20-minute power
+    QString method;       // "ramp" / "20min", empty for None
+};
+// The result of an FTP test ride evaluated with the workout's protocol.
+FtpEstimate ftpTestEstimate(const QVector<Sample> &samples, Workout::FtpTestKind kind);
 
 } // namespace analysis
 } // namespace watt

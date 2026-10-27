@@ -187,6 +187,8 @@ void HistoryManager::selectRide(qint64 id)
     m_selIsFtpTest = false;
     m_selBest1min = 0;
     m_selEstimatedFtp = 0;
+    m_selBest20min = 0;
+    m_selFtpMethod.clear();
     if (id >= 0) {
         if (auto r = m_db->ride(id)) {
             m_selected = *r;
@@ -196,15 +198,21 @@ void HistoryManager::selectRide(qint64 id)
                 m_selTarget.append(s.targetPower);
                 m_selHr.append(s.heartRate);
             }
-            // FTP test ride: the workout's category decides; if the workout was
-            // deleted meanwhile, fall back to its name.
-            if (auto w = m_db->workout(r->workoutId))
-                m_selIsFtpTest = w->isFtpTest();
-            else
-                m_selIsFtpTest = r->workoutName.contains(QStringLiteral("FTP"), Qt::CaseInsensitive);
+            // FTP test ride: only cycling rides (the result is the cycling
+            // FTP) of a workout that still exists and whose protocol is known
+            // (Workout::ftpTestKind(): ramp or 20 minutes).
+            Workout::FtpTestKind kind = Workout::FtpTestKind::None;
+            if (sport::normalize(r->sport) == sport::cycling()) {
+                if (auto w = m_db->workout(r->workoutId))
+                    kind = w->ftpTestKind();
+            }
+            m_selIsFtpTest = kind != Workout::FtpTestKind::None;
             if (m_selIsFtpTest) {
+                const analysis::FtpEstimate e = analysis::ftpTestEstimate(m_selSamples, kind);
+                m_selFtpMethod = e.method;
+                m_selEstimatedFtp = e.ftp;
                 m_selBest1min = analysis::bestAveragePower(m_selSamples, analysis::kRampTestWindowSec);
-                m_selEstimatedFtp = analysis::plausibleRampFtp(m_selSamples);
+                m_selBest20min = analysis::bestAveragePower(m_selSamples, analysis::kTwentyMinuteTestWindowSec);
             }
         }
     }
@@ -241,6 +249,8 @@ QVariantMap HistoryManager::selectedRide() const
     m.insert(QStringLiteral("isFtpTest"), m_selIsFtpTest);
     m.insert(QStringLiteral("best1min"), m_selBest1min);
     m.insert(QStringLiteral("estimatedFtp"), m_selEstimatedFtp);
+    m.insert(QStringLiteral("best20min"), m_selBest20min);
+    m.insert(QStringLiteral("ftpTestMethod"), m_selFtpMethod);   // "ramp" / "20min" / ""
     return m;
 }
 

@@ -123,8 +123,10 @@ public:
     QVariantList heartRateSeries() const;
     int seriesStep() const;
     qint64 lastRideId() const { return m_lastRideId; }
-    // True when the last finished ride ran the workout to its end (also when
-    // the remaining intervals were skipped); false after stop()/discard().
+    // True when the last finished ride ran the workout to its end; false
+    // after stop()/discard() and when it ended by skipping the last interval.
+    // A completed ride with skipped intervals completes the workout (plan) but
+    // gives no FTP test result.
     bool lastWorkoutCompleted() const { return m_lastCompleted; }
     const QVector<Sample> &samples() const { return m_samples; }
     const WorkoutEngine &engine() const { return m_engine; }
@@ -134,6 +136,10 @@ public:
     // Drive the clock manually (unit tests). Disables the internal timer.
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
+    // Tests: a timer tick that measured elapsedMs of wall-clock time (long
+    // gaps count as a pause, see SessionClock.h).
+    void advanceWallClock(qint64 elapsedMs);
+    bool timerActive() const { return m_timer.isActive(); }
     // Optional guards: while one returns true, start()/startWhenPedaling() are
     // refused (e.g. a rowing or free ride session is running; only one
     // session at a time). Each owner uses its own key; an empty function
@@ -141,6 +147,10 @@ public:
     void setStartBlocker(std::function<bool()> blocker) { setStartBlocker(QStringLiteral("default"), std::move(blocker)); }
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
+    // Called by start()/startWhenPedaling() once the guards passed: cancels a
+    // session that is only armed (free ride / video ride waiting for the
+    // first pedal stroke). Each owner uses its own key; empty removes it.
+    void setArmedCanceller(const QString &key, std::function<void()> cancel);
 
     // Indoor cycling only: rowing workouts are refused (false + rowingWorkoutRefused());
     // they run in RowingSession.
@@ -176,14 +186,20 @@ signals:
     // loadWorkout() was given a rowing workout (use Rowing.setupPlan()).
     void rowingWorkoutRefused(qint64 workoutId, const QString &name);
     // Emitted after finished() when a ride of an FTP test workout (category
-    // "FTP Tests") was saved and gave a plausible estimate. The profile is not
-    // changed; the UI asks the rider whether to apply it.
-    void ftpTestCompleted(qint64 rideId, int estimatedFtp, int previousFtp, int best1minPower);
+    // "FTP Tests", Workout::ftpTestKind()) was saved - completed or stopped
+    // by the rider, but no interval skipped - and gave a plausible estimate. The profile is not changed; the
+    // UI asks the rider whether to apply it.
+    //   method "ramp":  estimatedFtp = 75 % of bestPower = best 1-minute power
+    //   method "20min": estimatedFtp = 95 % of bestPower = best 20-minute power
+    // (the parameter is still named best1minPower for older QML handlers).
+    void ftpTestCompleted(qint64 rideId, int estimatedFtp, int previousFtp, int best1minPower,
+                          const QString &method);
 
 private:
     void onTimer();
     void checkPedaling();
     void cancelWaiting();
+    void cancelArmedOthers();
     void process(int ms);
     void recordUpTo(int second);
     void applyTarget(bool force = false);
@@ -217,6 +233,8 @@ private:
     qint64 m_lastRideId = -1;
     bool m_lastCompleted = false;
     QHash<QString, std::function<bool()>> m_startBlockers;
+    QHash<QString, std::function<void()>> m_armedCancellers;
+    bool m_skipped = false;     // an interval was skipped in this ride
 };
 
 } // namespace watt

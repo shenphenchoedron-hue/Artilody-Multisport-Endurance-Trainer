@@ -6,6 +6,7 @@
 #include "RideAnalysis.h"
 #include "RlvLibrary.h"
 #include "SensorHub.h"
+#include "SessionClock.h"
 #include "TrainingSession.h"
 #include "VirtualGears.h"
 #include "Workout.h"
@@ -53,7 +54,15 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
             updateHold(true);   // ERG selected on the open page: hold it now
     });
     // ERG outside a ride follows the open page (Main.qml: Gears.activePage).
-    connect(m_gears, &VirtualGears::activePageChanged, this, [this] { updateHold(); });
+    connect(m_gears, &VirtualGears::activePageChanged, this, [this] {
+        // armed ("start when pedaling") only while its page is open: it must
+        // not start unseen or keep blocking other sessions
+        if (waiting() && m_gears->activePage() != QLatin1String("video")) {
+            finish(false);
+            return;
+        }
+        updateHold();
+    });
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &RlvSession::resistanceSetupChanged);
@@ -87,21 +96,31 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
 
 RlvSession::~RlvSession()
 {
-    if (m_training)
+    if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
+        m_training->setArmedCanceller(QStringLiteral("rlv"), {});
+    }
     if (active() || waiting() || m_ergHold)
         m_res.release();
+    m_gears->clearRideProfile(this);
 }
 
 // --- wiring ------------------------------------------------------------------------
 
 void RlvSession::setTrainingSession(TrainingSession *training)
 {
-    if (m_training)
+    if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
+        m_training->setArmedCanceller(QStringLiteral("rlv"), {});
+    }
     m_training = training;
     if (training) {
-        training->setStartBlocker(QStringLiteral("rlv"), [this] { return active() || waiting(); });
+        // a ride blocks the workout; an armed one is cancelled by its start
+        training->setStartBlocker(QStringLiteral("rlv"), [this] { return active(); });
+        training->setArmedCanceller(QStringLiteral("rlv"), [this] {
+            if (waiting())
+                finish(false);
+        });
         connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
     }
 }
@@ -112,6 +131,40 @@ void RlvSession::setStartBlocker(const QString &key, std::function<bool()> block
         m_startBlockers.insert(key, std::move(blocker));
     else
         m_startBlockers.remove(key);
+}
+
+void RlvSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+{
+    if (cancel)
+        m_armedCancellers.insert(key, std::move(cancel));
+    else
+        m_armedCancellers.remove(key);
+}
+
+void RlvSession::cancelArmedOthers()
+{
+    if (m_training && m_training->waiting())
+        m_training->stop();   // only armed: nothing ridden yet
+    if (m_freeRide && m_freeRide->waiting())
+        m_freeRide->finish(false);
+    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+        if (it.value())
+            it.value()();
+    }
+}
+
+void RlvSession::syncRideProfile()
+{
+    if (active() || waiting())
+        m_gears->setRideProfile(this, m_rideProfile);
+    else
+        m_gears->clearRideProfile(this);
+}
+
+void RlvSession::resetLastRideId()
+{
+    m_lastRideId = -1;
+    emit lastRideIdChanged();
 }
 
 bool RlvSession::startBlocked() const
@@ -159,6 +212,7 @@ void RlvSession::setState(State s)
     m_state = s;
     m_clock.start();
     updateTimer();
+    syncRideProfile();
     emit stateChanged();
     if (!active())
         updateHold();   // idle / armed: ERG on the open page holds the target
@@ -166,9 +220,10 @@ void RlvSession::setState(State s)
 
 void RlvSession::updateTimer()
 {
-    // the clock runs while a ride is armed/active and while the page holds
-    // the virtual gear resistance (it follows the cadence)
-    const bool want = !m_manualClock && (m_state == State::Ready || active() || m_ergHold);
+    // the clock runs while a ride is armed or running and while the page
+    // holds the virtual gear resistance (it follows the cadence) - not while
+    // paused, idle or holding a fixed ERG target
+    const bool want = !m_manualClock && (m_state == State::Ready || running() || gearHolding());
     if (want && !m_timer.isActive()) {
         m_clock.start();
         m_timer.start();
@@ -528,7 +583,8 @@ bool RlvSession::sendResistance(bool force)
                                RideResistance::trainerModel(d));
     }
     case RideResistance::Path::GearErg:
-        return m_res.sendGearWatts(desiredGearWatts(), force);
+        // with engage/release hysteresis on the live cadence
+        return m_res.sendGear(gearDrive(controlCadence()), force, m_hub->cadence());
     }
     return false;
 }
@@ -644,10 +700,7 @@ bool RlvSession::start()
         emit startRefused(kRefused);
         return false;
     }
-    if (m_training && m_training->waiting())
-        m_training->stop();   // only armed: nothing ridden yet
-    if (m_freeRide && m_freeRide->waiting())
-        m_freeRide->finish(false);
+    cancelArmedOthers();
     m_gears->reloadIfPending();
     const bool wasReady = m_state == State::Ready;
     if (m_state == State::Finished || m_distance >= totalDistanceM())
@@ -655,7 +708,7 @@ bool RlvSession::start()
     m_rideProfile = m_profiles->current();
     clearRecording();
     m_completed = false;
-    m_lastRideId = -1;
+    resetLastRideId();
     m_startedAt = QDateTime::currentDateTime();
     m_cadSmooth = m_hub->cadence();
     if (!wasReady)
@@ -684,10 +737,7 @@ void RlvSession::startWhenPedaling()
         emit startRefused(kRefused);
         return;
     }
-    if (m_training && m_training->waiting())
-        m_training->stop();
-    if (m_freeRide && m_freeRide->waiting())
-        m_freeRide->finish(false);
+    cancelArmedOthers();   // only one armed session
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
     clearRecording();
@@ -714,7 +764,7 @@ void RlvSession::pause()
     if (!running())
         return;
     if (!m_manualClock)
-        process(int(m_clock.restart()));
+        process(sessionClockStep(m_clock.restart()));
     if (!running())
         return;   // the route ended in that step
     setState(State::Paused);
@@ -757,8 +807,10 @@ qint64 RlvSession::finish(bool save)
     }
     if (!active())
         return -1;
-    if (running() && !m_manualClock && !m_completed)
-        process(int(m_clock.restart()));
+    // the last time slice only when the ride is kept: its step may reach the
+    // route end, which finishes and saves by itself - not for a discard
+    if (save && running() && !m_manualClock && !m_completed)
+        process(sessionClockStep(m_clock.restart()));
     if (!active())
         return m_lastRideId;   // finished at the route end inside process()
     releaseTrainer();
@@ -766,6 +818,8 @@ qint64 RlvSession::finish(bool save)
     emit videoChanged();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
+    if (!save)
+        emit lastRideIdChanged();   // discarded: stays -1
     m_gears->flushSettings();
     emit finished();
     m_gears->reloadIfPending();
@@ -782,6 +836,7 @@ void RlvSession::reset()
     m_speed = 0;
     m_completed = false;
     m_distance = m_startDistance;
+    resetLastRideId();
     setState(State::Idle);
     emit positionChanged();
     updateInformation();
@@ -822,9 +877,14 @@ void RlvSession::advanceClock(int ms)
     process(ms);
 }
 
+void RlvSession::advanceWallClock(qint64 elapsedMs)
+{
+    process(sessionClockStep(elapsedMs));
+}
+
 void RlvSession::onTimer()
 {
-    process(int(m_clock.restart()));
+    process(sessionClockStep(m_clock.restart()));
 }
 
 void RlvSession::integratePower(double watts, double dt)
@@ -948,8 +1008,14 @@ void RlvSession::updateVideo(int)
     if (moving) {
         const double corr = std::clamp(m_drift * kRateCorrectionPerSec, -kMaxRateCorrection, kMaxRateCorrection);
         double rate = std::clamp(base * (1.0 - corr), kMinRate, kMaxRate);
-        rate = std::round(rate / kRateQuantum) * kRateQuantum;
-        m_rate = std::clamp(rate, kMinRate, kMaxRate);
+        rate = std::clamp(std::round(rate / kRateQuantum) * kRateQuantum, kMinRate, kMaxRate);
+        const double delta = std::abs(rate - m_rate);
+        const bool due = m_nowMs - m_rateAtMs >= kRateMinIntervalMs;
+        if (!oldPlay || delta >= kRateBigChange - 1e-9 || (due && delta >= kRateMinChange - 1e-9)) {
+            if (delta > 1e-9)
+                m_rateAtMs = m_nowMs;
+            m_rate = rate;
+        }
     }
     if (!qFuzzyCompare(oldRate, m_rate) || oldPlay != m_shouldPlay || std::abs(oldDrift - m_drift) >= 0.05)
         emit videoChanged();
@@ -995,8 +1061,10 @@ qint64 RlvSession::saveRide()
     r.distanceM = riddenMeters();
     analysis::applyStats(r, analysis::analyze(m_samples, r.ftp, p.zones));
     m_lastRideId = m_db->saveRide(r, m_samples);
-    if (m_lastRideId >= 0)
+    if (m_lastRideId >= 0) {
+        emit lastRideIdChanged();
         emit rideSaved(m_lastRideId);
+    }
     return m_lastRideId;
 }
 

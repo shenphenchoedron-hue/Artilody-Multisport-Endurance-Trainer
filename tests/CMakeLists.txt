@@ -29,3 +29,4 @@ target_compile_definitions(tst_rlvroute PRIVATE WATT_SOURCE_DIR="${PROJECT_SOURC
 watt_add_test(tst_rlvsession     watt_core)
 watt_add_test(tst_trainersim     watt_ble)
 watt_add_test(tst_virtualgears   watt_ble)
+watt_add_test(tst_musicplayer    watt_media)

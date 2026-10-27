@@ -123,6 +123,14 @@ void RowingSession::setStartBlocker(const QString &key, std::function<bool()> bl
         m_startBlockers.remove(key);
 }
 
+void RowingSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+{
+    if (cancel)
+        m_armedCancellers.insert(key, std::move(cancel));
+    else
+        m_armedCancellers.remove(key);
+}
+
 RowerDevice *RowingSession::rower() const
 {
     return m_rower.data();
@@ -652,6 +660,10 @@ bool RowingSession::start()
     }
     if (m_training && m_training->waiting())
         m_training->stop();   // only armed: nothing ridden yet
+    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+        if (it.value())
+            it.value()();   // an armed free ride / video ride
+    }
 
     m_rideProfile = m_profiles->current();
     clearRecording();

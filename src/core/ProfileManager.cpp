@@ -244,6 +244,10 @@ qint64 ProfileManager::createProfileWith(const QVariantMap &values)
 
 bool ProfileManager::deleteProfile(qint64 id)
 {
+    if (m_busy && m_busy()) {
+        setError(QStringLiteral("Finish the current session before deleting a profile"));
+        return false;
+    }
     if (m_db->profiles().size() <= 1) {
         setError(QStringLiteral("At least one profile is required"));
         return false;

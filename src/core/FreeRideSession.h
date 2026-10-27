@@ -114,7 +114,8 @@ class FreeRideSession : public QObject
 
     // devices
     Q_PROPERTY(bool trainerConnected READ trainerConnected NOTIFY devicesChanged)
-    Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY rideSaved)
+    // -1 from start() / reset() / discard until the ride is saved
+    Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY lastRideIdChanged)
 
 public:
     enum class Mode { Ride, Erg };
@@ -146,10 +147,18 @@ public:
     // Further guards; while one returns true, start() is refused.
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
+    // Called by start()/startWhenPedaling() once the guards passed: cancels
+    // another session that is only armed (e.g. a video ride waiting for the
+    // first pedal stroke). Empty function removes it.
+    void setArmedCanceller(const QString &key, std::function<void()> cancel);
 
     // Tests
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
+    // Tests: a timer tick that measured elapsedMs of wall-clock time (long
+    // gaps count as a pause, see SessionClock.h).
+    void advanceWallClock(qint64 elapsedMs);
+    bool timerActive() const { return m_timer.isActive(); }
     void setMinimumSaveSeconds(int s) { m_minSaveSec = s; }
 
     QString state() const;
@@ -202,11 +211,11 @@ public:
     // Grade sent in the gear-simulation path for the current cadence/speed.
     double gearSimulationGrade() const;
     int targetWatts() const { return m_targetWatts; }
-    void setTargetWatts(int watts);
+    Q_INVOKABLE void setTargetWatts(int watts);
     int gearTargetWatts() const;
     int requestedWatts() const { return m_res.lastWatts(); }
     double gradePercent() const { return m_grade; }
-    void setGrade(double percent);
+    Q_INVOKABLE void setGrade(double percent);
     int minTargetWatts() const { return kMinErgWatts; }
     int maxTargetWatts() const { return kMaxWatts; }
     double minGrade() const { return kMinGrade; }
@@ -260,6 +269,7 @@ signals:
     void started();
     void finished();
     void rideSaved(qint64 id);
+    void lastRideIdChanged();
     void startRefused(const QString &reason);
     void shifted(int direction);    // an ERG step from a controller (gear shifts: VirtualGears::shifted)
 
@@ -276,6 +286,9 @@ private:
     double controlCadence() const;   // cadence the resistance follows (0..: < coast = coasting)
     bool sendResistance(bool force);  // the current path's command (ride and page hold)
     void updateTimer();
+    void cancelArmedOthers();
+    void syncRideProfile();
+    void resetLastRideId();
     void resistanceSetupChanged();
     void clearRecording();
     qint64 saveRide();
@@ -291,6 +304,7 @@ private:
     RideResistance m_res;
     QPointer<TrainingSession> m_training;
     QHash<QString, std::function<bool()>> m_startBlockers;
+    QHash<QString, std::function<void()>> m_armedCancellers;
 
     Mode m_mode = Mode::Ride;
     State m_state = State::Idle;

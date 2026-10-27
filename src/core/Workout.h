@@ -80,6 +80,18 @@ struct Workout
     // Workouts in this category are FTP tests (incl. personal copies).
     static QString ftpTestCategory() { return QStringLiteral("FTP Tests"); }
     bool isFtpTest() const { return category == ftpTestCategory(); }
+    // How an FTP test is evaluated (the category alone does not say):
+    //   Ramp         - "ramp" in the name / focus, or the main block (longest
+    //                  one that is not warm-up / recovery / cool-down) is a
+    //                  rising ramp: FTP = 75 % of the best 1-minute power
+    //   TwentyMinute - otherwise a block of >= kTwentyMinuteTestSec that is not
+    //                  warm-up / recovery / cool-down: FTP = 95 % of the best
+    //                  20-minute power
+    //   None         - not an FTP test, or neither protocol is recognisable
+    //                  (no FTP result is offered)
+    enum class FtpTestKind { None, Ramp, TwentyMinute };
+    static constexpr int kTwentyMinuteTestSec = 20 * 60;
+    FtpTestKind ftpTestKind() const;
     // The built-in FTP test is the basis for FTP testing and can never be deleted.
     bool isProtected() const { return builtIn && isFtpTest(); }
 };

@@ -74,6 +74,13 @@ public:
     // FTMS 0x11 parameters for this rider (road::trainerModelFor()).
     static road::TrainerModel trainerModel(const GearDrive &d);
 
+    // GearErg engages / releases with hysteresis around kCoastCadenceRpm
+    // (release below kGearReleaseCadenceRpm, engage from
+    // kGearEngageCadenceRpm) and at most once per kGearToggleMs, so a cadence
+    // hovering near 15 rpm does not flap between ERG and free ride.
+    static constexpr int kGearReleaseCadenceRpm = 12;
+    static constexpr int kGearEngageCadenceRpm = 18;
+    static constexpr int kGearToggleMs = 1000;
     static constexpr int kGearIntervalMs = 1000;
     static constexpr int kMinWattsChange = 2;
     static constexpr double kMinGradeChange = 0.1;   // %
@@ -92,12 +99,23 @@ public:
 
     void reset();          // forget what was sent: the next call sends
     void release();        // trainer free ride + reset()
-    void elapse(int ms) { m_sinceMs += ms; }
+    void elapse(int ms)
+    {
+        m_sinceMs += ms;
+        m_sinceToggleMs += ms;
+    }
 
     // Each returns true when a new value went out (callers emit their
     // targetChanged()).
     bool sendErg(int watts, bool force);
     bool sendGearWatts(int watts, bool force);   // <= 0: release (coasting)
+    // GearErg for a drive: gearWatts() with the engage/release hysteresis
+    // (see kGearReleaseCadenceRpm) on the live cadence (< 0: d.cadenceRpm),
+    // released (free ride) while disengaged.
+    bool sendGear(const GearDrive &d, bool force, double liveCadenceRpm = -1);
+    // Hysteresis state for the cadence (updates it, rate limited).
+    bool updateGearEngaged(double cadenceRpm);
+    bool gearEngaged() const { return m_gearEngaged; }
     // FTMS 0x11 with the trainer model's Crr and Cw (its mass is not sent:
     // FTMS has no weight field).
     bool sendGrade(double gradePercent, bool force, const road::TrainerModel &trainer);
@@ -115,6 +133,8 @@ private:
     double m_lastGrade = std::numeric_limits<double>::quiet_NaN();
     double m_lastCrr = 0, m_lastCw = 0;
     int m_sinceMs = 0;
+    bool m_gearEngaged = false;
+    int m_sinceToggleMs = kGearToggleMs;
     quint64 m_serial = 0;    // SensorHub::commandSerial() after our last command
 };
 

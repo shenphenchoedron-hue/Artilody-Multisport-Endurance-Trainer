@@ -153,8 +153,19 @@ public:
     static QVariantList wheelPresets() { return GearSetup::wheelPresets(); }
     QString lastError() const { return m_lastError; }
 
+    // The rider of a running / armed ride (FreeRideSession / RlvSession call
+    // this on start and clear it when the ride ends; owner = the session, a
+    // clear by another owner is ignored). While set and different from the
+    // current profile, roadModel(), systemMassKg (-> SensorHub::riderMassKg),
+    // riderWeightKg and autoCda use it - switching profiles mid-ride does not
+    // change the ride's physics.
+    void setRideProfile(const QObject *owner, const Profile &rider);
+    void clearRideProfile(const QObject *owner);
+    // The rider the physics use (see setRideProfile()), else the current profile.
+    const Profile &rider() const;
+
     // Road model for a rider of riderKg / heightCm on this bike (riderKg <= 0:
-    // profile weight, then kDefaultRiderKg; heightCm < 0: profile height).
+    // rider() weight, then kDefaultRiderKg; heightCm < 0: rider() height).
     road::Model roadModel(double gradePercent, double riderKg = 0, double heightCm = -1) const;
     road::Model roadModel(double gradePercent, const Profile &rider) const
     {
@@ -231,6 +242,8 @@ private:
     QPointer<RlvSession> m_rlv;
     QPointer<SensorHub> m_hub;
     std::function<bool()> m_busy;
+    const QObject *m_rideOwner = nullptr;
+    Profile m_rideProfile;
 
     Gearing m_gearing;
     qint64 m_profileId = -1;

@@ -131,16 +131,42 @@ QByteArray RlvRoute::replaceHtmlEntities(const QByteArray &xml)
 {
     if (!xml.contains('&'))
         return xml;
-    const QString text = QString::fromUtf8(xml);
-    const QString out = mapEntities(text, [](const QString &name) -> QString {
-        if (isXmlEntity(name))
-            return QString();   // keep
-        const auto it = entityTable().constFind(name);
-        if (it != entityTable().constEnd())
-            return QStringLiteral("&#%1;").arg(it.value());
-        return QStringLiteral("&amp;") + name + QLatin1Char(';');   // unknown: keep as text
-    });
-    return out.toUtf8();
+    // UTF-16 / UTF-32 (byte order mark or NUL bytes): left as it is - the
+    // reader decodes it; entity names are not single bytes there.
+    if (xml.startsWith("\xFF\xFE") || xml.startsWith("\xFE\xFF") || xml.left(512).contains('\0'))
+        return xml;
+    // Works on the raw bytes: only ASCII "&name;" sequences are replaced (by
+    // ASCII "&#N;"), every other byte is kept, so the file's own encoding
+    // (UTF-8, ISO-8859-1 / Windows-1252 per its XML declaration) stays intact.
+    auto isAlpha = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
+    auto isAlnum = [&](char c) { return isAlpha(c) || (c >= '0' && c <= '9'); };
+    QByteArray out;
+    out.reserve(xml.size() + 64);
+    const int n = int(xml.size());
+    int i = 0;
+    while (i < n) {
+        const char c = xml.at(i);
+        if (c == '&') {
+            int j = i + 1;
+            while (j < n && j - i <= 10 && isAlnum(xml.at(j)))
+                ++j;
+            if (j > i + 1 && j < n && xml.at(j) == ';' && isAlpha(xml.at(i + 1))) {
+                const QString name = QString::fromLatin1(xml.constData() + i + 1, j - i - 1);
+                if (!isXmlEntity(name)) {
+                    const auto it = entityTable().constFind(name);
+                    if (it != entityTable().constEnd())
+                        out += "&#" + QByteArray::number(it.value()) + ';';
+                    else
+                        out += "&amp;" + name.toLatin1() + ';';   // unknown: keep as text
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        out += c;
+        ++i;
+    }
+    return out;
 }
 
 QString RlvRoute::decodeText(const QString &text)
@@ -289,7 +315,8 @@ bool RlvRoute::load(const QString &pathIn, QString *error)
     m_folder = QFileInfo(file).absolutePath();
     computeDerived();
     if (!isValid())
-        return fail(QStringLiteral("The track has fewer than two points"));
+        return fail(m_points.size() < 2 ? QStringLiteral("The track has fewer than two points")
+                                        : QStringLiteral("The track is shorter than %1 m").arg(int(kMinDistanceM)));
     if (error)
         *error = hasVideo() ? QString() : QStringLiteral("Video file not found");
     return true;
@@ -400,10 +427,10 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
     m_gpxPath = QFileInfo(path).absoluteFilePath();
     QXmlStreamReader xml(replaceHtmlEntities(f.readAll()));
     QVector<RlvPoint> pts;
-    QVector<bool> hasTime;
+    QVector<bool> hasTime, hasEle;
     QDateTime t0;
     RlvPoint cur;
-    bool inPoint = false, curHasTime = false;
+    bool inPoint = false, curHasTime = false, curHasEle = false;
     QString trackName;
     int depthTrk = 0;
     while (!xml.atEnd()) {
@@ -414,6 +441,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
                 cur = RlvPoint();
                 inPoint = true;
                 curHasTime = false;
+                curHasEle = false;
                 bool okLat = false, okLon = false;
                 cur.lat = xml.attributes().value(QLatin1String("lat")).toDouble(&okLat);
                 cur.lon = xml.attributes().value(QLatin1String("lon")).toDouble(&okLon);
@@ -424,7 +452,12 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
             } else if (n == QLatin1String("trk")) {
                 ++depthTrk;
             } else if (inPoint && n == QLatin1String("ele")) {
-                cur.rawElevation = parseNumber(xml.readElementText());
+                bool ok = false;
+                const double e = parseNumber(xml.readElementText(), &ok);
+                if (ok && std::isfinite(e)) {
+                    cur.rawElevation = e;
+                    curHasEle = true;
+                }
             } else if (inPoint && n == QLatin1String("time")) {
                 const QString s = xml.readElementText().trimmed();
                 QDateTime dt = QDateTime::fromString(s, Qt::ISODateWithMs);
@@ -453,6 +486,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
             if (inPoint && (n == QLatin1String("trkpt") || n == QLatin1String("rtept"))) {
                 pts.append(cur);
                 hasTime.append(curHasTime);
+                hasEle.append(curHasEle);
                 inPoint = false;
             } else if (n == QLatin1String("trk")) {
                 --depthTrk;
@@ -469,9 +503,43 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
         if (!hasTime.at(i))
             pts[i].time = i > 0 ? pts.at(i - 1).time + 1.0 : 0.0;
     }
+    fillMissingElevation(pts, hasEle);
     if (m_title.isEmpty() && !trackName.isEmpty() && trackName != m_name)
         m_title = trackName;
     return setPoints(std::move(pts), error);
+}
+
+void RlvRoute::fillMissingElevation(QVector<RlvPoint> &pts, const QVector<bool> &hasEle)
+{
+    // Points without <ele>: linear in distance between the neighbours that
+    // have one; before the first / after the last known value it is carried.
+    // No elevation at all: a flat 0 m.
+    const int n = int(pts.size());
+    if (hasEle.size() != n)
+        return;
+    QVector<double> along(n, 0.0);
+    for (int i = 1; i < n; ++i)
+        along[i] = along.at(i - 1) + haversine(pts.at(i - 1).lat, pts.at(i - 1).lon, pts.at(i).lat, pts.at(i).lon);
+    int prev = -1;
+    for (int i = 0; i < n; ++i) {
+        if (!hasEle.at(i))
+            continue;
+        if (prev < 0) {
+            for (int k = 0; k < i; ++k)
+                pts[k].rawElevation = pts.at(i).rawElevation;
+        } else {
+            const double span = along.at(i) - along.at(prev);
+            for (int k = prev + 1; k < i; ++k) {
+                const double f = span > 0 ? (along.at(k) - along.at(prev)) / span : double(k - prev) / (i - prev);
+                pts[k].rawElevation = pts.at(prev).rawElevation + (pts.at(i).rawElevation - pts.at(prev).rawElevation) * f;
+            }
+        }
+        prev = i;
+    }
+    if (prev < 0)
+        return;   // none: rawElevation stays 0
+    for (int k = prev + 1; k < n; ++k)
+        pts[k].rawElevation = pts.at(prev).rawElevation;
 }
 
 bool RlvRoute::setPoints(QVector<RlvPoint> pts, QString *error)
@@ -498,6 +566,11 @@ bool RlvRoute::setPoints(QVector<RlvPoint> pts, QString *error)
         return false;
     }
     computeDerived();
+    if (totalDistance() < kMinDistanceM) {
+        if (error)
+            *error = QStringLiteral("The track is shorter than %1 m").arg(int(kMinDistanceM));
+        return false;
+    }
     return true;
 }
 

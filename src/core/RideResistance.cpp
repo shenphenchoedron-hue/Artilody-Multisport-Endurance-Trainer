@@ -11,7 +11,10 @@ bool RideResistance::gearSimulationPossible(const SensorHub *hub)
 {
     // the gear-adjusted grade needs the reference gear's speed: from the
     // cadence, else from the trainer's speed
-    return hub && !hub->trainerSimulationUnsupported() && (hub->cadenceReported() || hub->trainerReportsSpeed());
+    // (right after connecting neither is known yet: assume it may report, so
+    // the path does not start in ERG and flip to the simulation a moment later)
+    return hub && !hub->trainerSimulationUnsupported()
+           && (hub->cadenceReported() || hub->trainerReportsSpeed() || hub->trainerFeedbackUnknown());
 }
 
 double RideResistance::gearSpeed(const GearDrive &d)
@@ -54,7 +57,10 @@ double RideResistance::gearGrade(const GearDrive &d, double minGrade, double max
     const double vVirt = gearSpeed(d);
     if (!(vRef >= kMinGearSpeedMps) || !(vVirt > 0))
         return plain;   // coasting / standing: the road as it is
-    return road::gradeForTrainerPower(gearPower(d, vVirt), vRef, trainerModel(d), minGrade, maxGrade);
+    // crank power -> the wheel power the trainer takes (power convention in
+    // Gearing.h): in the reference gear this is exactly the road grade
+    const double eff = d.road.efficiency > 0 ? d.road.efficiency : 1.0;
+    return road::gradeForTrainerPower(gearPower(d, vVirt) * eff, vRef, trainerModel(d), minGrade, maxGrade);
 }
 
 road::TrainerModel RideResistance::trainerModel(const GearDrive &d)
@@ -84,6 +90,8 @@ const char *RideResistance::pathName(Path p)
 
 void RideResistance::reset()
 {
+    m_gearEngaged = false;
+    m_sinceToggleMs = kGearToggleMs;   // the first engagement goes out at once
     m_lastWatts = -1;
     m_lastGrade = std::numeric_limits<double>::quiet_NaN();
     m_sinceMs = 0;
@@ -139,6 +147,28 @@ bool RideResistance::sendGearWatts(int watts, bool force)
         return true;
     }
     return false;
+}
+
+bool RideResistance::updateGearEngaged(double cadenceRpm)
+{
+    const bool want = m_gearEngaged ? cadenceRpm >= kGearReleaseCadenceRpm : cadenceRpm >= kGearEngageCadenceRpm;
+    if (want != m_gearEngaged && m_sinceToggleMs >= kGearToggleMs) {
+        m_gearEngaged = want;
+        m_sinceToggleMs = 0;
+    }
+    return m_gearEngaged;
+}
+
+bool RideResistance::sendGear(const GearDrive &d, bool force, double liveCadenceRpm)
+{
+    int watts = 0;
+    if (updateGearEngaged(liveCadenceRpm >= 0 ? liveCadenceRpm : d.cadenceRpm)) {
+        GearDrive engaged = d;
+        // between release and engage cadence the gear keeps its (small) load
+        engaged.cadenceRpm = std::max(d.cadenceRpm, double(kCoastCadenceRpm));
+        watts = gearWatts(engaged);
+    }
+    return sendGearWatts(watts, force);
 }
 
 bool RideResistance::sendGrade(double grade, bool force, const road::TrainerModel &trainer)

@@ -104,6 +104,66 @@ private slots:
         QCOMPARE(xml, QByteArray("<a t=\"L&#228;nge &amp; &lt;b&gt; &amp;foo;\"/>"));
     }
 
+    // Entities are replaced on the raw bytes: a Latin-1 file keeps its é,
+    // a UTF-16 file is left alone.
+    void entitiesKeepTheFileEncoding()
+    {
+        const QByteArray latin1 = QByteArray("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n"
+                                             "<gpx-import><name>Caf\xE9 &auml;</name>"
+                                             "<gpx-file-path>t.gpx</gpx-file-path>"
+                                             "<informations><information distance=\"10\" en=\"Mont&eacute;e \xE9\"/>"
+                                             "</informations></gpx-import>");
+        const QByteArray replaced = RlvRoute::replaceHtmlEntities(latin1);
+        QVERIFY(replaced.contains("Caf\xE9 &#228;"));   // the raw Latin-1 byte is untouched
+        QTemporaryDir dir;
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("t.xml")), latin1));
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("t.gpx")), gpxFor(straight(31))));
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("t.mp4")), "x"));
+        RlvRoute r;
+        QString error;
+        QVERIFY2(r.load(dir.filePath(QStringLiteral("t.xml")), &error), qPrintable(error));
+        QCOMPARE(r.name(), QStringLiteral("Caf\u00e9 \u00e4"));
+        QCOMPARE(r.informations().size(), 1);
+        QCOMPARE(r.informations().at(0).text, QStringLiteral("Mont\u00e9e \u00e9"));
+
+        // UTF-16 (BOM): returned unchanged, still parsed
+        const QString text = QStringLiteral("<gpx-import><name>K\u00f6ln &amp; mehr</name></gpx-import>");
+        QByteArray utf16("\xFF\xFE");
+        utf16.append(reinterpret_cast<const char *>(text.utf16()), text.size() * 2);
+        QCOMPARE(RlvRoute::replaceHtmlEntities(utf16), utf16);
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("u.xml")), utf16));
+        QVERIFY(RlvRoute::isRouteXml(dir.filePath(QStringLiteral("u.xml"))));
+    }
+
+    // <ele> missing on some points: interpolated in distance, carried at the
+    // ends; none at all: flat 0 m.
+    void missingElevationIsInterpolated()
+    {
+        QByteArray gpx = "<gpx><trk><trkseg>\n";
+        for (int i = 0; i <= 40; ++i) {
+            const double lat = 45.0 + i * 10.0 / kMPerDegLat;
+            gpx += QStringLiteral("<trkpt lat=\"%1\" lon=\"6.0\">").arg(lat, 0, 'f', 8).toUtf8();
+            if (i == 10)
+                gpx += "<ele>100</ele>";
+            else if (i == 30)
+                gpx += "<ele>120</ele>";
+            gpx += "</trkpt>\n";
+        }
+        gpx += "</trkseg></trk></gpx>\n";
+        QTemporaryDir dir;
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("e.gpx")), gpx));
+        RlvRoute r;
+        QString error;
+        QVERIFY2(r.load(dir.filePath(QStringLiteral("e.gpx")), &error), qPrintable(error));
+        const auto &p = r.points();
+        QCOMPARE(p.size(), 41);
+        QCOMPARE(p.at(0).rawElevation, 100.0);                     // carried back
+        QVERIFY(std::abs(p.at(20).rawElevation - 110.0) < 0.01);   // half way
+        QVERIFY(std::abs(p.at(25).rawElevation - 115.0) < 0.01);
+        QCOMPARE(p.at(40).rawElevation, 120.0);                    // carried forward
+        QVERIFY(r.ascent() > 15 && r.ascent() < 25);               // no drop to 0 m in between
+    }
+
     void gpxDistanceAndVideoMapping()
     {
         QTemporaryDir dir;
@@ -289,9 +349,14 @@ private slots:
         QVERIFY(writeFile(dir.filePath(QStringLiteral("one.gpx")), gpxFor(straight(1))));
         QVERIFY(!r.load(dir.filePath(QStringLiteral("one.gpx")), &error));
         // without time stamps the points are 1 s apart
-        QVERIFY(writeFile(dir.filePath(QStringLiteral("notime.gpx")), gpxFor(straight(11), false)));
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("notime.gpx")), gpxFor(straight(21), false)));
         QVERIFY(r.load(dir.filePath(QStringLiteral("notime.gpx")), &error));
-        QCOMPARE(r.points().last().time, 10.0);
+        QCOMPARE(r.points().last().time, 20.0);
+        // shorter than RlvRoute::kMinDistanceM: not a route
+        QVERIFY(writeFile(dir.filePath(QStringLiteral("short.gpx")), gpxFor(straight(8))));
+        QVERIFY(!r.load(dir.filePath(QStringLiteral("short.gpx")), &error));
+        QVERIFY(!r.isValid());
+        QVERIFY(error.contains(QStringLiteral("shorter")));
         // xml pointing at a missing gpx
         QVERIFY(writeFile(dir.filePath(QStringLiteral("x.xml")),
                           "<gpx-import><name>x</name><gpx-file-path>missing.gpx</gpx-file-path></gpx-import>"));
@@ -328,8 +393,16 @@ private slots:
         {
             RlvLibrary lib(&db);
             QCOMPARE(lib.libraryFolder(), RlvLibrary::defaultLibraryFolder());
-            lib.setLibraryFolder(dir.filePath(QStringLiteral("a")));
+            QSignalSpy scanned(&lib, &RlvLibrary::scanned);
+            lib.setLibraryFolder(dir.filePath(QStringLiteral("a")));   // scans in a worker thread
+            QVERIFY(lib.scanning());
+            QCOMPARE(lib.libraryFolderUrl(), QUrl::fromLocalFile(QDir::cleanPath(dir.filePath(QStringLiteral("a")))));
+            QVERIFY(lib.waitForScan());
+            QVERIFY(!lib.scanning());
+            QCOMPARE(scanned.count(), 1);
             QCOMPARE(lib.count(), 1);
+            QCOMPARE(lib.get(0).value(QStringLiteral("folderUrl")).toUrl(),
+                     QUrl::fromLocalFile(QDir::cleanPath(dir.filePath(QStringLiteral("a/sub")))));
             QCOMPARE(lib.get(0).value(QStringLiteral("name")).toString(), QStringLiteral("Alpha"));
             QCOMPARE(lib.get(0).value(QStringLiteral("displayName")).toString(), QStringLiteral("Alpha Title"));
             QCOMPARE(lib.get(0).value(QStringLiteral("country")).toString(), QStringLiteral("FR"));
@@ -338,6 +411,7 @@ private slots:
             QVERIFY(lib.get(0).value(QStringLiteral("valid")).toBool());
             QCOMPARE(lib.get(0).value(QStringLiteral("label")).toString(), QStringLiteral("Alpha Title · 3.0 km · 0 m"));
             QVERIFY(lib.addFolder(QUrl::fromLocalFile(dir.filePath(QStringLiteral("b"))).toString()));
+            QVERIFY(lib.waitForScan());
             QCOMPARE(lib.count(), 2);
             QCOMPARE(lib.get(1).value(QStringLiteral("name")).toString(), QStringLiteral("beta"));
             QVERIFY(!lib.addFolder(QStringLiteral("/no/such/folder")));
@@ -351,9 +425,10 @@ private slots:
         RlvLibrary again(&db);
         QCOMPARE(again.libraryFolder(), QDir::cleanPath(dir.filePath(QStringLiteral("a"))));
         QCOMPARE(again.extraFolders().size(), 1);
-        again.rescan();
+        again.rescanNow();
         QCOMPARE(again.count(), 2);
         QVERIFY(again.removeFolder(dir.filePath(QStringLiteral("b"))));
+        QVERIFY(again.waitForScan());
         QCOMPARE(again.count(), 1);
         const int row = again.importRoute(dir.filePath(QStringLiteral("b/beta.gpx")));
         QCOMPARE(row, 1);
@@ -361,9 +436,58 @@ private slots:
         // a deleted video makes the entry invalid (cache not trusted)
         QVERIFY(QFile::remove(root.filePath(QStringLiteral("a/sub/t.mp4"))));
         again.rescan();
+        again.rescan();   // while scanning: runs once more afterwards
+        QVERIFY(again.waitForScan());
         QCOMPARE(again.count(), 2);
         QVERIFY(!again.get(0).value(QStringLiteral("valid")).toBool());
         QVERIFY(!again.get(0).value(QStringLiteral("error")).toString().isEmpty());
+    }
+
+    // Temporary folders (WATT_RLV_DIR) are scanned but their routes are not
+    // written into the "rlv/cache"; the cache stamps the gpx an xml resolved to.
+    void temporaryFolderNotCached()
+    {
+        QTemporaryDir dir;
+        QDir root(dir.path());
+        QVERIFY(root.mkpath(QStringLiteral("tmp")));
+        QVERIFY(root.mkpath(QStringLiteral("lib/tracks")));
+        QVERIFY(writeFile(root.filePath(QStringLiteral("tmp/t.gpx")), gpxFor(straight(31))));
+        QVERIFY(writeFile(root.filePath(QStringLiteral("tmp/t.mp4")), "x"));
+        // xml route whose gpx lives elsewhere (gpx-file-path)
+        QVERIFY(writeFile(root.filePath(QStringLiteral("lib/tracks/other.gpx")), gpxFor(straight(31))));
+        QVERIFY(writeFile(root.filePath(QStringLiteral("lib/r.mp4")), "x"));
+        QVERIFY(writeFile(root.filePath(QStringLiteral("lib/r.xml")),
+                          "<gpx-import><name>R</name><video-file-path>r.mp4</video-file-path>"
+                          "<gpx-file-path>tracks/other.gpx</gpx-file-path></gpx-import>"));
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        RlvLibrary lib(&db);
+        lib.setLibraryFolder(root.filePath(QStringLiteral("lib")));
+        lib.addTemporaryFolder(root.filePath(QStringLiteral("tmp")));
+        lib.rescanNow();
+        QCOMPARE(lib.count(), 2);
+        const QString cache = db.setting(QStringLiteral("rlv/cache")).toString();
+        QVERIFY(cache.contains(QStringLiteral("r.xml")));
+        QVERIFY(cache.contains(QStringLiteral("other.gpx")));   // the resolved track is stamped
+        QVERIFY(!cache.contains(QStringLiteral("tmp/t.gpx")));
+        QVERIFY(!db.setting(QStringLiteral("rlv/extraFolders")).toString().contains(QStringLiteral("tmp")));
+        const int libRow = lib.indexOfPath(root.filePath(QStringLiteral("lib/r.xml")));
+        QVERIFY(libRow >= 0);
+        QCOMPARE(lib.entries().at(libRow).gpxPath,
+                 QFileInfo(root.filePath(QStringLiteral("lib/tracks/other.gpx"))).absoluteFilePath());
+
+        // the resolved gpx changes -> the cached entry is parsed again
+        QVERIFY(writeFile(root.filePath(QStringLiteral("lib/tracks/other.gpx")), gpxFor(straight(61))));
+        QFile gpxFile(root.filePath(QStringLiteral("lib/tracks/other.gpx")));
+        QVERIFY(gpxFile.open(QIODevice::ReadWrite));
+        QVERIFY(gpxFile.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime));
+        gpxFile.close();
+        RlvLibrary again(&db);
+        again.rescanNow();
+        const int row = again.indexOfPath(root.filePath(QStringLiteral("lib/r.xml")));
+        QVERIFY(row >= 0);
+        QVERIFY(std::abs(again.get(row).value(QStringLiteral("distanceM")).toDouble() - 600.0) < 1.0);
     }
 
     void exampleRoute()

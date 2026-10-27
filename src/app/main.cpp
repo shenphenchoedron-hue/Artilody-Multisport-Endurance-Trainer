@@ -210,21 +210,42 @@ int main(int argc, char *argv[])
     // The gearing (setup + current gear) is the shared VirtualGears.
     RlvLibrary videos(&db);
     // Developer aid: WATT_RLV_DIR=<folder> (or WATT_SCREENSHOT_RLV=<route folder>)
-    // adds a folder to the video library for this run only (not saved).
+    // adds a folder to the video library for this run only (neither the folder
+    // nor its routes are saved - RlvLibrary skips them in the "rlv/cache").
     const QString shotRlvPath = shotDir.isEmpty() ? QString() : qEnvironmentVariable("WATT_SCREENSHOT_RLV");
     for (const QString &dir : { qEnvironmentVariable("WATT_RLV_DIR"), shotRlvPath }) {
         if (!dir.isEmpty())
             videos.addTemporaryFolder(dir);
     }
-    videos.rescan();
+    videos.rescan();   // in a worker thread; the list fills in when it is done
     RlvSession rlv(&db, &profiles, &hub, &gears, &videos);
-    rlv.setFreeRideSession(&freeRide);
+    rlv.setFreeRideSession(&freeRide);   // an armed free ride is cancelled by the video ride's start
     rlv.setTrainingSession(&training);
     rlv.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); });
     rlv.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
-    freeRide.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active() || rlv.waiting(); });
+    // Only one session at a time: a RUNNING session blocks the others; one
+    // that is only ARMED ("start when pedaling") is cancelled by another
+    // session's start, whichever it is (workout, rowing, free ride, video).
+    freeRide.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active(); });
+    freeRide.setArmedCanceller(QStringLiteral("rlv"), [&rlv] {
+        if (rlv.waiting())
+            rlv.finish(false);
+    });
     rowing.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active(); },
                            QStringLiteral("A video ride is running. Stop it before rowing."));
+    rowing.setArmedCanceller(QStringLiteral("freeRide"), [&freeRide] {
+        if (freeRide.waiting())
+            freeRide.finish(false);
+    });
+    rowing.setArmedCanceller(QStringLiteral("rlv"), [&rlv] {
+        if (rlv.waiting())
+            rlv.finish(false);
+    });
+    // The rider of a ride must still exist when it is saved.
+    profiles.setBusyCheck([&] {
+        return training.armedOrActive() || rowing.active() || freeRide.active() || freeRide.waiting()
+               || rlv.active() || rlv.waiting();
+    });
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
 
     // Zwift Click buttons: always routed by VirtualGears::controllerShift()
@@ -603,7 +624,7 @@ int main(int argc, char *argv[])
     //                               ratio, cadence, virtual speed, resistance path, road
     //                               grade, grade / ERG target sent, trainer speed, the
     //                               virtual trainer's internal state and the watts
-    //   WATT_DEBUG_SHIFTS=+3,-6,+3  shift sequence (gears per step), one gear every
+    //   WATT_DEBUG_SHIFTS=+3,-6,+3  (screenshot mode only) shift sequence (gears per step), one gear every
     //                               WATT_DEBUG_SHIFT_SEC (default 5) seconds, starting
     //                               after WATT_DEBUG_SHIFT_DELAY_SEC (default 10); through
     //                               the virtual Zwift Click when connected (same route as a
@@ -659,7 +680,9 @@ int main(int argc, char *argv[])
         });
         dbgTimer->start(1000);
     }
-    if (const QString seq = qEnvironmentVariable("WATT_DEBUG_SHIFTS"); !seq.isEmpty()) {
+    // (WATT_DEBUG_SHIFTS only in screenshot mode: it shifts the real gears)
+    if (const QString seq = shotDir.isEmpty() ? QString() : qEnvironmentVariable("WATT_DEBUG_SHIFTS");
+        !seq.isEmpty()) {
         auto shifts = std::make_shared<QList<int>>();
         for (const QString &part : seq.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
             const int n = part.trimmed().toInt();
@@ -687,24 +710,47 @@ int main(int argc, char *argv[])
         QTimer::singleShot(delay * 1000, shiftTimer, [shiftTimer, every] { shiftTimer->start(every * 1000); });
     }
 
-    const int rc = app.exec();
     // Never lose a ride on exit - except the demo sessions of screenshot mode.
-    if (training.armedOrActive()) {
-        if (shotDir.isEmpty())
-            training.stop();
-        else
-            training.discard();
-    }
-    if (rowing.active())
-        rowing.finish(shotDir.isEmpty());
-    if (freeRide.active() || freeRide.waiting())
-        freeRide.finish(shotDir.isEmpty());
-    if (!shotRlvPath.isEmpty())
-        qInfo("Screenshot mode: video ride %s, %s, %.0f m of %.0f m, %.1f km/h, video %lld ms, rate %.2f, drift %.2f s",
-              qPrintable(rlv.routeName()), qPrintable(rlv.state()), rlv.distanceMeters(), rlv.totalDistanceM(),
-              rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate(), rlv.videoDriftSec());
-    if (rlv.active() || rlv.waiting())
-        rlv.finish(shotDir.isEmpty());
+    // Runs on aboutToQuit (the event loop still runs, so the trainer's
+    // "free ride" goes out over Bluetooth) and once more after exec() in case
+    // the loop ended without it (no-op then).
+    bool sessionsClosed = false;
+    auto closeSessions = [&] {
+        if (sessionsClosed)
+            return;
+        sessionsClosed = true;
+        if (training.armedOrActive()) {
+            if (shotDir.isEmpty())
+                training.stop();
+            else
+                training.discard();
+        }
+        if (rowing.active())
+            rowing.finish(shotDir.isEmpty());
+        if (freeRide.active() || freeRide.waiting())
+            freeRide.finish(shotDir.isEmpty());
+        if (!shotRlvPath.isEmpty())
+            qInfo("Screenshot mode: video ride %s, %s, %.0f m of %.0f m, %.1f km/h, video %lld ms, rate %.2f, drift %.2f s",
+                  qPrintable(rlv.routeName()), qPrintable(rlv.state()), rlv.distanceMeters(), rlv.totalDistanceM(),
+                  rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate(), rlv.videoDriftSec());
+        if (rlv.active() || rlv.waiting())
+            rlv.finish(shotDir.isEmpty());
+    };
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [&] {
+        closeSessions();
+        // Release the trainer (ERG / simulation of a ride, a workout or a page
+        // hold) and give the device layer a moment to write it.
+        if (hub.trainerConnected()) {
+            hub.requestFreeRide();
+            QElapsedTimer wait;
+            wait.start();
+            while (wait.elapsed() < 300)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        }
+    });
+
+    const int rc = app.exec();
+    closeSessions();
 
     return rc;
 }

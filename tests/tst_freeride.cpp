@@ -797,10 +797,14 @@ private slots:
         QVERIFY(trainer.inErg(205));
         QCOMPARE(f.ride->resistancePath(), QStringLiteral("erg"));
 
-        // Ride releases the trainer, ERG takes it again
+        // Ride releases the ERG target, ERG takes it again. (Virtual gears on
+        // a simulating trainer whose cadence / speed is not known yet: the
+        // gear-simulation path, which holds the plain road grade while the
+        // rider does not pedal - see SensorHub::trainerFeedbackUnknown().)
         f.ride->setProperty("mode", QStringLiteral("ride"));
         QVERIFY(!f.ride->ergHolding());
-        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearSimulation"));
+        QCOMPARE(trainer.last(), QStringLiteral("sim 0"));
         QCOMPARE(f.hub->requestedTarget(), 0);
         f.ride->setProperty("mode", QStringLiteral("erg"));
         QVERIFY(trainer.inErg(205));
@@ -969,6 +973,250 @@ private slots:
         QCOMPARE(f.ride->roadModel(0).cda, road::autoCda(90, 185));
         QCOMPARE(f.gears->physicsSummary(), QStringLiteral("Rider + bike: 99 kg · CdA %1 (auto)")
                                                 .arg(road::autoCda(90, 185), 0, 'f', 2));
+    }
+
+    // "Start when pedaling" is only armed while the Free Ride page is open.
+    void armedRideDisarmsWhenLeavingPage()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        f.ride->startWhenPedaling();
+        QVERIFY(f.ride->waiting());
+        f.gears->setActivePage(QStringLiteral("freeride"));   // no change
+        QVERIFY(f.ride->waiting());
+        f.gears->setActivePage(QStringLiteral("dashboard"));
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        f.pedal(90, 200);   // pedaling elsewhere starts nothing
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        // a running ride is not affected by the page
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(f.ride->start());
+        f.gears->setActivePage(QStringLiteral("history"));
+        QVERIFY(f.ride->running());
+        f.ride->finish(false);
+    }
+
+    // An armed free ride never blocks another session: their start cancels it.
+    void otherSessionsCancelArmedRide()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QSignalSpy refused(f.training.get(), &TrainingSession::startRefused);
+        f.ride->startWhenPedaling();
+        QVERIFY(f.ride->waiting());
+        f.training->start();
+        QCOMPARE(refused.count(), 0);
+        QVERIFY(f.training->active());
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        f.training->discard();
+
+        f.ride->startWhenPedaling();
+        f.training->startWhenPedaling();   // only one armed session
+        QVERIFY(f.training->waiting());
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        f.training->stop();
+
+        // rowing (wired like main.cpp)
+        RowingRecords records(&f.db, f.profiles.get());
+        WorkoutPlanner planner(&f.db, f.profiles.get());
+        RowingSession rowing(&f.db, f.profiles.get(), f.hub.get(), &records, &planner);
+        rowing.setManualClock(true);
+        rowing.setStartBlocker(QStringLiteral("freeRide"), [&f] { return f.ride->active(); });
+        rowing.setArmedCanceller(QStringLiteral("freeRide"), [&f] {
+            if (f.ride->waiting())
+                f.ride->finish(false);
+        });
+        f.ride->startWhenPedaling();
+        QVERIFY(rowing.start());
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        rowing.finish(false);
+        rowing.setStartBlocker(QStringLiteral("freeRide"), {});
+        rowing.setArmedCanceller(QStringLiteral("freeRide"), {});
+    }
+
+    // A long gap between timer ticks (sleep) adds no time or distance.
+    void longClockGapIsAPause()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.pedal(90, 200);
+        QVERIFY(f.ride->start());
+        f.ride_for(3000);
+        const double d = f.ride->distanceMeters();
+        const int t = f.ride->elapsedSeconds();
+        f.ride->advanceWallClock(10 * 60 * 1000);
+        QCOMPARE(f.ride->distanceMeters(), d);
+        QCOMPARE(f.ride->elapsedSeconds(), t);
+        QCOMPARE(f.ride->samples().size(), 3);
+        f.ride->advanceWallClock(250);   // a normal tick counts
+        QVERIFY(f.ride->distanceMeters() > d);
+        f.ride->finish(false);
+    }
+
+    // The 250 ms clock only runs while it is needed.
+    void timerRunsOnlyWhenNeeded()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.ride.reset();
+        FreeRideSession ride(&f.db, f.profiles.get(), f.hub.get(), f.gears.get());   // real timer
+        QVERIFY(!ride.timerActive());   // idle
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(ride.gearHolding());    // virtual gear hold follows the cadence
+        QVERIFY(ride.timerActive());
+        ride.setMode(QStringLiteral("erg"));
+        QVERIFY(ride.ergHolding());     // a fixed ERG target needs no clock
+        QVERIFY(!ride.timerActive());
+        ride.setMode(QStringLiteral("ride"));
+        QVERIFY(ride.timerActive());
+        f.gears->setActivePage(QStringLiteral("dashboard"));
+        QVERIFY(!ride.timerActive());
+        QVERIFY(ride.start());
+        QVERIFY(ride.timerActive());
+        ride.pause();
+        QVERIFY(!ride.timerActive());
+        ride.resume();
+        QVERIFY(ride.timerActive());
+        ride.finish(false);
+        QVERIFY(!ride.timerActive());
+    }
+
+    // Virtual gears via ERG: engage from 18 rpm, release below 12 rpm, at
+    // most one switch per second - no ERG / free ride flapping near 15 rpm.
+    void gearErgHysteresis()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        FakeTrainer trainer(f.hub.get());
+        f.pedal(90, 200);
+        QVERIFY(f.ride->start());
+        f.ride_for(2000);
+        QVERIFY(trainer.erg);
+        f.pedal(14, 60);           // below the coast cadence, above the release cadence
+        f.ride_for(2000);
+        QVERIFY(trainer.erg);
+        QVERIFY(f.hub->requestedTarget() >= FreeRideSession::kMinGearWatts);
+        f.pedal(10, 20);           // released
+        f.ride->advanceClock(250);
+        QVERIFY(!trainer.erg);
+        QCOMPARE(trainer.last(), QStringLiteral("free"));
+        f.pedal(16, 40);           // not yet engaged again
+        f.ride_for(2000);
+        QVERIFY(!trainer.erg);
+        f.pedal(20, 80);
+        f.ride->advanceClock(250);
+        QVERIFY(trainer.erg);
+        // right after engaging a drop does not release at once (rate limit)
+        f.pedal(5, 0);
+        f.ride->advanceClock(250);
+        QVERIFY(trainer.erg);
+        f.ride_for(1000);
+        QVERIFY(!trainer.erg);
+        f.ride->finish(false);
+    }
+
+    // The rider's weight of a running ride stays when the profile changes.
+    void rideKeepsItsRiderPhysics()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setBusyCheck([&f] { return f.ride->active() || f.ride->waiting(); });
+        f.gears->setHub(f.hub.get());
+        QVERIFY(f.profiles->saveProfile({ { QStringLiteral("weight"), 60.0 } }));
+        QCOMPARE(f.gears->systemMassKg(), 69.0);
+        f.pedal(90, 200);
+        QVERIFY(f.ride->start());
+        QVERIFY(f.profiles->createProfile(QStringLiteral("Heavy")) > 0);
+        QVERIFY(f.profiles->saveProfile({ { QStringLiteral("weight"), 95.0 } }));
+        QCOMPARE(f.gears->systemMassKg(), 69.0);   // the ride's rider
+        QCOMPARE(f.hub->riderMassKg(), 69.0);
+        QCOMPARE(f.ride->roadModel(0).massKg, 69.0);
+        f.ride->finish(false);
+        QCOMPARE(f.gears->systemMassKg(), 104.0);  // now the current profile
+        QCOMPARE(f.hub->riderMassKg(), 104.0);
+    }
+
+    // A Zwift Click recognised during a ride does not swap the bike mid-ride.
+    void clickConnectDuringRideKeepsBike()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setBusyCheck([&f] { return f.ride->active() || f.ride->waiting(); });
+        const QString before = f.gears->summary();
+        GearSetup other = GearSetup::defaults();
+        other.chainrings = { 36, 52 };
+        QVERIFY(f.db.setGearSetupJson(f.profiles->profileId(), other.toJsonText()));
+        f.pedal(90, 200);
+        QVERIFY(f.ride->start());
+        f.gears->setClickConnected(true);
+        QCOMPARE(f.gears->summary(), before);   // reload deferred
+        f.ride->finish(false);                   // -> the saved bike
+        QVERIFY(f.gears->summary() != before);
+        QCOMPARE(f.gears->setup().chainrings, (QVector<int> { 36, 52 }));
+    }
+
+    // Right after connecting, cadence / speed reporting is unknown: virtual
+    // gears on a simulating trainer use the simulation path (no brief ERG);
+    // only pedaling kFeedbackProbeMs without either switches to ERG.
+    void unknownTrainerFeedbackMayReport()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        qint64 now = 1000000;
+        f.hub->setClockForTesting([&now] { return now; });
+        f.hub->setTrainerConnected(false);
+        f.hub->setTrainerConnected(true);
+        f.hub->setTrainerSimulationSupport(1);
+        QVERIFY(f.hub->trainerFeedbackUnknown());
+        FakeTrainer trainer(f.hub.get());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearSimulation"));
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(!trainer.log.join(QLatin1Char(' ')).contains(QStringLiteral("erg")));
+        // power without cadence or speed for a while: the trainer reports neither
+        for (int i = 0; i <= 6; ++i) {
+            f.hub->updatePower(150);
+            now += 1000;
+        }
+        f.hub->updatePower(150);
+        QVERIFY(!f.hub->trainerFeedbackUnknown());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearErg"));
+        // a reconnect forgets it
+        f.hub->setTrainerConnected(false);
+        f.hub->setTrainerConnected(true);
+        QVERIFY(f.hub->trainerFeedbackUnknown());
+        f.hub->updateCadence(85);   // a trainer with cadence: known, simulation path
+        QVERIFY(!f.hub->trainerFeedbackUnknown());
+        QVERIFY(f.hub->cadenceReported());
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearSimulation"));
+        f.gears->setActivePage(QString());
+    }
+
+    void lastRideIdNotifiesAndSettersAreInvokable()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QSignalSpy changed(f.ride.get(), &FreeRideSession::lastRideIdChanged);
+        f.pedal(90, 200);
+        QVERIFY(f.ride->start());
+        QCOMPARE(changed.count(), 1);
+        f.ride_for(6000);
+        const qint64 id = f.ride->stop();
+        QVERIFY(id > 0);
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(f.ride->lastRideId(), id);
+        f.ride->reset();
+        QCOMPARE(changed.count(), 3);
+        QCOMPARE(f.ride->lastRideId(), qint64(-1));
+        QVERIFY(f.ride->start());
+        f.ride->discard();
+        QCOMPARE(changed.count(), 5);   // start + discard
+        QVERIFY(QMetaObject::invokeMethod(f.ride.get(), "setGrade", Q_ARG(double, 2.5)));
+        QCOMPARE(f.ride->gradePercent(), 2.5);
+        QVERIFY(QMetaObject::invokeMethod(f.ride.get(), "setTargetWatts", Q_ARG(int, 230)));
+        QCOMPARE(f.ride->targetWatts(), 230);
+        QVERIFY(f.ride->setProperty("gradePercent", 1.5));   // property assignment works too
+        QCOMPARE(f.ride->gradePercent(), 1.5);
     }
 };
 

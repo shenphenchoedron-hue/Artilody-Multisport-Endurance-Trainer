@@ -53,7 +53,7 @@ public:
     QString artist() const;
     QString coverSource() const;
     QImage cover() const { return m_cover; }
-    bool hasTrack() const { return m_index >= 0; }
+    bool hasTrack() const { return currentTrack() != nullptr; }
     bool playing() const;
     qint64 position() const { return m_player.position(); }
     qint64 duration() const;
@@ -106,6 +106,8 @@ signals:
     void errorTextChanged();
 
 private:
+    // The current track, nullptr when there is none (or the index is stale).
+    const Track *currentTrack() const;
     void loadPlaylist(qint64 id, bool keepPlaying = false);
     void setIndex(int index, bool autoplay);
     void onMetaData();

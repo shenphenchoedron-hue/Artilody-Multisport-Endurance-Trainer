@@ -1,7 +1,11 @@
 #include "Database.h"
 #include "ProfileManager.h"
 #include "WorkoutBuilder.h"
+#include "WorkoutIO.h"
 #include "WorkoutLibrary.h"
+
+#include <QFile>
+#include <QTemporaryDir>
 
 #include <QSignalSpy>
 #include <QtTest>
@@ -309,6 +313,90 @@ private slots:
         QVERIFY(profiles->deleteProfile(second));
         QCOMPARE(profiles->profiles().size(), 1);
         QVERIFY(!profiles->deleteProfile(profiles->profileId()));   // keep at least one
+    }
+
+    // "Name A–Z" ignores case (localeAwareCompare is unreliable under C/POSIX).
+    void nameSortIsCaseInsensitive()
+    {
+        for (const QString &n : { QStringLiteral("zebra ride"), QStringLiteral("Apple"), QStringLiteral("banana"),
+                                  QStringLiteral("Cherry") }) {
+            Workout w;
+            w.name = n;
+            w.category = QStringLiteral("Custom test");
+            w.intervals = { Interval() };
+            QVERIFY(db->saveWorkout(w) > 0);
+        }
+        WorkoutLibrary lib(db, profiles);
+        lib.reload();
+        lib.setSearchText(QStringLiteral("Custom test"));
+        lib.setSortMode(WorkoutLibrary::NameAZ);
+        QStringList names;
+        for (int i = 0; i < lib.rowCount(); ++i)
+            names << lib.data(lib.index(i), WorkoutLibrary::NameRole).toString();
+        QCOMPARE(names, (QStringList { QStringLiteral("Apple"), QStringLiteral("banana"), QStringLiteral("Cherry"),
+                                       QStringLiteral("zebra ride") }));
+    }
+
+    // Export to a name without suffix: the suffix is added, but an existing
+    // file of that name is never overwritten silently.
+    void exportDoesNotOverwriteSuffixedFile()
+    {
+        QTemporaryDir dir;
+        WorkoutLibrary lib(db, profiles);
+        lib.reload();
+        const qint64 id = db->workouts().first().id;
+        const QString plain = dir.filePath(QStringLiteral("mine"));
+        QFile existing(plain + QStringLiteral(".awt"));
+        QVERIFY(existing.open(QIODevice::WriteOnly));
+        existing.write("keep");
+        existing.close();
+        QVERIFY(!lib.exportWorkout(id, QUrl::fromLocalFile(plain), QStringLiteral("awt")));
+        QVERIFY(lib.lastMessage().contains(QStringLiteral("already exists")));
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        QCOMPARE(existing.readAll(), QByteArray("keep"));
+        existing.close();
+        QCOMPARE(lib.exportWorkouts({ id }, QUrl::fromLocalFile(plain)), 0);
+        QVERIFY(lib.exportWorkout(id, QUrl::fromLocalFile(plain), QStringLiteral("zwo")));   // mine.zwo is new
+        QVERIFY(QFileInfo::exists(plain + QStringLiteral(".zwo")));
+        QVERIFY(lib.exportWorkout(id, QUrl::fromLocalFile(plain + QStringLiteral(".awt"))));  // chosen explicitly
+    }
+
+    // An import that the sport filter would hide resets the filter.
+    void importResetsSportFilter()
+    {
+        QTemporaryDir dir;
+        WorkoutLibrary lib(db, profiles);
+        lib.reload();
+        lib.setSportFilter(QStringLiteral("rowing"));
+        Workout w;
+        w.name = QStringLiteral("Imported ride");
+        w.intervals = { Interval() };
+        const QString path = dir.filePath(QStringLiteral("ride.awt"));
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(workoutio::toAwt({ w }, QStringLiteral("1.0")));
+        f.close();
+        QCOMPARE(lib.importFile(QUrl::fromLocalFile(path)), 1);
+        QCOMPARE(lib.sportFilter(), QStringLiteral("all"));
+        bool visible = false;
+        for (int i = 0; i < lib.rowCount(); ++i)
+            visible = visible || lib.data(lib.index(i), WorkoutLibrary::NameRole).toString() == w.name;
+        QVERIFY(visible);
+        QCOMPARE(lib.get(lib.selectedId()).value(QStringLiteral("name")).toString(), w.name);
+    }
+
+    // Deleting a profile is refused while a session is busy (main.cpp check).
+    void profileDeletionBlockedWhileBusy()
+    {
+        const qint64 other = profiles->createProfile(QStringLiteral("Other"));
+        QVERIFY(other > 0);
+        bool busy = true;
+        profiles->setBusyCheck([&busy] { return busy; });
+        QVERIFY(!profiles->deleteProfile(other));
+        QVERIFY(profiles->lastError().contains(QStringLiteral("Finish")));
+        busy = false;
+        QVERIFY(profiles->deleteProfile(other));
+        profiles->setBusyCheck({});
     }
 };
 

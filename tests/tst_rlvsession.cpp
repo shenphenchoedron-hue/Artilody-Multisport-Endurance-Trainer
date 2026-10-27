@@ -13,6 +13,7 @@
 
 #include <QFile>
 #include <QSignalSpy>
+#include <QThread>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <cmath>
@@ -115,7 +116,7 @@ struct Fixture
             return false;
         if (!writeRoute(dir.filePath(name), name, lengthM, speed, grade, infos))
             return false;
-        library->rescan();
+        library->rescanNow();
         return true;
     }
     bool selectRoute(const QString &name)
@@ -335,9 +336,13 @@ private slots:
         QVERIFY(f.rlv->videoDriftSec() > 0.3);
         QVERIFY(f.rlv->playbackRate() < base);
         QVERIFY(f.rlv->playbackRate() >= base * 0.9 - 0.05);
-        // 1 s behind -> slightly faster
+        // 1 s behind -> slightly faster (a small rate change waits for
+        // kRateMinIntervalMs after the last one: fewer flushing seeks)
+        const double slower = f.rlv->playbackRate();
         f.rlv->reportVideoPosition(f.rlv->videoPosition() - 1000);
         f.ride_for(250);
+        QCOMPARE(f.rlv->playbackRate(), slower);
+        f.ride_for(RlvSession::kRateMinIntervalMs);
         QVERIFY(f.rlv->playbackRate() > base);
         QVERIFY(f.rlv->playbackRate() <= base * 1.1 + 0.05);
         // stale reports are ignored
@@ -1085,6 +1090,110 @@ private slots:
         QCOMPARE(again.gearLabel(), QStringLiteral("40×21"));
         QCOMPARE(again.referenceLabel(), QStringLiteral("40×19"));
         QCOMPARE(again.setup().bikeWeightKg, 10.0);
+    }
+
+    // "Start when pedaling" only while the Video Ride page is open; a workout
+    // start cancels an armed video ride instead of being refused.
+    void armedRideDisarmsAndYields()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        f.gears->setActivePage(QStringLiteral("video"));
+        f.rlv->startWhenPedaling();
+        QVERIFY(f.rlv->waiting());
+        f.gears->setActivePage(QStringLiteral("dashboard"));
+        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+
+        f.gears->setActivePage(QStringLiteral("video"));
+        f.rlv->startWhenPedaling();
+        QSignalSpy refused(f.training.get(), &TrainingSession::startRefused);
+        f.training->start();
+        QCOMPARE(refused.count(), 0);
+        QVERIFY(f.training->active());
+        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        f.training->discard();
+    }
+
+    // Discarding right before the route end must not save the ride through
+    // the last time slice reaching the end.
+    void discardNearTheEndDoesNotSave()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        QVERIFY(f.rlv->seekToDistance(f.rlv->totalDistanceM() - 150));
+        QSignalSpy saved(f.rlv.get(), &RlvSession::rideSaved);
+        f.pedal(90, 250);
+        QVERIFY(f.rlv->start());
+        while (f.rlv->running() && f.rlv->remainingMeters() > 1.5)
+            f.rlv->advanceClock(100);
+        QVERIFY(f.rlv->running());
+        QVERIFY(f.rlv->samples().size() >= 5);   // would be saved
+        f.rlv->setManualClock(false);   // finish() takes the last slice from the wall clock
+        QThread::msleep(600);
+        QCOMPARE(f.rlv->finish(false), qint64(-1));
+        QCOMPARE(saved.count(), 0);
+        QVERIFY(!f.rlv->completed());
+        QCOMPARE(f.rlv->lastRideId(), qint64(-1));
+        QCOMPARE(f.db.rides(f.profiles->profileId()).size(), 0);
+    }
+
+    void longClockGapIsAPauseAndLastRideIdNotifies()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        QSignalSpy idChanged(f.rlv.get(), &RlvSession::lastRideIdChanged);
+        f.pedal(90, 250);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(idChanged.count(), 1);
+        f.ride_for(6000);
+        const double d = f.rlv->distanceMeters();
+        const int t = f.rlv->elapsedSeconds();
+        f.rlv->advanceWallClock(30 * 60 * 1000);   // the computer slept
+        QCOMPARE(f.rlv->distanceMeters(), d);
+        QCOMPARE(f.rlv->elapsedSeconds(), t);
+        f.rlv->advanceWallClock(250);
+        QVERIFY(f.rlv->distanceMeters() > d);
+        QVERIFY(f.rlv->stop() > 0);
+        QCOMPARE(idChanged.count(), 2);
+        f.rlv->reset();
+        QCOMPARE(idChanged.count(), 3);
+        QCOMPARE(f.rlv->lastRideId(), qint64(-1));
+        QVERIFY(f.rlv->start());
+        f.rlv->discard();
+        QCOMPARE(idChanged.count(), 5);
+    }
+
+    // Rate changes are limited (each one makes the player flush): small
+    // steps at most every kRateMinIntervalMs, big jumps at once.
+    void playbackRateHysteresis()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("flat"), 20000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("flat")));
+        f.pedal(90, 200);
+        QVERIFY(f.rlv->start());
+        f.ride_for(30000);   // steady
+        QSignalSpy video(f.rlv.get(), &RlvSession::videoChanged);
+        int changes = 0;
+        double last = f.rlv->playbackRate();
+        // power wobbling a little: the rate may move, but rarely
+        for (int i = 0; i < 40; ++i) {
+            f.pedal(90, i % 2 ? 190 : 215);
+            f.rlv->advanceClock(250);
+            if (!qFuzzyCompare(last, f.rlv->playbackRate())) {
+                ++changes;
+                last = f.rlv->playbackRate();
+            }
+        }
+        QVERIFY2(changes <= 40 * 250 / RlvSession::kRateMinIntervalMs + 1, qPrintable(QString::number(changes)));
+        f.rlv->finish(false);
     }
 };
 

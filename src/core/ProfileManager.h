@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <functional>
 
 namespace watt {
 
@@ -39,6 +40,10 @@ public:
 
     void load();
     const Profile &current() const { return m_profile; }
+    // While it returns true (a ride / row is armed or running, main.cpp)
+    // deleteProfile() is refused: the ride's rider must still exist when it
+    // is saved.
+    void setBusyCheck(std::function<bool()> busy) { m_busy = std::move(busy); }
 
     qint64 profileId() const { return m_profile.id; }
     QString name() const { return m_profile.name; }
@@ -94,6 +99,7 @@ private:
     Database *m_db;
     Profile m_profile;
     QString m_lastError;
+    std::function<bool()> m_busy;
 };
 
 } // namespace watt

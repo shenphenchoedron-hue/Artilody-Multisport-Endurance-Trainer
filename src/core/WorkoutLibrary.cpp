@@ -306,7 +306,10 @@ void WorkoutLibrary::applyFilter()
             continue;
         m_visible.append(w);
     }
-    auto byName = [](const Workout &a, const Workout &b) { return a.name.localeAwareCompare(b.name) < 0; };
+    // case-insensitive: localeAwareCompare is unreliable under the C/POSIX locale
+    auto byName = [](const Workout &a, const Workout &b) {
+        return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+    };
     switch (m_sort) {
     case MostPopular:
         std::stable_sort(m_visible.begin(), m_visible.end(), [](const Workout &a, const Workout &b) {
@@ -442,6 +445,13 @@ bool WorkoutLibrary::exportWorkout(qint64 id, const QUrl &file, const QString &f
         format = formatHint.compare(QLatin1String("zwo"), Qt::CaseInsensitive) == 0 ? workoutio::Format::Zwo
                                                                                    : workoutio::Format::Awt;
         path += format == workoutio::Format::Zwo ? QStringLiteral(".zwo") : QStringLiteral(".awt");
+        // the dialog confirmed the name without the suffix - never overwrite
+        // another file silently
+        if (QFileInfo::exists(path)) {
+            setMessage(QStringLiteral("Export failed: %1 already exists. Choose a file name ending in %2.")
+                           .arg(QDir::toNativeSeparators(path), QFileInfo(path).suffix().prepend(QLatin1Char('.'))));
+            return false;
+        }
     }
     const QByteArray data = format == workoutio::Format::Zwo
         ? workoutio::toZwo(*w)
@@ -463,8 +473,15 @@ int WorkoutLibrary::writeAwt(const QVector<Workout> &workouts, const QString &ra
         return 0;
     }
     const QString suffix = QFileInfo(path).suffix().toLower();
-    if (suffix != QLatin1String("awt") && suffix != QLatin1String("json"))
+    if (suffix != QLatin1String("awt") && suffix != QLatin1String("json")) {
         path += QStringLiteral(".awt");   // several workouts are always written as .awt
+        // the dialog confirmed the name without ".awt": do not overwrite another file silently
+        if (QFileInfo::exists(path)) {
+            setMessage(QStringLiteral("Export failed: %1 already exists. Choose a file name ending in .awt.")
+                           .arg(QDir::toNativeSeparators(path)));
+            return 0;
+        }
+    }
     QString err;
     if (!workoutio::writeFile(path, workoutio::toAwt(workouts, QCoreApplication::applicationVersion()), &err)) {
         setMessage(QStringLiteral("Export failed: %1").arg(err));
@@ -558,6 +575,7 @@ int WorkoutLibrary::importFiles(const QList<QUrl> &files)
         if (!visible) {
             m_category = QStringLiteral("All");
             m_search.clear();
+            m_sportFilter = QStringLiteral("all");
             applyFilter();
             emit filterChanged();
         }

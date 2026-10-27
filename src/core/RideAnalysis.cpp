@@ -107,6 +107,37 @@ int estimateFtpFromRamp(const QVector<Sample> &samples)
     return int(std::lround(kRampTestFtpFactor * best));
 }
 
+int plausibleTwentyMinuteFtp(const QVector<Sample> &samples)
+{
+    if (samples.size() < kTwentyMinuteTestWindowSec)
+        return 0;
+    const int best = bestAveragePower(samples, kTwentyMinuteTestWindowSec);
+    if (best <= 0)
+        return 0;
+    const int ftp = int(std::lround(kTwentyMinuteTestFtpFactor * best));
+    return ftp >= Profile::kMinFtp && ftp <= Profile::kMaxFtp ? ftp : 0;
+}
+
+FtpEstimate ftpTestEstimate(const QVector<Sample> &samples, Workout::FtpTestKind kind)
+{
+    FtpEstimate e;
+    switch (kind) {
+    case Workout::FtpTestKind::Ramp:
+        e.method = QStringLiteral("ramp");
+        e.bestPower = bestAveragePower(samples, kRampTestWindowSec);
+        e.ftp = plausibleRampFtp(samples);
+        break;
+    case Workout::FtpTestKind::TwentyMinute:
+        e.method = QStringLiteral("20min");
+        e.bestPower = bestAveragePower(samples, kTwentyMinuteTestWindowSec);
+        e.ftp = plausibleTwentyMinuteFtp(samples);
+        break;
+    case Workout::FtpTestKind::None:
+        break;
+    }
+    return e;
+}
+
 int plausibleRampFtp(const QVector<Sample> &samples)
 {
     if (samples.size() < kMinFtpTestSec)

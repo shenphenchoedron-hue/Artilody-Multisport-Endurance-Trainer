@@ -3,9 +3,15 @@
 #include <QAbstractListModel>
 #include <QDateTime>
 #include <QHash>
+#include <QPointer>
+#include <QSet>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantMap>
 #include <QVector>
+#include <memory>
+
+#include <QThread>
 
 namespace watt {
 
@@ -18,16 +24,26 @@ class Database;
 // newline separated) recursively for routes: gpx-import .xml files (+ gpx +
 // video) and .gpx files with a same-basename video. gpx files referenced by
 // an xml are not listed twice. Parsed metadata is cached in memory and in the
-// setting "rlv/cache" (JSON, keyed by file path + modification time + size),
-// so a restart does not parse every track again.
+// setting "rlv/cache" (JSON, keyed by file path; stamped with modification
+// time + size of the route file and the gpx track it resolved to), so a
+// restart does not parse every track again.
+//
+// rescan() runs in a worker thread (QThread, no extra Qt module): the model
+// keeps its rows until the scan is done, then resets and emits scanned();
+// `scanning` is true meanwhile (QML: show the new count on scanned(), not
+// right after calling rescan()). rescanNow() scans synchronously (tests,
+// importRoute()).
 //
 // Temporary folders (addTemporaryFolder(), env WATT_RLV_DIR in main.cpp) are
-// scanned but never saved.
+// scanned but never saved - neither the folder nor its routes in the cache.
 class RlvLibrary : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(QString libraryFolder READ libraryFolder WRITE setLibraryFolder NOTIFY foldersChanged)
+    // QUrl::fromLocalFile(libraryFolder) - for FolderDialog / Qt.openUrlExternally
+    Q_PROPERTY(QUrl libraryFolderUrl READ libraryFolderUrl NOTIFY foldersChanged)
+    Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(QString defaultLibraryFolder READ defaultLibraryFolder CONSTANT)
     Q_PROPERTY(QStringList extraFolders READ extraFolders NOTIFY foldersChanged)
     Q_PROPERTY(QStringList folders READ folders NOTIFY foldersChanged)     // all scanned folders
@@ -49,6 +65,7 @@ public:
         ValidRole,
         ErrorRole,
         LabelRole,          // "Menglonnais · 12.0 km · 154 m" (drop-down text)
+        FolderUrlRole,      // QUrl::fromLocalFile(folderPath)
     };
     Q_ENUM(Roles)
 
@@ -56,6 +73,7 @@ public:
     {
         QString path;
         QString name, title, country, folderPath, videoPath, error;
+        QString gpxPath;      // the track the route resolved to (part of the stamp)
         double distanceM = 0;
         double ascentM = 0;
         int durationSec = 0;
@@ -65,6 +83,7 @@ public:
     };
 
     explicit RlvLibrary(Database *db, QObject *parent = nullptr);
+    ~RlvLibrary() override;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -73,6 +92,8 @@ public:
     int count() const { return m_entries.size(); }
     const QVector<Entry> &entries() const { return m_entries; }
     QString libraryFolder() const { return m_libraryFolder; }
+    QUrl libraryFolderUrl() const { return QUrl::fromLocalFile(m_libraryFolder); }
+    bool scanning() const { return m_scanThread != nullptr; }
     void setLibraryFolder(const QString &folder);
     static QString defaultLibraryFolder();
     QStringList extraFolders() const { return m_extraFolders; }
@@ -82,7 +103,10 @@ public:
     // Scanned but not persisted (screenshot / development folders).
     void addTemporaryFolder(const QString &folder);
 
-    Q_INVOKABLE void rescan();
+    Q_INVOKABLE void rescan();          // asynchronous (worker thread), then scanned()
+    void rescanNow();                   // synchronous
+    // Tests: processes events until a running scan is applied; false on timeout.
+    bool waitForScan(int timeoutMs = 30000);
     Q_INVOKABLE bool addFolder(const QString &folderOrUrl);       // extra folder (persisted) + rescan
     Q_INVOKABLE bool removeFolder(const QString &folderOrUrl);
     // Adds a route folder (or file) to the library and returns its row, -1 on error (lastError).
@@ -98,14 +122,26 @@ public:
     // Route files under folder (recursive): xml routes first, gpx(+video) not referenced by them.
     static QStringList findRoutes(const QString &folder);
 
+    // The result of scanning folders (thread-safe, no member access).
+    struct ScanResult
+    {
+        QVector<Entry> found;           // sorted for the model
+        QHash<QString, Entry> cache;    // updated cache
+        bool cacheChanged = false;
+    };
+    static ScanResult scanFolders(const QStringList &folders, QHash<QString, Entry> cache);
+
 signals:
     void countChanged();
     void foldersChanged();
     void lastErrorChanged();
     void scanned();
+    void scanningChanged();
 
 private:
-    Entry entryFor(const QString &path);
+    static Entry entryFor(const QString &path, QHash<QString, Entry> &cache, bool *changed);
+    void applyScan(ScanResult result);
+    bool isTemporaryPath(const QString &path) const;
     void saveFolders();
     void loadCache();
     void saveCache();
@@ -119,6 +155,9 @@ private:
     QHash<QString, Entry> m_cache;
     bool m_cacheDirty = false;
     QString m_lastError;
+    QPointer<QThread> m_scanThread;
+    std::shared_ptr<ScanResult> m_scanResult;
+    bool m_rescanPending = false;
 };
 
 } // namespace watt

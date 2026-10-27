@@ -4,6 +4,7 @@
 #include "ProfileManager.h"
 #include "RideAnalysis.h"
 #include "SensorHub.h"
+#include "SessionClock.h"
 #include "TimeFormat.h"
 
 #include <QVariantMap>
@@ -49,6 +50,22 @@ void TrainingSession::setStartBlocker(const QString &key, std::function<bool()> 
         m_startBlockers.insert(key, std::move(blocker));
     else
         m_startBlockers.remove(key);
+}
+
+void TrainingSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+{
+    if (cancel)
+        m_armedCancellers.insert(key, std::move(cancel));
+    else
+        m_armedCancellers.remove(key);
+}
+
+void TrainingSession::cancelArmedOthers()
+{
+    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+        if (it.value())
+            it.value()();
+    }
 }
 
 bool TrainingSession::startBlocked() const
@@ -234,6 +251,10 @@ void TrainingSession::start()
         return;
     }
     m_waiting = false;
+    cancelArmedOthers();
+    if (m_engine.state() == WorkoutEngine::State::Finished)
+        m_engine.reset();   // a new ride: no intensity offset / position from the last one
+    m_skipped = false;
     const Workout &w = m_engine.workout();
     // Snapshot the rider so profile changes during the ride cannot alter it.
     m_rideProfile = m_profiles->current();
@@ -263,6 +284,7 @@ void TrainingSession::startWhenPedaling()
         emit startRefused();
         return;
     }
+    cancelArmedOthers();   // only one armed session
     m_waiting = true;
     if (m_engine.state() == WorkoutEngine::State::Finished)
         m_engine.reset();   // re-arming after a ride: show the workout from 0:00
@@ -302,10 +324,11 @@ void TrainingSession::pause()
     if (!running())
         return;
     if (!m_manualClock)
-        process(int(m_clock.restart()));
+        process(sessionClockStep(m_clock.restart()));
     if (!running())
         return;   // the workout finished during the last time slice
     m_engine.pause();
+    m_timer.stop();   // nothing to do while paused
     // Release ERG while stopped, otherwise the trainer keeps the resistance.
     m_hub->requestFreeRide();
     m_lastSentTarget = -1;
@@ -318,6 +341,8 @@ void TrainingSession::resume()
         return;
     m_engine.resume();
     m_clock.restart();
+    if (!m_manualClock)
+        m_timer.start();
     applyTarget(true);
     emit stateChanged();
 }
@@ -343,7 +368,7 @@ qint64 TrainingSession::stop()
     if (!active())
         return -1;
     if (running() && !m_manualClock)
-        process(int(m_clock.restart()));
+        process(sessionClockStep(m_clock.restart()));
     if (!active())
         return m_lastRideId;   // process() just completed and saved the workout
     return finishAndSave(false);
@@ -361,8 +386,8 @@ qint64 TrainingSession::finishAndSave(bool completed)
         emit workoutCompleted(id, m_engine.workout().id);
     emit stateChanged();
     emit finished();
-    if (id >= 0)
-        checkFtpTest(id);
+    if (id >= 0 && !m_skipped)
+        checkFtpTest(id);   // stopped (exhausted) or completed - but not with skipped parts
     return id;
 }
 
@@ -388,11 +413,14 @@ void TrainingSession::skipInterval()
         return;
     // Only the workout position jumps; ridden time (and recorded samples) do not.
     m_engine.skipInterval();
+    m_skipped = true;
     emit intervalChanged();
     emit targetChanged();
     emit tick();
     if (m_engine.state() == WorkoutEngine::State::Finished) {
-        finishAndSave(true);   // skipped to the end: the workout is done
+        // skipped past the last interval: saved, but not a completed workout
+        // (no plan entry ticked off, no FTP test result)
+        finishAndSave(false);
         return;
     }
     applyTarget();
@@ -410,9 +438,14 @@ void TrainingSession::advanceClock(int ms)
     process(ms);
 }
 
+void TrainingSession::advanceWallClock(qint64 elapsedMs)
+{
+    process(sessionClockStep(elapsedMs));
+}
+
 void TrainingSession::onTimer()
 {
-    process(int(m_clock.restart()));
+    process(sessionClockStep(m_clock.restart()));
 }
 
 void TrainingSession::process(int ms)
@@ -480,17 +513,17 @@ void TrainingSession::applyTarget(bool force)
 
 void TrainingSession::checkFtpTest(qint64 rideId)
 {
-    if (!m_engine.workout().isFtpTest())
-        return;
+    const Workout::FtpTestKind kind = m_engine.workout().ftpTestKind();
+    if (kind == Workout::FtpTestKind::None)
+        return;   // not an FTP test, or one whose protocol is not known: no result
     // Only offer the result to the rider who did the test (the profile may
     // have been switched during the ride).
     if (m_profiles->profileId() != m_rideProfile.id)
         return;
-    const int estimate = analysis::plausibleRampFtp(m_samples);
-    if (estimate <= 0)
+    const analysis::FtpEstimate e = analysis::ftpTestEstimate(m_samples, kind);
+    if (e.ftp <= 0)
         return;
-    const int best = analysis::bestAveragePower(m_samples, analysis::kRampTestWindowSec);
-    emit ftpTestCompleted(rideId, estimate, m_profiles->ftp(), best);
+    emit ftpTestCompleted(rideId, e.ftp, m_profiles->ftp(), e.bestPower, e.method);
 }
 
 qint64 TrainingSession::saveRide()

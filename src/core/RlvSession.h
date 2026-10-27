@@ -188,7 +188,8 @@ class RlvSession : public QObject
     Q_PROPERTY(QString resistancePath READ resistancePath NOTIFY modeChanged)   // RideResistance::pathName()
 
     Q_PROPERTY(bool trainerConnected READ trainerConnected NOTIFY devicesChanged)
-    Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY rideSaved)
+    // -1 from start() / reset() / discard until the ride is saved
+    Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY lastRideIdChanged)
 
 public:
     enum class Mode { Sim, Erg };
@@ -223,6 +224,13 @@ public:
     static constexpr double kMinRate = 0.25;
     static constexpr double kMaxRate = 2.5;
     static constexpr double kRateQuantum = 0.05;
+    // Every rate change makes the player (GStreamer) flush: the rate follows
+    // the rider only when it moved by >= kRateMinChange and kRateMinIntervalMs
+    // passed since the last change; a jump of >= kRateBigChange (start,
+    // sprint, stop) goes out at once.
+    static constexpr double kRateMinChange = 0.05;
+    static constexpr double kRateBigChange = 0.25;
+    static constexpr int kRateMinIntervalMs = 2000;
     static constexpr double kMinPlaySpeedKmh = 2.0;
     static constexpr double kSeekThresholdSec = 2.0;
     static constexpr double kRateCorrectionPerSec = 0.1;   // rate × (1 - drift·this)
@@ -240,10 +248,17 @@ public:
     void setTrainingSession(TrainingSession *training);
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
+    // Called by start()/startWhenPedaling() once the guards passed: cancels
+    // another session that is only armed. Empty function removes it.
+    void setArmedCanceller(const QString &key, std::function<void()> cancel);
 
     // Tests
     void setManualClock(bool manual) { m_manualClock = manual; }
     void advanceClock(int ms);
+    // Tests: a timer tick that measured elapsedMs of wall-clock time (long
+    // gaps count as a pause, see SessionClock.h).
+    void advanceWallClock(qint64 elapsedMs);
+    bool timerActive() const { return m_timer.isActive(); }
     void setMinimumSaveSeconds(int s) { m_minSaveSec = s; }
 
     QString state() const;
@@ -390,6 +405,7 @@ signals:
     void started();
     void finished();
     void rideSaved(qint64 id);
+    void lastRideIdChanged();
     void startRefused(const QString &reason);
     void shifted(int direction);   // ERG step from a controller (gear shifts: VirtualGears::shifted)
 
@@ -412,6 +428,9 @@ private:
     double controlCadence() const;   // cadence the resistance follows (< coast = coasting)
     bool sendResistance(bool force);  // the current path's command (ride and page hold)
     void updateTimer();
+    void cancelArmedOthers();
+    void syncRideProfile();
+    void resetLastRideId();
     void clearRecording();
     qint64 saveRide();
     void releaseTrainer();
@@ -429,6 +448,7 @@ private:
     QPointer<FreeRideSession> m_freeRide;
     QPointer<TrainingSession> m_training;
     QHash<QString, std::function<bool()>> m_startBlockers;
+    QHash<QString, std::function<void()>> m_armedCancellers;
 
     RlvRoute m_route;
     QVariantList m_profile;
@@ -460,6 +480,7 @@ private:
     qint64 m_nowMs = 0;          // session clock (advanced by process(), also with the manual clock)
     qint64 m_reportAtMs = 0;
     qint64 m_seekAtMs = -100000;
+    qint64 m_rateAtMs = -100000;  // m_nowMs of the last playback rate change
 
     QDateTime m_startedAt;
     Profile m_rideProfile;

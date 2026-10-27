@@ -565,6 +565,7 @@ bool Gearing::setGear(int front, int rear)
         return false;
     m_setup.frontIndex = front;
     m_setup.rearIndex = rear;
+    snapToSequence();   // sequential: a combination outside the list -> the nearest gear of it
     return true;
 }
 
@@ -628,6 +629,11 @@ double powerForSpeed(const Model &m, double v)
         return 0.0;
     const double eff = m.efficiency > 0 ? m.efficiency : 1.0;
     return resistance(m, v) * v / eff;
+}
+
+double wheelPowerForSpeed(const Model &m, double v)
+{
+    return v > 0 ? resistance(m, v) * v : 0.0;
 }
 
 double speedForPower(const Model &m, double watts)
@@ -702,7 +708,8 @@ double gearSimulationGrade(const Model &roadModel, double vt, double gearFactor,
 {
     if (!(vt >= minSpeedMps) || !(gearFactor > 0) || !(t.massKg > 0))
         return std::clamp(roadModel.gradePercent, minGrade, maxGrade);
-    const double power = std::max(0.0, powerForSpeed(roadModel, vt * gearFactor));
+    // the wheel power of the road (crank power · η), see "Power convention"
+    const double power = std::max(0.0, wheelPowerForSpeed(roadModel, vt * gearFactor));
     return gradeForTrainerPower(power, vt, t, minGrade, maxGrade);
 }
 

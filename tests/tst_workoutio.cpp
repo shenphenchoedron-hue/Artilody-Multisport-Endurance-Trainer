@@ -383,11 +383,43 @@ private slots:
         QVERIFY(!io::parseFile(dir.filePath(QStringLiteral("missing.awt"))).error.isEmpty());
     }
 
+    // A bare "FTP" tag (Zwift: "FTP Builder" ...) is not the FTP test
+    // category; an explicit "FTP Test(s)" is, and the export round-trips.
+    void ftpTagIsNotAnFtpTest()
+    {
+        const QByteArray tagged = "<workout_file><name>FTP Builder 1</name><tags><tag name=\"FTP\"/></tags>"
+                                  "<workout><SteadyState Duration='1200' Power='0.9'/></workout></workout_file>";
+        io::ImportResult r = io::parseZwo(tagged);
+        QVERIFY2(r.ok(), qPrintable(r.error));
+        QVERIFY(r.workouts.first().category != Workout::ftpTestCategory());
+        QVERIFY(!r.workouts.first().isFtpTest());
+        r = io::parseZwo("<workout_file><name>Test</name><category>ftp</category>"
+                         "<workout><Ramp Duration='600' PowerLow='0.5' PowerHigh='1.2'/></workout></workout_file>");
+        QVERIFY(r.ok());
+        QVERIFY(!r.workouts.first().isFtpTest());
+        r = io::parseZwo("<workout_file><name>Test</name><tags><tag name=\"FTP Test\"/></tags>"
+                         "<workout><Ramp Duration='600' PowerLow='0.5' PowerHigh='1.2'/></workout></workout_file>");
+        QVERIFY(r.ok());
+        QVERIFY(r.workouts.first().isFtpTest());
+        // our own export keeps the category
+        const io::ImportResult again = io::parseZwo(io::toZwo(r.workouts.first()));
+        QVERIFY(again.ok());
+        QVERIFY(again.workouts.first().isFtpTest());
+    }
+
     void safeFileNames()
     {
         QCOMPARE(io::safeFileName(QStringLiteral("VO₂ Max 5 × 3")), QStringLiteral("VO₂ Max 5 × 3"));
         QCOMPARE(io::safeFileName(QStringLiteral("a/b:c*?\"<>|d")), QStringLiteral("a b c d"));
         QCOMPARE(io::safeFileName(QStringLiteral("..")), QStringLiteral("Workout"));
+        // Windows device names (any case, also with an extension)
+        for (const QString &n : { QStringLiteral("CON"), QStringLiteral("con"), QStringLiteral("Aux"),
+                                  QStringLiteral("NUL"), QStringLiteral("prn"), QStringLiteral("COM1"),
+                                  QStringLiteral("lpt9"), QStringLiteral("Aux. Ride"), QStringLiteral("nul.awt") })
+            QCOMPARE(io::safeFileName(n), QLatin1Char('_') + n);
+        QCOMPARE(io::safeFileName(QStringLiteral("Console")), QStringLiteral("Console"));
+        QCOMPARE(io::safeFileName(QStringLiteral("COM10")), QStringLiteral("COM10"));
+        QCOMPARE(io::safeFileName(QStringLiteral("My CON")), QStringLiteral("My CON"));
         QCOMPARE(io::formatForFileName(QStringLiteral("x.ZWO")), io::Format::Zwo);
         QCOMPARE(io::formatForFileName(QStringLiteral("x.awt")), io::Format::Awt);
     }

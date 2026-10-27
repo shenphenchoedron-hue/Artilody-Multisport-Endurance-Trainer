@@ -175,7 +175,19 @@ private:
 // atan(grade), ρ = 1.225 kg/m³, CdA = autoCda(rider) or the manual value of
 // the gear setup, Crr = 0.004 (gear setup), η = 0.97. No wind and no
 // acceleration term here (integrateSpeed() adds inertia).
-// Reference: 40 km/h on the flat, 86 kg, CdA 0.32 -> 309 W.
+// Reference: 40 km/h on the flat, 86 kg, CdA 0.32 -> 306.3 W at the wheel,
+// 315.8 W at the cranks (powerForSpeed()).
+//
+// Power convention (one for every path):
+//  * the power the trainer measures / is set to (ERG targets, gearWatts(),
+//    the displayed watts) is the rider's CRANK power P;
+//  * the road - and a trainer simulating a grade - consumes the WHEEL power
+//    P·η = F(v)·v. speedForPower()/integrateSpeed() use P·η; the grade for a
+//    trainer (gradeForTrainerPower(), gearSimulationGrade(),
+//    RideResistance::gearGrade()) is solved for the wheel power
+//    (wheelPowerForSpeed() = powerForSpeed()·η). So in the reference gear the
+//    gear-adjusted grade equals the road grade, and a trainer at grade g
+//    whose rider pushes P rides at speedForPower(g, P) in every path.
 namespace road {
 
 constexpr double kGravity = 9.80665;
@@ -220,8 +232,11 @@ double autoCda(double riderKg, double heightCm = 0);
 
 // Resisting force (N) at speed v (m/s); negative downhill when gravity wins.
 double resistance(const Model &m, double speedMps);
-// Rider power (W) needed to hold speed v; may be negative steeply downhill.
+// Rider (crank) power (W) needed to hold speed v: F(v)·v/η; may be negative
+// steeply downhill.
 double powerForSpeed(const Model &m, double speedMps);
+// Power at the wheel for speed v: F(v)·v = powerForSpeed()·η.
+double wheelPowerForSpeed(const Model &m, double speedMps);
 // Inverse of powerForSpeed() for P >= 0 (bisection in 0..kMaxSpeedMps).
 double speedForPower(const Model &m, double watts);
 // Deceleration (m/s^2, > 0 slows down, < 0 speeds up downhill) while coasting.
@@ -252,8 +267,8 @@ struct TrainerModel
 // (compensates a trainer that assumes another weight); else the road mass.
 TrainerModel trainerModelFor(const Model &road, double trainerMassKg = 0);
 
-// Grade (%) for FTMS 0x11 that makes a trainer braking at speed vt deliver
-// `power` (W):
+// Grade (%) for FTMS 0x11 that makes a trainer braking at speed vt take
+// `power` (W, wheel power - see the power convention above):
 //     F = P / v_t = Crr·m·g·cosθ + m·g·sinθ + ½·Cw·v_t²
 // solved exactly for θ (sinθ + Crr·cosθ = k, k = (F − ½·Cw·v_t²)/(m·g)):
 //     θ = asin(k / √(1 + Crr²)) − atan(Crr)
@@ -266,8 +281,8 @@ double gradeForTrainerPower(double power, double trainerSpeedMps, const TrainerM
 // stays in the reference gear, so the trainer's flywheel turns at v_t while
 // the virtual bike rides at
 //     v_v = v_t · R_virtual / R_reference          (gearFactor = R_v / R_ref)
-// The rider must push the road power for v_v on the road grade:
-//     P = max(0, powerForSpeed(road, v_v))
+// The trainer must take the road's wheel power for v_v on the road grade:
+//     P = max(0, wheelPowerForSpeed(road, v_v))   (= crank power · η)
 // (never negative: steeply downhill the road would push the pedals - the
 // rider freewheels instead; this also keeps the result monotonic in the
 // gear, a harder gear never gives a lower grade), delivered at v_t with

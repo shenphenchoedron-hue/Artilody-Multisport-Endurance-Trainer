@@ -342,10 +342,17 @@ private slots:
                     SimulatedTrainer t;
                     t.setMassKg(r.hub->riderMassKg());
                     t.setSimulation(sent, 0, tm.crr, tm.cwKgPerM);
-                    const int want = RideResistance::gearWatts(d);
+                    // the brake takes the wheel power: crank power (gearWatts) · η
+                    // (power convention, Gearing.h)
+                    const double want = RideResistance::gearWatts(d) * d.road.efficiency;
                     QVERIFY2(std::abs(t.brakePower(vRef) - want) < std::max(2.0, want * 0.01),
                              qPrintable(QStringLiteral("%1 kg %2 %% 50x%3: %4 vs %5 W")
                                             .arg(kg).arg(grade).arg(cog).arg(t.brakePower(vRef)).arg(want)));
+                    // ... and reports crank power: the virtual gear's watts
+                    const double crank = RideResistance::gearWatts(d);
+                    QVERIFY2(std::abs(t.crankPower(vRef) - crank) < std::max(2.0, crank * 0.01),
+                             qPrintable(QStringLiteral("%1 kg %2 %% 50x%3: crank %4 vs %5 W")
+                                            .arg(kg).arg(grade).arg(cog).arg(t.crankPower(vRef)).arg(crank)));
                 }
             }
         }

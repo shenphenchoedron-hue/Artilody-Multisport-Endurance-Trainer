@@ -70,6 +70,16 @@ void SensorHub::updatePower(int watts)
     watts = std::max(0, watts);
     m_lastSampleMs = now();
     m_smoother.addSample(m_lastSampleMs, watts);
+    if (watts > 0 && m_trainerConnected && !m_cadenceReported && !m_speedReported && !m_noFeedback) {
+        // pedaling for a while without any cadence or speed: the trainer
+        // reports neither (virtual gears then use ERG)
+        if (m_poweredSinceMs < 0)
+            m_poweredSinceMs = m_lastSampleMs;
+        else if (m_lastSampleMs - m_poweredSinceMs >= kFeedbackProbeMs) {
+            m_noFeedback = true;
+            emit cadenceReportedChanged();
+        }
+    }
     if (watts != m_power) {
         m_power = watts;
         emit powerChanged();
@@ -133,8 +143,13 @@ void SensorHub::setTrainerConnected(bool connected)
             m_speedReported = false;
             emit trainerReportsSpeedChanged();
         }
+        const bool wasKnownNone = m_noFeedback;
+        m_noFeedback = false;
+        m_poweredSinceMs = -1;
         if (m_cadenceReported) {
             m_cadenceReported = false;
+            emit cadenceReportedChanged();
+        } else if (wasKnownNone) {
             emit cadenceReportedChanged();
         }
     } else if (m_requestedTarget > 0) {

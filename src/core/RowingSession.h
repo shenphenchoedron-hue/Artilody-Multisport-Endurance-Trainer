@@ -134,6 +134,10 @@ public:
     // Further guards (e.g. a running free ride): while one returns true,
     // start() is refused with startRefused(reason). Empty function removes it.
     void setStartBlocker(const QString &key, std::function<bool()> blocker, const QString &reason = {});
+    // Called by start() once the guards passed: cancels a cycling session
+    // that is only armed (free ride / video ride waiting for the first pedal
+    // stroke), like an armed workout. Empty function removes it.
+    void setArmedCanceller(const QString &key, std::function<void()> cancel);
 
     // Tests: drive the clock manually (disables the internal timer).
     void setManualClock(bool manual) { m_manualClock = manual; }
@@ -280,6 +284,7 @@ private:
     WorkoutPlanner *m_planner;
     QPointer<TrainingSession> m_training;
     QHash<QString, QPair<std::function<bool()>, QString>> m_startBlockers;
+    QHash<QString, std::function<void()>> m_armedCancellers;
     QPointer<RowerDevice> m_rower;
     QList<QMetaObject::Connection> m_rowerConnections;
 

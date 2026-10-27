@@ -426,14 +426,113 @@ private slots:
         QCOMPARE(ftp.size(), 1);
         QCOMPARE(ftp.at(0).at(1).toInt(), 240);   // 0.75 * 320
 
+        // skipping the last interval finishes and saves, but the test was
+        // not done: no FTP result, not a completed workout
+        QSignalSpy completed(session, &TrainingSession::workoutCompleted);
+        QSignalSpy saved(session, &TrainingSession::rideSaved);
         session->loadWorkout(shortFtpTest());
         session->start();
         ride(300, 140);
         ride(60, 300);
         session->skipInterval();   // skip the last interval -> finish
         QCOMPARE(session->state(), int(TrainingSession::Finished));
-        QCOMPARE(ftp.size(), 2);
-        QCOMPARE(ftp.at(1).at(1).toInt(), 225);   // 0.75 * 300
+        QCOMPARE(saved.size(), 1);
+        QCOMPARE(ftp.size(), 1);
+        QCOMPARE(completed.size(), 0);
+        QVERIFY(!session->lastWorkoutCompleted());
+    }
+
+    // An earlier skip: the workout still completes at its end, but the FTP
+    // result is not offered (a skipped warm-up / step distorts it).
+    void ftpTestWithSkippedIntervalGivesNoResult()
+    {
+        QSignalSpy ftp(session, &TrainingSession::ftpTestCompleted);
+        QSignalSpy completed(session, &TrainingSession::workoutCompleted);
+        Workout w = shortFtpTest();
+        w.id = db->saveWorkout(w);
+        QVERIFY(session->loadWorkout(w.id));
+        session->start();
+        ride(30, 140);
+        session->skipInterval();   // skip the warm-up
+        ride(130, 320);
+        QCOMPARE(session->state(), int(TrainingSession::Finished));
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(ftp.size(), 0);
+    }
+
+    // Workout::ftpTestKind(): the category alone is not a ramp test.
+    void ftpTestKindDetection()
+    {
+        Workout ramp = shortFtpTest();
+        QCOMPARE(ramp.ftpTestKind(), Workout::FtpTestKind::Ramp);   // "Ramp" in the name
+        ramp.name = QStringLiteral("Step test");
+        QCOMPARE(ramp.ftpTestKind(), Workout::FtpTestKind::None);   // longest block is the 300 s steady one
+        ramp.intervals[1].durationSec = 900;                         // now the ramp dominates
+        QCOMPARE(ramp.ftpTestKind(), Workout::FtpTestKind::Ramp);
+        ramp.category = QStringLiteral("Intervals");
+        QCOMPARE(ramp.ftpTestKind(), Workout::FtpTestKind::None);   // not an FTP test at all
+
+        Workout twenty;
+        twenty.name = QStringLiteral("FTP Test");
+        twenty.category = Workout::ftpTestCategory();
+        Interval wu; wu.type = BlockType::WarmUp; wu.durationSec = 1200; wu.startPercent = 0.4; wu.endPercent = 0.7;
+        Interval effort; effort.type = BlockType::Interval; effort.durationSec = 1200; effort.startPercent = effort.endPercent = 1.0;
+        twenty.intervals = { wu };
+        QCOMPARE(twenty.ftpTestKind(), Workout::FtpTestKind::None);   // a warm-up is no test effort
+        twenty.intervals = { wu, effort };
+        QCOMPARE(twenty.ftpTestKind(), Workout::FtpTestKind::TwentyMinute);
+        QCOMPARE(builtInRampTest().ftpTestKind(), Workout::FtpTestKind::Ramp);
+    }
+
+    // A 20-minute test: FTP = 95 % of the best 20 minutes.
+    void twentyMinuteTestUsesBest20Minutes()
+    {
+        QSignalSpy ftp(session, &TrainingSession::ftpTestCompleted);
+        Workout w;
+        w.name = QStringLiteral("FTP 20 min test");
+        w.category = Workout::ftpTestCategory();
+        Interval wu; wu.type = BlockType::WarmUp; wu.durationSec = 300; wu.startPercent = 0.5; wu.endPercent = 0.6;
+        Interval effort; effort.type = BlockType::Interval; effort.durationSec = 1200; effort.startPercent = effort.endPercent = 1.0;
+        Interval cd; cd.type = BlockType::CoolDown; cd.durationSec = 120; cd.startPercent = 0.5; cd.endPercent = 0.4;
+        w.intervals = { wu, effort, cd };
+        w.id = db->saveWorkout(w);
+        QCOMPARE(w.ftpTestKind(), Workout::FtpTestKind::TwentyMinute);
+        QVERIFY(session->loadWorkout(w.id));
+        session->start();
+        ride(300, 150);
+        ride(60, 400);      // a hard minute: not what a 20-minute test measures
+        ride(1140, 260);
+        ride(120, 120);
+        QCOMPARE(session->state(), int(TrainingSession::Finished));
+        QCOMPARE(ftp.size(), 1);
+        // best 20 min = (60·400 + 1140·260) / 1200 = 267 W -> 0.95 · 267 = 254
+        QCOMPARE(ftp.at(0).at(3).toInt(), 267);
+        QCOMPARE(ftp.at(0).at(1).toInt(), 254);
+        QCOMPARE(ftp.at(0).at(4).toString(), QStringLiteral("20min"));
+
+        HistoryManager history(db, profiles);
+        history.selectRide(session->lastRideId());
+        const QVariantMap r = history.selectedRide();
+        QVERIFY(r.value(QStringLiteral("isFtpTest")).toBool());
+        QCOMPARE(r.value(QStringLiteral("ftpTestMethod")).toString(), QStringLiteral("20min"));
+        QCOMPARE(r.value(QStringLiteral("estimatedFtp")).toInt(), 254);
+        QCOMPARE(r.value(QStringLiteral("best20min")).toInt(), 267);
+    }
+
+    // An FTP test category without a recognisable protocol: no dialog.
+    void unknownFtpTestProtocolGivesNoResult()
+    {
+        QSignalSpy ftp(session, &TrainingSession::ftpTestCompleted);
+        Workout w;
+        w.name = QStringLiteral("FTP check");
+        w.category = Workout::ftpTestCategory();
+        Interval a; a.durationSec = 600; a.startPercent = a.endPercent = 0.9;
+        w.intervals = { a };
+        QVERIFY(session->loadWorkout(w));
+        session->start();
+        ride(600, 300);
+        QCOMPARE(session->state(), int(TrainingSession::Finished));
+        QCOMPARE(ftp.size(), 0);
     }
 
     void noFtpEstimateForNormalOrShortRides()
@@ -514,7 +613,9 @@ private slots:
         QCOMPARE(r.value(QStringLiteral("estimatedFtp")).toInt(), 0);
     }
 
-    void historyFallsBackToWorkoutName()
+    // The workout of an FTP test ride was deleted: the protocol is unknown,
+    // so no FTP result (no guessing from "FTP" in the name).
+    void historyNoFtpResultWithoutWorkout()
     {
         HistoryManager history(db, profiles);
         Workout w = shortFtpTest();
@@ -530,8 +631,64 @@ private slots:
         QVERIFY(db->deleteWorkout(w.id));   // personal copy: deletable
         history.selectRide(id);
         const QVariantMap r = history.selectedRide();
-        QVERIFY(r.value(QStringLiteral("isFtpTest")).toBool());
-        QCOMPARE(r.value(QStringLiteral("estimatedFtp")).toInt(), 240);
+        QVERIFY(!r.value(QStringLiteral("isFtpTest")).toBool());
+        QCOMPARE(r.value(QStringLiteral("estimatedFtp")).toInt(), 0);
+    }
+
+    // Only cycling rides give an FTP result in the history (the cycling FTP).
+    void historyFtpOnlyForCycling()
+    {
+        HistoryManager history(db, profiles);
+        session->loadWorkout(builtInRampTest().id);
+        session->start();
+        ride(500, 150);
+        ride(60, 340);
+        const qint64 id = session->stop();
+        QVERIFY(id > 0);
+        // the same ride stored as a row of that workout
+        const auto rec = db->ride(id);
+        QVERIFY(rec);
+        RideRecord row = *rec;
+        row.id = -1;
+        row.sport = sport::rowing();
+        const qint64 rowId = db->saveRide(row, db->rideSamples(id));
+        QVERIFY(rowId > 0);
+        history.selectRide(id);
+        QVERIFY(history.selectedRide().value(QStringLiteral("isFtpTest")).toBool());
+        history.selectRide(rowId);
+        QVERIFY(!history.selectedRide().value(QStringLiteral("isFtpTest")).toBool());
+    }
+
+    // start() after a finished ride: a fresh workout (no intensity offset).
+    void restartResetsIntensity()
+    {
+        session->loadWorkout(shortWorkout());
+        session->setErgMode(true);
+        session->start();
+        session->adjustIntensity(10);
+        QCOMPARE(session->intensityOffset(), 10);
+        ride(40, 150);
+        session->stop();
+        QCOMPARE(session->state(), int(TrainingSession::Finished));
+        session->start();
+        QCOMPARE(session->intensityOffset(), 0);
+        QCOMPARE(session->elapsedSec(), 0);
+        session->discard();
+    }
+
+    // A long timer gap (computer asleep) is a pause, not ridden time.
+    void longClockGapIsNoRiddenTime()
+    {
+        session->loadWorkout(shortWorkout());
+        session->start();
+        ride(10, 150);
+        const int before = session->elapsedSec();
+        session->advanceWallClock(3600 * 1000);   // an hour of sleep
+        QCOMPARE(session->elapsedSec(), before);
+        session->advanceWallClock(1000);          // normal ticks still count
+        QCOMPARE(session->elapsedSec(), before + 1);
+        QVERIFY(!session->timerActive());          // manual clock
+        session->discard();
     }
 
     void reloadWhileWaitingKeepsArmed()

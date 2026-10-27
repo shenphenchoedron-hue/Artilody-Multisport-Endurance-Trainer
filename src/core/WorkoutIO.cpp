@@ -161,7 +161,9 @@ QString matchCategory(const QString &raw)
         return QStringLiteral("Intervals");
     if (t == QLatin1String("recovery"))
         return QStringLiteral("Recovery");
-    if (t == QLatin1String("ftptests") || t == QLatin1String("ftptest") || t == QLatin1String("ftp"))
+    // a bare "ftp" tag (Zwift: workouts *about* FTP, e.g. "FTP Builder") does
+    // not make a workout an FTP test - only an explicit test category does
+    if (t == QLatin1String("ftptests") || t == QLatin1String("ftptest"))
         return QStringLiteral("FTP Tests");
     return {};
 }
@@ -340,7 +342,22 @@ QString safeFileName(const QString &name)
     while (s.endsWith(QLatin1Char('.')))
         s.chop(1);
     s = s.left(80).trimmed();
-    return s.isEmpty() ? QStringLiteral("Workout") : s;
+    if (s.isEmpty())
+        return QStringLiteral("Workout");
+    // Windows device names (also with an extension: "con.awt", "Aux. Ride")
+    // cannot be file names there
+    static const QStringList reserved {
+        QStringLiteral("CON"),  QStringLiteral("PRN"),  QStringLiteral("AUX"),  QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"), QStringLiteral("COM4"),
+        QStringLiteral("COM5"), QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"),
+        QStringLiteral("COM9"), QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"),
+        QStringLiteral("LPT4"), QStringLiteral("LPT5"), QStringLiteral("LPT6"), QStringLiteral("LPT7"),
+        QStringLiteral("LPT8"), QStringLiteral("LPT9")
+    };
+    const QString stem = s.section(QLatin1Char('.'), 0, 0).trimmed().toUpper();
+    if (reserved.contains(stem))
+        s.prepend(QLatin1Char('_'));
+    return s;
 }
 
 bool writeFile(const QString &path, const QByteArray &data, QString *error)

@@ -149,8 +149,12 @@ void VirtualGears::setClickConnected(bool connected)
         return;
     m_clickConnected = connected;
     if (connected) {
-        // recognised: ride with the saved bike, shifting virtually
-        reload();
+        // recognised: ride with the saved bike, shifting virtually (a ride in
+        // progress keeps its bike, the saved one comes after it)
+        if (m_busy && m_busy())
+            m_reloadPending = true;
+        else
+            reload();
         setEnabled(true);
     }
     emit clickConnectedChanged();
@@ -202,15 +206,43 @@ double VirtualGears::gearFactor() const
     return ref > 0 ? m_gearing.ratio() / ref : 1.0;
 }
 
+const Profile &VirtualGears::rider() const
+{
+    // during a ride its rider (profile snapshot), unless that is the current
+    // profile (then edits of weight / height apply at once)
+    const Profile &cur = m_profiles->current();
+    if (m_rideOwner && m_rideProfile.id != cur.id)
+        return m_rideProfile;
+    return cur;
+}
+
+void VirtualGears::setRideProfile(const QObject *owner, const Profile &rider)
+{
+    if (!owner)
+        return;
+    m_rideOwner = owner;
+    m_rideProfile = rider;
+    emit physicsChanged();
+}
+
+void VirtualGears::clearRideProfile(const QObject *owner)
+{
+    if (!owner || m_rideOwner != owner)
+        return;   // another session's ride
+    m_rideOwner = nullptr;
+    m_rideProfile = Profile();
+    emit physicsChanged();
+}
+
 road::Model VirtualGears::roadModel(double gradePercent, double riderKg, double heightCm) const
 {
     if (!(riderKg > 0))
-        riderKg = m_profiles->current().weightKg;
+        riderKg = rider().weightKg;
     if (!(riderKg > 0))
         riderKg = road::kDefaultRiderKg;
     riderKg = std::max(30.0, riderKg);
     if (heightCm < 0)
-        heightCm = m_profiles->current().heightCm;
+        heightCm = rider().heightCm;
     const GearSetup &s = setup();
     road::Model m;
     m.massKg = riderKg + s.bikeWeightKg;
@@ -222,13 +254,13 @@ road::Model VirtualGears::roadModel(double gradePercent, double riderKg, double 
 
 double VirtualGears::riderWeightKg() const
 {
-    const double w = m_profiles->current().weightKg;
+    const double w = rider().weightKg;
     return w > 0 ? w : road::kDefaultRiderKg;
 }
 
 double VirtualGears::autoCda() const
 {
-    return road::autoCda(riderWeightKg(), m_profiles->current().heightCm);
+    return road::autoCda(riderWeightKg(), rider().heightCm);
 }
 
 QString VirtualGears::physicsSummary() const

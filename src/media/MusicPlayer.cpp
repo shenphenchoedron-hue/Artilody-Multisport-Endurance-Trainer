@@ -69,34 +69,48 @@ void MusicPlayer::initialize(const QStringList &defaultMusicFolders)
             if (!files.isEmpty())
                 break;   // first folder with music wins
         }
-        addPaths(files, id);
+        if (id >= 0)
+            addPaths(files, id);
         lists = m_db->playlists();
     }
-    const qint64 wanted = m_db->setting(QStringLiteral("music/playlist"), lists.first().id).toLongLong();
+    if (lists.isEmpty()) {
+        // the database refused to create a playlist: no music, but no crash
+        loadPlaylist(-1);
+        return;
+    }
+    const qint64 wanted = m_db->setting(QStringLiteral("music/playlist"), lists.constFirst().id).toLongLong();
     bool exists = false;
     for (const Playlist &p : lists)
         exists = exists || p.id == wanted;
-    loadPlaylist(exists ? wanted : lists.first().id);
+    loadPlaylist(exists ? wanted : lists.constFirst().id);
+}
+
+const Track *MusicPlayer::currentTrack() const
+{
+    const auto &tracks = m_tracks.tracks();
+    return m_index >= 0 && m_index < tracks.size() ? &tracks.at(m_index) : nullptr;
 }
 
 // --- state -----------------------------------------------------------------
 
 QString MusicPlayer::title() const
 {
-    if (m_index < 0)
+    const Track *t = currentTrack();
+    if (!t)
         return QStringLiteral("No music");
     if (!m_metaTitle.isEmpty())
         return m_metaTitle;
-    return m_tracks.tracks().at(m_index).title;
+    return t->title;
 }
 
 QString MusicPlayer::artist() const
 {
-    if (m_index < 0)
+    const Track *t = currentTrack();
+    if (!t)
         return QStringLiteral("Add music to a playlist");
     if (!m_metaArtist.isEmpty())
         return m_metaArtist;
-    const QString a = m_tracks.tracks().at(m_index).artist;
+    const QString a = t->artist;
     return a.isEmpty() ? QStringLiteral("Unknown artist") : a;
 }
 
@@ -114,7 +128,8 @@ qint64 MusicPlayer::duration() const
 {
     if (m_player.duration() > 0)
         return m_player.duration();
-    return m_index >= 0 ? m_tracks.tracks().at(m_index).durationMs : 0;
+    const Track *t = currentTrack();
+    return t ? t->durationMs : 0;
 }
 
 QString MusicPlayer::positionText() const
@@ -157,12 +172,13 @@ void MusicPlayer::setRepeat(bool r)
 
 bool MusicPlayer::favorite() const
 {
-    if (m_index < 0)
+    const Track *cur = currentTrack();
+    if (!cur)
         return false;
     const qint64 fav = const_cast<MusicPlayer *>(this)->favoritesPlaylistId(false);
     if (fav < 0)
         return false;
-    const QString path = m_tracks.tracks().at(m_index).path;
+    const QString path = cur->path;
     for (const Track &t : m_db->playlistTracks(fav)) {
         if (t.path == path)
             return true;
@@ -303,17 +319,28 @@ void MusicPlayer::setIndex(int index, bool autoplay)
         return;
     }
     m_index = index;
-    m_metaTitle.clear();
-    m_metaArtist.clear();
-    m_cover = QImage();
-    emit coverChanged();
     m_tracks.setCurrentRow(index);
     const Track &t = m_tracks.tracks().at(index);
+    const QUrl source = QUrl::fromLocalFile(t.path);
+    const bool samePath = !t.path.isEmpty() && m_player.source() == source;
+    if (!samePath) {
+        // a new file: its metadata / cover arrive with metaDataChanged. The
+        // same file again (repeat of a one-track list, the same file twice)
+        // keeps them - the player does not load it again, so they would not
+        // come back.
+        m_metaTitle.clear();
+        m_metaArtist.clear();
+        m_cover = QImage();
+        emit coverChanged();
+    }
     if (!QFileInfo::exists(t.path))
         setError(QStringLiteral("File not found: %1").arg(t.path));
     else
         setError(QString());
-    m_player.setSource(QUrl::fromLocalFile(t.path));
+    if (samePath)
+        m_player.setPosition(0);
+    else
+        m_player.setSource(source);
     if (autoplay)
         m_player.play();
     emit currentChanged();
@@ -344,8 +371,8 @@ void MusicPlayer::onMetaData()
     emit coverChanged();
 
     // Persist better titles/durations for the playlist view.
-    if (m_index >= 0) {
-        Track t = m_tracks.tracks().at(m_index);
+    if (const Track *cur = currentTrack()) {
+        Track t = *cur;
         bool changed = false;
         if (!m_metaTitle.isEmpty() && t.title != m_metaTitle) { t.title = m_metaTitle; changed = true; }
         if (!m_metaArtist.isEmpty() && t.artist != m_metaArtist) { t.artist = m_metaArtist; changed = true; }
@@ -361,10 +388,13 @@ void MusicPlayer::onMetaData()
 
 void MusicPlayer::toggleFavorite()
 {
-    if (m_index < 0)
+    const Track *curPtr = currentTrack();
+    if (!curPtr)
         return;
-    const Track cur = m_tracks.tracks().at(m_index);
+    const Track cur = *curPtr;
     const qint64 fav = favoritesPlaylistId(true);
+    if (fav < 0)
+        return;
     bool removed = false;
     for (const Track &t : m_db->playlistTracks(fav)) {
         if (t.path == cur.path) {
@@ -394,7 +424,8 @@ qint64 MusicPlayer::favoritesPlaylistId(bool create)
 
 void MusicPlayer::loadPlaylist(qint64 id, bool keepPlaying)
 {
-    const QString currentPath = (m_index >= 0) ? m_tracks.tracks().at(m_index).path : QString();
+    const Track *cur = currentTrack();
+    const QString currentPath = cur ? cur->path : QString();
     m_playlistId = id;
     m_db->setSetting(QStringLiteral("music/playlist"), id);
     m_tracks.setTracks(m_db->playlistTracks(id));
@@ -452,7 +483,7 @@ bool MusicPlayer::deletePlaylist(qint64 id)
         lists = m_db->playlists();
     }
     if (id == m_playlistId)
-        loadPlaylist(lists.first().id);
+        loadPlaylist(lists.isEmpty() ? -1 : lists.constFirst().id);
     else
         emit playlistsChanged();
     return true;
