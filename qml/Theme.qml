@@ -63,6 +63,19 @@ QtObject {
         return s === "rowing" ? rowingColor : cyclingColor
     }
 
+    // Calendar entry kinds (Planner: "workout" | "freeride" | "rlv")
+    readonly property color freeRideColor: "#2fbf71"
+    readonly property color videoColor: purple
+    function kindColor(kind, sport) {
+        return kind === "freeride" ? freeRideColor : kind === "rlv" ? videoColor : sportColor(sport)
+    }
+    function kindIcon(kind, sport) {
+        return kind === "freeride" ? "freeRide" : kind === "rlv" ? "video" : (sport === "rowing" ? "rowing" : "bike")
+    }
+    function kindLabel(kind, sport) {
+        return kind === "freeride" ? "Free Ride" : kind === "rlv" ? "Video Ride" : (sport === "rowing" ? "Rowing" : "Cycling")
+    }
+
     // Six power / RPE zones (Z1 … Z6)
     readonly property var zoneColors: ["#3d86fb", "#25d3e3", "#45d659", "#ffd21f", "#ff8a26", "#ff3b30"]
     readonly property var rpeLabels: ["1", "2–3", "4–6", "7–8", "9", "10"]
@@ -235,6 +248,7 @@ QtObject {
         "keyboard": "M3 6.5h18v11H3z M6.5 10h.01 M10 10h.01 M13.5 10h.01 M17 10h.01 M8 14h8",
         // real life video
         "video": "M2.5 6.5h13v11h-13z M15.5 10.5l6-3.5v10l-6-3.5",
+        "warning": "M12 3.5L2.5 20h19z M12 9.5v5 M12 17.2v.2",
         "film": "M4 3.5h16v17H4z M8 3.5v17 M16 3.5v17 M4 8h4 M4 12h4 M4 16h4 M16 8h4 M16 12h4 M16 16h4"
     })
 }

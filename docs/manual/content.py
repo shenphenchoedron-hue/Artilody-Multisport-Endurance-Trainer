@@ -227,7 +227,8 @@ def build(s, env):
         [UI("Video Ride"), "Ride a filmed route (Real Life Video): the video follows your speed (chapter 13)."],
         [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
-        [UI("Calendar"), "The training plan: plan, move and start workouts by day (chapter 10)."],
+        [UI("Calendar"), "The training plan: plan, move and start workouts, Free Rides and Video Rides by day "
+         "(chapter 10)."],
         [UI("Builder"), "The Workout Builder for creating and editing workouts."],
         [UI("History"), "Recorded rides and rows, analysis, time in zones, FIT and CSV export."],
         [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
@@ -239,7 +240,8 @@ def build(s, env):
         "<i>Waiting… / Start pedaling</i>, <i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
         "current power. Click it to jump back to the Dashboard from any page. A free ride shows "
         "<i>Free Ride 12:34 • 50×17 • 210 W</i> (time, gear or ERG, power) and leads to the Free Ride page; a video "
-        "ride shows <i>Video 12:34 • 4.3 km • 210 W</i> and leads to the Video Ride page; a row leads to the Rowing page.")
+        "ride shows <i>Video 12:34 • 4.3 km • 210 W</i> (with a workout: <i>Video 12:34</i> / <i>Sweet Spot "
+        "2/6 • 230 W</i>) and leads to the Video Ride page; a row leads to the Rowing page.")
     s.section("Top bar")
     s.bullets([
         f"{UI('Sun/moon icon')} – switches between the dark and the light theme. The app always starts in the "
@@ -1072,8 +1074,9 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Workout calendar",
-              "Plan your training weeks ahead: put cycling and rowing workouts on the days you want to do "
-              "them, move them around when life happens, and start them straight from the calendar.")
+              "Plan your training weeks ahead: put cycling and rowing workouts, Free Rides and Video Rides on "
+              "the days you want to do them, move them around when life happens, and start them straight from "
+              "the calendar.")
     s.figure(SHOTS / "calendar.png",
              "The Calendar page: month view with planned and completed workouts (left), the selected day "
              "and the upcoming workouts (right).")
@@ -1083,19 +1086,23 @@ def build(s, env):
         "the current month. Next to the month name a summary shows how many workouts are planned in the month, "
         "how many are done and the total planned time, for example <i>22 planned • 12 done • 17 h 48</i>.")
     s.bullets([
-        "Every planned workout is shown as a small chip with a sport icon (bike or rowing), its name and "
-        "duration. Cycling and rowing have different colours (see the legend at the top right).",
+        "Every planned entry is shown as a small chip with an icon, its name and duration. Each kind has its "
+        "own colour (see the legend at the top right): cycling workouts blue, rowing cyan, <b>Free Ride</b> "
+        "green, <b>Video Ride</b> purple. A Video Ride whose route is no longer in the video library shows a "
+        "warning sign and <i>Route not found</i>.",
         "Completed workouts are dimmed, crossed out and marked with a tick and <i>done</i>.",
         "Today has a filled circle around the date. If a day holds more workouts than fit, the last line "
         "reads <i>+N more</i> – select the day to see all of them in the side panel.",
-        "Hold the pointer over a chip to see the full name, the duration and what clicking does.",
+        "Hold the pointer over a chip to see the details (duration; route distance and climbing, the workout "
+        "and the resistance mode of a Video Ride) and what clicking does.",
     ])
     s.section("Adding a workout")
     s.steps([
         f"Double-click a day, or click the {UI('+')} button that appears in the corner of a day when you point "
-        f"at it. {UI('Add Workout')} at the top right and {UI('+')} in the side panel add to the selected day. "
+        f"at it. {UI('Add')} at the top right and {UI('+')} in the side panel add to the selected day. "
         "A single click only selects the day.",
-        f"The {UI('Add Workout')} dialog opens for that date. Type in {UI('Search workouts...')} and use the "
+        f"The {UI('Add to Calendar')} dialog opens for that date on the {UI('Workout')} tab (the arrows next to "
+        f"the date change the day). Type in {UI('Search workouts...')} and use the "
         f"{UI('Cycling')} / {UI('Rowing')} filter to find the workout.",
         f"Optionally enter {UI('Notes')} (for example <i>“Outdoor if dry”</i>).",
         f"Click {UI('Add to Calendar')}. Double-clicking a workout in the list adds it right away.",
@@ -1103,6 +1110,26 @@ def build(s, env):
     s.p(f"You can also plan from the Workouts page: choose {UI('Add to calendar…')} in the "
         f"{UI('•••')} menu of the Workout Preview (or the calendar button), then pick the date. The same workout "
         "can be planned on several days, and a day can hold several workouts.")
+    s.section("Planning a Free Ride or a Video Ride")
+    s.p(f"The tabs at the top of the {UI('Add to Calendar')} dialog switch between {UI('Workout')}, "
+        f"{UI('Free Ride')} and {UI('Video Ride')}:")
+    s.bullets([
+        f"<b>{UI('Free Ride')}</b> – the planned <b>duration</b> (a value in minutes or one of the buttons "
+        f"30 / 45 / 60 / 90 / 120 min; {UI('Open')} = no planned time) and the <b>resistance</b>: "
+        f"{UI('Ride')} (the road: virtual gears or a gradient, chapter 12) or {UI('ERG')} with the target "
+        "watts. The duration is a target, not a limit – the Free Ride page shows <i>Planned 60 min • 23:10 "
+        "left</i> in its Time tile and nothing stops when the time is up.",
+        f"<b>{UI('Video Ride')}</b> – a <b>route</b> from your video library (name, distance, climbing ↑, video "
+        f"length and country; if the list is empty, put route folders into the library folder shown there or add "
+        f"folders on the Video Ride page, then press {UI('Rescan')}), the resistance {UI('Simulation')} with a "
+        f"<b>difficulty</b> or {UI('ERG')} with the watts, and optionally "
+        "<b>" + UI("Ride a workout during the video") + "</b>: "
+        f"one of your cycling workouts, with or without {UI('Workout ERG')} (chapter 13). "
+        "Double-clicking a route adds it right away.",
+    ])
+    s.p(f"To change a planned Free Ride or Video Ride later, press the pencil in the side panel or choose "
+        f"{UI('Edit…')} in its menu: the same dialog opens with the entry's settings, notes and date "
+        f"({UI('Save')}). Choosing another route replaces the entry by a new one on the same day.")
     s.section("Starting a planned workout")
     s.p("A single click on a chip selects it and its day. To start it, <b>double-click</b> the chip, press "
         f"{UI('Ride')} or {UI('Row')} for the entry in the side panel (or the play button in "
@@ -1111,7 +1138,11 @@ def build(s, env):
         f"a <b>cycling</b> workout is loaded on the {UI('Dashboard')} – choose ERG or Free Ride and start "
         "pedaling as usual (chapter 6);",
         f"a <b>rowing</b> workout is set up as a <b>Watt Plan</b> on the {UI('Rowing')} page (chapter 11) – "
-        "take your first stroke to begin.",
+        "take your first stroke to begin;",
+        f"a <b>Free Ride</b> opens the {UI('Free Ride')} page with the planned mode, ERG watts and duration "
+        "(chapter 12);",
+        f"a <b>Video Ride</b> opens the {UI('Video Ride')} page with the route, the resistance mode and the "
+        "workout loaded (chapter 13). If the route is missing, a message says <i>Route not found</i>.",
     ])
     s.p("If a ride or a row is already running, the app shows a message and takes you to it instead. Finish "
         "it first.")
@@ -1120,11 +1151,15 @@ def build(s, env):
            "day. A completed workout started elsewhere (Workouts page, Dashboard) ticks off the first open entry "
            "of that workout on the same day. Rides you stop before the end of the workout, aborted rows, free "
            "rides and free rows do not change the calendar. If you delete the ride in History, its plan entry "
-           "is opened again.")
+           "is opened again. A <b>Free Ride</b> entry started from the calendar is ticked off by a saved Free "
+           "Ride of at least half the planned time (10 minutes without a planned time); a <b>Video Ride</b> "
+           "entry by a saved ride on that route that reached the finish or 90 % of the route distance.")
     s.section("Moving, completing and removing")
     s.p("Right-click a chip (on touch screens: press and hold it) to open its menu:")
     s.table(["Menu item", "Effect"], [
-        [UI("Ride this workout") + " / " + UI("Row this workout"), "Starts the workout, like double-clicking the chip."],
+        [UI("Ride this workout") + " / " + UI("Row this workout") + " / " + UI("Start Free Ride") + " / "
+         + UI("Start Video Ride"), "Starts the entry, like double-clicking the chip."],
+        [UI("Edit…"), "Free Ride / Video Ride: changes duration, mode, watts, route, workout and notes."],
         [UI("Mark as completed") + " / " + UI("Mark as not completed"), "Ticks the entry off by hand – for "
          "example after an outdoor ride – or opens it again."],
         [UI("Move to…"), "Opens a date picker; the entry moves to the chosen day."],
@@ -1137,9 +1172,10 @@ def build(s, env):
         "is highlighted – and release it there.")
     s.section("Side panel: selected day and Upcoming")
     s.bullets([
-        f"The upper card shows the selected day (<i>Today</i> or the date) with every workout planned for it: "
-        f"name, sport, category and duration, and buttons for {UI('Ride')}/{UI('Row')}, mark as completed, "
-        f"move and remove. {UI('+')} adds another workout to the day.",
+        f"The upper card shows the selected day (<i>Today</i> or the date) with every entry planned for it: "
+        f"name and details (sport, category and duration; for a Free Ride the planned time and mode; for a "
+        f"Video Ride distance, climbing, duration and workout), and buttons for {UI('Ride')}/{UI('Row')}, mark "
+        f"as completed, edit (Free Ride / Video Ride), move and remove. {UI('+')} adds another entry to the day.",
         f"{UI('Upcoming')} lists the next open workouts from today onwards (<i>Today</i>, <i>Tomorrow</i>, "
         "then the date). Click a row to select its day, double-click it or press the play button to start it.",
     ])
@@ -1382,7 +1418,9 @@ def build(s, env):
     s.bullets([
         "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
         "badge shows the rolling average and toggles it, section 15.2), speed (average), "
-        "cadence (current gear), heart rate (% of max), time (average power) and distance (energy in kJ).",
+        "cadence (current gear), heart rate (% of max), time (average power; for a Free Ride started from the "
+        "calendar with a planned duration: <i>Planned 60 min • 23:10 left (61 %)</i>, a target only) and distance "
+        "(energy in kJ).",
         f"<b>Road panel</b> (Ride) – the grade control on the right; on the left either the current virtual gear "
         f"with {UI('Easier')} / {UI('Harder')} or, with your bike's gears, <i>Shift on your bike</i> with the "
         f"grade sent to the trainer and {UI('Virtual gears on Devices')}. The header shows the "
@@ -1458,8 +1496,9 @@ def build(s, env):
               "Ride filmed routes: the video plays at the speed you ride, the trainer makes the climbs harder "
               "like on the road, and the route's elevation profile shows where you are.")
     s.figure(SHOTS / "video-ride.png",
-             "The Video Ride page in Simulation mode: live metrics at the top, the route video with the "
-             "gradient, mode and difficulty overlays in the middle and the elevation profile with your position at the bottom. "
+             "The Video Ride page with a workout (Sweet Spot 3 × 12, Workout ERG): live metrics at the top, the "
+             "route video with the overlays in the middle, the workout's blocks with the elapsed-time cursor and "
+             "below them the elevation profile with your position; the Workout card on the right. "
              "Video: cycling.vangestel.online, CC BY-NC-SA 4.0.")
     s.section("Route folders")
     s.p("A Real Life Video (RLV) route is a folder with three files that share a name:")
@@ -1538,6 +1577,36 @@ def build(s, env):
         f"the slider on the {UI('Resistance')} card or {K('Page Up')} / {K('Page Down')} in 10 % steps – "
         "shifting never changes it. The setting is remembered. In ERG the difficulty does not apply.")
 
+    s.section("Riding a workout during the video")
+    s.p(f"The {UI('Workout')} card above {UI('Resistance')} lists your cycling workouts with their duration "
+        f"({UI('None')} = just ride the route). Choose one before you start – during a ride the list is locked "
+        f"(a tooltip says so); a Video Ride planned with a workout in the calendar loads it for you. The "
+        "workout's intervals run on the ride's clock: they start with the ride and pause when you pause.")
+    s.bullets([
+        "<b>Workout chart</b> – between the video and the elevation profile: one block per interval, its "
+        "height in % of your FTP (dashed FTP line), coloured by your power zones, ramps as slopes, finished "
+        "blocks faded, the current block outlined and a cursor at the elapsed time. Above it: the current "
+        "interval (<i>Sweet Spot 2/7</i>), the target, the time left in the interval, the next target, the "
+        "workout time and <i>In target</i> – the share of seconds within ±10 % of the target. In small windows "
+        f"(for example 800 × 480) the chart and the profile share the bottom card: {UI('Route')} | "
+        f"{UI('Workout')}.",
+        f"<b>{UI('Workout ERG')}</b> (on by default) – the trainer holds the workout's target watts, as on the "
+        "Dashboard; the route only sets the speed of the video, so a climb makes it slower but not heavier. The "
+        "Resistance card shows <i>Workout ERG holds the trainer. This mode applies after the workout.</i> Switch "
+        "it off to use the targets as a guide: then Simulation or ERG from the Resistance card applies as usual.",
+        f"<b>Status and controls</b> – the card shows the interval, the big target (green within ±5 %, yellow "
+        f"within ±10 %, orange beyond), the time left, the next target and the time to go. {UI('−')} / "
+        f"{UI('+')} change the <b>intensity</b> by 5 % (50–150 %; all targets scale), {UI('Skip Interval')} jumps "
+        f"to the next interval and {UI('End Workout')} stops the workout while the ride goes on. The Power tile "
+        "shows <i>Target 230 W</i> in the same colours, the sidebar <i>Video 12:34</i> / <i>Sweet Spot 2/6 • "
+        "230 W</i>.",
+        "<b>Completion</b> – when the workout ends before the route, a message says <i>Workout complete – "
+        "continuing the route in Simulation</i> (or ERG, whatever the Resistance card is set to) and you ride "
+        "on to the finish. When the route ends first, the ride finishes and is saved as always. The saved ride "
+        "records the workout's targets (History chart, FIT/CSV), and a calendar entry is ticked off by the "
+        "route (finish or 90 % of the distance), not by the workout.",
+    ])
+
     s.section("Starting, pausing and finishing")
     s.bullets([
         f"{UI('Start Now')} starts at the chosen start point; {UI('Start When Pedaling')} waits for the first "
@@ -1551,13 +1620,13 @@ def build(s, env):
     ])
 
     s.section("Zwift Click and keyboard")
-    s.table(["Input", "Simulation", "ERG"], [
-        ["Zwift Click + / −", "Shift harder / easier", "Target ±10 W"],
-        [K("↑") + " / " + K("↓"), "Shift harder / easier (virtual gears)", "Target ±5 W"],
-        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring (virtual gears)", "–"],
-        [K("Page Up") + " / " + K("Page Down"), "Difficulty ±10 %", "Target ±10 W"],
-        [K("Space"), "Start / pause / resume", "Start / pause / resume"],
-    ], [1.5, 2.8, 1.5])
+    s.table(["Input", "Simulation", "ERG", "Workout ERG"], [
+        ["Zwift Click + / −", "Shift harder / easier", "Target ±10 W", "Intensity ±5 %"],
+        [K("↑") + " / " + K("↓"), "Shift harder / easier (virtual gears)", "Target ±5 W", "Intensity ±5 %"],
+        [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Bigger / smaller chainring (virtual gears)", "–", "–"],
+        [K("Page Up") + " / " + K("Page Down"), "Difficulty ±10 %", "Target ±10 W", "Intensity ±5 %"],
+        [K("Space"), "Start / pause / resume", "Start / pause / resume", "Start / pause / resume"],
+    ], [1.3, 2.3, 1.1, 1.1])
     s.p("Pressing the Click while virtual gears are off turns them on. The keys work only on the Video Ride "
         "page and not while you type in a field or a dialog or menu is open; "
         f"{K('Enter')}, {K('Esc')} or a click on the page background leaves a text field. The arrow keys never "
@@ -1816,7 +1885,8 @@ def build(s, env):
         [K("Space"), "Video Ride", "Start now / pause / resume the video ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Video Ride",
          "Shift harder / easier (Simulation with virtual gears); target ±5 W (ERG)."],
-        [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %; target ±10 W (ERG)."],
+        [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %; target ±10 W (ERG); intensity ±5 % "
+         "(Workout ERG)."],
         [K("Alt") + "+" + K("←") + " / " + K("→") + " or " + K("↑") + " / " + K("↓"), "Builder",
          "Move the selected block earlier / later (Option on a Mac)."],
         [K("Enter") + " / " + K("Esc"), "Text fields on the ride pages",

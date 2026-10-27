@@ -62,6 +62,9 @@ Rectangle {
         // set-up row that a stroke on the connected rower would start, is shown.
         readonly property bool freeRide: !Training.armedOrActive && (FreeRide.active || FreeRide.waiting)
         readonly property bool video: !Training.armedOrActive && !freeRide && (Rlv.active || Rlv.waiting)
+        // a workout ridden during the video: "Video 12:34" / "Sweet Spot 2/6 • 230 W"
+        readonly property bool videoWorkout: video && !Rlv.waiting && Rlv.hasWorkout && !Rlv.workoutFinished
+                                             && Rlv.currentIntervalIndex >= 0
         readonly property bool rowing: !Training.armedOrActive && !freeRide && !video
                                        && (Rowing.active || (Rowing.state === "ready" && Rowing.rowerConnected))
         readonly property bool waiting: rowing ? Rowing.state === "ready" : freeRide ? FreeRide.waiting
@@ -98,7 +101,8 @@ Rectangle {
                 Text {
                     text: live.rowing ? (live.waiting ? "Rowing ready" : (live.paused ? "Paused" : "Rowing"))
                           : live.freeRide ? (live.waiting ? "Free Ride ready" : (live.paused ? "Free Ride paused" : "Free Ride"))
-                          : live.video ? (live.waiting ? "Video ready" : (live.paused ? "Video paused" : "Video"))
+                          : live.video ? (live.waiting ? "Video ready" : (live.paused ? "Video paused" : "Video")
+                                                     + (live.videoWorkout ? "  " + Theme.clock(Rlv.elapsedSeconds) : ""))
                           : (live.waiting ? "Waiting…" : (live.paused ? "Paused" : "Riding"))
                     color: Theme.text
                     font.pixelSize: 14
@@ -122,8 +126,11 @@ Rectangle {
                                           + Sensors.displayPower + " W")
                         : live.video
                           ? (live.waiting ? "Start pedaling"
-                                          : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
-                                            + " km • " + Sensors.displayPower + " W")
+                                          : live.videoWorkout
+                                            ? Rlv.currentIntervalName + " " + (Rlv.currentIntervalIndex + 1) + "/"
+                                              + Rlv.workoutIntervals.length + " • " + Sensors.displayPower + " W"
+                                            : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
+                                              + " km • " + Sensors.displayPower + " W")
                         : (Training.waiting ? "Start pedaling"
                                             : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W")
                 color: Theme.textSecondary

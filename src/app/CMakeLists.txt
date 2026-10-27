@@ -53,6 +53,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/FreeRideChart.qml
     # real life video
     ${QML_ROOT}/components/RouteProfile.qml
+    ${QML_ROOT}/components/WorkoutStrip.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/FreeRidePage.qml

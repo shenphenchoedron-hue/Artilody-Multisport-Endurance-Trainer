@@ -82,6 +82,10 @@ ApplicationWindow {
         closeScreenshotMenu()
         switch (name) {
         case "calendar": showPage("calendar"); screenshotMenu = calendarPage.openScreenshotMenu(); break
+        case "calendar-add": showPage("calendar"); calendarPage.openScreenshotAdd("workout"); break
+        case "calendar-add-freeride": showPage("calendar"); calendarPage.openScreenshotAdd("freeride"); break
+        case "calendar-add-video": showPage("calendar"); calendarPage.openScreenshotAdd("rlv"); break
+        case "calendar-edit": showPage("calendar"); calendarPage.openScreenshotAdd("edit"); break
         case "workouts": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("more"); break
         case "new": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("new"); break
         case "workouts-export": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("export"); break
@@ -111,6 +115,7 @@ ApplicationWindow {
             videoFinishDialog.close()
         if (settingsDialog.visible)
             settingsDialog.close()
+        calendarPage.closeDialogs()
         if (screenshotMenu)
             screenshotMenu.close()
         screenshotMenu = null
@@ -471,6 +476,8 @@ ApplicationWindow {
     //   Simulation: ↑ / ↓ shift (virtual gears on), Shift + ↑ / ↓ front shift,
     //               PgUp / PgDn difficulty ±10 %
     //   ERG:        ↑ / ↓ target ±5 W, PgUp / PgDn ±10 W
+    //   Workout ERG (a workout ridden during the video holds the trainer):
+    //               ↑ / ↓ and PgUp / PgDn intensity ±5 % (like the Zwift Click)
     // Space start / pause / resume (not while typing or while a dialog or
     // menu has the keyboard).
     readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
@@ -479,15 +486,23 @@ ApplicationWindow {
         enabled: window.videoKeys && (Rlv.active || (Rlv.hasRoute && Rlv.trainerConnected && !Rlv.waiting))
         onActivated: Rlv.togglePause()
     }
+    function videoStep(direction) {
+        if (Rlv.workoutErgActive)
+            Rlv.controllerShift(direction)     // intensity ±5 % (pulses the page's buttons)
+        else if (Rlv.mode === "erg")
+            Rlv.adjustTargetWatts(5 * direction)
+        else
+            direction > 0 ? Gears.shiftUp() : Gears.shiftDown()
+    }
     Shortcut {
         sequences: ["Up", "+", "="]
-        enabled: window.videoKeys && (Rlv.mode === "erg" || Rlv.virtualGears)
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(5) : Gears.shiftUp()
+        enabled: window.videoKeys && (Rlv.workoutErgActive || Rlv.mode === "erg" || Rlv.virtualGears)
+        onActivated: window.videoStep(1)
     }
     Shortcut {
         sequences: ["Down", "-"]
-        enabled: window.videoKeys && (Rlv.mode === "erg" || Rlv.virtualGears)
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-5) : Gears.shiftDown()
+        enabled: window.videoKeys && (Rlv.workoutErgActive || Rlv.mode === "erg" || Rlv.virtualGears)
+        onActivated: window.videoStep(-1)
     }
     Shortcut {
         sequence: "Shift+Up"
@@ -502,11 +517,13 @@ ApplicationWindow {
     Shortcut {
         sequence: "PgUp"
         enabled: window.videoKeys
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(10) : Rlv.adjustDifficulty(10)
+        onActivated: Rlv.workoutErgActive ? Rlv.controllerShift(1)
+                     : Rlv.mode === "erg" ? Rlv.adjustTargetWatts(10) : Rlv.adjustDifficulty(10)
     }
     Shortcut {
         sequence: "PgDown"
         enabled: window.videoKeys
-        onActivated: Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-10) : Rlv.adjustDifficulty(-10)
+        onActivated: Rlv.workoutErgActive ? Rlv.controllerShift(-1)
+                     : Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-10) : Rlv.adjustDifficulty(-10)
     }
 }

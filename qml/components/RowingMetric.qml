@@ -13,6 +13,7 @@ Card {
     property string unit
     property real valueSize: 40
     property string footer
+    property color footerColor: Theme.textSecondary
     property real progress: -1        // >= 0 shows a progress bar instead of the footer text
     property color barColor: Theme.accent
 
@@ -107,7 +108,7 @@ Card {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 14
         text: metric.footer
-        color: Theme.textSecondary
+        color: metric.footerColor
         font.pixelSize: 15
         elide: Text.ElideRight
     }

@@ -259,7 +259,14 @@ Item {
                     label: "Time"
                     iconName: "timer"
                     value: Theme.clock(FreeRide.elapsedSeconds)
-                    footer: "Avg: " + FreeRide.avgWatts + " W"
+                    // a Free Ride planned in the calendar: informational target
+                    readonly property int planned: FreeRide.plannedDurationSec
+                    readonly property int plannedLeft: Math.max(0, planned - FreeRide.elapsedSeconds)
+                    footerColor: planned > 0 && plannedLeft === 0 ? Theme.successText : Theme.textSecondary
+                    footer: planned <= 0 ? "Avg: " + FreeRide.avgWatts + " W"
+                            : "Planned " + Math.round(planned / 60) + " min  •  "
+                              + (plannedLeft > 0 ? Theme.clock(plannedLeft) + " left (" + Math.min(100, Math.floor(FreeRide.elapsedSeconds * 100 / planned)) + " %)"
+                                          : "done ✓")
                 }
                 RowingMetric {
                     Layout.fillWidth: true

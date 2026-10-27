@@ -13,9 +13,13 @@ Usage:
         "<build>/src/app/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"
 
     # 2. Insert 16 rides + 7 rows over the last 30 days, three rowing workouts,
-    #    rowing personal bests and a training plan (calendar) around today
-    #    (replaces existing rides/plan/records of "Lone"):
+    #    rowing personal bests and a training plan (calendar) around today with
+    #    workouts, Free Rides and Video Rides (replaces existing rides/plan/records
+    #    of "Lone"):
     python3 docs/screenshots/make_demo_db.py /tmp/watt-demo.sqlite
+    #    The Video Ride entries use the route folder FR_Le_petit_Menglonnais next to
+    #    the repository's docs/ folder (override: WATT_DEMO_ROUTE=<route .xml/.gpx>);
+    #    run the app with WATT_RLV_DIR=<folder containing it> so it is in the library.
 
     # 3. Take screenshots on a copy (the app saves its own ride on exit):
     cp /tmp/watt-demo.sqlite /tmp/run.sqlite
@@ -26,10 +30,12 @@ Summary values mirror src/core/RideAnalysis.cpp: NP = 30 s rolling mean, 4th
 power; IF = NP/FTP; TSS = dur*NP*IF/(FTP*3600)*100; kJ = sum(W)/1000; zones =
 seconds per power zone with bounds [0.55, 0.75, 0.87, 0.94, 1.05] x FTP.
 Rows use the rowing FTP and the Concept2 pace formula (W = 2.80 / (s/m)^3).
-Needs a schema v2 database (app version 1.1.0 or newer).
+Needs a schema v2 database (app version 1.1.0 or newer); the Free Ride / Video Ride
+calendar entries need the planner columns added after version 1.2.0 (kind, route_path, …).
 """
 import datetime as dt
 import json
+import os
 import random
 import sqlite3
 import sys
@@ -103,12 +109,31 @@ PLAN_ENTRIES = [
     (-10, "Over-Unders 4 × 8", ""), (-8, "Sweet Spot 3 × 12", ""), (-6, "Endurance Base", "Outdoor if dry"),
     (-5, "Threshold 2 × 20", ""), (-4, "Rowing Sweet Spot 3 × 4", ""), (-3, "Tempo 3 × 15", ""),
     (-2, "Steady State Row 30", ""), (-1, "Sweet Spot 3 × 12", ""),
-    (0, "Endurance Base", ""), (0, "Row Pyramid 1-2-3-2-1", "Easy if legs are heavy"),
+    (0, "Endurance Base", ""), (4, "Row Pyramid 1-2-3-2-1", "Easy if legs are heavy"),
     (1, "Recovery Spin", ""), (2, "Steady State Row 30", ""), (3, "Threshold 2 × 20", "Key session"),
     (5, "Sweet Spot 3 × 12", ""), (5, "Rowing Sweet Spot 3 × 4", ""), (6, "Endurance Base", "Long ride"),
     (8, "Steady State Row 30", ""), (9, "VO₂ Max 5 × 3", ""), (10, "Recovery Spin", ""),
     (12, "Over-Unders 4 × 8", ""), (13, "Row Pyramid 1-2-3-2-1", ""), (15, "Ramp FTP Test", "Retest FTP"),
     (17, "Tempo 3 × 15", ""),
+]
+
+# Free Ride / Video Ride calendar entries: (day offset, kind, details, notes)
+#   freeride: (planned minutes, mode "ride" | "erg", ERG watts)
+#   rlv:      (route file or None = the demo route, mode "sim" | "erg", difficulty,
+#              workout name or None, workout ERG)
+DEMO_ROUTE = os.environ.get("WATT_DEMO_ROUTE") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "FR_Le_petit_Menglonnais", "FR_Le_petit_Menglonnais.xml")
+MISSING_ROUTE = "/Videos/IT_Passo_Giau/IT_Passo_Giau.xml"   # not in the library -> "Route not found"
+EXTRA_ENTRIES = [
+    (-9, "freeride", (60, "ride", 0), ""),
+    (-4, "rlv", (None, "sim", 100, None, True), ""),
+    (0, "rlv", (None, "sim", 100, "Sweet Spot 3 × 12", True), "Sweet spot on the French hills"),
+    (1, "freeride", (45, "erg", 160), "Easy spin after work"),
+    (7, "rlv", (None, "sim", 80, None, True), ""),
+    (9, "freeride", (90, "ride", 0), "Click shifting practice"),
+    (11, "rlv", (MISSING_ROUTE, "erg", 100, None, True), "Dolomites day"),
+    (14, "rlv", (None, "sim", 100, "Threshold 2 × 20", True), ""),
 ]
 
 
@@ -311,6 +336,26 @@ def main():
         con.execute("INSERT INTO planned_workouts (profile_id, date, workout_id, position, completed, ride_id, notes)"
                     " VALUES (?,?,?,?,?,?,?)",
                     (pid, day.isoformat(), workouts[name][0], pos, int(rid is not None), rid, notes or None))
+
+    for offset, kind, det, notes in EXTRA_ENTRIES:
+        day = today + dt.timedelta(days=offset)
+        pos = position.get(day, 0)
+        position[day] = pos + 1
+        if kind == "freeride":
+            minutes, mode, watts = det
+            route, route_name, planned = None, None, minutes * 60
+            opts = {"ergWatts": watts, "mode": mode}
+        else:
+            route, mode, difficulty, wname, werg = det
+            route = route or DEMO_ROUTE
+            route_name = "Passo Giau" if route == MISSING_ROUTE else "Le petit Menglonnais"
+            planned = 0
+            opts = {"difficulty": difficulty, "ergWatts": 0, "mode": mode,
+                    "workoutErg": werg, "workoutId": workouts[wname][0] if wname else -1}
+        con.execute("INSERT INTO planned_workouts (profile_id, date, workout_id, position, completed, ride_id, notes,"
+                    " kind, route_path, route_name, planned_duration_sec, options) VALUES (?,?,NULL,?,?,NULL,?,?,?,?,?,?)",
+                    (pid, day.isoformat(), pos, int(offset < 0), notes or None, kind, route, route_name, planned,
+                     json.dumps(opts, separators=(",", ":"))))
 
     for name, (wid, _) in workouts.items():
         con.execute("UPDATE workouts SET times_used = ?, favorite = ? WHERE id = ?",

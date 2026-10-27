@@ -420,7 +420,11 @@ int main(int argc, char *argv[])
     //                                  new, workouts-export, history, profile, builder
     //                                  (music: the music library dialog,
     //                                  gearsetup: the free ride gear setup dialog,
-    //                                  settings: the settings dialog)
+    //                                  settings: the settings dialog,
+    //                                  calendar-add / calendar-add-freeride / calendar-add-video:
+    //                                  the calendar's Add dialog on that tab,
+    //                                  calendar-edit: the Edit dialog of today's first
+    //                                  Free Ride / Video Ride)
     //   WATT_SCREENSHOT_GEARS=1        virtual gears on (Free Ride / Video Ride)
     //   WATT_SCREENSHOT_GEAR=34x27     start in this virtual gear
     //   WATT_SCREENSHOT_CLICK=1        a connected virtual Zwift Click (turns virtual

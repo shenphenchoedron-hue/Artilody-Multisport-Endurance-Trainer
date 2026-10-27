@@ -79,6 +79,93 @@ Item {
             return m + " min"
         return Math.floor(m / 60) + " h" + (m % 60 > 0 ? " " + pad(m % 60) : "")
     }
+    function kmText(m) { return ((m || 0) / 1000).toFixed(1) + " km" }
+    // "12.0 km  ·  154 m ↑  ·  0:52:10  ·  France"
+    function routeDetails(distanceM, ascentM, sec, country) {
+        var parts = [kmText(distanceM), Math.round(ascentM || 0) + " m ↑"]
+        if (sec > 0)
+            parts.push(durationText(sec))
+        if (country && country.length > 0)
+            parts.push(country)
+        return parts.join("  ·  ")
+    }
+    function kindOf(e) { return e && e.kind ? e.kind : "workout" }
+    function entryColor(e) { return Theme.kindColor(kindOf(e), e ? e.sport : "") }
+    function entryIcon(e) { return Theme.kindIcon(kindOf(e), e ? e.sport : "") }
+    function routeMissing(e) { return kindOf(e) === "rlv" && e.routeAvailable === false }
+    function modeText(e) {
+        var o = e.options || {}
+        var k = kindOf(e)
+        if (k === "freeride")
+            return o.mode === "erg" ? "ERG" + (o.ergWatts > 0 ? " " + o.ergWatts + " W" : "") : "Ride"
+        if (k === "rlv")
+            return o.mode === "erg" ? "ERG" + (o.ergWatts > 0 ? " " + o.ergWatts + " W" : "")
+                                    : "Simulation" + (o.difficulty !== undefined && o.difficulty < 100 ? " " + o.difficulty + " %" : "")
+        return ""
+    }
+    // second line of a chip (short)
+    function chipSubText(e) {
+        if (kindOf(e) === "rlv" && !(e.durationSec > 0))
+            return e.routeDistanceM > 0 ? kmText(e.routeDistanceM) : "Video Ride"
+        if (kindOf(e) === "freeride" && !(e.durationSec > 0))
+            return "Open"
+        return durationText(e.durationSec)
+    }
+    // detail line of the side panel / upcoming list
+    function entrySubtitle(e) {
+        var k = kindOf(e)
+        var parts = []
+        if (k === "freeride") {
+            parts.push("Free Ride")
+            parts.push(e.plannedDurationSec > 0 ? durationText(e.plannedDurationSec) : "Open")
+            parts.push(modeText(e))
+        } else if (k === "rlv") {
+            if (e.routeDistanceM > 0)
+                parts.push(kmText(e.routeDistanceM) + "  " + Math.round(e.routeAscentM) + " m ↑")
+            else
+                parts.push("Video Ride")
+            if (e.durationSec > 0)
+                parts.push(durationText(e.durationSec))
+            parts.push(e.workoutId >= 0 ? "Workout " + ((e.options || {}).workoutErg === false ? "(guide)" : "ERG") : modeText(e))
+        } else {
+            parts.push(e.sport === "rowing" ? "Rowing" : "Cycling")
+            if (e.category)
+                parts.push(e.category)
+            parts.push(durationText(e.durationSec))
+        }
+        if (e.completed)
+            parts.push("Done")
+        return parts.join("  •  ")
+    }
+    // tooltip text with all details
+    function entryDetails(e) {
+        var k = kindOf(e)
+        var lines = [e.name || ""]
+        if (k === "freeride") {
+            lines.push("Free Ride  ·  " + (e.plannedDurationSec > 0 ? "planned " + durationText(e.plannedDurationSec) : "no planned duration")
+                       + "  ·  " + modeText(e))
+        } else if (k === "rlv") {
+            lines.push("Route: " + (e.routeName || "") + (e.routeDistanceM > 0 ? "  ·  " + routeDetails(e.routeDistanceM, e.routeAscentM, 0, "") : ""))
+            if (routeMissing(e))
+                lines.push("⚠ Route not found in the video library")
+            if (e.workoutId >= 0)
+                lines.push("Workout: " + e.workoutName + "  ·  " + durationText(e.durationSec)
+                           + ((e.options || {}).workoutErg === false ? "  ·  targets as guidance" : "  ·  Workout ERG"))
+            lines.push("Resistance: " + modeText(e))
+        } else {
+            lines[0] += "  ·  " + durationText(e.durationSec)
+        }
+        if (e.notes)
+            lines.push("Notes: " + e.notes)
+        if (e.completed)
+            lines.push("Done")
+        return lines.join("\n")
+    }
+    function startLabel(e) {
+        var k = kindOf(e)
+        return k === "freeride" ? "Start Free Ride" : k === "rlv" ? "Start Video Ride"
+             : e.sport === "rowing" ? "Row this workout" : "Ride this workout"
+    }
 
     // --- data ------------------------------------------------------------------------------------
     function refresh() {
@@ -189,11 +276,15 @@ Item {
             return
         if (e.kind !== undefined && e.kind !== "workout") {
             // Free Ride / Video Ride: the backend prepares the session
-            var page = Planner.startEntry(e)
-            if (page !== "")
-                goTo(page)
-            else
-                toast(Planner.lastError)
+            var target = Planner.startEntry(e)
+            if (target !== "") {
+                goTo(target)
+                // e.g. the attached workout of a Video Ride was deleted
+                if (Planner.lastError.length > 0)
+                    toast(Planner.lastError)
+            } else {
+                toast(Planner.lastError.length > 0 ? Planner.lastError : "Could not start \"" + e.name + "\"")
+            }
             return
         }
         if (Planner.isRowing(e)) {
@@ -245,6 +336,11 @@ Item {
         if (Planner.move(e.id, iso))
             toast("\"" + e.name + "\" moved to " + longDate(iso))
     }
+    function openEdit(e) {
+        if (!e || kindOf(e) === "workout")
+            return
+        picker.openEdit(e)
+    }
     function openMove(e) {
         movePicker.entry = e
         movePicker.subtitle = "Move \"" + e.name + "\" (" + longDate(e.date) + ")"
@@ -269,6 +365,28 @@ Item {
         return chipMenu
     }
 
+    // screenshot aid (WATT_SCREENSHOT_MENU=calendar-add, calendar-add-freeride, calendar-add-video)
+    function openScreenshotAdd(kind) {
+        if (kind === "edit") {   // the first Free Ride / Video Ride of the selected day
+            var list = Planner.entriesForDate(selectedDate)
+            for (var i = 0; i < list.length; ++i)
+                if (kindOf(list[i]) !== "workout") {
+                    openEdit(list[i])
+                    return
+                }
+            console.warn("openScreenshotAdd: no Free Ride / Video Ride on", selectedDate)
+            return
+        }
+        picker.openFor(selectedDate, kind)
+        if (kind === "rlv" && picker.cyclingWorkouts.length > 1)
+            picker.vrWorkoutId = picker.cyclingWorkouts[1].workoutId
+    }
+    function closeDialogs() {
+        if (picker.visible) picker.close()
+        if (movePicker.visible) movePicker.close()
+        if (removeConfirm.visible) removeConfirm.close()
+    }
+
     Component.onCompleted: goToday()
     onVisibleChanged: {
         if (visible) {
@@ -276,9 +394,7 @@ Item {
             return
         }
         // leaving the page: nothing of it may stay open over another page
-        if (picker.visible) picker.close()
-        if (movePicker.visible) movePicker.close()
-        if (removeConfirm.visible) removeConfirm.close()
+        closeDialogs()
         chipMenu.close()
         if (dragEntry !== null)
             endDrag()
@@ -363,14 +479,15 @@ Item {
         Row {
             spacing: 16
             Repeater {
-                model: [{ s: "cycling", t: "Cycling" }, { s: "rowing", t: "Rowing" }]
+                model: [{ k: "workout", s: "cycling", t: "Cycling" }, { k: "workout", s: "rowing", t: "Rowing" },
+                        { k: "freeride", s: "cycling", t: "Free Ride" }, { k: "rlv", s: "cycling", t: "Video" }]
                 Row {
                     spacing: 6
                     Icon {
-                        name: modelData.s === "rowing" ? "rowing" : "bike"
+                        name: Theme.kindIcon(modelData.k, modelData.s)
                         size: 18
                         strokeWidth: 2
-                        color: Theme.sportColor(modelData.s)
+                        color: Theme.kindColor(modelData.k, modelData.s)
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Text { text: modelData.t; color: Theme.textSecondary; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
@@ -388,7 +505,7 @@ Item {
             horizontalPadding: 18
             iconSpacing: 8
             iconName: "plus"
-            text: "Add Workout"
+            text: "Add"
             onClicked: picker.openFor(page.selectedDate)
         }
     }
@@ -499,7 +616,7 @@ Item {
                             flat: true
                             iconName: "plus"
                             iconSize: 16
-                            tooltip: "Add workout"
+                            tooltip: "Add to this day"
                             onClicked: picker.openFor(dayCell.iso)
                         }
 
@@ -515,7 +632,8 @@ Item {
                                     readonly property var entry: modelData
                                     width: parent.width
                                     readonly property bool rowing: entry.sport === "rowing"
-                                    readonly property color sportColor: Theme.sportColor(entry.sport)
+                                    readonly property color sportColor: page.entryColor(entry)
+                                    readonly property bool missing: page.routeMissing(entry)
                                     readonly property bool done: entry.completed === true
                                     readonly property bool chosen: entry.id === page.selectedEntryId
                                     property bool dragging: false
@@ -543,7 +661,7 @@ Item {
                                         id: chipIcon
                                         x: 7
                                         y: 4
-                                        name: chip.entry.completed ? "check" : (chip.rowing ? "rowing" : "bike")
+                                        name: chip.entry.completed ? "check" : page.entryIcon(chip.entry)
                                         size: 14
                                         strokeWidth: chip.entry.completed ? 2.6 : 2
                                         color: chip.done ? Theme.successText : chip.sportColor
@@ -551,7 +669,7 @@ Item {
                                     Text {
                                         anchors.left: chipIcon.right
                                         anchors.leftMargin: 4
-                                        anchors.right: parent.right
+                                        anchors.right: chipWarn.visible ? chipWarn.left : parent.right
                                         anchors.rightMargin: 4
                                         y: 3
                                         text: chip.entry.name || ""
@@ -561,13 +679,24 @@ Item {
                                         font.strikeout: chip.entry.completed === true
                                         elide: Text.ElideRight
                                     }
+                                    Icon {
+                                        id: chipWarn
+                                        visible: chip.missing
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 4
+                                        y: 4
+                                        name: "warning"
+                                        size: 14
+                                        strokeWidth: 2.2
+                                        color: Theme.warningText
+                                    }
                                     Text {
                                         id: durLabel
                                         x: 9
                                         y: 19
                                         width: parent.width - 13
                                         elide: Text.ElideRight
-                                        text: page.durationText(chip.entry.durationSec) + (chip.done ? " · done" : "")
+                                        text: (chip.missing ? "Route not found" : page.chipSubText(chip.entry)) + (chip.done ? " · done" : "")
                                         color: chip.done ? Theme.successText : Theme.textSecondary
                                         font.pixelSize: 11
                                     }
@@ -645,7 +774,7 @@ Item {
 
                                     ToolTip.visible: chipMouse.containsMouse && !chip.dragging && page.dragEntry === null
                                     ToolTip.delay: 700
-                                    ToolTip.text: (chip.entry.name || "") + " · " + page.durationText(chip.entry.durationSec)
+                                    ToolTip.text: page.entryDetails(chip.entry)
                                                   + "\nClick to select · double-click to " + (chip.rowing ? "row" : "ride")
                                                   + " · right-click for options · drag to move"
                                 }
@@ -676,7 +805,7 @@ Item {
         visible: page.dragEntry !== null
         height: 24
         radius: 6
-        color: Theme.sportColor(entry.sport)
+        color: page.entryColor(entry)
         opacity: 0.9
         Text {
             anchors.fill: parent
@@ -711,7 +840,7 @@ Item {
                     flat: true
                     iconName: "plus"
                     iconSize: 22
-                    tooltip: "Add workout to this day"
+                    tooltip: "Add a workout, Free Ride or Video Ride to this day"
                     onClicked: picker.openFor(page.selectedDate)
                 }
             ]
@@ -740,8 +869,10 @@ Item {
                 delegate: Rectangle {
                     id: dayRow
                     readonly property var entry: modelData
-                    readonly property color sportColor: Theme.sportColor(entry.sport)
+                    readonly property color sportColor: page.entryColor(entry)
                     readonly property bool chosen: entry.id === page.selectedEntryId
+                    readonly property bool editable: page.kindOf(entry) !== "workout"
+                    readonly property bool missing: page.routeMissing(entry)
                     width: ListView.view.width
                     height: 104
                     radius: 10
@@ -763,7 +894,7 @@ Item {
                         color: Qt.rgba(dayRow.sportColor.r, dayRow.sportColor.g, dayRow.sportColor.b, 0.22)
                         Icon {
                             anchors.centerIn: parent
-                            name: dayRow.entry.sport === "rowing" ? "rowing" : "bike"
+                            name: page.entryIcon(dayRow.entry)
                             size: 24
                             strokeWidth: 2
                             color: dayRow.sportColor
@@ -780,23 +911,46 @@ Item {
                         font.strikeout: dayRow.entry.completed === true
                         elide: Text.ElideRight
                     }
-                    Text {
+                    Row {
                         x: 64
                         y: 34
                         width: parent.width - 64 - 12
-                        text: (dayRow.entry.sport === "rowing" ? "Rowing" : "Cycling") + "  •  " + dayRow.entry.category
-                              + "  •  " + page.durationText(dayRow.entry.durationSec)
-                              + (dayRow.entry.completed ? "  •  Done" : "")
-                        color: dayRow.entry.completed ? Theme.successText : Theme.textSecondary
-                        font.pixelSize: 14
-                        elide: Text.ElideRight
+                        spacing: 6
+                        // a Video Ride whose route is not in the video library
+                        Rectangle {
+                            id: missingBadge
+                            visible: dayRow.missing
+                            width: missingRow.implicitWidth + 12
+                            height: 20
+                            radius: 6
+                            color: Qt.rgba(1, 0.82, 0.12, Theme.dark ? 0.18 : 0.22)
+                            border.color: Theme.warningText
+                            Row {
+                                id: missingRow
+                                anchors.centerIn: parent
+                                spacing: 4
+                                Icon { name: "warning"; size: 13; strokeWidth: 2.2; color: Theme.warningText; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "Route not found"; color: Theme.warningText; font.pixelSize: 12; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
+                            }
+                        }
+                        Text {
+                            width: parent.width - (missingBadge.visible ? missingBadge.width + 6 : 0)
+                            text: page.entrySubtitle(dayRow.entry)
+                            color: dayRow.entry.completed ? Theme.successText : Theme.textSecondary
+                            font.pixelSize: 14
+                            elide: Text.ElideRight
+                        }
                     }
+                    ToolTip.visible: dayHover.hovered && page.dragEntry === null
+                    ToolTip.delay: 900
+                    ToolTip.text: page.entryDetails(dayRow.entry)
+                    HoverHandler { id: dayHover }
                     Row {
                         x: 12
                         y: 60
                         spacing: 6
                         AppButton {
-                            width: 128
+                            width: dayRow.editable ? 104 : 128
                             height: 36
                             fontSize: 15
                             iconSize: 16
@@ -814,6 +968,14 @@ Item {
                             iconColor: dayRow.entry.completed ? Theme.successText : Theme.text
                             tooltip: dayRow.entry.completed ? "Mark as not completed" : "Mark as completed"
                             onClicked: page.toggleCompleted(dayRow.entry)
+                        }
+                        IconButton {
+                            visible: dayRow.editable
+                            width: 40; height: 36
+                            iconName: "edit"
+                            iconSize: 18
+                            tooltip: "Edit"
+                            onClicked: page.openEdit(dayRow.entry)
                         }
                         IconButton {
                             width: 40; height: 36
@@ -852,7 +1014,7 @@ Item {
                         iconSize: 18
                         iconSpacing: 8
                         iconName: "plus"
-                        text: "Add Workout"
+                        text: "Add to Calendar"
                         onClicked: picker.openFor(page.selectedDate)
                     }
                 }
@@ -912,10 +1074,10 @@ Item {
                     Icon {
                         x: 98
                         anchors.verticalCenter: parent.verticalCenter
-                        name: upRow.entry.sport === "rowing" ? "rowing" : "bike"
+                        name: page.routeMissing(upRow.entry) ? "warning" : page.entryIcon(upRow.entry)
                         size: 20
                         strokeWidth: 2
-                        color: Theme.sportColor(upRow.entry.sport)
+                        color: page.routeMissing(upRow.entry) ? Theme.warningText : page.entryColor(upRow.entry)
                     }
                     Column {
                         x: 128
@@ -931,7 +1093,7 @@ Item {
                         }
                         Text {
                             width: parent.width
-                            text: page.durationText(upRow.entry.durationSec) + "  •  " + upRow.entry.category
+                            text: page.routeMissing(upRow.entry) ? "Route not found" : page.entrySubtitle(upRow.entry)
                             color: Theme.textMuted
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -945,7 +1107,7 @@ Item {
                         iconName: "play"
                         iconSize: 18
                         iconColor: Theme.accentText
-                        tooltip: upRow.entry.sport === "rowing" ? "Row now" : "Ride now"
+                        tooltip: page.startLabel(upRow.entry)
                         onClicked: page.startEntry(upRow.entry)
                     }
                 }
@@ -956,7 +1118,7 @@ Item {
                     width: parent.width - 20
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
-                    text: "No upcoming workouts.\nDouble-click a day to plan one."
+                    text: "Nothing planned yet.\nDouble-click a day to plan a workout, Free Ride or Video Ride."
                     color: Theme.textSecondary
                     font.pixelSize: 15
                 }
@@ -970,10 +1132,16 @@ Item {
         property var entry: ({})
         minWidth: 260
         AppMenuItem {
-            text: chipMenu.entry.sport === "rowing" ? "Row this workout" : "Ride this workout"
+            text: page.startLabel(chipMenu.entry)
             iconName: "play"
-            iconColor: Theme.sportColor(chipMenu.entry.sport)
+            iconColor: page.entryColor(chipMenu.entry)
             onTriggered: page.startEntry(chipMenu.entry)
+        }
+        AppMenuItem {
+            visible: page.kindOf(chipMenu.entry) !== "workout"
+            text: "Edit…"
+            iconName: "edit"
+            onTriggered: page.openEdit(chipMenu.entry)
         }
         AppMenuItem {
             text: chipMenu.entry.completed ? "Mark as not completed" : "Mark as completed"
@@ -1010,7 +1178,7 @@ Item {
         id: movePicker
         parent: page.dialogHost
         property var entry: ({})
-        title: "Move workout"
+        title: "Move entry"
         acceptText: "Move"
         onPicked: (iso) => page.moveEntry(movePicker.entry, iso)
     }
@@ -1020,32 +1188,102 @@ Item {
         id: removeConfirm
         parent: page.dialogHost
         property var entry: ({})
-        title: "Remove workout?"
+        title: "Remove from calendar?"
         acceptText: "Remove"
         acceptKind: "danger"
         onAccepted: page.doRemoveEntry(removeConfirm.entry)
     }
 
-    // --- add workout dialog ------------------------------------------------------------------------------------
+    // --- add / edit dialog: Workout | Free Ride | Video Ride ------------------------------------------------
     AppDialog {
         id: picker
         parent: page.dialogHost
         property string targetIso
+        property string kind: "workout"          // "workout" | "freeride" | "rlv"
+        property var editEntry: null             // Free Ride / Video Ride entry being edited (null = add)
+        readonly property bool editing: editEntry !== null
+        // workout tab
         property string sport: "all"
         property string search: ""
         property var items: []
         property var chosenId: -1
+        // free ride tab (duration / watts live in the spin boxes)
+        property string frMode: "ride"
+        // video ride tab
+        property string routePath: ""
+        property string vrMode: "sim"
+        property var vrWorkoutId: -1
+        property bool vrWorkoutErg: true
+        property var cyclingWorkouts: []         // [{ workoutId, name, label }], first = none
+        readonly property int routeRow: {
+            var n = Videos.count               // re-evaluate when the library changes
+            return routePath.length > 0 && n >= 0 ? Videos.indexOfPath(routePath) : -1
+        }
+        readonly property bool canSave: kind === "workout" ? chosenId >= 0
+                                        : kind === "freeride" ? true
+                                        : routePath.length > 0 && (routeRow >= 0 || editing)
 
-        title: "Add Workout"
-        panelWidth: 800
-        panelHeight: 720
+        title: editing ? (kind === "freeride" ? "Edit Free Ride" : "Edit Video Ride") : "Add to Calendar"
+        panelWidth: 840
+        panelHeight: 740
 
-        function openFor(iso) {
-            targetIso = iso || page.todayIso
+        function defaultWatts() {
+            var f = Profiles.ftp > 0 ? Profiles.ftp : 200
+            return Math.max(25, Math.round(f * 0.6 / 5) * 5)
+        }
+        function firstValidRoute() {
+            for (var i = 0; i < Videos.count; ++i) {
+                var r = Videos.get(i)
+                if (r.valid)
+                    return r.path
+            }
+            return ""
+        }
+        function resetFields() {
             chosenId = -1
             searchField.text = ""
             notesField.text = ""
+            frMode = "ride"
+            frMinutes.value = 60
+            frWatts.value = FreeRide.targetWatts > 0 ? FreeRide.targetWatts : defaultWatts()
+            routePath = Rlv.hasRoute ? Rlv.routePath : firstValidRoute()
+            vrMode = "sim"
+            vrDifficulty.value = 100
+            vrWatts.value = Rlv.targetWatts > 0 ? Rlv.targetWatts : defaultWatts()
+            vrWorkoutId = -1
+            vrWorkoutErg = true
+        }
+        function openFor(iso, k) {
+            editEntry = null
+            targetIso = iso || page.todayIso
+            resetFields()
+            kind = k === "freeride" || k === "rlv" ? k : "workout"
             reload()
+            reloadCycling()
+            open()
+        }
+        function openEdit(e) {
+            resetFields()
+            editEntry = e
+            targetIso = e.date
+            kind = page.kindOf(e)
+            notesField.text = e.notes || ""
+            var o = e.options || {}
+            if (kind === "freeride") {
+                frMinutes.value = Math.round((e.plannedDurationSec || 0) / 60)
+                frMode = o.mode === "erg" ? "erg" : "ride"
+                if (o.ergWatts > 0)
+                    frWatts.value = o.ergWatts
+            } else {
+                routePath = e.routePath || ""
+                vrMode = o.mode === "erg" ? "erg" : "sim"
+                vrDifficulty.value = o.difficulty !== undefined ? o.difficulty : 100
+                if (o.ergWatts > 0)
+                    vrWatts.value = o.ergWatts
+                vrWorkoutId = e.workoutId >= 0 ? e.workoutId : -1
+                vrWorkoutErg = o.workoutErg !== false
+            }
+            reloadCycling()
             open()
         }
         function reload() {
@@ -1065,6 +1303,38 @@ Item {
             if (!chosenFound)
                 chosenId = -1   // the chosen workout was deleted
         }
+        // cycling workouts that can be ridden during a video
+        function reloadCycling() {
+            var all = Workouts.catalog("cycling")
+            var out = [{ workoutId: -1, name: "", label: "None – just ride the route" }]
+            var found = vrWorkoutId < 0
+            for (var i = 0; i < all.length; ++i) {
+                var w = all[i]
+                if (!(w.totalSec > 0))
+                    continue
+                if (w.workoutId === vrWorkoutId)
+                    found = true
+                out.push({ workoutId: w.workoutId, name: w.name,
+                           label: w.name + "  ·  " + page.durationText(w.totalSec) + (w.summary ? "  ·  " + w.summary : "") })
+            }
+            cyclingWorkouts = out
+            if (!found)
+                vrWorkoutId = -1
+        }
+        function workoutIndex(id) {
+            for (var i = 0; i < cyclingWorkouts.length; ++i)
+                if (cyclingWorkouts[i].workoutId === id)
+                    return i
+            return 0
+        }
+        function sameRoute(a, b) {
+            if (!a || !b)
+                return false
+            if (a === b)
+                return true
+            var ia = Videos.indexOfPath(a)
+            return ia >= 0 && ia === Videos.indexOfPath(b)
+        }
         function add(workoutId) {
             if (workoutId === undefined || workoutId < 0)
                 return
@@ -1078,19 +1348,94 @@ Item {
                 page.toast("Could not add the workout to the calendar")
             }
         }
+        function save() {
+            if (kind === "workout") {
+                add(chosenId)
+                return
+            }
+            if (!canSave)
+                return
+            var notes = notesField.text.trim()
+            var wasEditing = editing
+            var entry = editEntry
+            var id = wasEditing ? entry.id : -1
+            var ok = false
+            var label = kind === "freeride" ? "Free Ride" : "Video Ride"
+            if (kind === "freeride") {
+                var fo = { mode: frMode, ergWatts: frMode === "erg" ? Math.round(frWatts.value) : 0 }
+                var minutes = Math.round(frMinutes.value)
+                if (wasEditing)
+                    ok = Planner.updateEntry(id, fo, minutes)
+                else {
+                    id = Planner.addFreeRide(targetIso, minutes, fo, notes)
+                    ok = id >= 0
+                }
+            } else {
+                var vo = { mode: vrMode, difficulty: Math.round(vrDifficulty.value),
+                           ergWatts: vrMode === "erg" ? Math.round(vrWatts.value) : 0,
+                           workoutId: vrWorkoutId, workoutErg: vrWorkoutErg }
+                if (wasEditing && sameRoute(entry.routePath, routePath)) {
+                    ok = Planner.updateEntry(id, vo)
+                } else {
+                    // a new route: replace the entry (the route of an entry is fixed)
+                    var nid = Planner.addVideoRide(targetIso, routePath, vo, notes)
+                    ok = nid >= 0
+                    if (ok && wasEditing) {
+                        if (entry.completed)
+                            Planner.setCompleted(nid, true)
+                        Planner.remove(entry.id)
+                        wasEditing = false   // date and notes are already right
+                    }
+                    id = nid
+                }
+            }
+            if (!ok) {
+                page.toast(Planner.lastError.length > 0 ? Planner.lastError : "Could not save the " + label)
+                return
+            }
+            if (wasEditing) {
+                if (notes !== (entry.notes || ""))
+                    Planner.setNotes(id, notes)
+                if (targetIso !== entry.date)
+                    Planner.move(id, targetIso)
+            }
+            close()
+            page.selectDay(targetIso)
+            page.selectedEntryId = id
+            page.toast(entry ? label + " updated" : label + " planned for " + page.longDate(targetIso))
+        }
         onSportChanged: reload()
         onSearchChanged: reload()
+        onClosed: editEntry = null
 
-        // workouts saved/imported/deleted (or the FTP changed) while the picker is open
+        // workouts saved/imported/deleted (or the FTP changed) while the dialog is open
         Connections {
             target: Workouts
             enabled: picker.visible
-            function onCountChanged() { picker.reload() }
+            function onCountChanged() { picker.reload(); picker.reloadCycling() }
         }
         Connections {
             target: Profiles
             enabled: picker.visible
-            function onProfileChanged() { picker.reload() }
+            function onProfileChanged() { picker.reload(); picker.reloadCycling() }
+        }
+
+        // what to plan
+        SegmentedControl {
+            visible: !picker.editing
+            anchors.right: parent.right
+            anchors.rightMargin: 72
+            y: 20
+            height: 48
+            fontSize: 15
+            segmentPadding: 13
+            value: picker.kind
+            options: [
+                { value: "workout", label: "Workout", icon: "bike" },
+                { value: "freeride", label: "Free Ride", icon: "freeRide", color: Theme.freeRideColor, textColor: Theme.textOnColor },
+                { value: "rlv", label: "Video Ride", icon: "video", color: Theme.videoColor }
+            ]
+            onActivated: (v) => picker.kind = v
         }
 
         // target day
@@ -1120,131 +1465,531 @@ Item {
             }
         }
 
-        RowLayout {
-            x: 28
-            y: 112
-            width: picker.panelWidth - 56
-            height: 50
-            spacing: 12
-            AppTextField {
-                id: searchField
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                iconName: "search"
-                placeholderText: "Search workouts..."
-                onTextChanged: picker.search = text
+        // ---- workout ----
+        Item {
+            anchors.fill: parent
+            visible: picker.kind === "workout"
+
+            RowLayout {
+                x: 28
+                y: 112
+                width: picker.panelWidth - 56
+                height: 50
+                spacing: 12
+                AppTextField {
+                    id: searchField
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    iconName: "search"
+                    placeholderText: "Search workouts..."
+                    onTextChanged: picker.search = text
+                }
+                SegmentedControl {
+                    Layout.fillHeight: true
+                    value: picker.sport
+                    options: [
+                        { value: "all", label: "All" },
+                        { value: "cycling", label: "Cycling", icon: "bike" },
+                        { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+                    ]
+                    onActivated: (v) => picker.sport = v
+                }
             }
-            SegmentedControl {
-                Layout.fillHeight: true
-                value: picker.sport
-                options: [
-                    { value: "all", label: "All" },
-                    { value: "cycling", label: "Cycling", icon: "bike" },
-                    { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
-                ]
-                onActivated: (v) => picker.sport = v
+
+            ListView {
+                id: pickList
+                x: 20
+                y: 176
+                width: picker.panelWidth - 40
+                height: picker.panelHeight - y - 162
+                clip: true
+                spacing: 4
+                model: picker.items
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Rectangle {
+                    id: pickRow
+                    readonly property bool chosen: modelData.workoutId === picker.chosenId
+                    readonly property color sportColor: Theme.sportColor(modelData.sport)
+                    width: ListView.view.width
+                    height: 62
+                    radius: 10
+                    color: chosen ? Theme.navSelected : (pickMouse.containsMouse ? Theme.hover : "transparent")
+                    border.width: chosen ? 2 : 0
+                    border.color: Theme.accent
+
+                    MouseArea {
+                        id: pickMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: picker.chosenId = modelData.workoutId
+                        onDoubleClicked: picker.add(modelData.workoutId)
+                    }
+                    Rectangle {
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 42; height: 42; radius: 10
+                        color: Qt.rgba(pickRow.sportColor.r, pickRow.sportColor.g, pickRow.sportColor.b, 0.22)
+                        Icon {
+                            anchors.centerIn: parent
+                            name: modelData.sport === "rowing" ? "rowing" : "bike"
+                            size: 24
+                            strokeWidth: 2
+                            color: pickRow.sportColor
+                        }
+                    }
+                    Column {
+                        x: 64
+                        width: parent.width - 64 - pickBadges.width - 24
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text {
+                            width: parent.width
+                            text: modelData.name
+                            color: Theme.text
+                            font.pixelSize: 17
+                            font.weight: Font.Bold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            width: parent.width
+                            text: modelData.summary
+                            color: Theme.textSecondary
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
+                    }
+                    Row {
+                        id: pickBadges
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 10
+                        SportBadge {
+                            sport: modelData.sport
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        CategoryBadge {
+                            category: modelData.category
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitHeight: 24
+                        }
+                        Text {
+                            width: 64
+                            horizontalAlignment: Text.AlignRight
+                            text: page.durationText(modelData.totalSec)
+                            color: Theme.text
+                            font.pixelSize: 15
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
+
+                Text {
+                    visible: pickList.count === 0
+                    anchors.centerIn: parent
+                    text: picker.sport === "rowing" && picker.search.length === 0
+                          ? "No rowing workouts yet – create one in the Workout Builder"
+                          : "No workouts match your filter"
+                    color: Theme.textSecondary
+                    font.pixelSize: 16
+                }
             }
         }
 
-        ListView {
-            id: pickList
-            x: 20
-            y: 176
-            width: picker.panelWidth - 40
-            height: picker.panelHeight - y - 162
-            clip: true
-            spacing: 4
-            model: picker.items
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        // ---- free ride ----
+        Item {
+            anchors.fill: parent
+            visible: picker.kind === "freeride"
 
-            delegate: Rectangle {
-                id: pickRow
-                readonly property bool chosen: modelData.workoutId === picker.chosenId
-                readonly property color sportColor: Theme.sportColor(modelData.sport)
-                width: ListView.view.width
-                height: 62
-                radius: 10
-                color: chosen ? Theme.navSelected : (pickMouse.containsMouse ? Theme.hover : "transparent")
-                border.width: chosen ? 2 : 0
-                border.color: Theme.accent
+            Column {
+                x: 28
+                y: 118
+                width: picker.panelWidth - 56
+                spacing: 12
 
-                MouseArea {
-                    id: pickMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: picker.chosenId = modelData.workoutId
-                    onDoubleClicked: picker.add(modelData.workoutId)
-                }
-                Rectangle {
-                    x: 10
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 42; height: 42; radius: 10
-                    color: Qt.rgba(pickRow.sportColor.r, pickRow.sportColor.g, pickRow.sportColor.b, 0.22)
-                    Icon {
-                        anchors.centerIn: parent
-                        name: modelData.sport === "rowing" ? "rowing" : "bike"
-                        size: 24
-                        strokeWidth: 2
-                        color: pickRow.sportColor
-                    }
-                }
-                Column {
-                    x: 64
-                    width: parent.width - 64 - pickBadges.width - 24
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
-                    Text {
-                        width: parent.width
-                        text: modelData.name
-                        color: Theme.text
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        width: parent.width
-                        text: modelData.summary
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                    }
+                Text {
+                    text: "Duration"
+                    color: Theme.text
+                    font.pixelSize: 18
+                    font.weight: Font.Bold
                 }
                 Row {
-                    id: pickBadges
-                    anchors.right: parent.right
-                    anchors.rightMargin: 14
-                    anchors.verticalCenter: parent.verticalCenter
                     spacing: 10
-                    SportBadge {
-                        sport: modelData.sport
-                        anchors.verticalCenter: parent.verticalCenter
+                    UnitSpinBox {
+                        id: frMinutes
+                        width: 190
+                        from: 0
+                        to: 1440
+                        stepSize: 5
+                        unit: "min"
+                        value: 60
                     }
-                    CategoryBadge {
-                        category: modelData.category
-                        anchors.verticalCenter: parent.verticalCenter
-                        implicitHeight: 24
+                    Repeater {
+                        model: [30, 45, 60, 90, 120]
+                        AppButton {
+                            height: 46
+                            fontSize: 15
+                            horizontalPadding: 14
+                            bold: Math.round(frMinutes.value) === modelData
+                            kind: Math.round(frMinutes.value) === modelData ? "primary" : "secondary"
+                            text: modelData + " min"
+                            onClicked: frMinutes.value = modelData
+                        }
+                    }
+                    AppButton {
+                        height: 46
+                        fontSize: 15
+                        horizontalPadding: 14
+                        bold: Math.round(frMinutes.value) === 0
+                        kind: Math.round(frMinutes.value) === 0 ? "primary" : "secondary"
+                        text: "Open"
+                        onClicked: frMinutes.value = 0
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: Math.round(frMinutes.value) > 0
+                          ? "A target, not a limit: the Free Ride page shows the time left, nothing stops. "
+                            + "The entry is ticked off by a saved Free Ride of at least " + Math.ceil(frMinutes.value / 2) + " min."
+                          : "No planned duration: a saved Free Ride of at least 10 min ticks the entry off."
+                    color: Theme.textSecondary
+                    font.pixelSize: 15
+                    wrapMode: Text.WordWrap
+                }
+
+                Item { width: 1; height: 8 }
+                Text {
+                    text: "Resistance"
+                    color: Theme.text
+                    font.pixelSize: 18
+                    font.weight: Font.Bold
+                }
+                Row {
+                    spacing: 16
+                    SegmentedControl {
+                        height: 48
+                        fontSize: 15
+                        value: picker.frMode
+                        options: [
+                            { value: "ride", label: "Ride", icon: "mountain" },
+                            { value: "erg", label: "ERG", icon: "bolt" }
+                        ]
+                        onActivated: (v) => picker.frMode = v
                     }
                     Text {
-                        width: 64
-                        horizontalAlignment: Text.AlignRight
-                        text: page.durationText(modelData.totalSec)
-                        color: Theme.text
-                        font.pixelSize: 15
+                        visible: picker.frMode === "erg"
                         anchors.verticalCenter: parent.verticalCenter
+                        text: "Target"
+                        color: Theme.textSecondary
+                        font.pixelSize: 16
+                    }
+                    UnitSpinBox {
+                        id: frWatts
+                        visible: picker.frMode === "erg"
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 190
+                        from: 25
+                        to: 1500
+                        stepSize: 5
+                        unit: "W"
+                        value: 150
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: picker.frMode === "erg"
+                          ? "ERG: the trainer holds the target watts – change them during the ride with ↑ / ↓ or the Zwift Click."
+                          : "Ride: like on the road – shift virtual gears (Zwift Click / ↑ ↓) or set a gradient on the Free Ride page."
+                    color: Theme.textSecondary
+                    font.pixelSize: 15
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        // ---- video ride ----
+        Item {
+            anchors.fill: parent
+            visible: picker.kind === "rlv"
+
+            Text {
+                x: 28
+                y: 116
+                text: "Route"
+                color: Theme.text
+                font.pixelSize: 18
+                font.weight: Font.Bold
+            }
+            Text {
+                x: 100
+                y: 119
+                width: 340
+                visible: picker.editing && picker.routeRow < 0 && picker.routePath.length > 0
+                text: "Planned route not in the library – choose another one or keep it"
+                color: Theme.warningText
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+            ListView {
+                id: routeList
+                x: 20
+                y: 148
+                width: 440
+                height: picker.panelHeight - y - 162
+                clip: true
+                spacing: 4
+                model: Videos
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Rectangle {
+                    id: routeRowItem
+                    readonly property bool chosen: index === picker.routeRow
+                    width: ListView.view.width
+                    height: 62
+                    radius: 10
+                    color: chosen ? Theme.navSelected : (routeMouse.containsMouse ? Theme.hover : "transparent")
+                    border.width: chosen ? 2 : 0
+                    border.color: Theme.videoColor
+                    opacity: model.valid ? 1 : 0.6
+
+                    MouseArea {
+                        id: routeMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: model.valid
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: picker.routePath = model.path
+                        onDoubleClicked: {
+                            picker.routePath = model.path
+                            picker.save()
+                        }
+                    }
+                    Rectangle {
+                        x: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 42; height: 42; radius: 10
+                        color: Qt.rgba(Theme.videoColor.r, Theme.videoColor.g, Theme.videoColor.b, 0.22)
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "video"
+                            size: 24
+                            strokeWidth: 2
+                            color: Theme.videoColor
+                        }
+                    }
+                    Column {
+                        x: 64
+                        width: parent.width - 64 - 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text {
+                            width: parent.width
+                            text: model.displayName
+                            color: Theme.text
+                            font.pixelSize: 16
+                            font.weight: Font.Bold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            width: parent.width
+                            text: model.valid ? page.routeDetails(model.distanceM, model.ascentM, model.durationSec, model.country)
+                                              : (model.error.length > 0 ? model.error : "Cannot be loaded")
+                            color: model.valid ? Theme.textSecondary : Theme.dangerText
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                // empty library
+                Column {
+                    visible: routeList.count === 0
+                    anchors.centerIn: parent
+                    width: parent.width - 30
+                    spacing: 12
+                    Icon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        name: "film"
+                        size: 40
+                        strokeWidth: 2
+                        color: Theme.videoColor
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: Videos.scanning ? "Scanning the video library…" : "No videos in your library"
+                        color: Theme.text
+                        font.pixelSize: 18
+                        font.weight: Font.Bold
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "A route is a folder with the video (.mp4) and its GPS track (.gpx / .xml). Put route folders into "
+                              + Videos.libraryFolder + " or add folders on the Video Ride page, then rescan."
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                    AppButton {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        height: 42
+                        kind: "secondary"
+                        fontSize: 15
+                        iconSize: 18
+                        iconSpacing: 8
+                        bold: false
+                        iconName: "refresh"
+                        enabled: !Videos.scanning
+                        text: Videos.scanning ? "Scanning…" : "Rescan"
+                        onClicked: if (!Videos.scanning) Videos.rescan()
                     }
                 }
             }
 
-            Text {
-                visible: pickList.count === 0
-                anchors.centerIn: parent
-                text: picker.sport === "rowing" && picker.search.length === 0
-                      ? "No rowing workouts yet – create one in the Workout Builder"
-                      : "No workouts match your filter"
-                color: Theme.textSecondary
-                font.pixelSize: 16
+            Column {
+                x: 486
+                y: 116
+                width: picker.panelWidth - x - 28
+                spacing: 10
+
+                Text {
+                    text: "Resistance"
+                    color: Theme.text
+                    font.pixelSize: 18
+                    font.weight: Font.Bold
+                }
+                SegmentedControl {
+                    width: parent.width
+                    height: 46
+                    fontSize: 15
+                    segmentPadding: 14
+                    value: picker.vrMode
+                    options: [
+                        { value: "sim", label: "Simulation", icon: "mountain" },
+                        { value: "erg", label: "ERG", icon: "bolt" }
+                    ]
+                    onActivated: (v) => picker.vrMode = v
+                }
+                Item {
+                    visible: picker.vrMode === "erg"
+                    width: parent.width
+                    height: 46
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Target"
+                        color: Theme.textSecondary
+                        font.pixelSize: 16
+                    }
+                    UnitSpinBox {
+                        id: vrWatts
+                        anchors.right: parent.right
+                        width: 190
+                        height: 46
+                        from: 25
+                        to: 1500
+                        stepSize: 5
+                        unit: "W"
+                        value: 150
+                    }
+                }
+                Item {
+                    visible: picker.vrMode === "sim"
+                    width: parent.width
+                    height: 22
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Difficulty"
+                        color: Theme.textSecondary
+                        font.pixelSize: 16
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Math.round(vrDifficulty.value) + " %"
+                        color: Theme.text
+                        font.pixelSize: 17
+                        font.weight: Font.Bold
+                    }
+                }
+                AppSlider {
+                    id: vrDifficulty
+                    visible: picker.vrMode === "sim"
+                    width: parent.width
+                    from: 0
+                    to: 100
+                    stepSize: 5
+                    snapMode: Slider.SnapAlways
+                    value: 100
+                    fillColor: Theme.success
+                }
+                Text {
+                    width: parent.width
+                    text: picker.vrMode === "erg" ? "The trainer holds the watts; climbs make the video slower."
+                                                  : "Climbs get harder like on the road (100 % = the real gradients)."
+                    color: Theme.textSecondary
+                    font.pixelSize: 14
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
+
+                Text {
+                    text: "Ride a workout during the video"
+                    color: Theme.text
+                    font.pixelSize: 17
+                    font.weight: Font.Bold
+                }
+                AppComboBox {
+                    id: vrWorkoutCombo
+                    width: parent.width
+                    height: 48
+                    fontSize: 15
+                    model: picker.cyclingWorkouts
+                    textRole: "label"
+                    currentIndex: picker.workoutIndex(picker.vrWorkoutId)
+                    displayText: picker.vrWorkoutId >= 0 && currentIndex > 0 && currentIndex < picker.cyclingWorkouts.length
+                                 ? picker.cyclingWorkouts[currentIndex].name : "None"
+                    onActivated: (index) => {
+                        picker.vrWorkoutId = picker.cyclingWorkouts[index].workoutId
+                        currentIndex = Qt.binding(function() { return picker.workoutIndex(picker.vrWorkoutId) })
+                    }
+                }
+                Item {
+                    visible: picker.vrWorkoutId >= 0
+                    width: parent.width
+                    height: 34
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Workout ERG"
+                        color: Theme.text
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                    }
+                    ToggleSwitch {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        accessibleName: "Workout ERG"
+                        checked: picker.vrWorkoutErg
+                        onToggled: (on) => picker.vrWorkoutErg = on
+                    }
+                }
+                Text {
+                    width: parent.width
+                    text: picker.vrWorkoutId < 0
+                          ? "Optional: the workout's intervals run on the ride's clock and are shown under the video."
+                          : picker.vrWorkoutErg
+                            ? "The trainer holds the workout's watts (ERG); the route just sets the video's speed. "
+                              + "After the workout the ride continues in " + (picker.vrMode === "erg" ? "ERG." : "Simulation.")
+                            : "The targets are a guide only; the resistance above applies."
+                    color: Theme.textSecondary
+                    font.pixelSize: 14
+                    wrapMode: Text.WordWrap
+                }
             }
         }
 
@@ -1267,7 +2012,10 @@ Item {
             spacing: 12
             Text {
                 Layout.fillWidth: true
-                text: "Tip: double-click a workout to add it right away"
+                text: picker.kind === "workout" ? "Tip: double-click a workout to add it right away"
+                      : picker.kind === "rlv" ? (picker.editing ? "Start it from the calendar on the day"
+                                                                : "Tip: double-click a route to add it right away")
+                      : "Start it from the calendar – the Free Ride page opens ready to go"
                 color: Theme.textMuted
                 font.pixelSize: 14
                 elide: Text.ElideRight
@@ -1281,10 +2029,10 @@ Item {
             }
             AppButton {
                 Layout.preferredHeight: 52
-                iconName: "calendar"
-                text: "Add to Calendar"
-                enabled: picker.chosenId >= 0
-                onClicked: picker.add(picker.chosenId)
+                iconName: picker.editing ? "save" : "calendar"
+                text: picker.editing ? "Save" : "Add to Calendar"
+                enabled: picker.canSave
+                onClicked: if (picker.canSave) picker.save()
             }
         }
     }

@@ -44,6 +44,62 @@ Item {
     }
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
     property bool audioOn: false
+
+    // ---- workout during the ride (Rlv.attachWorkout) ----
+    readonly property bool hasWorkout: Rlv.hasWorkout
+    // the workout holds the trainer in ERG right now
+    readonly property bool workoutErg: Rlv.workoutErgActive
+    readonly property bool workoutLive: Rlv.hasWorkout && !Rlv.workoutFinished
+    // small windows: the workout and the route profile share the bottom card
+    // (tabs) instead of being stacked
+    readonly property bool workoutTabs: Theme.compact
+    property string bottomTab: "workout"
+    readonly property bool showWorkoutTab: hasWorkout && workoutTabs && bottomTab === "workout"
+    property var workoutChoices: []          // [{ workoutId, name, label }], first = none
+    function reloadWorkouts() {
+        var all = Workouts.catalog("cycling")
+        var out = [{ workoutId: -1, name: "None", label: "None – just ride the route" }]
+        for (var i = 0; i < all.length; ++i) {
+            var w = all[i]
+            if (w.totalSec > 0)
+                out.push({ workoutId: w.workoutId, name: w.name,
+                           label: w.name + "  ·  " + Theme.clock(w.totalSec) + (w.summary ? "  ·  " + w.summary : "") })
+        }
+        workoutChoices = out
+    }
+    function workoutIndex(id) {
+        for (var i = 0; i < workoutChoices.length; ++i)
+            if (workoutChoices[i].workoutId === id)
+                return i
+        return 0
+    }
+    function chooseWorkout(index) {
+        var c = workoutChoices[index]
+        if (!c)
+            return
+        if (c.workoutId < 0) {
+            if (Rlv.hasWorkout)
+                Rlv.detachWorkout()
+        } else if (c.workoutId !== Rlv.workoutId && !Rlv.attachWorkout(c.workoutId)) {
+            toast(Rlv.lastError.length > 0 ? Rlv.lastError : "Could not load the workout")
+        }
+    }
+    // ±5 % of the target: green, ±10 %: yellow, else orange (text-safe colours)
+    function complianceColor(actual, target) {
+        if (actual <= 0 || target <= 0)
+            return Theme.textSecondary
+        var d = Math.abs(actual - target) / target
+        return d <= 0.05 ? Theme.successText : d <= 0.10 ? Theme.warningText : Theme.orangeText
+    }
+    function afterWorkoutMode() { return Rlv.mode === "erg" ? "ERG" : "Simulation" }
+    Connections {
+        target: Workouts
+        function onCountChanged() { page.reloadWorkouts() }
+    }
+    Connections {
+        target: Profiles
+        function onProfileChanged() { page.reloadWorkouts() }
+    }
     property bool plusDown: false
     property bool minusDown: false
 
@@ -373,6 +429,69 @@ Item {
         }
     }
 
+    // Workout ridden during the video: live values + the block chart (with
+    // the elapsed cursor). Shown above the route profile, or as its own tab
+    // in small windows.
+    component WorkoutPanel: Item {
+        id: wp
+        property bool brief: false            // fewer values (the tab selector needs room)
+        Row {
+            id: wpStats
+            x: 18
+            y: 14
+            spacing: 22
+            Repeater {
+                model: wp.brief ? ["Interval", "Target", "Left", "In target"]
+                                : ["Interval", "Target", "Left", "Next", "Workout", "In target"]
+                Row {
+                    spacing: 7
+                    Text {
+                        text: modelData
+                        color: Theme.textSecondary
+                        font.pixelSize: 15
+                        anchors.baseline: wpValue.baseline
+                    }
+                    Text {
+                        id: wpValue
+                        text: {
+                            if (Rlv.workoutFinished)
+                                return modelData === "Interval" ? "Complete" : modelData === "In target" ? Rlv.workoutCompliance + " %" : "–"
+                            var n = Rlv.workoutIntervals.length
+                            switch (modelData) {
+                            case "Interval":
+                                return Rlv.currentIntervalIndex >= 0
+                                       ? Rlv.currentIntervalName + "  " + (Rlv.currentIntervalIndex + 1) + "/" + n : "–"
+                            case "Target": return Rlv.workoutTargetWatts > 0 ? Rlv.workoutTargetWatts + " W" : "–"
+                            case "Left": return Theme.clock(Rlv.intervalRemainingSec)
+                            case "Next": return Rlv.nextTargetWatts > 0 ? Rlv.nextTargetWatts + " W" : "–"
+                            case "Workout": return Theme.clock(Rlv.workoutElapsedSec) + " / " + Theme.clock(Rlv.workoutTotalSec)
+                            default: return Rlv.active || Rlv.workoutElapsedSec > 0 ? Rlv.workoutCompliance + " %" : "–"
+                            }
+                        }
+                        color: modelData === "Target" && Rlv.active && page.workoutLive
+                               ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts)
+                               : modelData === "Interval" && Rlv.workoutFinished ? Theme.successText : Theme.text
+                        font.pixelSize: 18
+                        font.weight: Font.Bold
+                    }
+                }
+            }
+        }
+        WorkoutStrip {
+            x: 8
+            y: 46
+            width: parent.width - 26
+            height: parent.height - y - 8
+            fontSize: Theme.small(12)
+            intervals: Rlv.workoutIntervals
+            totalSec: Rlv.workoutTotalSec
+            elapsed: Rlv.workoutElapsedSec
+            currentIndex: Rlv.currentIntervalIndex
+            intensity: Rlv.intensityPercent
+            finished: Rlv.workoutFinished
+        }
+    }
+
     MediaPlayer {
         id: player
         // only while the page is shown (or a ride runs): no decoding in the background
@@ -390,7 +509,7 @@ Item {
             frameWatchdog.stop()
             // (re)loaded, e.g. the page became visible again: show the current
             // position (a seekRequested arriving later overrides it)
-            if (("" + source).length > 0 && Rlv.videoAvailable)
+            if (("" + player.source).length > 0 && Rlv.videoAvailable)
                 page.pendingSeekMs = Rlv.videoPosition
             else
                 page.pendingSeekMs = -1
@@ -452,7 +571,18 @@ Item {
                 infoBox.shown = false
             }
         }
-        function onShifted(direction) {   // ERG steps (Zwift Click ±10 W)
+        function onWorkoutChanged() {
+            if (Rlv.hasWorkout)
+                page.bottomTab = "workout"
+        }
+        function onWorkoutCompleted() {
+            page.toast("Workout complete – continuing the route in " + page.afterWorkoutMode())
+        }
+        function onShifted(direction) {   // ERG steps (Zwift Click ±10 W) / workout intensity ±5 %
+            if (page.workoutErg) {
+                (direction > 0 ? intensityPlus : intensityMinus).pulse()
+                return
+            }
             var b = page.ergMode ? (direction > 0 ? resistanceCard.ergPlus10 : resistanceCard.ergMinus10) : null
             if (b)
                 b.pulse()
@@ -478,6 +608,7 @@ Item {
             pendingSeekMs = Rlv.videoPosition
         shownRideId = Rlv.state === "finished" ? Rlv.lastRideId : -1
         handleMediaStatus()
+        reloadWorkouts()
     }
 
     // a click / tap on the page background takes the keyboard focus away from
@@ -688,7 +819,10 @@ Item {
                     showPowerAverage: true
                     value: Rlv.displayWatts
                     unit: "W"
-                    footer: page.ergMode ? "Target: " + Rlv.targetWatts + " W"
+                    footerColor: page.workoutLive && Rlv.workoutTargetWatts > 0 && Rlv.active
+                                 ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts) : Theme.textSecondary
+                    footer: page.workoutLive && Rlv.workoutTargetWatts > 0 ? "Target " + Rlv.workoutTargetWatts + " W"
+                            : page.ergMode ? "Target: " + Rlv.targetWatts + " W"
                             : page.gears && Rlv.gearTargetWatts > 0 && Rlv.active ? "Target: " + Rlv.gearTargetWatts + " W"
                             : "Avg: " + Rlv.avgWatts + " W"
                 }
@@ -702,6 +836,7 @@ Item {
                     value: Rlv.cadence
                     unit: "RPM"
                     footer: Rlv.active && Rlv.coasting ? "Coasting"
+                            : page.workoutErg ? "Workout ERG"
                             : page.gears ? "Gear " + Gears.gearLabel
                             : page.ergMode ? "ERG mode" : "Shift on your bike"
                 }
@@ -746,6 +881,9 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: 200
+                // small preferred size: takes whatever the other rows leave
+                // (Qt 6.4 does not shrink it when the workout strip appears)
+                Layout.preferredHeight: 200
                 radius: Theme.radius
                 color: showVideo ? "#04060d" : Theme.card
                 border.color: Theme.cardBorder
@@ -795,7 +933,9 @@ Item {
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: page.st === "ready" ? "Waiting for pedaling…"
-                                      : page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  " + (page.gears ? "Virtual gears" : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
+                                      : page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  "
+                                                                + (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
+                                                                   : page.gears ? "Virtual gears" : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
                                       : page.st === "paused" ? "Paused"
                                       : page.st === "finished" ? (Rlv.completed ? "Route complete" : "Finished")
                                       : "Preview"
@@ -904,16 +1044,19 @@ Item {
                     // static model, live values inside the delegate (a model built
                     // from live values would recreate the chips on every change)
                     Repeater {
-                        model: 3
+                        model: 4
                         Rectangle {
-                            readonly property string chipIcon: index === 0 ? (page.gears ? "cog" : page.ergMode ? "bolt" : "mountain")
-                                                             : index === 1 ? "mountain" : "play"
+                            readonly property string chipIcon: index === 0 ? (page.workoutErg ? "bolt" : page.gears ? "cog" : page.ergMode ? "bolt" : "mountain")
+                                                             : index === 1 ? "mountain" : index === 2 ? "target" : "play"
                             readonly property string chipText: index === 0
-                                ? (page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
+                                ? (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
+                                   : page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
                                    : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
                                 : index === 1 ? "Difficulty " + Rlv.difficultyPercent + " %"
+                                : index === 2 ? Rlv.currentIntervalName + " · " + Theme.clock(Rlv.intervalRemainingSec) + " left"
                                 : "Video × " + Rlv.playbackRate.toFixed(2)
-                            visible: index === 0 || (index === 1 ? !page.ergMode : Rlv.active)
+                            visible: index === 0 || (index === 1 ? !page.ergMode && !page.workoutErg
+                                                     : index === 2 ? page.workoutLive && Rlv.currentIntervalIndex >= 0 : Rlv.active)
                             height: 32
                             width: chipContent.implicitWidth + 24
                             radius: 16
@@ -1272,72 +1415,132 @@ Item {
                 }
             }
 
-            // distance line: elevation profile of the route
-            Card {
-                id: profileCard
+            // bottom area: the workout ridden during the video stacked above the
+            // route profile (one always visible layout item: Qt 6.4 layouts do
+            // not take a child back in when it becomes visible again)
+            Item {
+                id: bottomArea
+                readonly property bool stacked: page.hasWorkout && !page.workoutTabs
                 Layout.fillWidth: true
-                Layout.preferredHeight: 178
-                Row {
-                    id: statsRow
-                    x: 18
-                    y: 14
-                    spacing: 22
-                    // static model, live values inside the delegate
-                    Repeater {
-                        model: ["Distance", "To go", "Elevation", "Climbed", "Grade"]
-                        Row {
-                            spacing: 7
-                            Text {
-                                text: modelData
-                                color: Theme.textSecondary
-                                font.pixelSize: 15
-                                anchors.baseline: valueLabel.baseline
-                            }
-                            Text {
-                                id: valueLabel
-                                text: {
-                                    if (!Rlv.hasRoute)
-                                        return "–"
-                                    switch (index) {
-                                    case 0: return page.kmText(Rlv.distanceMeters, 2) + " / " + page.kmText(Rlv.totalDistanceM, 1) + " km"
-                                    case 1: return page.kmText(Rlv.remainingMeters, 2) + " km"
-                                    case 2: return Math.round(Rlv.elevationM) + " m"
-                                    case 3: return Math.round(Rlv.ascentDoneM) + " / " + Math.round(Rlv.totalAscentM) + " m"
-                                    default: return page.gradeText(Rlv.gradePercent)
-                                    }
-                                }
-                                color: index === 4 && Rlv.hasRoute ? page.gradeTextColor(Rlv.gradePercent) : Theme.text
-                                font.pixelSize: 18
-                                font.weight: Font.Bold
-                            }
+                // Qt 6.4 layouts miss size changes made while the page is hidden
+                // (e.g. a workout attached from the calendar): nudge on show
+                property int relayout: 0
+                implicitHeight: (stacked ? workoutCard.height + 14 : 0) + profileCard.height + relayout
+                Connections {
+                    target: page
+                    function onVisibleChanged() {
+                        if (page.visible) {
+                            bottomArea.relayout = 1
+                            Qt.callLater(function() { bottomArea.relayout = 0 })
                         }
                     }
                 }
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 18
-                    y: 17
-                    visible: Rlv.hasRoute && !page.locked && statsRow.width + implicitWidth + 60 < profileCard.width
-                    text: "Click the profile to choose the start point"
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.small(13)
+
+                Card {
+                    id: workoutCard
+                    visible: bottomArea.stacked
+                    width: parent.width
+                    height: 158
+                    WorkoutPanel {
+                        anchors.fill: parent
+                    }
                 }
-                RouteProfile {
-                    id: routeProfile
-                    x: 18
-                    y: 48
-                    width: parent.width - 36
-                    height: parent.height - y - 10
-                    interactive: Rlv.hasRoute && !page.locked
-                    onStartChosen: (meters) => Rlv.seekToDistance(meters)
-                }
-                Text {
-                    visible: !Rlv.hasRoute
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: 14
-                    text: "The route profile appears here once you choose a video."
-                    color: Theme.textMuted
-                    font.pixelSize: 15
+
+                // distance line: elevation profile of the route
+                Card {
+                    id: profileCard
+                    y: bottomArea.stacked ? workoutCard.height + 14 : 0
+                    width: parent.width
+                    height: page.hasWorkout && page.workoutTabs ? 190 : 178
+                    // small windows: Route | Workout tabs
+                    SegmentedControl {
+                        id: bottomTabs
+                        visible: page.hasWorkout && page.workoutTabs
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        y: 8
+                        height: 38
+                        fontSize: 14
+                        segmentPadding: 12
+                        iconSize: 16
+                        value: page.bottomTab
+                        options: [
+                            { value: "route", label: "Route", icon: "mountain" },
+                            { value: "workout", label: "Workout", icon: "target" }
+                        ]
+                        onActivated: (v) => page.bottomTab = v
+                    }
+                    WorkoutPanel {
+                        visible: page.showWorkoutTab
+                        anchors.fill: parent
+                        brief: true
+                    }
+                    Row {
+                        id: statsRow
+                        visible: !page.showWorkoutTab
+                        x: 18
+                        y: 14
+                        spacing: 22
+                        // static model, live values inside the delegate
+                        Repeater {
+                            model: ["Distance", "To go", "Elevation", "Climbed", "Grade"]
+                            Row {
+                                // room for the tab selector
+                                visible: index !== 2 || !bottomTabs.visible
+                                spacing: 7
+                                Text {
+                                    text: modelData
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 15
+                                    anchors.baseline: valueLabel.baseline
+                                }
+                                Text {
+                                    id: valueLabel
+                                    text: {
+                                        if (!Rlv.hasRoute)
+                                            return "–"
+                                        switch (index) {
+                                        case 0: return page.kmText(Rlv.distanceMeters, 2) + " / " + page.kmText(Rlv.totalDistanceM, 1) + " km"
+                                        case 1: return page.kmText(Rlv.remainingMeters, 2) + " km"
+                                        case 2: return Math.round(Rlv.elevationM) + " m"
+                                        case 3: return Math.round(Rlv.ascentDoneM) + " / " + Math.round(Rlv.totalAscentM) + " m"
+                                        default: return page.gradeText(Rlv.gradePercent)
+                                        }
+                                    }
+                                    color: index === 4 && Rlv.hasRoute ? page.gradeTextColor(Rlv.gradePercent) : Theme.text
+                                    font.pixelSize: 18
+                                    font.weight: Font.Bold
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 18
+                        y: 17
+                        visible: Rlv.hasRoute && !page.locked && !bottomTabs.visible && statsRow.width + implicitWidth + 60 < profileCard.width
+                        text: "Click the profile to choose the start point"
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.small(13)
+                    }
+                    RouteProfile {
+                        id: routeProfile
+                        visible: !page.showWorkoutTab
+                        x: 18
+                        y: 48
+                        width: parent.width - 36
+                        height: parent.height - y - 10
+                        interactive: Rlv.hasRoute && !page.locked
+                        onStartChosen: (meters) => Rlv.seekToDistance(meters)
+                    }
+                    Text {
+                        visible: !Rlv.hasRoute && !page.showWorkoutTab
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: 14
+                        text: "The route profile appears here once you choose a video."
+                        color: Theme.textMuted
+                        font.pixelSize: 15
+                    }
                 }
             }
         }
@@ -1558,6 +1761,245 @@ Item {
                     }
                 }
 
+                // workout during the ride
+                Card {
+                    id: workoutCtl
+                    width: parent.width
+                    height: wkCol.y + wkCol.implicitHeight + 16
+                    title: "Workout"
+                    titleSize: 18
+                    Column {
+                        id: wkCol
+                        x: 16
+                        y: workoutCtl.contentTop - 4
+                        width: parent.width - 32
+                        spacing: 10
+
+                        Item {
+                            width: parent.width
+                            height: Theme.touch(48)
+                            AppComboBox {
+                                id: workoutCombo
+                                width: parent.width
+                                height: parent.height
+                                fontSize: 15
+                                // attachWorkout() is refused while a ride runs
+                                enabled: !Rlv.active
+                                focusPolicy: Qt.NoFocus
+                                Accessible.name: "Workout"
+                                model: page.workoutChoices
+                                textRole: "label"
+                                currentIndex: page.workoutIndex(Rlv.workoutId)
+                                displayText: Rlv.hasWorkout ? Rlv.workoutName : "None"
+                                onActivated: (index) => {
+                                    page.chooseWorkout(index)
+                                    currentIndex = Qt.binding(function() { return page.workoutIndex(Rlv.workoutId) })
+                                }
+                            }
+                            HoverHandler { id: workoutComboHover }
+                            ToolTip.visible: workoutComboHover.hovered && Rlv.active
+                            ToolTip.delay: 400
+                            ToolTip.text: "The workout can be changed before the ride starts"
+                        }
+
+                        Text {
+                            visible: !page.hasWorkout
+                            width: parent.width
+                            text: "Ride one of your cycling workouts during the video: its intervals run on the ride's clock "
+                                  + "and appear under the video. With Workout ERG the trainer holds the watts."
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // Workout ERG
+                        Item {
+                            visible: page.hasWorkout
+                            width: parent.width
+                            height: 34
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Workout ERG"
+                                color: Theme.text
+                                font.pixelSize: 16
+                                font.weight: Font.DemiBold
+                            }
+                            // controlled switch: shows Rlv.workoutErg, a click asks Rlv to change it
+                            ToggleSwitch {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                accessibleName: "Workout ERG"
+                                enabled: !Rlv.workoutFinished
+                                checked: Rlv.workoutErg
+                                onToggled: (on) => Rlv.workoutErg = on
+                            }
+                        }
+                        Text {
+                            visible: page.hasWorkout
+                            width: parent.width
+                            text: Rlv.workoutFinished ? "Workout complete – the ride continues in " + page.afterWorkoutMode() + "."
+                                  : page.workoutErg ? "The trainer holds the workout's watts; climbs only change the video's speed."
+                                  : "Targets as a guide – the resistance below applies."
+                            color: Rlv.workoutFinished ? Theme.successText : Theme.textSecondary
+                            font.pixelSize: Theme.small(13)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // live status
+                        Rectangle {
+                            visible: page.workoutLive
+                            width: parent.width
+                            height: statusCol.implicitHeight + 18
+                            radius: 10
+                            color: Theme.cardStrong
+                            border.color: Theme.cardBorder
+                            Column {
+                                id: statusCol
+                                x: 12
+                                y: 9
+                                width: parent.width - 24
+                                spacing: 2
+                                Text {
+                                    width: parent.width
+                                    text: Rlv.currentIntervalIndex >= 0
+                                          ? Rlv.currentIntervalName + "  ·  " + (Rlv.currentIntervalIndex + 1) + "/" + Rlv.workoutIntervals.length
+                                          : "Starts with the ride"
+                                    color: Theme.text
+                                    font.pixelSize: 15
+                                    font.weight: Font.Bold
+                                    elide: Text.ElideRight
+                                }
+                                Item {
+                                    width: parent.width
+                                    height: wkTarget.implicitHeight
+                                    Row {
+                                        spacing: 4
+                                        Text {
+                                            id: wkTarget
+                                            text: Rlv.workoutTargetWatts
+                                            color: Rlv.active ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts) : Theme.warningText
+                                            font.pixelSize: 40
+                                            font.weight: Font.Black
+                                            font.letterSpacing: -1
+                                        }
+                                        Text {
+                                            text: "W"
+                                            color: wkTarget.color
+                                            font.pixelSize: 20
+                                            font.weight: Font.Bold
+                                            anchors.baseline: wkTarget.baseline
+                                        }
+                                    }
+                                    Column {
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Text {
+                                            anchors.right: parent.right
+                                            text: Theme.clock(Rlv.intervalRemainingSec) + " left"
+                                            color: Theme.text
+                                            font.pixelSize: 15
+                                            font.weight: Font.DemiBold
+                                        }
+                                        Text {
+                                            anchors.right: parent.right
+                                            text: Rlv.nextTargetWatts > 0 ? "Next " + Rlv.nextTargetWatts + " W" : "Last interval"
+                                            color: Theme.textSecondary
+                                            font.pixelSize: Theme.small(13)
+                                        }
+                                    }
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: "In target " + Rlv.workoutCompliance + " %  ·  " + Theme.clock(Rlv.workoutRemainingSec) + " to go"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.small(13)
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        // intensity
+                        RowLayout {
+                            visible: page.workoutLive
+                            width: parent.width
+                            height: Theme.touch(50)
+                            spacing: 8
+                            ShiftButton {
+                                id: intensityMinus
+                                Layout.preferredWidth: 60
+                                Layout.fillHeight: true
+                                iconName: "minus"
+                                iconSize: 22
+                                Accessible.name: "Intensity −5 %"
+                                tint: Theme.accent
+                                enabled: Rlv.intensityPercent > -50
+                                onClicked: Rlv.adjustIntensity(-5)
+                            }
+                            Column {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: (100 + Rlv.intensityPercent) + " %"
+                                    color: Rlv.intensityPercent === 0 ? Theme.text : Rlv.intensityPercent > 0 ? Theme.orangeText : Theme.accentText
+                                    font.pixelSize: 24
+                                    font.weight: Font.Black
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "Intensity"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.small(13)
+                                }
+                            }
+                            ShiftButton {
+                                id: intensityPlus
+                                Layout.preferredWidth: 60
+                                Layout.fillHeight: true
+                                iconName: "plus"
+                                iconSize: 22
+                                Accessible.name: "Intensity +5 %"
+                                tint: Theme.orange
+                                enabled: Rlv.intensityPercent < 50
+                                onClicked: Rlv.adjustIntensity(5)
+                            }
+                        }
+                        RowLayout {
+                            visible: page.hasWorkout
+                            width: parent.width
+                            spacing: 8
+                            AppButton {
+                                visible: page.workoutLive
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.touch(42)
+                                kind: "secondary"
+                                fontSize: 15
+                                iconSize: 16
+                                iconSpacing: 8
+                                horizontalPadding: 10
+                                bold: false
+                                iconName: "skipForward"
+                                text: "Skip Interval"
+                                enabled: Rlv.active
+                                onClicked: Rlv.skipInterval()
+                            }
+                            AppButton {
+                                Layout.fillWidth: !page.workoutLive
+                                Layout.preferredHeight: Theme.touch(42)
+                                kind: "secondary"
+                                fontSize: 15
+                                iconSize: 16
+                                iconSpacing: 8
+                                horizontalPadding: 10
+                                bold: false
+                                iconName: "close"
+                                text: page.workoutLive ? "End Workout" : "Remove Workout"
+                                onClicked: Rlv.detachWorkout()
+                            }
+                        }
+                    }
+                }
+
                 // resistance: simulation (real or virtual gears) / ERG
                 Card {
                     id: resistanceCard
@@ -1574,6 +2016,29 @@ Item {
                         width: parent.width - 32
                         spacing: 10
 
+                        // the workout holds the trainer: the mode applies afterwards
+                        Rectangle {
+                            visible: page.workoutErg
+                            width: parent.width
+                            height: wkNote.implicitHeight + 16
+                            radius: 8
+                            color: Theme.cardStrong
+                            border.color: Theme.accentText
+                            Row {
+                                id: wkNote
+                                x: 10; y: 8
+                                width: parent.width - 20
+                                spacing: 8
+                                Icon { name: "bolt"; size: 18; color: Theme.warningText }
+                                Text {
+                                    width: parent.width - 26
+                                    text: "Workout ERG holds the trainer. This mode applies after the workout."
+                                    color: Theme.text
+                                    font.pixelSize: Theme.small(13)
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
                         SegmentedControl {
                             objectName: "videoModeSelector"
                             width: parent.width
@@ -1876,7 +2341,8 @@ Item {
                         }
                         Text {
                             width: parent.width
-                            text: page.ergMode ? "Zwift Click + / − or PgUp / PgDn: ±10 W\n↑ / ↓ ±5 W  •  Space pause"
+                            text: page.workoutErg ? "Workout ERG: Zwift Click + / −, ↑ / ↓ or PgUp / PgDn: intensity ±5 %  •  Space pause"
+                                  : page.ergMode ? "Zwift Click + / − or PgUp / PgDn: ±10 W\n↑ / ↓ ±5 W  •  Space pause"
                                   : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
                                   : "Keys: PgUp / PgDn difficulty  •  Space pause"
                             color: Theme.textMuted
@@ -1943,7 +2409,7 @@ Item {
                                 }
                                 Text {
                                     width: clickCol.width - 36
-                                    text: page.ergMode ? "+ / − target ±10 W" : "+ harder gear  •  − easier gear"
+                                    text: page.workoutErg ? "+ / − intensity ±5 %" : page.ergMode ? "+ / − target ±10 W" : "+ harder gear  •  − easier gear"
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.small(13)
                                     elide: Text.ElideRight
