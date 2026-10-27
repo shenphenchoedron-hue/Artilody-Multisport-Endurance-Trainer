@@ -15,7 +15,12 @@ Item {
     readonly property string st: FreeRide.state
     readonly property bool finished: st === "finished"
     // only one session at a time (FreeRide refuses to start otherwise)
-    readonly property bool otherSession: Training.armedOrActive || Rowing.active
+    readonly property bool otherSession: Training.armedOrActive || Rowing.active || Rlv.active || Rlv.waiting
+    // id of the ride shown in the finished summary. Tracked here instead of a
+    // plain binding on FreeRide.lastRideId: that property may only notify when
+    // a ride is saved, so after an unsaved ride a binding would still show the
+    // previous ride. Re-read on every state change and on rideSaved.
+    property real shownRideId: -1
     readonly property var setup: Gears.gearSetup
     readonly property var rings: setup.chainrings || []
     readonly property var cogs: setup.cogs || []
@@ -57,6 +62,19 @@ Item {
             if (FreeRide.mode === "erg")
                 ergControl.pulse(direction)
         }
+        function onStateChanged() {
+            page.shownRideId = FreeRide.state === "finished" ? FreeRide.lastRideId : -1
+        }
+        function onRideSaved(id) {
+            page.shownRideId = FreeRide.state === "finished" ? id : -1
+        }
+    }
+    Component.onCompleted: shownRideId = FreeRide.state === "finished" ? FreeRide.lastRideId : -1
+
+    // a click / tap on the page background takes the keyboard focus away from
+    // a text field, so Space / arrow keys reach the ride shortcuts again
+    TapHandler {
+        onTapped: page.forceActiveFocus()
     }
     Connections {
         target: Gears
@@ -428,16 +446,16 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
                             IconButton {
-                                Layout.preferredWidth: 52
-                                Layout.preferredHeight: 44
+                                Layout.preferredWidth: Theme.touch(52)
+                                Layout.preferredHeight: Theme.touch(44)
                                 iconName: "minus"
                                 tooltip: "Grade −0.5 % (PgDn)"
                                 enabled: FreeRide.gradePercent > FreeRide.minGrade
                                 onClicked: FreeRide.adjustGrade(-0.5)
                             }
                             IconButton {
-                                Layout.preferredWidth: 52
-                                Layout.preferredHeight: 44
+                                Layout.preferredWidth: Theme.touch(52)
+                                Layout.preferredHeight: Theme.touch(44)
                                 iconName: "plus"
                                 tooltip: "Grade +0.5 % (PgUp)"
                                 enabled: FreeRide.gradePercent < FreeRide.maxGrade
@@ -445,13 +463,13 @@ Item {
                             }
                             AppButton {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 44
+                                Layout.preferredHeight: Theme.touch(44)
                                 kind: "secondary"
                                 fontSize: 15
                                 bold: false
                                 text: "Flat"
                                 enabled: FreeRide.gradePercent !== 0
-                                onClicked: FreeRide.setGrade(0)
+                                onClicked: FreeRide.gradePercent = 0
                             }
                         }
                         AppSlider {
@@ -463,7 +481,7 @@ Item {
                             snapMode: Slider.SnapAlways
                             value: FreeRide.gradePercent
                             fillColor: Theme.success
-                            onMoved: FreeRide.setGrade(value)
+                            onMoved: FreeRide.gradePercent = value
                         }
                         Item {
                             Layout.fillWidth: true
@@ -473,7 +491,7 @@ Item {
                                 x: gradeSlider.width * (0 - FreeRide.minGrade) / (FreeRide.maxGrade - FreeRide.minGrade) - width / 2
                                 text: "0"
                                 color: Theme.textMuted
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.small(12)
                             }
                             Text { anchors.right: parent.right; text: page.gradeText(FreeRide.maxGrade); color: Theme.textMuted; font.pixelSize: 12 }
                         }
@@ -506,7 +524,7 @@ Item {
                             + "   •   PgUp / PgDn  grade   •   Space  pause / resume"
                           : "Keys:   PgUp / PgDn  grade   •   Space  pause / resume"
                     color: Theme.textMuted
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.small(13)
                 }
 
                 // --- ERG -------------------------------------------------------------
@@ -592,7 +610,7 @@ Item {
                     AppButton {
                         visible: !FreeRide.active
                         width: parent.width
-                        height: 50
+                        height: Theme.touch(50)
                         kind: "primary"
                         iconName: "play"
                         text: page.finished ? "Ride Again" : "Start Now"
@@ -602,7 +620,7 @@ Item {
                     AppButton {
                         visible: !FreeRide.active && !page.finished
                         width: parent.width
-                        height: 44
+                        height: Theme.touch(44)
                         kind: "secondary"
                         fontSize: 15
                         iconSize: 18
@@ -615,7 +633,7 @@ Item {
                     AppButton {
                         visible: FreeRide.active
                         width: parent.width
-                        height: 50
+                        height: Theme.touch(50)
                         kind: FreeRide.paused ? "success" : "danger"
                         iconName: FreeRide.paused ? "play" : "pause"
                         text: FreeRide.paused ? "Resume" : "Pause Ride"
@@ -626,7 +644,7 @@ Item {
                         spacing: 10
                         AppButton {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 44
+                            Layout.preferredHeight: Theme.touch(44)
                             kind: "secondary"
                             fontSize: 15
                             iconSize: 18
@@ -637,7 +655,7 @@ Item {
                         }
                         AppButton {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 44
+                            Layout.preferredHeight: Theme.touch(44)
                             kind: "secondary"
                             fontSize: 15
                             iconSize: 18
@@ -653,7 +671,8 @@ Item {
                         text: FreeRide.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
                               : !FreeRide.active && page.otherSession
                                 ? (Rowing.active ? "A row is in progress – finish it to start a free ride."
-                                                 : "A workout is running – finish it to start a free ride.")
+                                   : Rlv.active || Rlv.waiting ? "A video ride is in progress – finish it to start a free ride."
+                                   : "A workout is running – finish it to start a free ride.")
                               : page.st === "idle" && FreeRide.trainerConnected ? "Space starts and pauses the ride." : ""
                         color: Theme.textSecondary
                         font.pixelSize: 14
@@ -745,15 +764,15 @@ Item {
                         }
                     }
                     Text {
-                        visible: FreeRide.lastRideId < 0
+                        visible: page.shownRideId < 0
                         width: parent.width
                         text: "Not saved (discarded or shorter than 30 s)."
                         color: Theme.textSecondary
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.small(13)
                         wrapMode: Text.WordWrap
                     }
                     AppButton {
-                        visible: FreeRide.lastRideId >= 0
+                        visible: page.shownRideId >= 0
                         width: parent.width
                         height: 40
                         kind: "secondary"
@@ -829,7 +848,7 @@ Item {
                                         + (Devices.controllerBattery >= 0 ? "  •  Battery " + Devices.controllerBattery + " %" : "")
                                       : Gears.summary
                                 color: Theme.textSecondary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.small(13)
                                 elide: Text.ElideRight
                             }
                         }

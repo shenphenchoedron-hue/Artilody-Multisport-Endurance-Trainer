@@ -547,7 +547,9 @@ Item {
                     page.rideRowing ? { c: "Avg Stroke Rate", v: (page.ride.cadence || 0) + " SPM", i: "waves" }
                                     : { c: "Avg Cadence", v: (page.ride.cadence || 0) + " RPM", i: "cadence" }
                 ].concat(page.ride.isFtpTest ? [
-                    { c: "Best 1 min", v: (page.ride.best1min || 0) + " W", i: "bolt" },
+                    page.ride.ftpTestMethod === "20min"
+                        ? { c: "Best 20 min", v: (page.ride.best20min || 0) + " W", i: "bolt" }
+                        : { c: "Best 1 min", v: (page.ride.best1min || 0) + " W", i: "bolt" },
                     { c: "Estimated FTP", v: page.ride.estimatedFtp > 0 ? page.ride.estimatedFtp + " W" : "–", i: "target" }
                 ] : [])
                 StatTile {
@@ -624,7 +626,9 @@ Item {
                 kind: "secondary"
                 iconName: "target"
                 text: "Use as FTP"
-                onClicked: ftpResultDialog.openWith(page.ride.estimatedFtp, Profiles.ftp, page.ride.best1min)
+                onClicked: page.ride.ftpTestMethod === "20min"
+                           ? ftpResultDialog.openWith(page.ride.estimatedFtp, Profiles.ftp, page.ride.best20min || 0, "20min")
+                           : ftpResultDialog.openWith(page.ride.estimatedFtp, Profiles.ftp, page.ride.best1min, "ramp")
             }
             AppButton {
                 kind: "secondary"

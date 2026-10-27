@@ -22,7 +22,7 @@ AppDialog {
         showZones = false
         nameField.text = newProfile ? "" : Profiles.name
         weight.value = newProfile ? 75 : Profiles.weight
-        heightSpin.lastValue = heightSpin.value = newProfile ? 0 : Profiles.heightCm
+        heightSpin.value = newProfile ? 0 : Profiles.heightCm
         ftp.value = Profiles.ftp
         rowingFtp.value = Profiles.rowingFtp
         maxHr.value = Profiles.maxHr
@@ -127,22 +127,25 @@ AppDialog {
             spacing: 4
             UnitSpinBox {
                 id: heightSpin
-                // 0 = not set; the arrows jump between 0 and 100..230 cm
-                property real lastValue: 0
+                // 0 = not set or 100..230 cm. The arrows jump over 1..99;
+                // a typed value there is kept and flagged (never changed silently).
+                readonly property bool invalid: value > 0 && value < 100
                 width: parent.width
                 unit: "cm"
                 from: 0; to: 230; stepSize: 1
-                onValueChanged: {
-                    if (value > 0 && value < 100)
-                        value = lastValue >= 100 ? 0 : 170
-                    lastValue = value
+                stepFilter: function(current, next, dir) {
+                    if (next > 0 && next < 100)
+                        return dir > 0 ? (current < 100 && current > 0 ? 100 : 170) : 0
+                    return next
                 }
             }
             Text {
                 width: parent.width
-                text: "Optional (0 = not set) · sizes your air drag"
-                color: Theme.textSecondary
+                text: heightSpin.invalid ? "Enter 100–230 cm, or 0 = not set"
+                                         : "Optional (0 = not set) · sizes your air drag"
+                color: heightSpin.invalid ? Theme.dangerText : Theme.textSecondary
                 font.pixelSize: 12
+                font.weight: heightSpin.invalid ? Font.DemiBold : Font.Normal
                 wrapMode: Text.WordWrap
             }
         }

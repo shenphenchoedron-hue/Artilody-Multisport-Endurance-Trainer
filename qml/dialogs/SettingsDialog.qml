@@ -30,6 +30,7 @@ AppDialog {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 onColor: Theme.accent
+                accessibleName: title
                 onToggled: (on) => parent.toggled(on)
             }
         }
@@ -87,12 +88,10 @@ AppDialog {
                 anchors.verticalCenter: parent.verticalCenter
                 onColor: Theme.accent
                 checked: Sensors.powerSmoothing
-                onToggled: (on) => {
-                    Sensors.powerSmoothing = on
-                    // the switch assigns checked itself: keep following the
-                    // setting (the power tiles toggle it too)
-                    checked = Qt.binding(() => Sensors.powerSmoothing)
-                }
+                accessibleName: "Smooth power"
+                // ToggleSwitch never assigns checked itself: the binding keeps
+                // following the setting (the power tiles toggle it too)
+                onToggled: (on) => Sensors.powerSmoothing = on
             }
         }
 

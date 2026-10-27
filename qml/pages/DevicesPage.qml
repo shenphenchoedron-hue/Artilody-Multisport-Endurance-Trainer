@@ -256,12 +256,17 @@ Item {
                     // both); a connected rower without a trainer comes first.
                     // Controllers (classified Zwift Clicks) are always listed;
                     // "Show all devices" adds the unclassified ones.
-                    model: (Devices.rowerConnected && Devices.trainerState !== 2
-                            ? [page.sectionRower, page.sectionTrainer, page.sectionHr, page.sectionController]
-                            : [page.sectionTrainer, page.sectionRower, page.sectionHr, page.sectionController])
-                           .concat(Devices.showAllDevices ? [page.sectionOther] : [])
+                    // A static model (sections keyed by kind): a model rebuilt on every
+                    // connection change recreated all sections and closed their menus.
+                    // The rower has two slots; only one of them is visible.
+                    model: [page.sectionRower, page.sectionTrainer, page.sectionRower,
+                            page.sectionHr, page.sectionController, page.sectionOther]
                     Rectangle {
                         id: section
+                        readonly property bool rowerFirst: Devices.rowerConnected && Devices.trainerState !== 2
+                        visible: index === 0 ? rowerFirst
+                               : index === 2 ? !rowerFirst
+                               : modelData.kind === "other" ? Devices.showAllDevices : true
                         readonly property string kindName: modelData.kind
                         readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen
                                                    : modelData.kind === "rower" ? page.rowersOpen

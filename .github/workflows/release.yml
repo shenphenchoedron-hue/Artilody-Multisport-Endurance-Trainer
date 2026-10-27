@@ -64,7 +64,6 @@ jobs:
             qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-templates \
             qml6-module-qtqml-workerscript qml6-module-qtqml-models \
             qml6-module-qt-labs-folderlistmodel qml6-module-qtmultimedia \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             fonts-dejavu-core
 
       - uses: actions/checkout@v4
@@ -79,8 +78,11 @@ jobs:
             version="${cmake_version:-$FALLBACK_VERSION}"
           fi
           version="${version:-$FALLBACK_VERSION}"
-          if [[ -n "$cmake_version" && "$version" != "$cmake_version" ]]; then
-            echo "::warning::Tag version $version differs from project() version $cmake_version in CMakeLists.txt"
+          # A release tag must match project(VERSION) in CMakeLists.txt: the app,
+          # the About box and the package metadata use the CMake version.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "$cmake_version" && "$version" != "$cmake_version" ]]; then
+            echo "::error::Tag version $version differs from project() version $cmake_version in CMakeLists.txt"
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
@@ -128,7 +130,9 @@ jobs:
           QT_QUICK_BACKEND: software
         run: |
           set -euxo pipefail
-          apt-get install -y "./dist/${{ steps.deb.outputs.asset }}"
+          # Depends only (as "apt install --no-install-recommends" would do)
+          apt-get install -y --no-install-recommends "./dist/${{ steps.deb.outputs.asset }}"
+          dpkg -s gstreamer1.0-plugins-base gstreamer1.0-plugins-good >/dev/null
           test -x /usr/bin/artilody-watts-trainer
           test -f /usr/share/applications/artilody-watts-trainer.desktop
           ls -l /usr/share/artilody-watts-trainer/music
@@ -149,6 +153,65 @@ jobs:
           name: release-deb-${{ matrix.suffix }}
           path: dist/*.deb
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Linux: install the .deb in a clean container (nothing pre-installed, no
+  # Recommends) and smoke test it - catches missing Depends.
+  # ---------------------------------------------------------------------------
+  linux-deb-install:
+    name: Install test .deb (${{ matrix.suffix }})
+    needs: linux-deb
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:bookworm
+            runner: ubuntu-24.04
+            suffix: debian12_amd64
+          - image: ubuntu:24.04
+            runner: ubuntu-24.04
+            suffix: ubuntu24.04_amd64
+          - image: debian:bookworm
+            runner: ubuntu-24.04-arm
+            suffix: raspberrypi-os-bookworm_arm64
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-deb-${{ matrix.suffix }}
+          path: dist
+
+      - name: Install with --no-install-recommends and smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          set -euxo pipefail
+          apt-get update
+          deb=$(ls dist/*.deb | head -n1)
+          # a font for the offscreen renderer; everything else must come from Depends
+          apt-get install -y --no-install-recommends "./$deb" fonts-dejavu-core
+          dpkg -s gstreamer1.0-plugins-base gstreamer1.0-plugins-good >/dev/null
+          test -x /usr/bin/artilody-watts-trainer
+          export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+          bash packaging/ci/smoke-test.sh /usr/bin/artilody-watts-trainer "smoke-shots/clean"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-clean-${{ matrix.suffix }}
+          path: smoke-shots/
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # Windows: windeployqt folder -> portable zip + Inno Setup installer.
@@ -173,6 +236,10 @@ jobs:
             version="${cmake_version:-$FALLBACK_VERSION}"
           fi
           version="${version:-$FALLBACK_VERSION}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "$cmake_version" && "$version" != "$cmake_version" ]]; then
+            echo "::error::Tag version $version differs from project() version $cmake_version in CMakeLists.txt"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
 
@@ -319,6 +386,10 @@ jobs:
             version="${cmake_version:-$FALLBACK_VERSION}"
           fi
           version="${version:-$FALLBACK_VERSION}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "$cmake_version" && "$version" != "$cmake_version" ]]; then
+            echo "::error::Tag version $version differs from project() version $cmake_version in CMakeLists.txt"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
 
@@ -441,7 +512,7 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: GitHub release
-    needs: [linux-deb, windows, macos]
+    needs: [linux-deb, linux-deb-install, windows, macos]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

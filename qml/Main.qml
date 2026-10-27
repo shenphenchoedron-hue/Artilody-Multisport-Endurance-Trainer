@@ -129,6 +129,11 @@ ApplicationWindow {
     // The Zwift Click routing (VirtualGears::controllerShift) depends on the
     // open page: a ride page sends +/- to its session, elsewhere it shifts.
     Binding {
+        target: Theme
+        property: "uiScale"
+        value: window.uiScale
+    }
+    Binding {
         target: Gears
         property: "activePage"
         value: window.currentPage
@@ -354,8 +359,9 @@ ApplicationWindow {
                 window.showToast("Workout complete – ride saved to History")
         }
         // Emitted after onFinished, so the stop dialog is already closed.
-        function onFtpTestCompleted(rideId, estimatedFtp, previousFtp, best1minPower) {
-            ftpResultDialog.openWith(estimatedFtp, previousFtp, best1minPower)
+        // (method: "ramp" / "20min"; undefined with an older backend = ramp)
+        function onFtpTestCompleted(rideId, estimatedFtp, previousFtp, best1minPower, method) {
+            ftpResultDialog.openWith(estimatedFtp, previousFtp, best1minPower, method)
         }
         function onStartRefused() {
             window.showToast(FreeRide.active ? "A free ride is in progress – finish it before starting a workout"
@@ -427,14 +433,17 @@ ApplicationWindow {
         enabled: window.freeRideKeys && (FreeRide.trainerConnected || FreeRide.active)
         onActivated: FreeRide.togglePause()
     }
+    // (only when they do something: otherwise ↑ / ↓ stay with the focused
+    // control, e.g. a slider or a list)
+    readonly property bool freeRideStepKeys: freeRideKeys && (FreeRide.mode === "erg" || FreeRide.virtualGears)
     Shortcut {
         sequences: ["Up", "+", "="]
-        enabled: window.freeRideKeys
+        enabled: window.freeRideStepKeys
         onActivated: window.freeRideStep(1)
     }
     Shortcut {
         sequences: ["Down", "-"]
-        enabled: window.freeRideKeys
+        enabled: window.freeRideStepKeys
         onActivated: window.freeRideStep(-1)
     }
     Shortcut {

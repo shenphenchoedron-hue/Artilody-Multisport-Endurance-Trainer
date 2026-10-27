@@ -58,6 +58,28 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+; Upgrades: remove the deployed Qt runtime of the previous version first, so a
+; module, plugin or DLL that the new version no longer ships (or ships under
+; another name) is not left behind and loaded by mistake. Everything removed
+; here is installed again from [Files]; user data lives in %APPDATA%, not {app}.
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\qml"
+Type: filesandordirs; Name: "{app}\plugins"
+Type: filesandordirs; Name: "{app}\platforms"
+Type: filesandordirs; Name: "{app}\styles"
+Type: filesandordirs; Name: "{app}\imageformats"
+Type: filesandordirs; Name: "{app}\iconengines"
+Type: filesandordirs; Name: "{app}\multimedia"
+Type: filesandordirs; Name: "{app}\sqldrivers"
+Type: filesandordirs; Name: "{app}\tls"
+Type: filesandordirs; Name: "{app}\networkinformation"
+Type: filesandordirs; Name: "{app}\generic"
+Type: filesandordirs; Name: "{app}\position"
+Type: filesandordirs; Name: "{app}\qmltooling"
+Type: files; Name: "{app}\Qt6*.dll"
+Type: files; Name: "{app}\av*.dll"
+Type: files; Name: "{app}\sw*.dll"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

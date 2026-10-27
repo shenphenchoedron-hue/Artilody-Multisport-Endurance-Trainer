@@ -133,8 +133,9 @@ Item {
             // speed axis (right 1)
             var ax1 = L + W + 8
             var sst = chart.speedMax > 60 ? 20 : 10
+            // (tick labels: darker shades of the series colours on the light theme)
             ctx.strokeStyle = Theme.speed
-            ctx.fillStyle = Theme.speed
+            ctx.fillStyle = Theme.dark ? Theme.speed : "#06708a"
             ctx.textAlign = "left"
             ctx.textBaseline = "middle"
             ctx.beginPath(); ctx.moveTo(ax1, T); ctx.lineTo(ax1, T + H); ctx.stroke()
@@ -147,7 +148,7 @@ Item {
             var hr = chart.hrRange
             var ax2 = L + W + 66
             ctx.strokeStyle = Theme.heartRate
-            ctx.fillStyle = Theme.heartRate
+            ctx.fillStyle = Theme.dark ? Theme.heartRate : "#b0127a"
             ctx.beginPath(); ctx.moveTo(ax2, T); ctx.lineTo(ax2, T + H); ctx.stroke()
             for (var h = hr[0]; h <= hr[1]; h += 20) {
                 var yh = chart.pyHr(h)

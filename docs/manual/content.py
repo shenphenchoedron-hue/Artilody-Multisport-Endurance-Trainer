@@ -56,8 +56,8 @@ def build(s, env):
         "rowing workouts and ghost races against your own personal best.",
         f"{UI('Shares workouts')} – export your workouts as Artilody {C('.awt')} files or Zwift {C('.zwo')} "
         "files, and import workouts that others have shared with you.",
-        f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test calculates your Functional Threshold Power "
-        "and can update your profile and all training zones in one click.",
+        f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test (or your own 20-minute test) calculates your "
+        "Functional Threshold Power and can update your profile and all training zones in one click.",
         f"{UI('Plays music')} – a built-in player for your own audio files with playlists and favourites.",
         f"{UI('Works offline')} – no account, no cloud, no tracking. All data is kept in a local SQLite "
         "database.",
@@ -886,10 +886,16 @@ def build(s, env):
               "consult a doctor if in doubt.")
 
     s.section("How the FTP is estimated")
-    s.p("The app finds your <b>best 1-minute average power</b> during the ride (rolling 60-second window) and "
-        "calculates:")
+    s.p("For a <b>ramp test</b> (the built-in Ramp FTP Test, any <i>FTP Tests</i> workout with “ramp” in its "
+        "name, or one whose longest block is a rising ramp) the app finds your <b>best 1-minute average "
+        "power</b> during the ride (rolling 60-second window) and calculates:")
     s.p('<para alignment="center"><font size="12"><b>FTP = 0.75 × best 1-minute power</b></font>'
         '<br/><font color="#5b6485">rounded to whole watts</font></para>')
+    s.p("For a <b>20-minute test</b> (an <i>FTP Tests</i> workout of your own with a steady or interval block "
+        "of at least 20 minutes) it uses your <b>best 20-minute average power</b>:")
+    s.p('<para alignment="center"><font size="12"><b>FTP = 0.95 × best 20-minute power</b></font>'
+        '<br/><font color="#5b6485">rounded to whole watts</font></para>')
+    s.p("An <i>FTP Tests</i> workout that is neither a ramp nor contains a 20-minute block gives no FTP result.")
     s.p("The result is only offered when it is plausible:")
     s.bullets([
         "the ride was saved (at least 30 seconds) and contains at least <b>5 minutes</b> of recorded data;",
@@ -900,7 +906,8 @@ def build(s, env):
 
     s.section("The “FTP Test Complete” dialog")
     s.p("After a successful test the <i>FTP Test Complete</i> dialog opens. It shows the <b>Estimated FTP</b> "
-        "(“Based on 75 % of your best 1-minute power (… W)”) and three tiles: <b>Current FTP</b>, "
+        "(“Based on 75 % of your best 1-minute power (… W)”, or 95 % of the best 20-minute power for a "
+        "20-minute test) and three tiles: <b>Current FTP</b>, "
         "<b>Change</b> (in watts and percent) and <b>New W/kg</b>.")
     s.bullets([
         f"{UI('Update FTP')} – saves the new FTP to your profile. Power zones and all workout targets are "
@@ -1444,7 +1451,8 @@ def build(s, env):
     ], [1.6, 2.6, 1.6])
     s.p("Pressing the Click while virtual gears are off turns them on (<i>Zwift Click detected – using virtual "
         "gears</i>). The keys work only on the Free Ride page and not while you type in a field or a dialog or "
-        "menu is open.")
+        f"menu is open; {K('Enter')}, {K('Esc')} or a click on the page background leaves a text field. "
+        "Without virtual gears and outside ERG, the arrow keys do nothing.")
 
     s.chapter("Real Life Video",
               "Ride filmed routes: the video plays at the speed you ride, the trainer makes the climbs harder "
@@ -1551,7 +1559,9 @@ def build(s, env):
         [K("Space"), "Start / pause / resume", "Start / pause / resume"],
     ], [1.5, 2.8, 1.5])
     s.p("Pressing the Click while virtual gears are off turns them on. The keys work only on the Video Ride "
-        "page and not while you type in a field or a dialog or menu is open.")
+        "page and not while you type in a field or a dialog or menu is open; "
+        f"{K('Enter')}, {K('Esc')} or a click on the page background leaves a text field. The arrow keys never "
+        "change the route in the route list.")
 
     s.section("Video formats and Raspberry Pi")
     s.bullets([
@@ -1800,13 +1810,18 @@ def build(s, env):
         [K("Space"), "Rowing", "Pause / resume a running row."],
         [K("Space"), "Free Ride", "Start now / pause / resume the free ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Free Ride",
-         "Shift harder / easier (Ride with virtual gears); target ±5 W (ERG)."],
+         "Shift harder / easier (Ride with virtual gears); target ±5 W (ERG). Inactive otherwise."],
         [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Free Ride / Video Ride", "Bigger / smaller chainring; sequential: jump 3 gears."],
         [K("Page Up") + " / " + K("Page Down"), "Free Ride", "Grade ±0.5 % (Ride); target ±10 W (ERG)."],
         [K("Space"), "Video Ride", "Start now / pause / resume the video ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Video Ride",
          "Shift harder / easier (Simulation with virtual gears); target ±5 W (ERG)."],
         [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %; target ±10 W (ERG)."],
+        [K("Alt") + "+" + K("←") + " / " + K("→") + " or " + K("↑") + " / " + K("↓"), "Builder",
+         "Move the selected block earlier / later (Option on a Mac)."],
+        [K("Enter") + " / " + K("Esc"), "Text fields on the ride pages",
+         "Leave the field (Enter also applies an exact ERG target), so the ride keys work again. A click on "
+         "the page background does the same."],
         [K("Esc"), "Dialogs", "Close the dialog (where it can be closed)."],
         [K("Enter"), "New playlist name", "Create the playlist."],
     ], [1.0, 1.5, 3.3])

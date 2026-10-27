@@ -49,6 +49,10 @@ QtObject {
     readonly property color warningText: dark ? warning : "#8a6400"
     readonly property color successText: dark ? success : "#17803a"
     readonly property color accentText: dark ? accentLight : "#1a5fd6"
+    readonly property color orangeText: dark ? orange : "#b04e00"
+    readonly property color dangerText: dark ? danger : "#c42d19"
+    // Axis labels / tick texts of the charts (a bit stronger than textMuted on light)
+    readonly property color axisText: dark ? Qt.rgba(1, 1, 1, 0.62) : Qt.rgba(0.09, 0.13, 0.31, 0.78)
     // Canvas strokes that are plain white on the dark theme (cursor, target line,
     // start / finish posts, lane markers): strong foreground on either theme.
     readonly property color strongLine: dark ? Qt.rgba(1, 1, 1, 0.9) : Qt.rgba(0.09, 0.13, 0.31, 0.85)
@@ -76,6 +80,20 @@ QtObject {
         case "FTP Tests": return "#a259f7"
         default: return "#2fbf71"
         }
+    }
+
+    // --- small windows ------------------------------------------------------
+    // Main.qml scales the whole UI uniformly (uiScale = window / design size,
+    // ~0.48 on a 800×480 display). In such compact windows the smallest texts
+    // (hints, footers) are enlarged a bit so they stay readable.
+    property real uiScale: 1
+    readonly property bool compact: uiScale < 0.7
+    function small(px) {
+        return compact ? Math.round(px * 1.25) : px
+    }
+    // Height / width of a key control: at least ~32 physical px in compact windows.
+    function touch(px) {
+        return compact ? Math.max(px, Math.ceil(32 / Math.max(0.2, uiScale))) : px
     }
 
     // --- metrics ------------------------------------------------------------

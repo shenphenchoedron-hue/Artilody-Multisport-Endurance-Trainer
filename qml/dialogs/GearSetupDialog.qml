@@ -95,7 +95,9 @@ AppDialog {
             return
         }
         if (!Gears.setBikePhysics(weightSpin.value, cdaSpin.value, crrSpin.value, cdaAuto)) {
-            saveError = Gears.lastError
+            // the gears above are already saved: say so, only the bike values failed
+            saveError = "Gears saved (" + Gears.gearCount + " gears), but the bike values were not: "
+                        + (Gears.lastError.length > 0 ? Gears.lastError : "invalid value")
             return
         }
         close()

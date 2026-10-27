@@ -10,6 +10,9 @@ Rectangle {
     property real stepSize: 1
     property int decimals: 0
     property string unit
+    // optional function(current, next, dir) -> value for the ▲▼ arrows, keys
+    // and wheel (typed values are only clamped to from..to)
+    property var stepFilter: null
 
     implicitWidth: 204
     implicitHeight: 46
@@ -22,7 +25,10 @@ Rectangle {
         return Math.max(from, Math.min(to, v))
     }
     function step(dir) {
-        value = clampValue(Math.round((value + dir * stepSize) * Math.pow(10, decimals)) / Math.pow(10, decimals))
+        var next = clampValue(Math.round((value + dir * stepSize) * Math.pow(10, decimals)) / Math.pow(10, decimals))
+        if (typeof stepFilter === "function")
+            next = clampValue(stepFilter(value, next, dir))
+        value = next
     }
 
     TextInput {

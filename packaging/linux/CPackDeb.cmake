@@ -41,12 +41,14 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # or logged in at the console).
 # Package names verified for Debian 12 (bookworm) and Ubuntu 24.04 (noble).
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-window, qml6-module-qtquick-templates, qml6-module-qtqml-workerscript, qml6-module-qtqml-models, qml6-module-qt-labs-folderlistmodel, qml6-module-qtmultimedia, libqt6sql6-sqlite, qt6-qpa-plugins, libqt6bluetooth6, bluez, dbus")
+    "qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-window, qml6-module-qtquick-templates, qml6-module-qtqml-workerscript, qml6-module-qtqml-models, qml6-module-qt-labs-folderlistmodel, qml6-module-qtmultimedia, libqt6sql6-sqlite, qt6-qpa-plugins, libqt6bluetooth6, bluez, dbus, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good")
 # Qt 6.4 Multimedia on Debian/Ubuntu/Raspberry Pi OS plays through GStreamer:
-#   plugins-base/good  MP3 music, MP4 demuxing (qtdemux), Pi V4L2 H.264 decoder
+#   plugins-base/good  (Depends) MP3 music, MP4 demuxing (qtdemux), Pi V4L2 H.264
+#                      decoder - without them not even the bundled music plays,
+#                      and "apt install --no-install-recommends" would skip them
 #   libav              H.264/AAC software decoding (avdec_h264) for the Real Life Videos
 #   plugins-bad        h264parse and further codecs/containers used by some videos
 #   gl                 GL upload/sinks for smooth video output
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gstreamer1.0-plugins-good, gstreamer1.0-plugins-base, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-gl, qt6-wayland")
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-gl, qt6-wayland")
 
 include(CPack)

@@ -156,7 +156,14 @@ Item {
                     font.pixelSize: 17
                     inputMethodHints: Qt.ImhDigitsOnly
                     validator: IntValidator { bottom: 1; top: 9999 }
-                    onAccepted: setButton.clicked()
+                    onAccepted: setButton.apply()
+                    // hand the keyboard back to the page (Space, ↑ / ↓ shortcuts)
+                    onEditingFinished: if (activeFocus) erg.forceActiveFocus()
+                    Keys.onEscapePressed: (event) => {
+                        text = ""
+                        erg.forceActiveFocus()
+                        event.accepted = true
+                    }
                 }
                 AppButton {
                     id: setButton
@@ -165,21 +172,24 @@ Item {
                     fontSize: 16
                     horizontalPadding: 18
                     enabled: entry.text.length > 0
-                    onClicked: {
+                    Accessible.name: "Set target power"
+                    // targetWatts is a writable property (clamped by FreeRide)
+                    function apply() {
                         var v = parseInt(entry.text)
                         if (isNaN(v))
                             return
-                        FreeRide.setTargetWatts(v)
+                        FreeRide.targetWatts = v
                         entry.text = ""
-                        entry.focus = false
+                        erg.forceActiveFocus()
                     }
+                    onClicked: apply()
                 }
             }
             Text {
                 Layout.fillWidth: true
                 text: "Values are limited to " + FreeRide.minTargetWatts + "–" + FreeRide.maxTargetWatts + " W."
                 color: Theme.textMuted
-                font.pixelSize: 13
+                font.pixelSize: Theme.small(13)
                 wrapMode: Text.WordWrap
             }
             Item { Layout.fillHeight: true }

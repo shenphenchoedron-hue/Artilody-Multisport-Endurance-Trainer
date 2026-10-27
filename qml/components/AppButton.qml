@@ -15,6 +15,10 @@ Rectangle {
     property real iconSpacing: 12
     signal clicked()
 
+    Accessible.role: Accessible.Button
+    Accessible.name: text
+    Accessible.onPressAction: if (button.enabled) button.clicked()
+
     implicitWidth: content.implicitWidth + 2 * horizontalPadding
     implicitHeight: 54
     radius: 10

@@ -22,8 +22,15 @@ Rectangle {
     Accessible.name: label
     Accessible.description: sublabel
     Accessible.onPressAction: if (enabled) clicked()
+    // With keyboard focus, Space / Return press this button: claim them before
+    // the window-wide Space shortcut (pause / resume) gets the key.
+    Keys.onShortcutOverride: (event) => {
+        if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+            event.accepted = true
+    }
     Keys.onSpacePressed: (event) => { if (enabled) clicked(); event.accepted = true }
-    Keys.onReturnPressed: if (enabled) clicked()
+    Keys.onReturnPressed: (event) => { if (enabled) clicked(); event.accepted = true }
+    Keys.onEnterPressed: (event) => { if (enabled) clicked(); event.accepted = true }
 
     radius: 14
     opacity: enabled ? 1 : 0.4

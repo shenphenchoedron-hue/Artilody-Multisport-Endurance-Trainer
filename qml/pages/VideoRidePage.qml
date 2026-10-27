@@ -8,7 +8,8 @@ import Artilody.Backend
 // Real Life Video ride: ride a filmed route; the video follows your position
 // on its GPS track. All logic lives in the Rlv (session) and Videos (library)
 // singletons; this page only shows the video and keeps it in sync:
-//   * source = Rlv.videoUrl
+//   * source = Rlv.videoUrl while the page is shown or a ride is active
+//     (no decoding in the background); a new source seeks to Rlv.videoPosition
 //   * player.position is set ONLY on Rlv.seekRequested(ms) (never bound)
 //   * player.playbackRate is bound to Rlv.playbackRate
 //   * play() while Rlv.videoShouldPlay, else pause()
@@ -50,9 +51,18 @@ Item {
     function gradeText(g) {
         return (g > 0.05 ? "+" : g < -0.05 ? "−" : "") + Math.abs(g).toFixed(1) + " %"
     }
+    // bright grade colours: overlays on the (dark) video
     function gradeColor(g) {
         return g <= -2 ? "#3ddc5c" : g < 2 ? "#4da3ff" : g < 5 ? "#ffd21f" : g < 8 ? "#ff8a26" : "#f4513b"
     }
+    // text-safe grade colours for text on the cards (darker on the light theme)
+    function gradeTextColor(g) {
+        return g <= -2 ? Theme.successText : g < 2 ? Theme.accentText : g < 5 ? Theme.warningText
+             : g < 8 ? Theme.orangeText : Theme.dangerText
+    }
+    // id of the ride shown in the finished summary (see FreeRidePage: a binding
+    // on Rlv.lastRideId may keep the previous ride after an unsaved one)
+    property real shownRideId: -1
     function routeDetails(distanceM, ascentM, sec, country) {
         var parts = [(distanceM / 1000).toFixed(1) + " km", Math.round(ascentM) + " m ↑"]
         if (sec > 0)
@@ -71,10 +81,50 @@ Item {
         if (w && typeof w.showToast === "function")
             w.showToast(text)
     }
+    // Videos.rescan() / addFolder() scan in a worker thread: the toast with the
+    // new count is shown when Videos.scanned() arrives (see Connections below)
+    property bool scanToastPending: false
+    property string scanToastEmptyText: ""
+    function rescanLibrary() {
+        scanToastPending = true
+        scanToastEmptyText = ""
+        Videos.rescan()
+        if (Videos.scanning)
+            toast("Scanning the video library…")
+        else
+            reportScan()
+    }
+    function reportScan() {
+        if (!scanToastPending)
+            return
+        scanToastPending = false
+        if (Videos.count === 0 && scanToastEmptyText.length > 0)
+            toast(scanToastEmptyText)
+        else
+            toast(Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library")
+    }
+    Connections {
+        target: Videos
+        function onScanned() {
+            // a queued follow-up scan (folders changed meanwhile) starts right
+            // after scanned(): wait for the last one
+            Qt.callLater(function() {
+                if (!Videos.scanning)
+                    page.reportScan()
+            })
+        }
+    }
+    // file URL of a local folder: "/a/b" -> file:///a/b, "C:\\a" -> file:///C:/a
+    function folderUrl(path) {
+        var p = ("" + path).replace(/\\/g, "/")
+        return "file://" + (p.charAt(0) === "/" ? "" : "/") + p
+    }
     function openLibraryFolder() {
         var f = Videos.ensureLibraryFolder()
-        if (f.length > 0)
-            Qt.openUrlExternally("file://" + (f.charAt(0) === "/" ? "" : "/") + f)
+        if (f.length === 0)
+            return
+        var u = Videos.libraryFolderUrl   // QUrl from C++ when available
+        Qt.openUrlExternally(u !== undefined && ("" + u).length > 0 ? u : folderUrl(f))
     }
 
     // ------------------------------------------------------------------ video
@@ -106,6 +156,17 @@ Item {
     property bool posterPending: false
     property real posterMs: 0
 
+    // never seek onto / past the last frame: the player would report
+    // EndOfMedia, and a play() there restarts the video from the beginning
+    function clampSeek(ms) {
+        var d = player.duration
+        return d > 0 ? Math.max(0, Math.min(ms, d - 200)) : Math.max(0, ms)
+    }
+    // the video has played to its end (the route can be longer than the film)
+    function atEndOfMedia() {
+        return player.mediaStatus === MediaPlayer.EndOfMedia
+               && (player.duration <= 0 || player.position >= player.duration - 500)
+    }
     function seekVideo(ms) {
         if (!Rlv.videoAvailable)
             return
@@ -114,14 +175,19 @@ Item {
             return
         }
         pendingSeekMs = -1
+        ms = clampSeek(ms)
         player.position = ms
         if (!Rlv.videoShouldPlay)
             showPoster(ms)
+        else
+            syncPlay()              // e.g. after the end of the video
     }
     function showPoster(ms) {
         posterMs = ms
         if (player.playbackState === MediaPlayer.PausedState && !posterPending)
             return                  // a paused player renders the frame of a seek
+        if (atEndOfMedia())
+            return                  // play() would restart the video at 0
         posterPending = true
         player.play()
         posterTimer.restart()
@@ -132,7 +198,8 @@ Item {
         if (Rlv.videoShouldPlay) {
             posterPending = false
             posterTimer.stop()
-            if (player.playbackState !== MediaPlayer.PlayingState)
+            // at the end of the video: keep the last frame (no restart loop)
+            if (player.playbackState !== MediaPlayer.PlayingState && !atEndOfMedia())
                 player.play()
         } else if (!posterPending && player.playbackState === MediaPlayer.PlayingState) {
             player.pause()
@@ -144,7 +211,7 @@ Item {
         if (!gotFrame && !frameWatchdog.running && !noPicture)
             frameWatchdog.restart()
         if (pendingSeekMs >= 0) {
-            var ms = pendingSeekMs
+            var ms = clampSeek(pendingSeekMs)
             pendingSeekMs = -1
             player.position = ms
             if (!Rlv.videoShouldPlay)
@@ -299,18 +366,17 @@ Item {
                 horizontalPadding: 14
                 bold: false
                 iconName: "refresh"
-                text: "Rescan Library"
-                onClicked: {
-                    Videos.rescan()
-                    help.toast(Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library")
-                }
+                enabled: !Videos.scanning
+                text: Videos.scanning ? "Scanning…" : "Rescan Library"
+                onClicked: page.rescanLibrary()
             }
         }
     }
 
     MediaPlayer {
         id: player
-        source: Rlv.videoUrl
+        // only while the page is shown (or a ride runs): no decoding in the background
+        source: page.visible || Rlv.active || Rlv.waiting ? Rlv.videoUrl : ""
         videoOutput: videoOut
         // RLVs are usually silent: no audio output unless switched on
         audioOutput: page.audioOn ? audioOut : null
@@ -322,6 +388,12 @@ Item {
             page.gotFrame = false
             page.noPicture = false
             frameWatchdog.stop()
+            // (re)loaded, e.g. the page became visible again: show the current
+            // position (a seekRequested arriving later overrides it)
+            if (("" + source).length > 0 && Rlv.videoAvailable)
+                page.pendingSeekMs = Rlv.videoPosition
+            else
+                page.pendingSeekMs = -1
         }
     }
     AudioOutput {
@@ -365,6 +437,12 @@ Item {
     Connections {
         target: Rlv
         function onSeekRequested(positionMs) { page.seekVideo(positionMs) }
+        function onStateChanged() {
+            page.shownRideId = Rlv.state === "finished" ? Rlv.lastRideId : -1
+        }
+        function onRideSaved(id) {
+            page.shownRideId = Rlv.state === "finished" ? id : -1
+        }
         function onInformationChanged() {
             if (Rlv.currentInformation.length > 0) {
                 infoBox.text = Rlv.currentInformation
@@ -398,17 +476,27 @@ Item {
         // a route restored at startup was sought before this page existed
         if (Rlv.videoAvailable)
             pendingSeekMs = Rlv.videoPosition
+        shownRideId = Rlv.state === "finished" ? Rlv.lastRideId : -1
         handleMediaStatus()
+    }
+
+    // a click / tap on the page background takes the keyboard focus away from
+    // a text field, so Space / arrow keys reach the ride shortcuts again
+    TapHandler {
+        onTapped: page.forceActiveFocus()
     }
 
     FolderDialog {
         id: addFolderDialog
         title: "Add a folder with Real Life Videos"
         onAccepted: {
-            if (Videos.addFolder(selectedFolder))
-                page.toast(Videos.count > 0 ? Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library"
-                                            : "No videos found in that folder")
-            else
+            if (Videos.addFolder(selectedFolder)) {
+                // addFolder() starts an asynchronous rescan: report the count once it is done
+                page.scanToastPending = true
+                page.scanToastEmptyText = "No videos found in that folder"
+                if (!Videos.scanning)
+                    page.reportScan()
+            } else
                 page.toast(Videos.lastError.length > 0 ? Videos.lastError : "Could not add the folder")
         }
     }
@@ -467,10 +555,14 @@ Item {
                         width: 470
                         height: 58
                         enabled: !page.locked && Videos.count > 0
+                        // no keyboard focus: ↑ / ↓ belong to the ride (shift / ERG)
+                        // and must not switch the route
+                        focusPolicy: Qt.NoFocus
+                        Accessible.name: "Route"
                         model: Videos
                         textRole: "displayName"
                         currentIndex: Rlv.routeIndex
-                        displayText: Videos.count === 0 ? "No videos in the library"
+                        displayText: Videos.count === 0 ? (Videos.scanning ? "Scanning the library…" : "No videos in the library")
                                      : Rlv.hasRoute ? (Rlv.routeTitle.length > 0 ? Rlv.routeTitle : Rlv.routeName) : "Choose a video…"
                         onActivated: (index) => {
                             if (!Rlv.select(index))
@@ -502,7 +594,7 @@ Item {
                                     width: parent.width
                                     text: page.routeDetails(Rlv.totalDistanceM, Rlv.totalAscentM, Rlv.routeDurationSec, Rlv.routeCountry)
                                     color: Theme.textSecondary
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.small(13)
                                     elide: Text.ElideRight
                                 }
                             }
@@ -528,8 +620,9 @@ Item {
                                     width: parent.width
                                     text: model.valid ? page.routeDetails(model.distanceM, model.ascentM, model.durationSec, model.country)
                                                       : (model.error.length > 0 ? model.error : "Cannot be loaded")
-                                    color: model.valid ? Theme.textSecondary : Theme.danger
-                                    font.pixelSize: 13
+                                    color: model.valid ? Theme.textSecondary : Theme.dangerText
+                                    font.pixelSize: model.valid ? 13 : 14
+                                    font.weight: model.valid ? Font.Normal : Font.DemiBold
                                     elide: Text.ElideRight
                                 }
                             }
@@ -567,12 +660,10 @@ Item {
                                 onTriggered: page.openLibraryFolder()
                             }
                             AppMenuItem {
-                                text: "Rescan Library"
+                                text: Videos.scanning ? "Scanning…" : "Rescan Library"
                                 iconName: "refresh"
-                                onTriggered: {
-                                    Videos.rescan()
-                                    page.toast(Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library")
-                                }
+                                enabled: !Videos.scanning
+                                onTriggered: page.rescanLibrary()
                             }
                         }
                     }
@@ -753,7 +844,7 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: "route " + page.gradeText(Rlv.gradePercent)
                             color: Qt.rgba(1, 1, 1, 0.75)
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.small(13)
                         }
                     }
                 }
@@ -810,17 +901,19 @@ Item {
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 16
                     spacing: 8
+                    // static model, live values inside the delegate (a model built
+                    // from live values would recreate the chips on every change)
                     Repeater {
-                        model: [
-                            { icon: page.gears ? "cog" : page.ergMode ? "bolt" : "mountain",
-                              text: page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
-                                    : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation",
-                              show: true },
-                            { icon: "mountain", text: "Difficulty " + Rlv.difficultyPercent + " %", show: !page.ergMode },
-                            { icon: "play", text: "Video × " + Rlv.playbackRate.toFixed(2), show: Rlv.active }
-                        ]
+                        model: 3
                         Rectangle {
-                            visible: modelData.show
+                            readonly property string chipIcon: index === 0 ? (page.gears ? "cog" : page.ergMode ? "bolt" : "mountain")
+                                                             : index === 1 ? "mountain" : "play"
+                            readonly property string chipText: index === 0
+                                ? (page.gears ? Gears.gearLabel + " · " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
+                                   : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
+                                : index === 1 ? "Difficulty " + Rlv.difficultyPercent + " %"
+                                : "Video × " + Rlv.playbackRate.toFixed(2)
+                            visible: index === 0 || (index === 1 ? !page.ergMode : Rlv.active)
                             height: 32
                             width: chipContent.implicitWidth + 24
                             radius: 16
@@ -830,13 +923,13 @@ Item {
                                 anchors.centerIn: parent
                                 spacing: 7
                                 Icon {
-                                    name: modelData.icon
+                                    name: parent.parent.chipIcon
                                     size: 16
                                     color: "white"
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Text {
-                                    text: modelData.text
+                                    text: parent.parent.chipText
                                     color: "white"
                                     font.pixelSize: 14
                                     font.weight: Font.DemiBold
@@ -864,6 +957,9 @@ Item {
                         size: 18
                         color: "white"
                     }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: page.audioOn ? "Mute the video" : "Play the video's sound"
+                    Accessible.onPressAction: page.audioOn = !page.audioOn
                     MouseArea {
                         id: audioMouse
                         anchors.fill: parent
@@ -1004,7 +1100,7 @@ Item {
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "No Real Life Videos yet"
+                        text: Videos.scanning ? "Scanning the library…" : "No Real Life Videos yet"
                         color: Theme.text
                         font.pixelSize: 26
                         font.weight: Font.Bold
@@ -1071,8 +1167,9 @@ Item {
                             iconSize: 20
                             bold: false
                             iconName: "refresh"
-                            text: "Rescan"
-                            onClicked: Videos.rescan()
+                            text: Videos.scanning ? "Scanning…" : "Rescan"
+                            enabled: !Videos.scanning
+                            onClicked: page.rescanLibrary()
                         }
                     }
                 }
@@ -1185,26 +1282,31 @@ Item {
                     x: 18
                     y: 14
                     spacing: 22
+                    // static model, live values inside the delegate
                     Repeater {
-                        model: [
-                            { label: "Distance", value: page.kmText(Rlv.distanceMeters, 2) + " / " + page.kmText(Rlv.totalDistanceM, 1) + " km" },
-                            { label: "To go", value: page.kmText(Rlv.remainingMeters, 2) + " km" },
-                            { label: "Elevation", value: Math.round(Rlv.elevationM) + " m" },
-                            { label: "Climbed", value: Math.round(Rlv.ascentDoneM) + " / " + Math.round(Rlv.totalAscentM) + " m" },
-                            { label: "Grade", value: page.gradeText(Rlv.gradePercent) }
-                        ]
+                        model: ["Distance", "To go", "Elevation", "Climbed", "Grade"]
                         Row {
                             spacing: 7
                             Text {
-                                text: modelData.label
+                                text: modelData
                                 color: Theme.textSecondary
                                 font.pixelSize: 15
                                 anchors.baseline: valueLabel.baseline
                             }
                             Text {
                                 id: valueLabel
-                                text: Rlv.hasRoute ? modelData.value : "–"
-                                color: index === 4 && Rlv.hasRoute ? page.gradeColor(Rlv.gradePercent) : Theme.text
+                                text: {
+                                    if (!Rlv.hasRoute)
+                                        return "–"
+                                    switch (index) {
+                                    case 0: return page.kmText(Rlv.distanceMeters, 2) + " / " + page.kmText(Rlv.totalDistanceM, 1) + " km"
+                                    case 1: return page.kmText(Rlv.remainingMeters, 2) + " km"
+                                    case 2: return Math.round(Rlv.elevationM) + " m"
+                                    case 3: return Math.round(Rlv.ascentDoneM) + " / " + Math.round(Rlv.totalAscentM) + " m"
+                                    default: return page.gradeText(Rlv.gradePercent)
+                                    }
+                                }
+                                color: index === 4 && Rlv.hasRoute ? page.gradeTextColor(Rlv.gradePercent) : Theme.text
                                 font.pixelSize: 18
                                 font.weight: Font.Bold
                             }
@@ -1218,7 +1320,7 @@ Item {
                     visible: Rlv.hasRoute && !page.locked && statsRow.width + implicitWidth + 60 < profileCard.width
                     text: "Click the profile to choose the start point"
                     color: Theme.textMuted
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.small(13)
                 }
                 RouteProfile {
                     id: routeProfile
@@ -1241,585 +1343,611 @@ Item {
         }
 
         // ================= right column =================
-        // (a Column, not a ColumnLayout: hidden cards must not leave gaps in Qt 6.4)
-        Column {
+        // Scrolls when its cards are taller than the window (finished summary +
+        // ERG / virtual gears controls on a small screen).
+        Flickable {
+            id: rightFlick
             Layout.preferredWidth: 300
             Layout.maximumWidth: 300
-            Layout.alignment: Qt.AlignTop
-            topPadding: 64
-            spacing: 12
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: rightCol.height
+            clip: true
+            interactive: contentHeight > height + 1
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {
+                policy: rightFlick.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            }
 
-            // controls
-            Card {
-                width: parent.width
-                height: controlsCol.implicitHeight + 32
-                Column {
-                    id: controlsCol
-                    x: 14; y: 16
-                    width: parent.width - 28
-                    spacing: 10
+            // (a Column, not a ColumnLayout: hidden cards must not leave gaps in Qt 6.4)
+            Column {
+                id: rightCol
+                width: rightFlick.width
+                topPadding: 64
+                bottomPadding: 2
+                spacing: 12
 
-                    AppButton {
-                        visible: !Rlv.active
-                        width: parent.width
-                        height: 50
-                        kind: "primary"
-                        iconName: "play"
-                        text: page.finished ? "Ride Again" : "Start Now"
-                        enabled: page.canStart
-                        onClicked: Rlv.start()
-                    }
-                    AppButton {
-                        visible: !Rlv.active && !page.finished
-                        width: parent.width
-                        height: 44
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: Rlv.waiting ? "close" : "cadence"
-                        text: Rlv.waiting ? "Cancel Auto-Start" : "Start When Pedaling"
-                        enabled: Rlv.waiting || page.canStart
-                        onClicked: Rlv.waiting ? Rlv.finish(false) : Rlv.startWhenPedaling()
-                    }
-                    AppButton {
-                        visible: Rlv.active
-                        width: parent.width
-                        height: 50
-                        kind: Rlv.paused ? "success" : "danger"
-                        iconName: Rlv.paused ? "play" : "pause"
-                        text: Rlv.paused ? "Resume" : "Pause Ride"
-                        onClicked: Rlv.togglePause()
-                    }
-                    RowLayout {
-                        width: parent.width
+                // controls
+                Card {
+                    width: parent.width
+                    height: controlsCol.implicitHeight + 32
+                    Column {
+                        id: controlsCol
+                        x: 14; y: 16
+                        width: parent.width - 28
                         spacing: 10
+
                         AppButton {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 44
+                            visible: !Rlv.active
+                            width: parent.width
+                            height: Theme.touch(50)
+                            kind: "primary"
+                            iconName: "play"
+                            text: page.finished ? "Ride Again" : "Start Now"
+                            enabled: page.canStart
+                            onClicked: Rlv.start()
+                        }
+                        AppButton {
+                            visible: !Rlv.active && !page.finished
+                            width: parent.width
+                            height: Theme.touch(44)
                             kind: "secondary"
                             fontSize: 15
                             iconSize: 18
-                            iconName: "stop"
-                            text: "Finish"
-                            enabled: Rlv.active
-                            onClicked: page.requestFinish()
+                            bold: false
+                            iconName: Rlv.waiting ? "close" : "cadence"
+                            text: Rlv.waiting ? "Cancel Auto-Start" : "Start When Pedaling"
+                            enabled: Rlv.waiting || page.canStart
+                            onClicked: Rlv.waiting ? Rlv.finish(false) : Rlv.startWhenPedaling()
                         }
                         AppButton {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 44
-                            kind: "secondary"
-                            fontSize: 15
-                            iconSize: 18
-                            iconName: "refresh"
-                            text: "Reset"
-                            enabled: page.finished
-                            onClicked: Rlv.reset()
+                            visible: Rlv.active
+                            width: parent.width
+                            height: Theme.touch(50)
+                            kind: Rlv.paused ? "success" : "danger"
+                            iconName: Rlv.paused ? "play" : "pause"
+                            text: Rlv.paused ? "Resume" : "Pause Ride"
+                            onClicked: Rlv.togglePause()
                         }
-                    }
-                    Text {
-                        width: parent.width
-                        visible: text.length > 0
-                        text: Rlv.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
-                              : !Rlv.active && page.otherSession
-                                ? (Rowing.active ? "A row is in progress – finish it to start a video ride."
-                                   : FreeRide.active ? "A free ride is in progress – finish it to start a video ride."
-                                   : "A workout is running – finish it to start a video ride.")
-                              : !Rlv.hasRoute && !Rlv.active ? "Choose a video to start."
-                              : page.st === "idle" && Rlv.trainerConnected
-                                ? "Starts at " + page.kmText(Rlv.startDistanceM, 2) + " km. Space starts and pauses the ride." : ""
-                        color: Theme.textSecondary
-                        font.pixelSize: 14
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            }
-
-            // no trainer connected
-            Card {
-                visible: !Rlv.trainerConnected
-                width: parent.width
-                height: 142
-                Row {
-                    x: 16; y: 16
-                    spacing: 10
-                    Icon { name: "bluetooth"; size: 22; color: Theme.warning; anchors.verticalCenter: parent.verticalCenter }
-                    Text {
-                        text: "No trainer connected"
-                        color: Theme.text
-                        font.pixelSize: 17
-                        font.weight: Font.Bold
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-                Text {
-                    x: 16; y: 46
-                    width: parent.width - 32
-                    text: "Connect a smart trainer (or the virtual trainer) to ride the video."
-                    color: Theme.textSecondary
-                    font.pixelSize: 14
-                    wrapMode: Text.WordWrap
-                }
-                AppButton {
-                    x: 16
-                    width: parent.width - 32
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 14
-                    height: 40
-                    fontSize: 15
-                    iconSize: 18
-                    iconName: "bluetooth"
-                    text: "Open Devices"
-                    onClicked: page.openDevices()
-                }
-            }
-
-            // finished summary
-            Card {
-                visible: page.finished
-                width: parent.width
-                height: summaryCol.implicitHeight + 32
-                Column {
-                    id: summaryCol
-                    x: 16; y: 16
-                    width: parent.width - 32
-                    spacing: 10
-                    Text {
-                        text: Rlv.completed ? "Route complete" : "Ride finished"
-                        color: Theme.text
-                        font.pixelSize: 19
-                        font.weight: Font.Bold
-                    }
-                    Grid {
-                        columns: 2
-                        width: parent.width
-                        rowSpacing: 8
-                        Repeater {
-                            model: ["Time", "Distance", "Avg power", "Climbed", "Avg speed", "Energy"]
-                            Column {
-                                width: summaryCol.width / 2
-                                Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 13 }
-                                Text {
-                                    text: {
-                                        switch (index) {
-                                        case 0: return Theme.clock(Rlv.elapsedSeconds)
-                                        case 1: return page.kmText(Rlv.riddenMeters) + " km"
-                                        case 2: return Rlv.avgWatts + " W"
-                                        case 3: return Math.round(Rlv.ascentDoneM) + " m"
-                                        case 4: return Rlv.avgSpeedKmh.toFixed(1) + " km/h"
-                                        default: return Math.round(Rlv.kilojoules) + " kJ"
-                                        }
-                                    }
-                                    color: Theme.text
-                                    font.pixelSize: 19
-                                    font.weight: Font.Bold
-                                }
+                        RowLayout {
+                            width: parent.width
+                            spacing: 10
+                            AppButton {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.touch(44)
+                                kind: "secondary"
+                                fontSize: 15
+                                iconSize: 18
+                                iconName: "stop"
+                                text: "Finish"
+                                enabled: Rlv.active
+                                onClicked: page.requestFinish()
+                            }
+                            AppButton {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.touch(44)
+                                kind: "secondary"
+                                fontSize: 15
+                                iconSize: 18
+                                iconName: "refresh"
+                                text: "Reset"
+                                enabled: page.finished
+                                onClicked: Rlv.reset()
                             }
                         }
-                    }
-                    Text {
-                        visible: Rlv.lastRideId < 0
-                        width: parent.width
-                        text: "Not saved (discarded or shorter than 30 s)."
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-                    AppButton {
-                        visible: Rlv.lastRideId >= 0
-                        width: parent.width
-                        height: 40
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: "history"
-                        text: "View in History"
-                        onClicked: page.goTo("history")
-                    }
-                }
-            }
-
-            // resistance: simulation (real or virtual gears) / ERG
-            Card {
-                id: resistanceCard
-                property Item ergPlus10: null
-                property Item ergMinus10: null
-                width: parent.width
-                height: resCol.y + resCol.implicitHeight + 16
-                title: "Resistance"
-                titleSize: 18
-                Column {
-                    id: resCol
-                    x: 16
-                    y: resistanceCard.contentTop - 4
-                    width: parent.width - 32
-                    spacing: 10
-
-                    SegmentedControl {
-                        objectName: "videoModeSelector"
-                        width: parent.width
-                        height: 44
-                        fontSize: 14
-                        segmentPadding: 9
-                        options: [
-                            { value: "sim", label: "Simulation" },
-                            { value: "erg", label: "ERG" }
-                        ]
-                        value: Rlv.mode
-                        onActivated: (v) => Rlv.mode = v
-                    }
-                    Text {
-                        width: parent.width
-                        text: page.ergMode ? (Rlv.ergHolding ? "ERG on – the trainer holds " + Rlv.sentTargetWatts + " W now. " : "")
-                                             + "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
-                              : "Climbs get harder like on the road."
-                        color: Theme.textSecondary
-                        font.pixelSize: 14
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // how the rider shifts (set up on the Devices page)
-                    Text {
-                        visible: page.simMode
-                        width: parent.width
-                        text: "Shifting: " + page.shiftingText()
-                              + "   <a href=\"devices\" style=\"text-decoration:none\">Devices ›</a>"
-                        textFormat: Text.StyledText
-                        linkColor: Theme.accentLight
-                        color: Theme.text
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                        wrapMode: Text.WordWrap
-                        onLinkActivated: page.openDevices()
-                        HoverHandler { cursorShape: parent.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
-                    }
-
-                    // simulation not possible on this trainer
-                    Rectangle {
-                        visible: Rlv.simulationFallback
-                        width: parent.width
-                        height: fallbackRow.implicitHeight + 16
-                        radius: 8
-                        color: Theme.cardStrong
-                        border.color: Theme.warning
-                        Row {
-                            id: fallbackRow
-                            x: 10; y: 8
-                            width: parent.width - 20
-                            spacing: 8
-                            Icon { name: "info"; size: 18; color: Theme.warningText }
-                            Text {
-                                width: parent.width - 26
-                                text: "Your trainer can't simulate climbs – using virtual gears instead."
-                                color: Theme.text
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
-                            }
-                        }
-                    }
-
-                    // simulation: what the trainer gets
-                    Item {
-                        visible: page.simMode && Rlv.resistancePath !== "gearErg"
-                        width: parent.width
-                        height: 26
                         Text {
-                            text: "Grade sent to trainer"
+                            width: parent.width
+                            visible: text.length > 0
+                            text: Rlv.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
+                                  : !Rlv.active && page.otherSession
+                                    ? (Rowing.active ? "A row is in progress – finish it to start a video ride."
+                                       : FreeRide.active ? "A free ride is in progress – finish it to start a video ride."
+                                       : "A workout is running – finish it to start a video ride.")
+                                  : !Rlv.hasRoute && !Rlv.active ? "Choose a video to start."
+                                  : page.st === "idle" && Rlv.trainerConnected
+                                    ? "Starts at " + page.kmText(Rlv.startDistanceM, 2) + " km. Space starts and pauses the ride." : ""
                             color: Theme.textSecondary
                             font.pixelSize: 14
-                            anchors.verticalCenter: parent.verticalCenter
+                            wrapMode: Text.WordWrap
                         }
-                        Text {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
-                            color: Rlv.simulationActive ? page.gradeColor(Rlv.simulationGradePercent) : Theme.textMuted
-                            font.pixelSize: 18
-                            font.weight: Font.Bold
-                        }
-                    }
-
-                    // virtual gears
-                    RowLayout {
-                        visible: page.gears
-                        width: parent.width
-                        height: 76
-                        spacing: 8
-                        ShiftButton {
-                            id: easierButton
-                            Layout.preferredWidth: 64
-                            Layout.fillHeight: true
-                            iconName: "minus"
-                            iconSize: 26
-                            Accessible.name: "Shift easier"
-                            tint: Theme.accent
-                            enabled: Gears.canShiftDown
-                            onClicked: Gears.shiftDown()
-                        }
-                        Column {
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            spacing: 2
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: Gears.gearLabel.replace("×", " × ")
-                                color: Theme.text
-                                font.pixelSize: 30
-                                font.weight: Font.Black
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
-                                color: Theme.textSecondary
-                                font.pixelSize: 13
-                            }
-                        }
-                        ShiftButton {
-                            id: harderButton
-                            Layout.preferredWidth: 64
-                            Layout.fillHeight: true
-                            iconName: "plus"
-                            iconSize: 26
-                            Accessible.name: "Shift harder"
-                            tint: Theme.orange
-                            enabled: Gears.canShiftUp
-                            onClicked: Gears.shiftUp()
-                        }
-                    }
-                    Text {
-                        visible: page.gears && Rlv.resistancePath === "gearSimulation"
-                        width: parent.width
-                        text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-                    Text {
-                        visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
-                        width: parent.width
-                        text: "No cadence from your trainer: it rides without virtual gears, and your speed follows your power."
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // ERG: target watts
-                    Item {
-                        visible: page.ergMode
-                        width: parent.width
-                        height: ergTarget.implicitHeight
-                        Row {
-                            id: ergTarget
-                            spacing: 6
-                            Text {
-                                id: ergValue
-                                text: Rlv.targetWatts
-                                color: Theme.warningText
-                                font.pixelSize: 54
-                                font.weight: Font.Black
-                                font.letterSpacing: -1
-                            }
-                            Text {
-                                text: "W"
-                                color: Theme.warningText
-                                font.pixelSize: 26
-                                font.weight: Font.Bold
-                                anchors.baseline: ergValue.baseline
-                            }
-                        }
-                        Column {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            Text {
-                                anchors.right: parent.right
-                                text: "Target power"
-                                color: Theme.textSecondary
-                                font.pixelSize: 13
-                            }
-                            Text {
-                                readonly property int diff: Rlv.displayWatts - Rlv.targetWatts
-                                anchors.right: parent.right
-                                text: Rlv.displayWatts > 0 ? "Actual " + Rlv.displayWatts + " W" : "Actual – W"
-                                color: Rlv.displayWatts <= 0 ? Theme.textSecondary
-                                       : Math.abs(diff) <= Math.max(5, Rlv.targetWatts * 0.05) ? Theme.successText : Theme.warningText
-                                font.pixelSize: 15
-                                font.weight: Font.DemiBold
-                            }
-                        }
-                    }
-                    GridLayout {
-                        visible: page.ergMode
-                        width: parent.width
-                        columns: 3
-                        rowSpacing: 8
-                        columnSpacing: 8
-                        Repeater {
-                            model: [-25, -10, -5, 5, 10, 25]
-                            ShiftButton {
-                                id: ergStep
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 50
-                                label: (modelData > 0 ? "+" : "−") + Math.abs(modelData)
-                                labelSize: 20
-                                Accessible.name: (modelData > 0 ? "Increase target by " : "Decrease target by ") + Math.abs(modelData) + " watts"
-                                tint: modelData > 0 ? Theme.orange : Theme.accent
-                                enabled: modelData > 0 ? Rlv.targetWatts < Rlv.maxTargetWatts : Rlv.targetWatts > Rlv.minTargetWatts
-                                onClicked: Rlv.adjustTargetWatts(modelData)
-                                Component.onCompleted: {
-                                    if (modelData === 10) resistanceCard.ergPlus10 = ergStep
-                                    else if (modelData === -10) resistanceCard.ergMinus10 = ergStep
-                                }
-                            }
-                        }
-                    }
-                    RowLayout {
-                        visible: page.ergMode
-                        width: parent.width
-                        spacing: 8
-                        AppTextField {
-                            id: ergEntry
-                            Layout.fillWidth: true
-                            placeholderText: "Exact target, " + Rlv.minTargetWatts + "–" + Rlv.maxTargetWatts + " W"
-                            font.pixelSize: 15
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 1; top: 9999 }
-                            onAccepted: ergSet.clicked()
-                        }
-                        AppButton {
-                            id: ergSet
-                            Layout.preferredHeight: 44
-                            text: "Set"
-                            fontSize: 15
-                            horizontalPadding: 16
-                            enabled: ergEntry.text.length > 0
-                            onClicked: {
-                                var v = parseInt(ergEntry.text)
-                                if (isNaN(v))
-                                    return
-                                Rlv.targetWatts = v
-                                ergEntry.text = ""
-                                ergEntry.focus = false
-                            }
-                        }
-                    }
-
-                    // difficulty (resistance modes only)
-                    Rectangle { visible: !page.ergMode; width: parent.width; height: 1; color: Theme.cardBorder }
-                    Item {
-                        visible: !page.ergMode
-                        width: parent.width
-                        height: 24
-                        Text {
-                            text: "Difficulty"
-                            color: Theme.text
-                            font.pixelSize: 16
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        Text {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Rlv.difficultyPercent + " %"
-                            color: Theme.text
-                            font.pixelSize: 18
-                            font.weight: Font.Bold
-                        }
-                    }
-                    AppSlider {
-                        visible: !page.ergMode
-                        width: parent.width
-                        from: 0
-                        to: 100
-                        stepSize: 5
-                        snapMode: Slider.SnapAlways
-                        value: Rlv.difficultyPercent
-                        fillColor: Theme.success
-                        onMoved: Rlv.difficultyPercent = Math.round(value)
-                    }
-                    Text {
-                        visible: !page.ergMode
-                        width: parent.width
-                        text: Rlv.difficultyPercent >= 100
-                              ? "100 % = the real gradients of the route. Lower values flatten climbs and descents."
-                              : "A " + page.gradeText(Math.max(Rlv.gradePercent, 6)).replace("+", "") + " climb feels like "
-                                + page.gradeText(Math.max(Rlv.gradePercent, 6) * Rlv.difficultyPercent / 100).replace("+", "") + "."
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-                    Text {
-                        width: parent.width
-                        text: page.ergMode ? "Zwift Click + / − or PgUp / PgDn: ±10 W\n↑ / ↓ ±5 W  •  Space pause"
-                              : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
-                              : "Keys: PgUp / PgDn difficulty  •  Space pause"
-                        color: Theme.textMuted
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
                     }
                 }
-            }
 
-            // Zwift Click
-            Card {
-                id: clickCard
-                visible: !page.finished && (Rlv.trainerConnected || Devices.controllerConnected)
-                width: parent.width
-                height: clickCol.y + clickCol.implicitHeight + 14
-                title: "Zwift Click"
-                titleSize: 18
-                headerRight: [
+                // no trainer connected
+                Card {
+                    visible: !Rlv.trainerConnected
+                    width: parent.width
+                    height: 142
                     Row {
-                        spacing: 6
-                        Repeater {
-                            model: ["−", "+"]
-                            Rectangle {
-                                readonly property bool down: index === 0 ? page.minusDown : page.plusDown
-                                width: 26; height: 26; radius: 13
-                                color: down ? (index === 0 ? Theme.accent : Theme.orange) : "transparent"
-                                border.color: down ? "transparent" : Theme.fieldBorder
-                                opacity: Devices.controllerConnected ? 1 : 0.4
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: modelData
-                                    color: parent.down ? "white" : Theme.textSecondary
-                                    font.pixelSize: 16
-                                    font.weight: Font.Bold
+                        x: 16; y: 16
+                        spacing: 10
+                        Icon { name: "bluetooth"; size: 22; color: Theme.warning; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            text: "No trainer connected"
+                            color: Theme.text
+                            font.pixelSize: 17
+                            font.weight: Font.Bold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    Text {
+                        x: 16; y: 46
+                        width: parent.width - 32
+                        text: "Connect a smart trainer (or the virtual trainer) to ride the video."
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
+                    }
+                    AppButton {
+                        x: 16
+                        width: parent.width - 32
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 14
+                        height: 40
+                        fontSize: 15
+                        iconSize: 18
+                        iconName: "bluetooth"
+                        text: "Open Devices"
+                        onClicked: page.openDevices()
+                    }
+                }
+
+                // finished summary
+                Card {
+                    visible: page.finished
+                    width: parent.width
+                    height: summaryCol.implicitHeight + 32
+                    Column {
+                        id: summaryCol
+                        x: 16; y: 16
+                        width: parent.width - 32
+                        spacing: 10
+                        Text {
+                            text: Rlv.completed ? "Route complete" : "Ride finished"
+                            color: Theme.text
+                            font.pixelSize: 19
+                            font.weight: Font.Bold
+                        }
+                        Grid {
+                            columns: 2
+                            width: parent.width
+                            rowSpacing: 8
+                            Repeater {
+                                model: ["Time", "Distance", "Avg power", "Climbed", "Avg speed", "Energy"]
+                                Column {
+                                    width: summaryCol.width / 2
+                                    Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 13 }
+                                    Text {
+                                        text: {
+                                            switch (index) {
+                                            case 0: return Theme.clock(Rlv.elapsedSeconds)
+                                            case 1: return page.kmText(Rlv.riddenMeters) + " km"
+                                            case 2: return Rlv.avgWatts + " W"
+                                            case 3: return Math.round(Rlv.ascentDoneM) + " m"
+                                            case 4: return Rlv.avgSpeedKmh.toFixed(1) + " km/h"
+                                            default: return Math.round(Rlv.kilojoules) + " kJ"
+                                            }
+                                        }
+                                        color: Theme.text
+                                        font.pixelSize: 19
+                                        font.weight: Font.Bold
+                                    }
                                 }
                             }
                         }
-                    }
-                ]
-                Column {
-                    id: clickCol
-                    x: 16
-                    y: clickCard.contentTop - 6
-                    width: parent.width - 32
-                    spacing: 6
-                    Row {
-                        spacing: 10
-                        Icon {
-                            name: "controller"
-                            size: 26
-                            strokeWidth: 2
-                            color: Devices.controllerConnected ? Theme.successText : Theme.textMuted
-                            anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            visible: page.shownRideId < 0
+                            width: parent.width
+                            text: "Not saved (discarded or shorter than 30 s)."
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.small(13)
+                            wrapMode: Text.WordWrap
                         }
-                        Column {
-                            anchors.verticalCenter: parent.verticalCenter
+                        AppButton {
+                            visible: page.shownRideId >= 0
+                            width: parent.width
+                            height: 40
+                            kind: "secondary"
+                            fontSize: 15
+                            iconSize: 18
+                            bold: false
+                            iconName: "history"
+                            text: "View in History"
+                            onClicked: page.goTo("history")
+                        }
+                    }
+                }
+
+                // resistance: simulation (real or virtual gears) / ERG
+                Card {
+                    id: resistanceCard
+                    property Item ergPlus10: null
+                    property Item ergMinus10: null
+                    width: parent.width
+                    height: resCol.y + resCol.implicitHeight + 16
+                    title: "Resistance"
+                    titleSize: 18
+                    Column {
+                        id: resCol
+                        x: 16
+                        y: resistanceCard.contentTop - 4
+                        width: parent.width - 32
+                        spacing: 10
+
+                        SegmentedControl {
+                            objectName: "videoModeSelector"
+                            width: parent.width
+                            height: 44
+                            fontSize: 14
+                            segmentPadding: 9
+                            options: [
+                                { value: "sim", label: "Simulation" },
+                                { value: "erg", label: "ERG" }
+                            ]
+                            value: Rlv.mode
+                            onActivated: (v) => Rlv.mode = v
+                        }
+                        Text {
+                            width: parent.width
+                            text: page.ergMode ? (Rlv.ergHolding ? "ERG on – the trainer holds " + Rlv.sentTargetWatts + " W now. " : "")
+                                                 + "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
+                                  : "Climbs get harder like on the road."
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // how the rider shifts (set up on the Devices page)
+                        Text {
+                            visible: page.simMode
+                            width: parent.width
+                            text: "Shifting: " + page.shiftingText()
+                                  + "   <a href=\"devices\" style=\"text-decoration:none\">Devices ›</a>"
+                            textFormat: Text.StyledText
+                            linkColor: Theme.accentText
+                            color: Theme.text
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap
+                            onLinkActivated: page.openDevices()
+                            HoverHandler { cursorShape: parent.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                        }
+
+                        // simulation not possible on this trainer
+                        Rectangle {
+                            visible: Rlv.simulationFallback
+                            width: parent.width
+                            height: fallbackRow.implicitHeight + 16
+                            radius: 8
+                            color: Theme.cardStrong
+                            border.color: Theme.warning
+                            Row {
+                                id: fallbackRow
+                                x: 10; y: 8
+                                width: parent.width - 20
+                                spacing: 8
+                                Icon { name: "info"; size: 18; color: Theme.warningText }
+                                Text {
+                                    width: parent.width - 26
+                                    text: "Your trainer can't simulate climbs – using virtual gears instead."
+                                    color: Theme.text
+                                    font.pixelSize: Theme.small(13)
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+
+                        // simulation: what the trainer gets
+                        Item {
+                            visible: page.simMode && Rlv.resistancePath !== "gearErg"
+                            width: parent.width
+                            height: 26
                             Text {
-                                text: Devices.controllerConnected
-                                      ? (Devices.controllerCount > 1 ? Devices.controllerCount + " pods connected" : "Connected")
-                                      : Devices.controllerState === 1 ? "Connecting…" : "Not connected"
-                                color: Devices.controllerConnected ? Theme.successText : Theme.text
-                                font.pixelSize: 15
-                                font.weight: Font.DemiBold
+                                text: "Grade sent to trainer"
+                                color: Theme.textSecondary
+                                font.pixelSize: 14
+                                anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
-                                width: clickCol.width - 36
-                                text: page.ergMode ? "+ / − target ±10 W" : "+ harder gear  •  − easier gear"
-                                color: Theme.textSecondary
-                                font.pixelSize: 13
-                                elide: Text.ElideRight
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
+                                color: Rlv.simulationActive ? page.gradeTextColor(Rlv.simulationGradePercent) : Theme.textMuted
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
+                            }
+                        }
+
+                        // virtual gears
+                        RowLayout {
+                            visible: page.gears
+                            width: parent.width
+                            height: 76
+                            spacing: 8
+                            ShiftButton {
+                                id: easierButton
+                                Layout.preferredWidth: 64
+                                Layout.fillHeight: true
+                                iconName: "minus"
+                                iconSize: 26
+                                Accessible.name: "Shift easier"
+                                tint: Theme.accent
+                                enabled: Gears.canShiftDown
+                                onClicked: Gears.shiftDown()
+                            }
+                            Column {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 2
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: Gears.gearLabel.replace("×", " × ")
+                                    color: Theme.text
+                                    font.pixelSize: 30
+                                    font.weight: Font.Black
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "Gear " + (Gears.gearIndex + 1) + " / " + Gears.gearCount
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.small(13)
+                                }
+                            }
+                            ShiftButton {
+                                id: harderButton
+                                Layout.preferredWidth: 64
+                                Layout.fillHeight: true
+                                iconName: "plus"
+                                iconSize: 26
+                                Accessible.name: "Shift harder"
+                                tint: Theme.orange
+                                enabled: Gears.canShiftUp
+                                onClicked: Gears.shiftUp()
+                            }
+                        }
+                        Text {
+                            visible: page.gears && Rlv.resistancePath === "gearSimulation"
+                            width: parent.width
+                            text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.small(13)
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
+                            width: parent.width
+                            text: "No cadence from your trainer: it rides without virtual gears, and your speed follows your power."
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.small(13)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // ERG: target watts
+                        Item {
+                            visible: page.ergMode
+                            width: parent.width
+                            height: ergTarget.implicitHeight
+                            Row {
+                                id: ergTarget
+                                spacing: 6
+                                Text {
+                                    id: ergValue
+                                    text: Rlv.targetWatts
+                                    color: Theme.warningText
+                                    font.pixelSize: 54
+                                    font.weight: Font.Black
+                                    font.letterSpacing: -1
+                                }
+                                Text {
+                                    text: "W"
+                                    color: Theme.warningText
+                                    font.pixelSize: 26
+                                    font.weight: Font.Bold
+                                    anchors.baseline: ergValue.baseline
+                                }
+                            }
+                            Column {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                Text {
+                                    anchors.right: parent.right
+                                    text: "Target power"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.small(13)
+                                }
+                                Text {
+                                    readonly property int diff: Rlv.displayWatts - Rlv.targetWatts
+                                    anchors.right: parent.right
+                                    text: Rlv.displayWatts > 0 ? "Actual " + Rlv.displayWatts + " W" : "Actual – W"
+                                    color: Rlv.displayWatts <= 0 ? Theme.textSecondary
+                                           : Math.abs(diff) <= Math.max(5, Rlv.targetWatts * 0.05) ? Theme.successText : Theme.warningText
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                        GridLayout {
+                            visible: page.ergMode
+                            width: parent.width
+                            columns: 3
+                            rowSpacing: 8
+                            columnSpacing: 8
+                            Repeater {
+                                model: [-25, -10, -5, 5, 10, 25]
+                                ShiftButton {
+                                    id: ergStep
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Theme.touch(50)
+                                    label: (modelData > 0 ? "+" : "−") + Math.abs(modelData)
+                                    labelSize: 20
+                                    Accessible.name: (modelData > 0 ? "Increase target by " : "Decrease target by ") + Math.abs(modelData) + " watts"
+                                    tint: modelData > 0 ? Theme.orange : Theme.accent
+                                    enabled: modelData > 0 ? Rlv.targetWatts < Rlv.maxTargetWatts : Rlv.targetWatts > Rlv.minTargetWatts
+                                    onClicked: Rlv.adjustTargetWatts(modelData)
+                                    Component.onCompleted: {
+                                        if (modelData === 10) resistanceCard.ergPlus10 = ergStep
+                                        else if (modelData === -10) resistanceCard.ergMinus10 = ergStep
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            visible: page.ergMode
+                            width: parent.width
+                            spacing: 8
+                            AppTextField {
+                                id: ergEntry
+                                Layout.fillWidth: true
+                                placeholderText: "Exact target, " + Rlv.minTargetWatts + "–" + Rlv.maxTargetWatts + " W"
+                                font.pixelSize: 15
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 1; top: 9999 }
+                                onAccepted: ergSet.apply()
+                                // hand the keyboard back to the page (Space, ↑ / ↓ shortcuts)
+                                onEditingFinished: if (activeFocus) page.forceActiveFocus()
+                                Keys.onEscapePressed: (event) => {
+                                    text = ""
+                                    page.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            AppButton {
+                                id: ergSet
+                                Layout.preferredHeight: Theme.touch(44)
+                                text: "Set"
+                                fontSize: 15
+                                horizontalPadding: 16
+                                enabled: ergEntry.text.length > 0
+                                Accessible.name: "Set target power"
+                                function apply() {
+                                    var v = parseInt(ergEntry.text)
+                                    if (isNaN(v))
+                                        return
+                                    Rlv.targetWatts = v
+                                    ergEntry.text = ""
+                                    page.forceActiveFocus()
+                                }
+                                onClicked: apply()
+                            }
+                        }
+
+                        // difficulty (resistance modes only)
+                        Rectangle { visible: !page.ergMode; width: parent.width; height: 1; color: Theme.cardBorder }
+                        Item {
+                            visible: !page.ergMode
+                            width: parent.width
+                            height: 24
+                            Text {
+                                text: "Difficulty"
+                                color: Theme.text
+                                font.pixelSize: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Rlv.difficultyPercent + " %"
+                                color: Theme.text
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
+                            }
+                        }
+                        AppSlider {
+                            visible: !page.ergMode
+                            width: parent.width
+                            from: 0
+                            to: 100
+                            stepSize: 5
+                            snapMode: Slider.SnapAlways
+                            value: Rlv.difficultyPercent
+                            fillColor: Theme.success
+                            onMoved: Rlv.difficultyPercent = Math.round(value)
+                        }
+                        Text {
+                            visible: !page.ergMode
+                            width: parent.width
+                            text: Rlv.difficultyPercent >= 100
+                                  ? "100 % = the real gradients of the route. Lower values flatten climbs and descents."
+                                  : "A " + page.gradeText(Math.max(Rlv.gradePercent, 6)).replace("+", "") + " climb feels like "
+                                    + page.gradeText(Math.max(Rlv.gradePercent, 6) * Rlv.difficultyPercent / 100).replace("+", "") + "."
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.small(13)
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            width: parent.width
+                            text: page.ergMode ? "Zwift Click + / − or PgUp / PgDn: ±10 W\n↑ / ↓ ±5 W  •  Space pause"
+                                  : page.gears ? "Keys: ↑ / ↓ shift  •  PgUp / PgDn difficulty  •  Space pause"
+                                  : "Keys: PgUp / PgDn difficulty  •  Space pause"
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.small(12)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // Zwift Click
+                Card {
+                    id: clickCard
+                    visible: !page.finished && (Rlv.trainerConnected || Devices.controllerConnected)
+                    width: parent.width
+                    height: clickCol.y + clickCol.implicitHeight + 14
+                    title: "Zwift Click"
+                    titleSize: 18
+                    headerRight: [
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: ["−", "+"]
+                                Rectangle {
+                                    readonly property bool down: index === 0 ? page.minusDown : page.plusDown
+                                    width: 26; height: 26; radius: 13
+                                    color: down ? (index === 0 ? Theme.accent : Theme.orange) : "transparent"
+                                    border.color: down ? "transparent" : Theme.fieldBorder
+                                    opacity: Devices.controllerConnected ? 1 : 0.4
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData
+                                        color: parent.down ? "white" : Theme.textSecondary
+                                        font.pixelSize: 16
+                                        font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                    Column {
+                        id: clickCol
+                        x: 16
+                        y: clickCard.contentTop - 6
+                        width: parent.width - 32
+                        spacing: 6
+                        Row {
+                            spacing: 10
+                            Icon {
+                                name: "controller"
+                                size: 26
+                                strokeWidth: 2
+                                color: Devices.controllerConnected ? Theme.successText : Theme.textMuted
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                Text {
+                                    text: Devices.controllerConnected
+                                          ? (Devices.controllerCount > 1 ? Devices.controllerCount + " pods connected" : "Connected")
+                                          : Devices.controllerState === 1 ? "Connecting…" : "Not connected"
+                                    color: Devices.controllerConnected ? Theme.successText : Theme.text
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    width: clickCol.width - 36
+                                    text: page.ergMode ? "+ / − target ±10 W" : "+ harder gear  •  − easier gear"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.small(13)
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }

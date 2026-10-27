@@ -2,14 +2,16 @@ import QtQuick
 import QtQuick.Layouts
 import Artilody.Backend
 
-// Shows the FTP estimated from a ramp test and lets the rider apply it.
+// Shows the FTP estimated from an FTP test (ramp or 20 minutes) and lets the
+// rider apply it.
 // The values come from C++ (Training.ftpTestCompleted / History.selectedRide);
 // the comparison texts from Profiles.ftpComparison().
 AppDialog {
     id: dlg
     property int estimatedFtp: 0
     property int previousFtp: 0
-    property int best1min: 0
+    property int best1min: 0          // best power of the test window (1 or 20 min)
+    property string method: "ramp"    // "ramp" / "20min" (Training.ftpTestCompleted)
     property string errorText: ""
     readonly property var cmp: Profiles.ftpComparison(estimatedFtp, previousFtp)
     signal message(string text)
@@ -18,10 +20,11 @@ AppDialog {
     panelWidth: 660
     panelHeight: 470
 
-    function openWith(estimated, previous, best) {
+    function openWith(estimated, previous, best, testMethod) {
         estimatedFtp = estimated
         previousFtp = previous
         best1min = best
+        method = testMethod === "20min" ? "20min" : "ramp"
         errorText = ""
         open()
     }
@@ -30,7 +33,9 @@ AppDialog {
         x: 28
         y: 76
         width: dlg.panelWidth - 56
-        text: "Based on 75% of your best 1-minute power (" + dlg.best1min + " W)."
+        text: dlg.method === "20min"
+              ? "Based on 95 % of your best 20-minute power (" + dlg.best1min + " W)."
+              : "Based on 75 % of your best 1-minute power (" + dlg.best1min + " W)."
         color: Theme.textSecondary
         font.pixelSize: 16
         wrapMode: Text.WordWrap
