@@ -1,23 +1,24 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.0
+## What's new in 1.3.1
 
-A feature release: plan Free Rides and Video Rides in the calendar, and ride a watts workout during a Video Ride.
+A bug-fix and safety release: sessions only start when you press Start, and Start is never blocked without an explanation.
 
-- **Free Ride and Video Ride in the calendar**: the calendar's **Add** dialog has three tabs – **Workout**, **Free Ride** and **Video Ride**.
-  - **Free Ride** options: a planned duration (30/45/60/90/120 min, any value, or *Open*) and **Ride** or **ERG** with the watts.
-  - **Video Ride** options: a route from your video library (distance, climbing, video length, country), **Simulation** with a difficulty or **ERG** with the watts, and optionally a cycling workout to ride during the video, with or without Workout ERG.
-  - Each kind has its own colour and icon (Free Ride green, Video purple, cycling workouts blue, rowing cyan) and a tooltip with the details. Edit (pencil or *Edit…*), drag between days, *Mark as completed*, *Move to…* and *Remove* work as for workouts. A route that is no longer in the video library shows **Route not found**.
-- **Start from the calendar**: **Ride** (or a double-click, or *Start Free Ride* / *Start Video Ride* in the right-click menu) opens the Free Ride page with the mode, ERG watts and planned duration, or the Video Ride page with the route, resistance mode, difficulty/watts and workout loaded.
-- **Completion rules**: a planned Free Ride is ticked off by a saved Free Ride of at least half the planned time (at least 10 min for an *Open* ride); a planned Video Ride by a saved ride on that route that reached the finish or 90 % of the route distance. Discarded rides don't count, and deleting the ride in History reopens the entry.
-- **Ride a watts workout during a Video Ride**: the new **Workout** card on the Video Ride page lists your cycling workouts. The workout's intervals run on the ride's clock (pausing with the ride) and are shown as a **workout strip** above the route's elevation profile – blocks in % FTP coloured by power zone, ramps as slopes, a cursor at the elapsed time – with the current interval, target, time left, next target, workout time and your *in target* share (±10 %). In small windows workout and route share the bottom card as **Route | Workout** tabs; the Power tile shows the target and turns green/yellow/orange with your deviation.
-  - **Workout ERG** (on by default): the trainer holds the workout's watts and the route only sets the video speed. **Intensity** ±5 % (buttons, ↑/↓, PgUp/PgDn or the Zwift Click), **Skip Interval** and **End Workout** (the ride goes on). With Workout ERG off the targets are a guide and the Resistance card applies.
-  - When the workout ends before the route, you continue in Simulation or ERG (as set on the Resistance card); when the route ends first, the ride finishes and is saved. The saved ride records the workout's targets.
-- **Free Ride planned duration**: a Free Ride started from the calendar shows *Planned 60 min • 23:10 left* in the Time tile – an informational target; the ride doesn't stop by itself.
-- **Database upgrade to schema version 5** happens automatically on first start (Free Ride / Video Ride plan entries). All rides, workouts, profiles, plans and settings are preserved.
-- Updated user manual (planning Free Rides and Video Rides, riding a workout during a Video Ride) and screenshots.
+- **Manual start only**: no session starts by itself when you start pedaling or rowing any more – Watt Training workouts, Free Ride, Video Ride and rowing all wait for **Start** (or Space). Pedaling a few strokes while clipping in no longer starts the clock. The *Start When Pedaling* buttons and the rowing *Start on first stroke* switch are removed, and pedaling no longer resumes a paused session – press **Resume** (or Space).
+- **Dashboard renamed to "Watt Training"**: the first sidebar entry now has a bicycle icon.
+- **Start is no longer blocked by sessions you can't see**: only a session that is really in progress (running, or paused with a recording) blocks starting another one. A workout that was only loaded, an empty paused session or a finished session never blocks, and a workout loaded on Watt Training is unloaded when you leave the page.
+- **"Why is Start disabled?" card**: when Start is greyed out on Watt Training, Free Ride, Video Ride or Rowing, a yellow card below it names the session in the way (e.g. *A workout is paused on Watt Training. Finish it to start a video ride.*) with **Go to …**, **End & Save** and **Discard** (click twice to confirm).
+- **Video Ride no longer locked by a paused workout**: a session paused on another page only disables Start – the route, workout, gears, ERG watts and difficulty stay usable, and the Zwift Click shifts on the open page.
+- **Video library scan can't hang**: the scan always finishes (scanner errors are caught, 120 s time-out); a video error or stall resets the page so it doesn't stay stuck.
+- Updated user manual ("Start is greyed out" troubleshooting, manual start) and screenshots.
 
-## Includes everything from 1.2.0
+## Includes everything from 1.3.0
+
+- **Free Ride and Video Ride in the calendar** – plan them with duration, Ride/ERG or route, Simulation/ERG and an optional workout; start them from the calendar with everything loaded; automatic tick-off.
+- **Ride a watts workout during a Video Ride** – workout strip above the elevation profile, **Workout ERG**, intensity ±5 %, skip interval, end workout.
+- **Free Ride planned duration** shown in the Time tile; database schema version 5.
+
+## Also included from 1.2.0
 
 - **Free Ride page** – ride a road with a grade (shift on your bike or with virtual gears) or hold an ERG wattage; save to History with FIT/CSV export.
 - **Zwift Click support and virtual gears** – Click v1 / v2 under *Devices → Controllers*, a *Virtual gears* card with **Gear Setup…** (chainrings, cassette, wheel, sequential or front + rear shifting), saved per profile and shared by Free Ride and Video Ride.
@@ -28,9 +29,10 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 
 ## Upgrade notes
 
-- Install 1.3.0 over 1.2.0, 1.1.x or 1.0.0 – no need to uninstall first.
-- On first start of 1.3.0 the database is **upgraded automatically to schema version 5** (Free Ride / Video Ride plan entries; from older versions also schema 4: gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+- Install 1.3.1 over 1.3.0, 1.2.0, 1.1.x or 1.0.0 – no need to uninstall first.
+- **No database change from 1.3.0** (schema version 5). Coming from 1.2.0 or older, the database is **upgraded automatically to schema version 5** on first start (Free Ride / Video Ride plan entries; from older versions also schema 4: gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+- If you used *Start When Pedaling* or *Start on first stroke*: press **Start** (or Space) after you are clipped in / seated.
 
 ## Known limitations
 
@@ -55,7 +57,7 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 - **Training calendar**: plan workouts, rows, Free Rides and Video Rides by day and start them from the calendar.
 - **Heart-rate sensors**: works with any Bluetooth LE heart-rate strap or armband (standard Heart Rate Service).
 - **Workout library and builder**: ready-made workouts plus a visual drag-and-edit builder with warm-up, steady, interval, recovery, ramp and cool-down blocks. Targets can be set in watts or % of FTP, with cadence and RPE. Workouts can be shared as `.awt` or Zwift `.zwo` files.
-- **Live dashboard**: power, heart rate, cadence, the current interval and the time left, power zones, and a workout chart that updates as you ride.
+- **Live Watt Training page**: power, heart rate, cadence, the current interval and the time left, power zones, and a workout chart that updates as you ride.
 - **FTP test and profiles**: run the built-in FTP test, keep several rider profiles, and have training zones calculated automatically.
 - **History and analysis**: every ride is saved to a local SQLite database. You get average/max/normalized power, TSS, time in zones and charts, and you can export rides as FIT (Strava, Garmin Connect, TrainingPeaks, …) or CSV.
 - **Music while you ride**: plays your own music library and playlists. Two sample tracks are included.
