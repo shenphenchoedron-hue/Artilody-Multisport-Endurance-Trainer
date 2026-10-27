@@ -54,6 +54,10 @@ class RowingSession : public QObject
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)       // running or paused
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
+    // Genuinely in progress: riding, or paused with something recorded. Only
+    // such a session blocks starting another one; an armed one (or one paused
+    // before anything was recorded) is given up instead (abandon()).
+    Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY autoStartChanged)
     Q_PROPERTY(bool rowerConnected READ rowerConnected NOTIFY rowerConnectedChanged)
     Q_PROPERTY(QString rowerName READ rowerName NOTIFY rowerConnectedChanged)
@@ -151,6 +155,10 @@ public:
     bool active() const { return m_state == State::Running || m_state == State::Paused; }
     bool running() const { return m_state == State::Running; }
     bool paused() const { return m_state == State::Paused; }
+    bool hasRecording() const { return m_recordedSec > 0 || m_activeMs > 0; }
+    bool inProgress() const { return running() || (paused() && hasRecording()); }
+    bool abandonable() const { return paused() && !hasRecording(); }
+    void abandon() { if (abandonable()) finish(false); }   // empty paused row: given up
     bool autoStart() const { return m_autoStart; }
     void setAutoStart(bool on);
     bool rowerConnected() const;

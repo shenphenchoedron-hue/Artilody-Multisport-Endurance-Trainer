@@ -12,6 +12,11 @@ Item {
     signal openHistory()
 
     readonly property int target: Training.targetPower
+    // a free ride / video ride / row IN PROGRESS on another page: Start is
+    // disabled, the reason card above the controls says why and offers the fix
+    readonly property var blocker: Sessions.workoutBlocker
+    readonly property bool otherSession: !Training.armedOrActive && !!page.blocker
+                                         && ("" + (page.blocker.kind || "")).length > 0
     readonly property int hrZone: Training.heartRateZone
     readonly property int chartTotal: Training.freeRide
                                       ? Math.max(600, Math.ceil((Training.elapsedSec + 60) / 600) * 600)
@@ -452,6 +457,14 @@ Item {
                 }
             }
 
+            SessionBlockNotice {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                namePrefix: "workout"
+                startWhat: "a workout"
+                blocker: page.otherSession ? page.blocker : ({})
+            }
+
             Card {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 110
@@ -468,6 +481,7 @@ Item {
                         iconName: Training.running ? "pause" : "play"
                         text: Training.running ? "Pause"
                                                : (Training.paused ? "Resume" : (Training.waiting ? "Start now" : "Start"))
+                        enabled: !page.otherSession
                         onClicked: {
                             if (Training.active || Training.waiting)
                                 Training.togglePause()   // pause/resume, or manual start while waiting
@@ -495,7 +509,7 @@ Item {
             MusicCard {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: 300
+                Layout.minimumHeight: page.otherSession ? 160 : 300
                 onOpenLibrary: page.openMusicLibrary()
             }
         }

@@ -369,9 +369,9 @@ ApplicationWindow {
             ftpResultDialog.openWith(estimatedFtp, previousFtp, best1minPower, method)
         }
         function onStartRefused() {
-            window.showToast(FreeRide.active ? "A free ride is in progress – finish it before starting a workout"
-                             : Rlv.active || Rlv.waiting ? "A video ride is in progress – finish it before starting a workout"
-                             : "A row is in progress – finish it before riding")
+            var b = Sessions.workoutBlocker
+            window.showToast(b && b.text ? b.text + " Finish it before starting a workout."
+                                         : "Another session is in progress – finish it first")
         }
         function onRowingWorkoutRefused(workoutId, name) {
             window.showToast("\"" + name + "\" is a rowing workout – start it on the Rowing page")

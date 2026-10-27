@@ -64,8 +64,10 @@ RowingSession::~RowingSession()
     releaseTarget();
     for (const auto &c : std::as_const(m_rowerConnections))
         disconnect(c);
-    if (m_training)
+    if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rowing"), {});
+        m_training->setArmedCanceller(QStringLiteral("rowing"), {});
+    }
 }
 
 // --- wiring -----------------------------------------------------------------
@@ -107,11 +109,16 @@ void RowingSession::setRower(RowerDevice *rower)
 
 void RowingSession::setTrainingSession(TrainingSession *training)
 {
-    if (m_training)
+    if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rowing"), {});
+        m_training->setArmedCanceller(QStringLiteral("rowing"), {});
+    }
     m_training = training;
-    if (training)
-        training->setStartBlocker(QStringLiteral("rowing"), [this] { return active(); });
+    if (training) {
+        // a row in progress blocks the workout; an empty paused one is given up
+        training->setStartBlocker(QStringLiteral("rowing"), [this] { return inProgress(); });
+        training->setArmedCanceller(QStringLiteral("rowing"), [this] { abandon(); });
+    }
 }
 
 void RowingSession::setStartBlocker(const QString &key, std::function<bool()> blocker, const QString &reason)
@@ -635,7 +642,7 @@ bool RowingSession::start()
 {
     if (active())
         return false;
-    if (m_training && m_training->active()) {
+    if (m_training && m_training->inProgress()) {
         emit startRefused(QStringLiteral("A cycling session is running. Stop it before rowing."));
         return false;
     }
@@ -658,8 +665,8 @@ bool RowingSession::start()
         emit startRefused(QStringLiteral("This rowing workout cannot be started."));
         return false;
     }
-    if (m_training && m_training->waiting())
-        m_training->stop();   // only armed: nothing ridden yet
+    if (m_training)
+        m_training->abandon();   // only armed / empty paused: nothing ridden yet
     for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
         if (it.value())
             it.value()();   // an armed free ride / video ride

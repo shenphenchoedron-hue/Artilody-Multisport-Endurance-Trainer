@@ -17,6 +17,7 @@
 #include "RowingRecords.h"
 #include "RowingSession.h"
 #include "SensorHub.h"
+#include "SessionGuard.h"
 #include "SimulatedDevices.h"
 #include "Track.h"
 #include "TrainingSession.h"
@@ -29,6 +30,8 @@
 #include <QImage>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QMouseEvent>
+#include <QQuickItem>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -97,6 +100,54 @@ bool sanitizeQpaPlatform()
     return true;
 }
 #endif
+
+// Screenshot aid: a mouse click (press + release) in the middle of a QML
+// item, delivered like a real click (so a disabled or covered item does not
+// react). False when the item is hidden or outside the window.
+bool clickItem(QQuickWindow *window, QQuickItem *item)
+{
+    if (!window || !item || !item->isVisible() || item->width() <= 0 || item->height() <= 0)
+        return false;
+    const QPointF p = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+    if (p.x() < 0 || p.y() < 0 || p.x() >= window->width() || p.y() >= window->height())
+        return false;
+    const QPointF g = window->mapToGlobal(p.toPoint());
+    QMouseEvent press(QEvent::MouseButtonPress, p, p, g, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, p, p, g, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &release);
+    return true;
+}
+
+// Screenshot aid: "name: visible=1 enabled=1 effective=1" of a QML item.
+QString describeItem(QQuickWindow *window, const QString &name)
+{
+    auto *item = window ? window->findChild<QQuickItem *>(name) : nullptr;
+    if (!item)
+        return name + QStringLiteral(": -");
+    QString s = QStringLiteral("%1: visible=%2 enabled=%3 effective=%4")
+                    .arg(name)
+                    .arg(item->isVisible() ? 1 : 0)
+                    .arg(item->property("enabled").toBool() ? 1 : 0)
+                    .arg(item->isEnabled() ? 1 : 0);
+    const QString text = item->property("text").toString();
+    if (!text.isEmpty())
+        s += QStringLiteral(" text=\"%1\"").arg(text);
+    return s;
+}
+
+// Screenshot aid: click a combo box and report whether its popup opened (then close it).
+QString probeComboClick(QQuickWindow *window, const QString &name)
+{
+    auto *combo = window ? window->findChild<QQuickItem *>(name) : nullptr;
+    if (!clickItem(window, combo))
+        return name + QStringLiteral(" click: not clickable");
+    auto *popup = combo->property("popup").value<QObject *>();
+    const bool opened = popup && popup->property("visible").toBool();
+    if (opened)
+        QMetaObject::invokeMethod(popup, "close");
+    return name + (opened ? QStringLiteral(" click: popup opened") : QStringLiteral(" click: NO reaction"));
+}
 } // namespace
 
 int main(int argc, char *argv[])
@@ -202,9 +253,6 @@ int main(int argc, char *argv[])
     // Free ride (simulated road / ERG); exclusive with workouts and rowing.
     FreeRideSession freeRide(&db, &profiles, &hub, &gears);
     freeRide.setTrainingSession(&training);
-    freeRide.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
-    rowing.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); },
-                           QStringLiteral("A free ride is running. Stop it before rowing."));
     QObject::connect(&freeRide, &FreeRideSession::rideSaved, &history, &HistoryManager::showNewRide);
     // Real Life Video rides; exclusive with workouts, rowing and free rides.
     // The gearing (setup + current gear) is the shared VirtualGears.
@@ -221,26 +269,13 @@ int main(int argc, char *argv[])
     RlvSession rlv(&db, &profiles, &hub, &gears, &videos);
     rlv.setFreeRideSession(&freeRide);   // an armed free ride is cancelled by the video ride's start
     rlv.setTrainingSession(&training);
-    rlv.setStartBlocker(QStringLiteral("freeRide"), [&freeRide] { return freeRide.active(); });
-    rlv.setStartBlocker(QStringLiteral("rowing"), [&rowing] { return rowing.active(); });
-    // Only one session at a time: a RUNNING session blocks the others; one
-    // that is only ARMED ("start when pedaling") is cancelled by another
-    // session's start, whichever it is (workout, rowing, free ride, video).
-    freeRide.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active(); });
-    freeRide.setArmedCanceller(QStringLiteral("rlv"), [&rlv] {
-        if (rlv.waiting())
-            rlv.finish(false);
-    });
-    rowing.setStartBlocker(QStringLiteral("rlv"), [&rlv] { return rlv.active(); },
-                           QStringLiteral("A video ride is running. Stop it before rowing."));
-    rowing.setArmedCanceller(QStringLiteral("freeRide"), [&freeRide] {
-        if (freeRide.waiting())
-            freeRide.finish(false);
-    });
-    rowing.setArmedCanceller(QStringLiteral("rlv"), [&rlv] {
-        if (rlv.waiting())
-            rlv.finish(false);
-    });
+    // Only one session at a time, without trapping the rider: a session in
+    // PROGRESS (riding, or paused with a recording) blocks the others; one
+    // that is only ARMED ("start when pedaling") or paused before anything
+    // was recorded is given up by another session's start; an armed workout
+    // is disarmed when the rider leaves the Dashboard. The pages show why
+    // their Start is disabled, with the fix (QML "Sessions").
+    SessionGuard sessions(&training, &freeRide, &rlv, &rowing, &gears);
     // The rider of a ride must still exist when it is saved.
     profiles.setBusyCheck([&] {
         return training.armedOrActive() || rowing.active() || freeRide.active() || freeRide.waiting()
@@ -363,6 +398,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Gears", &gears);
     qmlRegisterSingletonInstance(uri, 1, 0, "Videos", &videos);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Sessions", &sessions);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -613,13 +649,93 @@ int main(int argc, char *argv[])
         const bool rlvIdle = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_IDLE") > 0;
         const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
         const bool freeRideIdle = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_IDLE") > 0;
+        // WATT_SCREENSHOT_BLOCKER=<scenario> (with WATT_SCREENSHOT_RLV and
+        // WATT_SCREENSHOT_RLV_IDLE=1) reproduces "Start greyed out on the Video
+        // Ride page": something is tested on another page first, then the
+        // Video Ride page is opened (last page, as usual):
+        //   workout-running / workout-paused / workout-finished: the Dashboard's
+        //     Start (start when pedaling - the virtual trainer pedals at once),
+        //     then Pause / Stop
+        //   workout-armed: the Dashboard's Start without pedaling (trainer
+        //     disconnected); the trainer comes back (and pedals) on the Video Ride page
+        //   freeride-paused / freeride-finished: a free ride on the Free Ride page,
+        //     then Pause / Finish; freeride-erg: ERG held on the Free Ride page
+        // Captures video-blocked.png and probes the page on stderr ("RLVUI": the
+        // sessions, each control's enabled state and real clicks on the pickers,
+        // the shift button and the difficulty slider).
+        // WATT_SCREENSHOT_BLOCKER_FIX=end|discard then clicks the reason card's
+        // "End & Save" / "Discard" (twice: confirm), probes again and captures video.png.
+        const QString blocker = rlvIdle ? qEnvironmentVariable("WATT_SCREENSHOT_BLOCKER").trimmed() : QString();
+        const QString blockerFix = qEnvironmentVariable("WATT_SCREENSHOT_BLOCKER_FIX").trimmed();
+        auto blockerPhase = std::make_shared<int>(0);
+        auto trainingStateText = [&training] {
+            return training.waiting() ? QStringLiteral("armed") : training.running() ? QStringLiteral("running")
+                 : training.paused() ? QStringLiteral("paused")
+                 : training.state() == TrainingSession::Finished ? QStringLiteral("finished") : QStringLiteral("idle");
+        };
+        auto probeVideo = [=, &freeRide, &rlv, &rowing, &gears](const char *when) {
+            qInfo("RLVUI probe (%s): page=%s workout=%s freeRide=%s rlv=%s rowing=%s trainer=%d hasRoute=%d",
+                  when, qPrintable(gears.activePage()), qPrintable(trainingStateText()), qPrintable(freeRide.state()),
+                  qPrintable(rlv.state()), qPrintable(rowing.state()), rlv.trainerConnected() ? 1 : 0, rlv.hasRoute() ? 1 : 0);
+            for (const char *n : { "videoStartButton", "videoArmButton", "videoNoticeText", "videoNoticeGo", "videoNoticeEnd",
+                                   "videoNoticeDiscard", "videoRouteCombo", "videoWorkoutCombo", "videoModeSelector",
+                                   "videoShiftEasier", "videoShiftHarder", "videoDifficultySlider" })
+                qInfo("RLVUI   %s", qPrintable(describeItem(window, QString::fromLatin1(n))));
+            qInfo("RLVUI   %s", qPrintable(probeComboClick(window, QStringLiteral("videoRouteCombo"))));
+            qInfo("RLVUI   %s", qPrintable(probeComboClick(window, QStringLiteral("videoWorkoutCombo"))));
+            if (auto *b = window->findChild<QQuickItem *>(QStringLiteral("videoShiftHarder")); b && b->isVisible()) {
+                const int before = gears.gearIndex();
+                clickItem(window, b);
+                qInfo("RLVUI   videoShiftHarder click: gear %d -> %d (%s)", before, gears.gearIndex(),
+                      gears.gearIndex() != before ? "reacted" : "NO reaction");
+                if (gears.gearIndex() != before)
+                    gears.shiftDown();
+            }
+            if (auto *sl = window->findChild<QQuickItem *>(QStringLiteral("videoDifficultySlider")); sl && sl->isVisible()) {
+                const int before = rlv.difficultyPercent();
+                const bool clicked = clickItem(window, sl);
+                qInfo("RLVUI   videoDifficultySlider click: %d %% -> %d %% (%s)", before, rlv.difficultyPercent(),
+                      !clicked ? "not clickable" : rlv.difficultyPercent() != before ? "reacted" : "NO reaction");
+                rlv.setDifficulty(before);
+            }
+        };
         auto selects = std::make_shared<QStringList>(
             qEnvironmentVariable("WATT_SCREENSHOT_SELECT").split(QLatin1Char(','), Qt::SkipEmptyParts));
         const QString selectorName = shotFreeRide ? QStringLiteral("freeRideModeSelector")
                                                   : QStringLiteral("videoModeSelector");
         clock->start();
-        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv] {
+        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv, &devices] {
             const int s = (*step)++;
+            if (!blocker.isEmpty() && (s == 1 || s == 2)) {
+                const bool workout = blocker.startsWith(QLatin1String("workout"));
+                if (s == 1) {
+                    qInfo("Screenshot mode: blocker scenario %s", qPrintable(blocker));
+                    if (workout) {
+                        if (blocker == QLatin1String("workout-armed"))
+                            devices.disconnectDevice(QStringLiteral("sim:trainer"));
+                        training.startWhenPedaling();   // the Dashboard's Start button
+                    } else {
+                        QMetaObject::invokeMethod(window, "showPage", Q_ARG(QVariant, QStringLiteral("freeride")));
+                        if (blocker == QLatin1String("freeride-erg")) {
+                            freeRide.setMode(QStringLiteral("erg"));
+                            freeRide.setTargetWatts(150);
+                        } else {
+                            freeRide.start();
+                        }
+                    }
+                } else if (blocker == QLatin1String("workout-paused")) {
+                    training.pause();
+                } else if (blocker == QLatin1String("workout-finished")) {
+                    training.stop();
+                } else if (blocker == QLatin1String("freeride-paused")) {
+                    freeRide.pause();
+                } else if (blocker == QLatin1String("freeride-finished")) {
+                    freeRide.finish(false);
+                }
+                qInfo("Screenshot mode: blocker step %d: workout=%s freeRide=%s", s, qPrintable(trainingStateText()),
+                      qPrintable(freeRide.state()));
+                return;
+            }
             if (s == 1) {
                 if (shotRowing)
                     rowing.start();
@@ -643,6 +759,8 @@ int main(int argc, char *argv[])
             const QString name = names.value(page, QStringLiteral("page%1").arg(page));
             if ((s - 3) % 2 == 0) {
                 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, page));
+                if (blocker == QLatin1String("workout-armed") && name == livePage)
+                    devices.connectDevice(QStringLiteral("sim:trainer"));   // pedaling again, on the video page
                 if (shotClick && name == QLatin1String("devices"))
                     QMetaObject::invokeMethod(window, "revealControllers");
                 return;
@@ -673,6 +791,25 @@ int main(int argc, char *argv[])
                 rlv.finish(false);   // summary card; captured on the next tick
                 --(*step);
                 return;
+            }
+            if (!blocker.isEmpty() && name == livePage && *blockerPhase == 0) {
+                probeVideo("after the other page");
+                window->grabWindow().save(QDir(shotDir).filePath(name + QStringLiteral("-blocked.png")));
+                *blockerPhase = 1;
+                if (blockerFix == QLatin1String("end") || blockerFix == QLatin1String("discard")) {
+                    const QString btn = blockerFix == QLatin1String("end") ? QStringLiteral("videoNoticeEnd")
+                                                                           : QStringLiteral("videoNoticeDiscard");
+                    bool ok = clickItem(window, window->findChild<QQuickItem *>(btn));
+                    if (ok && blockerFix == QLatin1String("discard"))
+                        ok = clickItem(window, window->findChild<QQuickItem *>(btn));   // confirm
+                    qInfo("Screenshot mode: clicked %s: %s -> workout=%s freeRide=%s", qPrintable(btn),
+                          ok ? "ok" : "NOT CLICKABLE", qPrintable(trainingStateText()), qPrintable(freeRide.state()));
+                    --(*step);
+                    return;
+                }
+            } else if (!blocker.isEmpty() && name == livePage && *blockerPhase == 1) {
+                probeVideo("after the fix");
+                *blockerPhase = 2;
             }
             const QImage img = window->grabWindow();
             img.save(QDir(shotDir).filePath(name + QStringLiteral(".png")));

@@ -1472,8 +1472,10 @@ def build(s, env):
         f"under the name <i>Free Ride</i>, {UI('Discard')} throws it away. A summary (time, distance, average and "
         f"maximum power, average speed, energy) and {UI('View in History')} appear; {UI('Ride Again')} starts a "
         f"new ride and {UI('Reset')} clears the page.",
-        "Only one session runs at a time: a free ride cannot start while a workout or a row is running "
-        "(and vice versa) – the app tells you with a short message.",
+        "Only one session runs at a time: a free ride cannot start while a workout, a video ride or a row is "
+        "in progress (running, or paused) on another page. Start is then greyed out and a yellow card says "
+        f"why, with {UI('Go to …')}, {UI('End &amp; Save')} and {UI('Discard')} (click twice to confirm). "
+        "Armed sessions (start when pedaling) are cancelled when you leave their page; finished rides never block.",
     ])
     s.warning("Rides shorter than <b>30 seconds</b> are not saved.")
 
@@ -1616,7 +1618,10 @@ def build(s, env):
         "Reaching the end of the route finishes and saves the ride by itself. Video rides appear in History "
         "with the route name and can be exported as FIT or CSV.",
         "Only one session runs at a time – a video ride cannot start while a workout, a free ride or a row is "
-        "running.",
+        "in progress (running or paused) on another page. Start is then greyed out and a yellow card under it "
+        f"says why – e.g. <i>A workout is paused on the Dashboard</i> – with {UI('Go to Dashboard')}, "
+        f"{UI('End &amp; Save')} and {UI('Discard')}. The route, workout, gears and difficulty stay usable. "
+        "The ride never depends on the video: it can start even when the video cannot be played.",
     ])
 
     s.section("Zwift Click and keyboard")
@@ -1759,6 +1764,13 @@ def build(s, env):
     # =====================================================================
     s.chapter("Troubleshooting & FAQ")
     faq = [
+        ("“Start” is greyed out.",
+         "Another session is still in progress on another page – usually a workout started or paused on the "
+         "Dashboard, or a paused free ride (the sidebar chip shows <i>Paused</i>). The yellow card under Start "
+         "says which one and offers <b>Go to …</b>, <b>End &amp; Save</b> and <b>Discard</b> (click twice). A "
+         "workout or ride that was only armed (<i>Start When Pedaling</i>) is cancelled when you leave its "
+         "page, and finished rides never block. If Start stays grey without a card, start the app from a "
+         "terminal with <i>WATT_DEBUG_RLVUI=1</i> and send the <i>RLVUI</i> lines with your report."),
         ("My trainer is not found.",
          "Make sure it is an FTMS (Bluetooth LE) trainer – ANT+-only and proprietary-protocol trainers are not "
          "supported. Wake it by pedaling, disconnect it from other apps and devices (Zwift, phone apps, bike "

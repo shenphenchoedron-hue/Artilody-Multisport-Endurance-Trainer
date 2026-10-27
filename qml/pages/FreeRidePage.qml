@@ -15,7 +15,10 @@ Item {
     readonly property string st: FreeRide.state
     readonly property bool finished: st === "finished"
     // only one session at a time (FreeRide refuses to start otherwise)
-    readonly property bool otherSession: Training.armedOrActive || Rowing.active || Rlv.active || Rlv.waiting
+    // a workout / video ride / row IN PROGRESS on another page disables Start
+    // (only Start); the reason card says which and offers the fix (SessionGuard)
+    readonly property var blocker: Sessions.freeRideBlocker
+    readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     // id of the ride shown in the finished summary. Tracked here instead of a
     // plain binding on FreeRide.lastRideId: that property may only notify when
     // a ride is saved, so after an unsaved ride a binding would still show the
@@ -672,14 +675,17 @@ Item {
                             onClicked: FreeRide.reset()
                         }
                     }
+                    SessionBlockNotice {
+                        width: parent.width
+                        namePrefix: "freeRide"
+                        startWhat: "a free ride"
+                        blocker: !FreeRide.active && !FreeRide.waiting ? page.blocker : ({})
+                    }
                     Text {
                         width: parent.width
                         visible: text.length > 0
                         text: FreeRide.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
-                              : !FreeRide.active && page.otherSession
-                                ? (Rowing.active ? "A row is in progress – finish it to start a free ride."
-                                   : Rlv.active || Rlv.waiting ? "A video ride is in progress – finish it to start a free ride."
-                                   : "A workout is running – finish it to start a free ride.")
+                              : !FreeRide.active && page.otherSession ? ""
                               : page.st === "idle" && FreeRide.trainerConnected ? "Space starts and pauses the ride." : ""
                         color: Theme.textSecondary
                         font.pixelSize: 14

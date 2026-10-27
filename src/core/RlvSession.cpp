@@ -127,12 +127,10 @@ void RlvSession::setTrainingSession(TrainingSession *training)
     }
     m_training = training;
     if (training) {
-        // a ride blocks the workout; an armed one is cancelled by its start
-        training->setStartBlocker(QStringLiteral("rlv"), [this] { return active(); });
-        training->setArmedCanceller(QStringLiteral("rlv"), [this] {
-            if (waiting())
-                finish(false);
-        });
+        // a ride in progress blocks the workout; an armed (or empty paused)
+        // one is given up by its start
+        training->setStartBlocker(QStringLiteral("rlv"), [this] { return inProgress(); });
+        training->setArmedCanceller(QStringLiteral("rlv"), [this] { abandon(); });
         connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
     }
 }
@@ -155,10 +153,11 @@ void RlvSession::setArmedCanceller(const QString &key, std::function<void()> can
 
 void RlvSession::cancelArmedOthers()
 {
-    if (m_training && m_training->waiting())
-        m_training->stop();   // only armed: nothing ridden yet
-    if (m_freeRide && m_freeRide->waiting())
-        m_freeRide->finish(false);
+    // only armed / paused before anything was recorded: nothing is lost
+    if (m_training)
+        m_training->abandon();
+    if (m_freeRide)
+        m_freeRide->abandon();
     for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
         if (it.value())
             it.value()();
@@ -181,7 +180,8 @@ void RlvSession::resetLastRideId()
 
 bool RlvSession::startBlocked() const
 {
-    if (m_training && m_training->active())
+    // only a session genuinely in progress (riding / paused with a recording)
+    if (m_training && m_training->inProgress())
         return true;
     for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
         if (it.value() && it.value()())
@@ -629,7 +629,19 @@ void RlvSession::releaseTrainer()
 
 bool RlvSession::holdBlocked() const
 {
-    return startBlocked() || (m_training && m_training->waiting()) || (m_freeRide && m_freeRide->waiting());
+    // another session drives the trainer right now (armed or riding). A
+    // paused workout / free ride has released it: meanwhile the open Video
+    // Ride page holds it (gears, ERG, difficulty react); their resume()
+    // takes it back (updateHold() then leaves the trainer alone).
+    if (m_training && (m_training->waiting() || m_training->running()))
+        return true;
+    if (m_freeRide && (m_freeRide->waiting() || m_freeRide->running()))
+        return true;
+    for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
+        if (it.key() != QLatin1String("freeRide") && it.value() && it.value()())
+            return true;   // a row in progress
+    }
+    return false;
 }
 
 bool RlvSession::holdWanted() const

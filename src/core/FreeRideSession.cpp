@@ -110,12 +110,10 @@ void FreeRideSession::setTrainingSession(TrainingSession *training)
     }
     m_training = training;
     if (training) {
-        // a ride blocks the workout; an armed one is cancelled by its start
-        training->setStartBlocker(QStringLiteral("freeRide"), [this] { return active(); });
-        training->setArmedCanceller(QStringLiteral("freeRide"), [this] {
-            if (waiting())
-                finish(false);
-        });
+        // a ride in progress blocks the workout; an armed (or empty paused)
+        // one is given up by its start
+        training->setStartBlocker(QStringLiteral("freeRide"), [this] { return inProgress(); });
+        training->setArmedCanceller(QStringLiteral("freeRide"), [this] { abandon(); });
         // a workout armed/started elsewhere owns the trainer; when it ends,
         // ERG on the open Free Ride page applies again
         connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
@@ -140,8 +138,8 @@ void FreeRideSession::setArmedCanceller(const QString &key, std::function<void()
 
 void FreeRideSession::cancelArmedOthers()
 {
-    if (m_training && m_training->waiting())
-        m_training->stop();   // only armed: nothing ridden yet
+    if (m_training)
+        m_training->abandon();   // only armed / empty paused: nothing ridden yet
     for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
         if (it.value())
             it.value()();
@@ -164,7 +162,8 @@ void FreeRideSession::resetLastRideId()
 
 bool FreeRideSession::startBlocked() const
 {
-    if (m_training && m_training->active())
+    // only a session genuinely in progress (riding / paused with a recording)
+    if (m_training && m_training->inProgress())
         return true;
     for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
         if (it.value() && it.value()())
@@ -460,9 +459,16 @@ void FreeRideSession::releaseTrainer()
 
 bool FreeRideSession::holdBlocked() const
 {
-    // another session owns the trainer (a workout armed or riding, a row, a
-    // video ride)
-    return startBlocked() || (m_training && m_training->waiting());
+    // another session drives the trainer: a workout armed or riding (a
+    // paused one has released it: the open page may hold it meanwhile), a
+    // video ride / row in progress
+    if (m_training && (m_training->waiting() || m_training->running()))
+        return true;
+    for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
+        if (it.value() && it.value()())
+            return true;
+    }
+    return false;
 }
 
 bool FreeRideSession::holdWanted() const

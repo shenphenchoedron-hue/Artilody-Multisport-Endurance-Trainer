@@ -425,6 +425,12 @@ An `.awt` file is plain UTF-8 JSON:
 - **Raspberry Pi / Linux:** `bluetoothctl show` must say `Powered: yes` (otherwise `bluetoothctl power on`, `sudo rfkill unblock bluetooth`), `bluetoothctl scan le` should list `PM5 430…` within a few seconds, and your user should be in the `bluetooth` group (`groups`). For a detailed log start the app from a terminal: `QT_LOGGING_RULES="qt.bluetooth*=true" artilody-watts-trainer 2>&1 | tee ~/artilody-bt.log` – lines starting with `artilody.ble:` show every device seen and how it was classified.
 - Update an old PM5 with Concept2 Utility.
 
+### "Start" is greyed out
+
+Only one session runs at a time. If **Start** on the Dashboard, Free Ride, Video Ride or Rowing page is greyed out, a session on another page is still **in progress** – typically a workout started (or paused) on the Dashboard, or a paused free ride. A yellow card under the button says which one, e.g. *"A workout is paused on the Dashboard. Finish it to start a video ride."*, with **Go to Dashboard**, **End & Save** and **Discard** (click twice to confirm). Everything else on the page (route, workout, gears, difficulty) stays usable meanwhile.
+
+Sessions that are only armed (*Start When Pedaling* / the Dashboard's Start before you pedal) are cancelled when you leave their page or start another session, and finished rides never block. The sidebar status chip (*Paused 0:01*) also shows a session in progress. If Start stays grey without a card, start the app from Terminal with `WATT_DEBUG_RLVUI=1` (macOS: `WATT_DEBUG_RLVUI=1 "/Applications/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"`) and attach the `RLVUI` lines to a bug report.
+
 ## Privacy
 
 Artilody Watts Trainer runs **fully offline**:

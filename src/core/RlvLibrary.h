@@ -12,6 +12,7 @@
 #include <memory>
 
 #include <QThread>
+#include <QTimer>
 
 namespace watt {
 
@@ -107,6 +108,13 @@ public:
     void rescanNow();                   // synchronous
     // Tests: processes events until a running scan is applied; false on timeout.
     bool waitForScan(int timeoutMs = 30000);
+    // A scan that takes longer is given up: `scanning` ends, the list stays
+    // as it was and lastError says why (a hanging network / external drive
+    // must never leave "Scanning…" on screen). A failed scan ends the same way.
+    static constexpr int kDefaultScanTimeoutMs = 120000;
+    void setScanTimeoutMs(int ms) { m_scanTimeoutMs = ms; }
+    // Tests: every scan worker sleeps this long before it starts.
+    static void setScanDelayForTesting(int ms);
     Q_INVOKABLE bool addFolder(const QString &folderOrUrl);       // extra folder (persisted) + rescan
     Q_INVOKABLE bool removeFolder(const QString &folderOrUrl);
     // Adds a route folder (or file) to the library and returns its row, -1 on error (lastError).
@@ -128,6 +136,7 @@ public:
         QVector<Entry> found;           // sorted for the model
         QHash<QString, Entry> cache;    // updated cache
         bool cacheChanged = false;
+        bool failed = false;            // the worker threw: keep the old list
     };
     static ScanResult scanFolders(const QStringList &folders, QHash<QString, Entry> cache);
 
@@ -146,6 +155,7 @@ private:
     void loadCache();
     void saveCache();
     void setError(const QString &e);
+    void abandonScan();
 
     Database *m_db;
     QString m_libraryFolder;
@@ -158,6 +168,9 @@ private:
     QPointer<QThread> m_scanThread;
     std::shared_ptr<ScanResult> m_scanResult;
     bool m_rescanPending = false;
+    QTimer m_scanWatchdog;
+    int m_scanTimeoutMs = kDefaultScanTimeoutMs;
+    QList<QPointer<QThread>> m_abandonedScans;   // given up, still running
 };
 
 } // namespace watt

@@ -68,6 +68,14 @@ void TrainingSession::cancelArmedOthers()
     }
 }
 
+void TrainingSession::abandon()
+{
+    if (m_waiting)
+        cancelWaiting();
+    else if (abandonable())
+        discard();
+}
+
 bool TrainingSession::startBlocked() const
 {
     for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {

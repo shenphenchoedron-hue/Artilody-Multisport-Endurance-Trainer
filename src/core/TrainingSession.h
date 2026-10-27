@@ -31,6 +31,10 @@ class TrainingSession : public QObject
     // Armed via startWhenPedaling(): workout loaded, clock stopped until the rider pedals.
     Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)
     Q_PROPERTY(bool armedOrActive READ armedOrActive NOTIFY stateChanged)
+    // Genuinely in progress: riding, or paused with something recorded. Only
+    // such a session blocks starting another one; an armed one (or one paused
+    // before anything was recorded) is given up instead (abandon()).
+    Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
     Q_PROPERTY(bool ergMode READ ergMode WRITE setErgMode NOTIFY ergModeChanged)
     Q_PROPERTY(bool freeRide READ freeRide NOTIFY workoutChanged)
 
@@ -81,6 +85,13 @@ public:
     bool paused() const { return m_engine.state() == WorkoutEngine::State::Paused; }
     bool waiting() const { return m_waiting; }
     bool armedOrActive() const { return m_waiting || active(); }
+    bool hasRecording() const { return m_recordedSec > 0 || m_rideMs > 0; }
+    bool inProgress() const { return running() || (paused() && hasRecording()); }
+    // Armed, or paused before anything was recorded: nothing to lose.
+    bool abandonable() const { return m_waiting || (paused() && !hasRecording()); }
+    // Cancels an armed / empty paused session (another session starts, or
+    // the rider left the Dashboard while it was armed). No-op otherwise.
+    void abandon();
 
     // Pedaling detection thresholds for startWhenPedaling().
     static constexpr int kStartCadenceRpm = 20;   // cadence that counts as pedaling

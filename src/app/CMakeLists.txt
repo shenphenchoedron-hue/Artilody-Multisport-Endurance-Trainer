@@ -54,6 +54,7 @@ set(APP_QML_FILES
     # real life video
     ${QML_ROOT}/components/RouteProfile.qml
     ${QML_ROOT}/components/WorkoutStrip.qml
+    ${QML_ROOT}/components/SessionBlockNotice.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/FreeRidePage.qml

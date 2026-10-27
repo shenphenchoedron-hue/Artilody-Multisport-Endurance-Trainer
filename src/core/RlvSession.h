@@ -136,6 +136,10 @@ class RlvSession : public QObject
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)
+    // Genuinely in progress: riding, or paused with something recorded. Only
+    // such a session blocks starting another one; an armed one (or one paused
+    // before anything was recorded) is given up instead (abandon()).
+    Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
     Q_PROPERTY(bool finishedRide READ finishedRide NOTIFY stateChanged)
     Q_PROPERTY(bool completed READ completed NOTIFY stateChanged)     // route end reached
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
@@ -295,6 +299,9 @@ public:
 
     // An armed free ride is cancelled when the video ride starts.
     void setFreeRideSession(FreeRideSession *freeRide) { m_freeRide = freeRide; }
+    // Another session started / paused / ended (SessionGuard): the page's
+    // resistance hold follows (holdBlocked()).
+    void otherSessionChanged() { updateHold(); }
     void setTrainingSession(TrainingSession *training);
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
@@ -317,6 +324,10 @@ public:
     bool running() const { return m_state == State::Running; }
     bool paused() const { return m_state == State::Paused; }
     bool waiting() const { return m_state == State::Ready; }
+    bool hasRecording() const { return m_recordedSec > 0 || m_activeMs > 0; }
+    bool inProgress() const { return running() || (paused() && hasRecording()); }
+    bool abandonable() const { return waiting() || (paused() && !hasRecording()); }
+    void abandon() { if (abandonable()) finish(false); }   // armed / empty paused: given up
     bool finishedRide() const { return m_state == State::Finished; }
     bool completed() const { return m_completed; }
     QString mode() const { return modeName(m_mode); }

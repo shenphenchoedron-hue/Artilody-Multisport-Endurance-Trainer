@@ -25,8 +25,14 @@ Item {
     readonly property string st: Rlv.state
     readonly property bool finished: st === "finished"
     readonly property bool locked: Rlv.active || Rlv.waiting
-    // only one session at a time (Rlv refuses to start otherwise)
-    readonly property bool otherSession: (Training.armedOrActive && !Training.waiting) || Rowing.active || FreeRide.active
+    // Only one session at a time: a workout / free ride / row IN PROGRESS on
+    // another page (riding, or paused with a recording) disables Start - and
+    // only Start: the pickers, gears, difficulty etc. stay usable. The reason
+    // card (SessionBlockNotice) says which session and offers the fix. Armed
+    // sessions elsewhere are disarmed when their page is left, finished ones
+    // never block (SessionGuard).
+    readonly property var blocker: Sessions.videoBlocker
+    readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     // resistance mode: "sim" (the route as a simulated road, default) or
     // "erg" (fixed watts). gears: in "sim" the virtual gear sets the
     // resistance (virtual gears on in Devices / Zwift Click, or the fallback
@@ -42,7 +48,23 @@ Item {
             return "Virtual gears"
         return Devices.controllerConnected ? "Virtual gears (Zwift Click)" : "Virtual gears (on-screen)"
     }
+    // (never depends on the video: the ride starts even when the video cannot be played)
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
+    // why Start is disabled ("" = it is not)
+    readonly property string startBlockedReason: Rlv.active || Rlv.waiting || page.canStart ? ""
+        : page.otherSession ? page.blocker.text
+        : !Rlv.hasRoute ? (Videos.scanning && Videos.count === 0 ? "Scanning the video library…" : "No video chosen")
+        : !Rlv.trainerConnected ? "No trainer connected" : ""
+
+    // WATT_DEBUG_RLVUI=1: every change of the enabling conditions on stderr
+    readonly property string uiState: "page=" + (visible ? "shown" : "hidden")
+        + " state=" + Rlv.state + " hasRoute=" + Rlv.hasRoute + " trainer=" + Rlv.trainerConnected
+        + " canStart=" + canStart + " reason=\"" + startBlockedReason + "\""
+        + " scanning=" + Videos.scanning + " videos=" + Videos.count
+        + " media=" + player.mediaStatus + " playback=" + player.playbackState + " error=" + player.error
+        + " poster=" + posterPending + " noPicture=" + noPicture + " gotFrame=" + gotFrame
+        + " app=" + Qt.application.state
+    onUiStateChanged: if (Sessions.debugUi) console.info("RLVUI page: " + uiState)
     property bool audioOn: false
 
     // ---- workout during the ride (Rlv.attachWorkout) ----
@@ -260,6 +282,11 @@ Item {
         } else if (!posterPending && player.playbackState === MediaPlayer.PlayingState) {
             player.pause()
         }
+    }
+    function resetMediaFlags() {
+        posterPending = false
+        posterTimer.stop()
+        frameWatchdog.stop()
     }
     function handleMediaStatus() {
         if (!isMediaReady())
@@ -500,7 +527,19 @@ Item {
         // RLVs are usually silent: no audio output unless switched on
         audioOutput: page.audioOn ? audioOut : null
         playbackRate: Rlv.playbackRate
-        onMediaStatusChanged: page.handleMediaStatus()
+        onMediaStatusChanged: {
+            if (player.mediaStatus === MediaPlayer.InvalidMedia || player.mediaStatus === MediaPlayer.StalledMedia
+                    || player.mediaStatus === MediaPlayer.NoMedia)
+                page.resetMediaFlags()
+            page.handleMediaStatus()
+        }
+        // a decoder / file error: nothing stays pending (the ride itself never
+        // depends on the video - Start stays usable, the card shows the error)
+        onErrorOccurred: (error, errorString) => {
+            if (Sessions.debugUi)
+                console.info("RLVUI media error " + error + ": " + errorString)
+            page.resetMediaFlags()
+        }
         onSourceChanged: {
             page.posterPending = false
             posterTimer.stop()
@@ -683,6 +722,7 @@ Item {
 
                     AppComboBox {
                         id: routeCombo
+                        objectName: "videoRouteCombo"
                         width: 470
                         height: 58
                         enabled: !page.locked && Videos.count > 0
@@ -1586,6 +1626,7 @@ Item {
                             height: Theme.touch(50)
                             kind: "primary"
                             iconName: "play"
+                            objectName: "videoStartButton"
                             text: page.finished ? "Ride Again" : "Start Now"
                             enabled: page.canStart
                             onClicked: Rlv.start()
@@ -1599,6 +1640,7 @@ Item {
                             iconSize: 18
                             bold: false
                             iconName: Rlv.waiting ? "close" : "cadence"
+                            objectName: "videoArmButton"
                             text: Rlv.waiting ? "Cancel Auto-Start" : "Start When Pedaling"
                             enabled: Rlv.waiting || page.canStart
                             onClicked: Rlv.waiting ? Rlv.finish(false) : Rlv.startWhenPedaling()
@@ -1638,15 +1680,22 @@ Item {
                                 onClicked: Rlv.reset()
                             }
                         }
+                        // Start disabled by a session on another page: why, and the fix
+                        SessionBlockNotice {
+                            width: parent.width
+                            namePrefix: "video"
+                            startWhat: "a video ride"
+                            blocker: !Rlv.active && !Rlv.waiting ? page.blocker : ({})
+                        }
                         Text {
+                            objectName: "videoStartReason"
                             width: parent.width
                             visible: text.length > 0
                             text: Rlv.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
-                                  : !Rlv.active && page.otherSession
-                                    ? (Rowing.active ? "A row is in progress – finish it to start a video ride."
-                                       : FreeRide.active ? "A free ride is in progress – finish it to start a video ride."
-                                       : "A workout is running – finish it to start a video ride.")
-                                  : !Rlv.hasRoute && !Rlv.active ? "Choose a video to start."
+                                  : !Rlv.active && page.otherSession ? ""
+                                  : !Rlv.hasRoute && !Rlv.active ? (Videos.scanning && Videos.count === 0
+                                                                    ? "Scanning the video library…" : "Choose a video to start.")
+                                  : !Rlv.active && !Rlv.trainerConnected ? "Connect a trainer to start."
                                   : page.st === "idle" && Rlv.trainerConnected
                                     ? "Starts at " + page.kmText(Rlv.startDistanceM, 2) + " km. Space starts and pauses the ride." : ""
                             color: Theme.textSecondary
@@ -1780,6 +1829,7 @@ Item {
                             height: Theme.touch(48)
                             AppComboBox {
                                 id: workoutCombo
+                                objectName: "videoWorkoutCombo"
                                 width: parent.width
                                 height: parent.height
                                 fontSize: 15
@@ -2131,6 +2181,7 @@ Item {
                             spacing: 8
                             ShiftButton {
                                 id: easierButton
+                                objectName: "videoShiftEasier"
                                 Layout.preferredWidth: 64
                                 Layout.fillHeight: true
                                 iconName: "minus"
@@ -2160,6 +2211,7 @@ Item {
                             }
                             ShiftButton {
                                 id: harderButton
+                                objectName: "videoShiftHarder"
                                 Layout.preferredWidth: 64
                                 Layout.fillHeight: true
                                 iconName: "plus"
@@ -2318,6 +2370,7 @@ Item {
                             }
                         }
                         AppSlider {
+                            objectName: "videoDifficultySlider"
                             visible: !page.ergMode
                             width: parent.width
                             from: 0

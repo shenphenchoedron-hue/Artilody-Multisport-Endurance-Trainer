@@ -16,6 +16,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace watt {
@@ -52,6 +53,8 @@ RlvLibrary::RlvLibrary(Database *db, QObject *parent)
     : QAbstractListModel(parent)
     , m_db(db)
 {
+    m_scanWatchdog.setSingleShot(true);
+    connect(&m_scanWatchdog, &QTimer::timeout, this, &RlvLibrary::abandonScan);
     m_libraryFolder = toLocalPath(m_db->setting(kSettingFolder, defaultLibraryFolder()).toString());
     if (m_libraryFolder.isEmpty())
         m_libraryFolder = defaultLibraryFolder();
@@ -63,10 +66,25 @@ RlvLibrary::RlvLibrary(Database *db, QObject *parent)
 
 RlvLibrary::~RlvLibrary()
 {
+    // (a scan that hangs in the file system is left behind rather than
+    // blocking the exit; the worker touches no member)
     if (m_scanThread) {
-        m_scanThread->wait();
-        delete m_scanThread.data();
+        if (m_scanThread->wait(5000))
+            delete m_scanThread.data();
     }
+    for (const QPointer<QThread> &t : std::as_const(m_abandonedScans)) {
+        if (t && t->wait(500))
+            delete t.data();
+    }
+}
+
+namespace {
+std::atomic<int> s_scanDelayMs { 0 };
+}
+
+void RlvLibrary::setScanDelayForTesting(int ms)
+{
+    s_scanDelayMs = std::max(0, ms);
 }
 
 QString RlvLibrary::defaultLibraryFolder()
@@ -402,7 +420,15 @@ void RlvLibrary::rescan()
     auto result = std::make_shared<ScanResult>();
     const QStringList dirs = folders();
     const QHash<QString, Entry> cache = m_cache;
-    QThread *thread = QThread::create([result, dirs, cache] { *result = scanFolders(dirs, cache); });
+    QThread *thread = QThread::create([result, dirs, cache] {
+        if (const int delay = s_scanDelayMs.load(); delay > 0)
+            QThread::msleep(delay);
+        try {
+            *result = scanFolders(dirs, cache);
+        } catch (...) {
+            result->failed = true;
+        }
+    });
     m_scanThread = thread;
     m_scanResult = result;
     const QPointer<QThread> guard(thread);   // rescanNow() may delete it first
@@ -410,9 +436,18 @@ void RlvLibrary::rescan()
         if (!guard)
             return;
         if (m_scanThread == guard.data()) {
+            m_scanWatchdog.stop();
             m_scanThread = nullptr;
             m_scanResult.reset();
-            applyScan(std::move(*result));
+            if (result->failed) {
+                setError(QStringLiteral("Could not scan the video library"));
+                emit scanned();   // the list stays as it was
+            } else {
+                if (m_lastError.startsWith(QLatin1String("Scanning the video library"))
+                    || m_lastError.startsWith(QLatin1String("Could not scan")))
+                    setError(QString());   // an earlier failed / given-up scan
+                applyScan(std::move(*result));
+            }
             emit scanningChanged();
         }
         guard->deleteLater();
@@ -420,13 +455,33 @@ void RlvLibrary::rescan()
             rescan();
     });
     thread->start(QThread::LowPriority);
+    m_scanWatchdog.setSingleShot(true);
+    m_scanWatchdog.start(std::max(1, m_scanTimeoutMs));
     emit scanningChanged();
+}
+
+void RlvLibrary::abandonScan()
+{
+    if (!m_scanThread)
+        return;
+    // the worker keeps running (it cannot be interrupted inside the file
+    // system); its result is ignored and the thread deleted when it ends
+    m_abandonedScans.removeAll(QPointer<QThread>());
+    m_abandonedScans.append(m_scanThread);
+    m_scanThread = nullptr;
+    m_scanResult.reset();
+    setError(QStringLiteral("Scanning the video library took too long (a folder may be on a slow or "
+                            "disconnected drive). Rescan to try again."));
+    emit scanningChanged();
+    emit scanned();   // the list stays as it was
+    m_rescanPending = false;   // the same folders would hang again: only on request
 }
 
 void RlvLibrary::rescanNow()
 {
     if (m_scanThread) {
         // a running scan works on older folders: let it finish, then scan anew
+        m_scanWatchdog.stop();
         QThread *thread = m_scanThread;
         thread->wait();
         m_scanThread = nullptr;

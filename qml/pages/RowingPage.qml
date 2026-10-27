@@ -15,6 +15,10 @@ Item {
 
     // mode chosen in the UI; the backend mode wins once something is set up
     property string localMode: "ghost"
+    // a workout / free ride / video ride IN PROGRESS on another page disables
+    // Start (the reason card says which, with the fix; SessionGuard)
+    readonly property var blocker: Sessions.rowingBlocker
+    readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     readonly property string uiMode: Rowing.mode !== "none" ? Rowing.mode : localMode
     property int soloDistance: 2000          // 0 = open-ended
     property int ghostDistance: 2000
@@ -116,8 +120,7 @@ Item {
         wasShown = true
         refreshWorkouts()
         // opening the page gets the rower ready: the row starts with the first stroke
-        if (Rowing.state === "idle" && !Training.armedOrActive && !FreeRide.active && !FreeRide.waiting
-                && !Rlv.active && !Rlv.waiting)
+        if (Rowing.state === "idle" && !page.otherSession && !Training.waiting && !FreeRide.waiting && !Rlv.waiting)
             applySetup()
     }
 
@@ -570,9 +573,21 @@ Item {
             Layout.fillHeight: true
             spacing: 12
 
+            // a ride in progress on another page: why Start is disabled, and
+            // the fix (at the top: always in view)
+            SessionBlockNotice {
+                id: blockNotice
+                Layout.topMargin: shown ? 64 : 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                namePrefix: "rowing"
+                startWhat: "a row"
+                blocker: !Rowing.active ? page.blocker : ({})
+            }
+
             Card {
                 id: sessionCard
-                Layout.topMargin: 64
+                Layout.topMargin: blockNotice.shown ? 0 : 64
                 Layout.fillWidth: true
                 Layout.preferredHeight: sessionCol.y + sessionCol.implicitHeight + 16
                 title: "Session"
@@ -1001,9 +1016,10 @@ Item {
                         kind: "primary"
                         iconName: "play"
                         text: page.finished ? "Row Again" : "Start Now"
-                        enabled: Rowing.rowerConnected && (page.uiMode !== "plan" || Rowing.mode === "plan")
+                        enabled: Rowing.rowerConnected && (page.uiMode !== "plan" || Rowing.mode === "plan") && !page.otherSession
                         onClicked: page.startNow()
                     }
+
                     AppButton {
                         visible: Rowing.active
                         width: parent.width
