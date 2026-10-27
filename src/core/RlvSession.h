@@ -5,6 +5,7 @@
 #include "Ride.h"
 #include "RideResistance.h"
 #include "RlvRoute.h"
+#include "WorkoutEngine.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -105,6 +106,28 @@ class VirtualGears;
 // setStartBlocker() adds further guards (main.cpp wires free ride/rowing).
 // Rides are stored as sport "cycling", name "RLV: <route name>", with the
 // virtual speed per second and the ridden distance.
+//
+// Workout during the video ride (attachWorkout()): a cycling workout of the
+// library runs on the ride's clock (WorkoutEngine, advanced only while the
+// ride is running - paused with it). Targets are % of the rider's cycling FTP
+// × (100 + intensityPercent) / 100, like Training's intensity offset.
+//   * workoutErg on (default when attaching): the trainer holds the
+//     workout's target in ERG (path Erg, target workoutTargetWatts); speed,
+//     distance and video come from the power on the real route grade (the
+//     same physics as the "erg" mode) - climbs slow the video, they do not
+//     change the watts. "mode" (sim/erg) is kept for after the workout.
+//   * workoutErg off: the selected mode decides the resistance as without a
+//     workout (Simulation / virtual gears / RLV ERG); the workout targets are
+//     guidance only (shown, recorded, compliance computed).
+//   * The workout ends before the route: workoutFinished, workoutCompleted();
+//     the workout ERG is released and the ride continues in the selected mode.
+//   * The route ends first: the ride finishes and is saved as usual, the
+//     workout stays unfinished (workoutFinished false).
+//   * Zwift Click / PgUp / PgDn while the workout ERG holds: intensity
+//     ±kControllerIntensityStep % (the Training dashboard's +/- step);
+//     otherwise as without a workout (gears in sim, ±10 W in RLV ERG).
+// With a workout the ride is stored as "RLV: <route> + <workout>" with
+// workout_id, blocks = intervals and the workout target per second.
 class RlvSession : public QObject
 {
     Q_OBJECT
@@ -191,6 +214,29 @@ class RlvSession : public QObject
     // -1 from start() / reset() / discard until the ride is saved
     Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY lastRideIdChanged)
 
+    // workout during the ride (see the class comment)
+    Q_PROPERTY(bool hasWorkout READ hasWorkout NOTIFY workoutChanged)
+    Q_PROPERTY(qint64 workoutId READ workoutId NOTIFY workoutChanged)           // -1 = none
+    Q_PROPERTY(QString workoutName READ workoutName NOTIFY workoutChanged)
+    // [{startSec, durationSec, watts, endWatts, percent, ramp, name}] at the rider's cycling
+    // FTP, without the intensity offset (the format of Rowing.intervals / WorkoutChart)
+    Q_PROPERTY(QVariantList workoutIntervals READ workoutIntervals NOTIFY workoutChanged)
+    Q_PROPERTY(int workoutTotalSec READ workoutTotalSec NOTIFY workoutChanged)
+    Q_PROPERTY(int workoutElapsedSec READ workoutElapsedSec NOTIFY workoutTick)
+    Q_PROPERTY(int workoutRemainingSec READ workoutRemainingSec NOTIFY workoutTick)
+    Q_PROPERTY(double workoutProgress READ workoutProgress NOTIFY workoutTick)   // 0..1
+    Q_PROPERTY(int currentIntervalIndex READ currentIntervalIndex NOTIFY workoutIntervalChanged)
+    Q_PROPERTY(QString currentIntervalName READ currentIntervalName NOTIFY workoutIntervalChanged)
+    Q_PROPERTY(int intervalRemainingSec READ intervalRemainingSec NOTIFY workoutTick)
+    Q_PROPERTY(int workoutTargetWatts READ workoutTargetWatts NOTIFY workoutTargetChanged)   // incl. intensity, 0 = none
+    Q_PROPERTY(int nextTargetWatts READ nextTargetWatts NOTIFY workoutTargetChanged)
+    Q_PROPERTY(int workoutCompliance READ workoutCompliance NOTIFY workoutTick)   // % of seconds within ±10 %
+    Q_PROPERTY(bool workoutErg READ workoutErg WRITE setWorkoutErg NOTIFY workoutErgChanged)
+    // the trainer follows the workout right now (hasWorkout && workoutErg && !workoutFinished)
+    Q_PROPERTY(bool workoutErgActive READ workoutErgActive NOTIFY workoutErgChanged)
+    Q_PROPERTY(bool workoutFinished READ workoutFinished NOTIFY workoutErgChanged)
+    Q_PROPERTY(int intensityPercent READ intensityPercent WRITE setIntensityPercent NOTIFY workoutTargetChanged)
+
 public:
     enum class Mode { Sim, Erg };
     enum class State { Idle, Ready, Running, Paused, Finished };
@@ -208,6 +254,10 @@ public:
     // ERG
     static constexpr int kMinErgWatts = 25;
     static constexpr int kControllerErgStep = 10;   // Zwift Click / PgUp / PgDn
+    static constexpr int kControllerIntensityStep = 5;   // % (workout ERG; Training's +/-)
+    static constexpr int kMinIntensity = -50;            // WorkoutEngine::setIntensityOffset range
+    static constexpr int kMaxIntensity = 50;
+    static constexpr double kComplianceTolerance = 0.10; // ±10 % of the target
     static constexpr double kDefaultErgFtpShare = 0.6;
     // gradient simulation
     static constexpr double kMinSimGrade = RideResistance::kMinGrade;
@@ -338,8 +388,8 @@ public:
     // released, ERG comes with resume().
     // Simulation with virtual gears on the open page holds the virtual gear
     // resistance the same way (shifting changes the watts before Start).
-    bool ergHolding() const { return m_ergHold && m_mode == Mode::Erg; }
-    bool gearHolding() const { return m_ergHold && m_mode == Mode::Sim; }
+    bool ergHolding() const { return m_ergHold && ergNow(); }
+    bool gearHolding() const { return m_ergHold && !ergNow(); }
     bool holdWanted() const;
     int gearTargetWatts() const;
     double simulationGradePercent() const { return m_res.lastGrade(); }
@@ -383,6 +433,42 @@ public:
     Q_INVOKABLE void adjustTargetWatts(int delta) { setTargetWatts(m_ergTarget + delta); }
     Q_INVOKABLE QString formatDistance(double meters) const;   // "1.25 km" / "850 m"
 
+    // Workout during the ride. attachWorkout(): cycling workouts with
+    // intervals only, not while a ride is running/paused (false + lastError);
+    // turns workoutErg on and resets the intensity. detachWorkout() also
+    // during a ride (the selected mode takes over at once).
+    Q_INVOKABLE bool attachWorkout(qint64 workoutId);
+    bool attachWorkout(const Workout &workout);
+    Q_INVOKABLE void detachWorkout();
+    Q_INVOKABLE void skipInterval();                    // while the ride is active
+    Q_INVOKABLE void adjustIntensity(int deltaPercent) { setIntensityPercent(intensityPercent() + deltaPercent); }
+
+    bool hasWorkout() const { return m_hasWorkout; }
+    qint64 workoutId() const { return m_hasWorkout ? m_workout.workout().id : -1; }
+    QString workoutName() const { return m_hasWorkout ? m_workout.workout().name : QString(); }
+    QVariantList workoutIntervals() const { return m_workoutIntervals; }
+    int workoutTotalSec() const { return m_hasWorkout ? m_workout.totalSec() : 0; }
+    int workoutElapsedSec() const { return m_hasWorkout ? m_workout.elapsedSec() : 0; }
+    int workoutRemainingSec() const { return m_hasWorkout ? m_workout.remainingSec() : 0; }
+    double workoutProgress() const { return m_hasWorkout ? m_workout.progress() : 0.0; }
+    int currentIntervalIndex() const { return m_hasWorkout ? m_workout.currentIndex() : -1; }
+    QString currentIntervalName() const;
+    int intervalRemainingSec() const { return m_hasWorkout ? m_workout.intervalRemainingSec() : 0; }
+    int workoutTargetWatts() const;
+    int nextTargetWatts() const;
+    int workoutCompliance() const;
+    bool workoutErg() const { return m_workoutErg; }
+    void setWorkoutErg(bool on);
+    bool workoutErgActive() const { return m_hasWorkout && m_workoutErg && !m_workoutFinished; }
+    bool workoutFinished() const { return m_workoutFinished; }
+    int intensityPercent() const { return m_workout.intensityOffset(); }
+    void setIntensityPercent(int percent);
+    const WorkoutEngine &workoutEngine() const { return m_workout; }
+    // ERG now: mode "erg" or the workout ERG.
+    bool ergNow() const { return m_mode == Mode::Erg || workoutErgActive(); }
+    // Watts the Erg path holds: the workout target (workout ERG) or targetWatts.
+    int ergTargetNow() const;
+
 public slots:
     // Zwift Click (via VirtualGears::controllerShift()) / keyboard: "sim"
     // shifts the virtual gear (never the difficulty); ERG ±kControllerErgStep W.
@@ -408,6 +494,12 @@ signals:
     void lastRideIdChanged();
     void startRefused(const QString &reason);
     void shifted(int direction);   // ERG step from a controller (gear shifts: VirtualGears::shifted)
+    void workoutChanged();
+    void workoutTick();
+    void workoutIntervalChanged();
+    void workoutTargetChanged();
+    void workoutErgChanged();
+    void workoutCompleted();       // the attached workout ran to its end during the ride
 
 private:
     void setState(State s);
@@ -438,6 +530,10 @@ private:
     bool holdBlocked() const;
     void requestSeek();
     bool canSelect() const;
+    void rebuildWorkoutIntervals();
+    void advanceWorkout(int ms);
+    void workoutResistanceChanged();   // workout ERG on/off: path, grade, target
+    void emitWorkoutAll();
 
     Database *m_db;
     ProfileManager *m_profiles;
@@ -490,6 +586,17 @@ private:
     double m_powerSum = 0;
     int m_maxWatts = 0;
     qint64 m_lastRideId = -1;
+
+    // workout during the ride
+    WorkoutEngine m_workout;
+    bool m_hasWorkout = false;
+    bool m_workoutErg = true;
+    bool m_workoutFinished = false;
+    QVariantList m_workoutIntervals;
+    int m_workoutLastIndex = -2;
+    int m_workoutLastTarget = -1;
+    int m_complianceSec = 0;       // recorded workout seconds with a target
+    int m_compliantSec = 0;        // ... within ±kComplianceTolerance
 };
 
 } // namespace watt

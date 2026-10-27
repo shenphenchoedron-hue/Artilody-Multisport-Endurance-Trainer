@@ -78,6 +78,18 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     if (m_library) {
         connect(m_library, &RlvLibrary::scanned, this, [this] { emit routeChanged(); });   // routeIndex
     }
+    // the attached workout's watts follow the rider's FTP (not during a ride:
+    // the ride keeps the FTP of its start)
+    connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
+        if (!m_hasWorkout || active())
+            return;
+        m_workout.setFtp(m_profiles->current().ftpFor(sport::cycling()));
+        rebuildWorkoutIntervals();
+        emit workoutChanged();
+        emit workoutTargetChanged();
+        if (workoutErgActive())
+            applyTarget(true);
+    });
 
     const QString storedMode = m_db->setting(kSettingMode, QStringLiteral("sim")).toString();
     m_mode = parseMode(storedMode).value_or(Mode::Sim);
@@ -301,17 +313,24 @@ void RlvSession::setTargetWatts(int watts)
 
 bool RlvSession::simulationFallback() const
 {
-    return m_mode == Mode::Sim && !m_gears->enabled() && m_hub->trainerSimulationUnsupported();
+    return !ergNow() && !m_gears->enabled() && m_hub->trainerSimulationUnsupported();
 }
 
 bool RlvSession::virtualGears() const
 {
-    return m_mode == Mode::Sim && (m_gears->enabled() || m_hub->trainerSimulationUnsupported());
+    return !ergNow() && (m_gears->enabled() || m_hub->trainerSimulationUnsupported());
 }
 
 RideResistance::Path RlvSession::path() const
 {
-    return RideResistance::choose(m_mode == Mode::Erg, virtualGears(), m_hub);
+    return RideResistance::choose(ergNow(), virtualGears(), m_hub);
+}
+
+int RlvSession::ergTargetNow() const
+{
+    if (workoutErgActive())
+        return std::clamp(workoutTargetWatts(), int(kMinErgWatts), int(kMaxWatts));
+    return m_ergTarget;
 }
 
 double RlvSession::gearSimulationGrade() const
@@ -444,7 +463,7 @@ double RlvSession::effectiveGradePercent() const
 {
     // ERG: the trainer holds the watts, the difficulty only applies to the
     // resistance modes - the speed uses the real gradient
-    return m_mode == Mode::Erg ? gradePercent() : gradePercent() * m_difficulty / 100.0;
+    return ergNow() ? gradePercent() : gradePercent() * m_difficulty / 100.0;
 }
 
 double RlvSession::elevationM() const
@@ -574,7 +593,7 @@ bool RlvSession::sendResistance(bool force)
 {
     switch (path()) {
     case RideResistance::Path::Erg:
-        return m_res.sendErg(m_ergTarget, force);
+        return m_res.sendErg(ergTargetNow(), force);
     case RideResistance::Path::Simulation:
         return m_res.sendGrade(simulationGradeToSend(), force, RideResistance::trainerModel(gearDrive(0)));
     case RideResistance::Path::GearSimulation: {
@@ -615,7 +634,7 @@ bool RlvSession::holdBlocked() const
 
 bool RlvSession::holdWanted() const
 {
-    return (m_mode == Mode::Erg || virtualGears()) && (m_state == State::Idle || m_state == State::Ready)
+    return (ergNow() || virtualGears()) && (m_state == State::Idle || m_state == State::Ready)
            && m_gears->activePage() == QLatin1String("video") && trainerConnected() && !holdBlocked();
 }
 
@@ -648,6 +667,14 @@ void RlvSession::controllerShift(int direction)
 {
     if (direction == 0)
         return;
+    if (workoutErgActive()) {
+        // the workout holds the trainer: harder / easier like Training's +/-
+        const int before = intensityPercent();
+        adjustIntensity(direction > 0 ? kControllerIntensityStep : -kControllerIntensityStep);
+        if (intensityPercent() != before)
+            emit shifted(direction);
+        return;
+    }
     if (m_mode == Mode::Erg) {
         const int before = m_ergTarget;
         adjustTargetWatts(direction > 0 ? kControllerErgStep : -kControllerErgStep);
@@ -714,7 +741,22 @@ bool RlvSession::start()
     if (!wasReady)
         m_speed = 0;
     m_res.reset();
+    if (m_hasWorkout) {
+        // a new ride: the workout from 0:00 at the rider's FTP (intensity kept)
+        const int intensity = m_workout.intensityOffset();
+        m_workout.reset();
+        m_workout.setIntensityOffset(intensity);
+        m_workout.setFtp(m_rideProfile.ftpFor(sport::cycling()));
+        rebuildWorkoutIntervals();
+        m_workoutFinished = false;
+        m_complianceSec = m_compliantSec = 0;
+        m_workout.start();
+        if (m_workout.workout().id >= 0)
+            m_db->incrementWorkoutUsage(m_workout.workout().id);
+    }
     setState(State::Running);
+    if (m_hasWorkout)
+        emitWorkoutAll();
     applyTarget(true);
     emit positionChanged();
     updateInformation();
@@ -744,6 +786,14 @@ void RlvSession::startWhenPedaling()
     m_rideProfile = m_profiles->current();
     m_speed = 0;
     m_cadSmooth = 0;
+    if (m_hasWorkout && m_workout.state() != WorkoutEngine::State::Idle) {
+        const int intensity = m_workout.intensityOffset();
+        m_workout.reset();   // shown from 0:00 while armed
+        m_workout.setIntensityOffset(intensity);
+        m_workoutFinished = false;
+        m_complianceSec = m_compliantSec = 0;
+        emitWorkoutAll();
+    }
     m_hub->expireStale();
     releaseTrainer();
     setState(State::Ready);
@@ -767,6 +817,7 @@ void RlvSession::pause()
         process(sessionClockStep(m_clock.restart()));
     if (!running())
         return;   // the route ended in that step
+    m_workout.pause();
     setState(State::Paused);
     releaseTrainer();
     m_shouldPlay = false;
@@ -781,6 +832,7 @@ void RlvSession::resume()
         emit startRefused(QStringLiteral("Another session is running."));
         return;
     }
+    m_workout.resume();
     setState(State::Running);
     m_clock.restart();
     m_res.reset();
@@ -837,6 +889,15 @@ void RlvSession::reset()
     m_completed = false;
     m_distance = m_startDistance;
     resetLastRideId();
+    if (m_hasWorkout) {
+        const int intensity = m_workout.intensityOffset();
+        m_workout.reset();
+        m_workout.setIntensityOffset(intensity);
+        m_workoutFinished = false;
+        m_complianceSec = m_compliantSec = 0;
+        emitWorkoutAll();
+        emit modeChanged();   // workout ERG again (resistancePath)
+    }
     setState(State::Idle);
     emit positionChanged();
     updateInformation();
@@ -946,6 +1007,7 @@ void RlvSession::process(int ms)
         m_distance = std::min(total, m_distance + m_speed * dt);
         m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
+        advanceWorkout(ms);
         emit positionChanged();
         updateInformation();
         updateVideo(ms);
@@ -1034,7 +1096,15 @@ void RlvSession::recordUpTo(int second)
         s.power = m_hub->power();
         s.cadence = m_hub->cadence();
         s.heartRate = m_hub->heartRate();
-        s.targetPower = m_mode == Mode::Erg ? m_res.lastWatts() : 0;
+        // the workout's target while it runs (ERG or guidance), else the RLV ERG target
+        const bool workoutRunning = m_hasWorkout && !m_workoutFinished
+                                    && m_workout.state() == WorkoutEngine::State::Running;
+        s.targetPower = workoutRunning ? workoutTargetWatts() : (m_mode == Mode::Erg ? m_res.lastWatts() : 0);
+        if (workoutRunning && s.targetPower > 0) {
+            ++m_complianceSec;
+            if (std::abs(s.power - s.targetPower) <= s.targetPower * kComplianceTolerance + 1e-9)
+                ++m_compliantSec;
+        }
         s.speedMps = m_speed;
         m_samples.append(s);
         m_energyJ += s.power;
@@ -1051,11 +1121,12 @@ qint64 RlvSession::saveRide()
     const Profile &p = m_rideProfile;
     RideRecord r;
     r.profileId = p.id;
-    r.workoutId = -1;
-    r.workoutName = QStringLiteral("RLV: %1").arg(m_route.name());
+    r.workoutId = m_hasWorkout ? m_workout.workout().id : -1;
+    r.workoutName = m_hasWorkout ? QStringLiteral("RLV: %1 + %2").arg(m_route.name(), m_workout.workout().name)
+                                 : QStringLiteral("RLV: %1").arg(m_route.name());
     r.startedAt = m_startedAt;
-    r.blocks = 0;
-    r.ergMode = m_mode == Mode::Erg;
+    r.blocks = m_hasWorkout ? int(m_workout.workout().intervals.size()) : 0;
+    r.ergMode = m_mode == Mode::Erg || (m_hasWorkout && m_workoutErg);
     r.sport = sport::cycling();
     r.ftp = p.ftpFor(r.sport);
     r.distanceM = riddenMeters();
@@ -1066,6 +1137,191 @@ qint64 RlvSession::saveRide()
         emit rideSaved(m_lastRideId);
     }
     return m_lastRideId;
+}
+
+// --- workout during the ride ------------------------------------------------------
+
+bool RlvSession::attachWorkout(qint64 id)
+{
+    if (active()) {
+        setError(QStringLiteral("Stop the ride before choosing a workout"));
+        return false;
+    }
+    const auto w = m_db->workout(id);
+    if (!w) {
+        setError(QStringLiteral("Workout not found"));
+        return false;
+    }
+    return attachWorkout(*w);
+}
+
+bool RlvSession::attachWorkout(const Workout &w)
+{
+    if (active()) {
+        setError(QStringLiteral("Stop the ride before choosing a workout"));
+        return false;
+    }
+    if (w.isRowing() || w.intervals.isEmpty() || w.totalDurationSec() <= 0) {
+        setError(QStringLiteral("\"%1\" cannot be ridden in a video ride (cycling workouts with intervals only)")
+                     .arg(w.name));
+        return false;
+    }
+    const Profile &p = (waiting() && m_rideProfile.id >= 0) ? m_rideProfile : m_profiles->current();
+    m_workout.load(w, p.ftpFor(sport::cycling()));   // intensity 0, from 0:00
+    m_hasWorkout = true;
+    m_workoutErg = true;
+    m_workoutFinished = false;
+    m_complianceSec = m_compliantSec = 0;
+    rebuildWorkoutIntervals();
+    setError(QString());
+    emitWorkoutAll();
+    workoutResistanceChanged();
+    return true;
+}
+
+void RlvSession::detachWorkout()
+{
+    if (!m_hasWorkout)
+        return;
+    m_hasWorkout = false;
+    m_workoutFinished = false;
+    m_workout = WorkoutEngine();
+    m_workoutIntervals.clear();
+    m_complianceSec = m_compliantSec = 0;
+    emitWorkoutAll();
+    workoutResistanceChanged();
+}
+
+void RlvSession::rebuildWorkoutIntervals()
+{
+    m_workoutIntervals.clear();
+    if (!m_hasWorkout)
+        return;
+    const int ftp = m_workout.ftp();
+    int start = 0;
+    for (const Interval &i : m_workout.workout().intervals) {
+        QVariantMap m;
+        m.insert(QStringLiteral("name"), i.name);
+        m.insert(QStringLiteral("startSec"), start);
+        m.insert(QStringLiteral("durationSec"), i.durationSec);
+        m.insert(QStringLiteral("watts"), i.wattsAt(0, ftp));
+        m.insert(QStringLiteral("endWatts"), i.wattsAt(i.durationSec, ftp));
+        m.insert(QStringLiteral("percent"), int(std::lround(i.averagePercent() * 100.0)));
+        m.insert(QStringLiteral("ramp"), i.isRamp());
+        m_workoutIntervals.append(m);
+        start += i.durationSec;
+    }
+}
+
+void RlvSession::emitWorkoutAll()
+{
+    m_workoutLastIndex = currentIntervalIndex();
+    m_workoutLastTarget = workoutTargetWatts();
+    emit workoutChanged();
+    emit workoutIntervalChanged();
+    emit workoutTargetChanged();
+    emit workoutErgChanged();
+    emit workoutTick();
+}
+
+void RlvSession::workoutResistanceChanged()
+{
+    emit modeChanged();       // virtualGears / simulationFallback / resistancePath
+    emit positionChanged();   // effectiveGradePercent
+    emit targetChanged();     // ergHolding / gearHolding
+    emit metricsChanged();
+    applyTarget(true);        // running: the ride's resistance; else the page hold
+}
+
+void RlvSession::advanceWorkout(int ms)
+{
+    if (!m_hasWorkout || m_workoutFinished || m_workout.state() != WorkoutEngine::State::Running)
+        return;
+    m_workout.advance(ms);
+    const int idx = currentIntervalIndex();
+    if (idx != m_workoutLastIndex) {
+        m_workoutLastIndex = idx;
+        emit workoutIntervalChanged();
+    }
+    const int target = workoutTargetWatts();
+    if (target != m_workoutLastTarget) {
+        m_workoutLastTarget = target;
+        emit workoutTargetChanged();
+    }
+    emit workoutTick();
+    if (m_workout.state() == WorkoutEngine::State::Finished) {
+        // done before the route: release the workout ERG, the selected mode
+        // takes over (applyTarget() in workoutResistanceChanged())
+        m_workoutFinished = true;
+        m_workoutLastTarget = 0;
+        emit workoutTargetChanged();
+        emit workoutErgChanged();
+        workoutResistanceChanged();
+        emit workoutCompleted();
+    }
+}
+
+void RlvSession::skipInterval()
+{
+    if (!active() || !m_hasWorkout || m_workoutFinished)
+        return;
+    m_workout.skipInterval();
+    if (m_workout.state() == WorkoutEngine::State::Finished) {
+        // skipped past the last interval: over, but not completed
+        m_workoutFinished = true;
+        emitWorkoutAll();
+        workoutResistanceChanged();
+        return;
+    }
+    emitWorkoutAll();
+    if (workoutErgActive())
+        applyTarget(true);
+}
+
+QString RlvSession::currentIntervalName() const
+{
+    const int idx = currentIntervalIndex();
+    return idx >= 0 && idx < m_workout.workout().intervals.size() ? m_workout.workout().intervals.at(idx).name
+                                                                 : QString();
+}
+
+int RlvSession::workoutTargetWatts() const
+{
+    return m_hasWorkout && !m_workoutFinished ? m_workout.targetWatts() : 0;
+}
+
+int RlvSession::nextTargetWatts() const
+{
+    return m_hasWorkout && !m_workoutFinished ? m_workout.nextTargetWatts() : 0;
+}
+
+int RlvSession::workoutCompliance() const
+{
+    return m_complianceSec > 0 ? int(std::lround(100.0 * m_compliantSec / m_complianceSec)) : 0;
+}
+
+void RlvSession::setWorkoutErg(bool on)
+{
+    if (on == m_workoutErg)
+        return;
+    m_workoutErg = on;
+    emit workoutErgChanged();
+    if (m_hasWorkout)
+        workoutResistanceChanged();
+}
+
+void RlvSession::setIntensityPercent(int percent)
+{
+    percent = std::clamp(percent, int(kMinIntensity), int(kMaxIntensity));
+    if (percent == m_workout.intensityOffset())
+        return;
+    m_workout.setIntensityOffset(percent);
+    m_workoutLastTarget = workoutTargetWatts();
+    emit workoutTargetChanged();
+    if (workoutErgActive()) {
+        emit targetChanged();
+        applyTarget(true);
+    }
 }
 
 } // namespace watt

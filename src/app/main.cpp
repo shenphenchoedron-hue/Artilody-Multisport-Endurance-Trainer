@@ -248,6 +248,24 @@ int main(int argc, char *argv[])
     });
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
 
+    // Calendar: Planner.startEntry() prepares the session of a plan entry
+    // (workout, rowing plan, free ride, video ride).
+    planner.setSessions(&training, &freeRide, &rlv, &videos);
+    planner.setRowingStarter([&rowing](qint64 workoutId) { return rowing.setupPlan(workoutId); });
+    // A saved Free Ride / Video Ride completes its active plan entry when it
+    // qualifies (WorkoutPlanner: >= 50 % of the planned duration / 10 min;
+    // route end or >= 90 % of the route).
+    QObject::connect(&freeRide, &FreeRideSession::rideSaved, &planner, [&](qint64 rideId) {
+        if (const auto ride = db.ride(rideId))
+            planner.completeFreeRide(rideId, ride->durationSec, ride->profileId);
+    });
+    QObject::connect(&rlv, &RlvSession::rideSaved, &planner, [&](qint64 rideId) {
+        const double total = rlv.totalDistanceM();
+        const double share = total > 0 ? rlv.riddenMeters() / total : 0.0;
+        if (const auto ride = db.ride(rideId))
+            planner.completeVideoRide(rideId, rlv.routePath(), rlv.completed(), share, ride->profileId);
+    });
+
     // Zwift Click buttons: always routed by VirtualGears::controllerShift()
     // (shift in the road modes, ±10 W in ERG, never the difficulty).
     gears.setSessions(&freeRide, &rlv);
@@ -390,6 +408,9 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_RLV_IDLE=1     only select the route (preview / poster frame, no ride)
     //   WATT_SCREENSHOT_RLV_START=<m>  start point in metres (default 0)
     //   WATT_SCREENSHOT_RLV_FINISH=1   finish the video ride (not saved) before the capture
+    //   WATT_SCREENSHOT_RLV_WORKOUT=<workout name or id>  ride this cycling workout during the
+    //                                  video ride, workout ERG on (a demo "Sweet Spot 3×10" is
+    //                                  added to the screenshot database when no workout matches)
     //   WATT_SCREENSHOT_RLV_MODE       sim (default) | erg (ERG target 200 W) | gears
     //                                  (= sim with virtual gears on)
     //                                  (WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
@@ -498,6 +519,47 @@ int main(int argc, char *argv[])
                      qPrintable(rlv.lastError()));
         else if (shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_START") > 0)
             rlv.seekToDistance(qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_START"));
+        if (const QString wanted = qEnvironmentVariable("WATT_SCREENSHOT_RLV_WORKOUT").trimmed();
+            shotRlv && !wanted.isEmpty()) {
+            qint64 workoutId = -1;
+            bool isId = false;
+            const qint64 asId = wanted.toLongLong(&isId);
+            for (const Workout &w : db.workouts()) {
+                if (w.isRowing() || w.intervals.isEmpty())
+                    continue;
+                if ((isId && w.id == asId) || w.name.compare(wanted, Qt::CaseInsensitive) == 0) {
+                    workoutId = w.id;
+                    break;
+                }
+            }
+            if (workoutId < 0) {
+                // demo workout (screenshot databases only)
+                Workout w;
+                w.name = isId ? QStringLiteral("Sweet Spot 3×10") : wanted;
+                w.category = QStringLiteral("Intervals");
+                w.focus = QStringLiteral("Sweet Spot");
+                auto block = [](const QString &name, int sec, double from, double to) {
+                    Interval i;
+                    i.name = name;
+                    i.durationSec = sec;
+                    i.startPercent = from;
+                    i.endPercent = to;
+                    return i;
+                };
+                w.intervals << block(QStringLiteral("Warm-up"), 300, 0.5, 0.75);
+                for (int r = 0; r < 3; ++r)
+                    w.intervals << block(QStringLiteral("Sweet Spot"), 600, 0.9, 0.9)
+                                << block(QStringLiteral("Easy"), 180, 0.55, 0.55);
+                w.intervals << block(QStringLiteral("Cool-down"), 300, 0.6, 0.4);
+                workoutId = db.saveWorkout(w);
+                library.reload();
+            }
+            if (rlv.attachWorkout(workoutId))
+                rlv.setWorkoutErg(true);
+            else
+                qWarning("Screenshot mode: could not attach the workout %s: %s", qPrintable(wanted),
+                         qPrintable(rlv.lastError()));
+        }
 
         if (!shotMenus.isEmpty()) {
             // open each menu, grab, close; then quit

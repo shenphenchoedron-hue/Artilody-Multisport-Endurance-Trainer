@@ -28,7 +28,10 @@ public:
     //   3  profiles.gear_setup (JSON, virtual shifting / free ride bike setup),
     //      ride_samples.speed (m/s, free ride virtual speed; NULL = none)
     //   4  profiles.height_cm (rider height, 0 = not set; air drag of virtual gears)
-    static constexpr int kSchemaVersion = 4;
+    //   5  planned_workouts: kind ('workout' | 'freeride' | 'rlv'), route_path,
+    //      route_name, planned_duration_sec, options (JSON); workout_id nullable
+    //      (table rebuilt once: SQLite cannot drop NOT NULL with ALTER TABLE)
+    static constexpr int kSchemaVersion = 5;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -74,17 +77,24 @@ public:
     QVector<Sample> rideSamples(qint64 rideId) const;
     bool deleteRide(qint64 id);   // reopens plan entries completed by the ride
 
-    // Workout plan (calendar). Entries whose workout no longer exists are
-    // never returned (inner join) and are deleted together with the workout.
+    // Workout plan (calendar). Workout entries whose workout no longer exists
+    // are never returned and are deleted together with the workout; Free Ride
+    // and Video Ride entries (no workout) are always returned.
     QVector<PlannedWorkout> plannedWorkouts(qint64 profileId, const QDate &from, const QDate &to,
                                             bool onlyOpen = false, int limit = -1) const;
     std::optional<PlannedWorkout> plannedWorkout(qint64 id) const;
     qint64 addPlannedWorkout(qint64 profileId, const QDate &date, qint64 workoutId, const QString &notes = {});
+    // Any kind (e.profileId, date, kind, workoutId for "workout", routePath for
+    // "rlv", routeName, plannedDurationSec, options, notes). Appended at the
+    // end of the day. Returns the id or -1 (lastError).
+    qint64 addPlannedEntry(const PlannedWorkout &e);
+    // planned_duration_sec (<= 0 -> NULL) and options of an entry.
+    bool updatePlannedDetails(qint64 id, int plannedDurationSec, const QString &options);
     bool removePlannedWorkout(qint64 id);
     bool movePlannedWorkout(qint64 id, const QDate &date);   // appended at the end of the new day
     bool setPlannedCompleted(qint64 id, bool completed, qint64 rideId = -1);
     bool setPlannedNotes(qint64 id, const QString &notes);
-    // Marks the first open entry of workoutId on date completed. Returns its id or -1.
+    // Marks the first open workout entry of workoutId on date completed. Returns its id or -1.
     qint64 completePlannedWorkout(qint64 profileId, qint64 workoutId, const QDate &date, qint64 rideId);
 
     // Rowing records (ghost race). Traces are stored as compact JSON [[t,d],...].
@@ -112,6 +122,8 @@ private:
     bool migrateToV2();
     bool migrateToV3();
     bool migrateToV4();
+    bool migrateToV5();
+    bool columnNotNull(const QString &table, const QString &column) const;
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);
     int userVersion() const;

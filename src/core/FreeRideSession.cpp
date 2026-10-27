@@ -336,6 +336,15 @@ int FreeRideSession::avgWatts() const
 
 // --- targets ------------------------------------------------------------------------
 
+void FreeRideSession::setPlannedDurationSec(int seconds)
+{
+    seconds = std::clamp(seconds, 0, 24 * 3600);
+    if (seconds == m_plannedDurationSec)
+        return;
+    m_plannedDurationSec = seconds;
+    emit plannedDurationChanged();
+}
+
 void FreeRideSession::setTargetWatts(int w)
 {
     w = std::clamp(w, kMinErgWatts, kMaxWatts);

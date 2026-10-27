@@ -187,6 +187,15 @@ Item {
     function startEntry(e) {
         if (!e || e.workoutId === undefined)
             return
+        if (e.kind !== undefined && e.kind !== "workout") {
+            // Free Ride / Video Ride: the backend prepares the session
+            var page = Planner.startEntry(e)
+            if (page !== "")
+                goTo(page)
+            else
+                toast(Planner.lastError)
+            return
+        }
         if (Planner.isRowing(e)) {
             if (Rowing.active) {
                 toast("A rowing session is in progress – finish it first")

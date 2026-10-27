@@ -116,6 +116,10 @@ class FreeRideSession : public QObject
     Q_PROPERTY(bool trainerConnected READ trainerConnected NOTIFY devicesChanged)
     // -1 from start() / reset() / discard until the ride is saved
     Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY lastRideIdChanged)
+    // Informational target of a Free Ride planned in the calendar (seconds,
+    // 0 = none; set by Planner.startEntry(), cleared when the plan entry is
+    // done or another entry is started). Nothing stops at this time.
+    Q_PROPERTY(int plannedDurationSec READ plannedDurationSec WRITE setPlannedDurationSec NOTIFY plannedDurationChanged)
 
 public:
     enum class Mode { Ride, Erg };
@@ -232,6 +236,8 @@ public:
 
     bool trainerConnected() const;
     qint64 lastRideId() const { return m_lastRideId; }
+    int plannedDurationSec() const { return m_plannedDurationSec; }
+    Q_INVOKABLE void setPlannedDurationSec(int seconds);
 
     // Road model for the current rider (profile weight + bike) and grade.
     road::Model roadModel(double gradePercent) const;
@@ -272,6 +278,7 @@ signals:
     void lastRideIdChanged();
     void startRefused(const QString &reason);
     void shifted(int direction);    // an ERG step from a controller (gear shifts: VirtualGears::shifted)
+    void plannedDurationChanged();
 
 private:
     void setState(State s);
@@ -331,6 +338,7 @@ private:
     int m_maxWatts = 0;
     int m_ergSeconds = 0;
     qint64 m_lastRideId = -1;
+    int m_plannedDurationSec = 0;
 };
 
 } // namespace watt

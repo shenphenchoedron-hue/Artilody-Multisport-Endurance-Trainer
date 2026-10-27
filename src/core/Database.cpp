@@ -93,10 +93,15 @@ RideRecord rideFromQuery(const QSqlQuery &q)
     r.distanceM = q.value(20).toDouble();
     return r;
 }
+// LEFT JOIN: Free Ride / Video Ride entries have no workout. Workout entries
+// whose workout is gone are skipped (they are deleted with the workout).
+// Every query appends " AND ...".
 const char *kPlanSelect =
     "SELECT p.id, p.profile_id, p.date, p.workout_id, p.position, p.completed, p.ride_id, p.notes,"
-    " w.name, w.sport, w.category, w.intervals"
-    " FROM planned_workouts p JOIN workouts w ON w.id = p.workout_id";
+    " w.name, w.sport, w.category, w.intervals,"
+    " p.kind, p.route_path, p.route_name, p.planned_duration_sec, p.options"
+    " FROM planned_workouts p LEFT JOIN workouts w ON w.id = p.workout_id"
+    " WHERE (p.kind <> 'workout' OR w.id IS NOT NULL)";
 
 PlannedWorkout planFromQuery(const QSqlQuery &q)
 {
@@ -104,7 +109,7 @@ PlannedWorkout planFromQuery(const QSqlQuery &q)
     e.id = q.value(0).toLongLong();
     e.profileId = q.value(1).toLongLong();
     e.date = QDate::fromString(q.value(2).toString(), Qt::ISODate);
-    e.workoutId = q.value(3).toLongLong();
+    e.workoutId = q.value(3).isNull() ? -1 : q.value(3).toLongLong();
     e.position = q.value(4).toInt();
     e.completed = q.value(5).toInt() != 0;
     e.rideId = q.value(6).isNull() ? -1 : q.value(6).toLongLong();
@@ -115,6 +120,13 @@ PlannedWorkout planFromQuery(const QSqlQuery &q)
     Workout w;
     w.intervals = Workout::intervalsFromJson(jsonArray(q.value(11).toString()));
     e.durationSec = w.totalDurationSec();
+    e.kind = q.value(12).toString();
+    if (!plankind::isValid(e.kind))
+        e.kind = plankind::workout();
+    e.routePath = q.value(13).toString();
+    e.routeName = q.value(14).toString();
+    e.plannedDurationSec = q.value(15).isNull() ? 0 : q.value(15).toInt();
+    e.options = q.value(16).toString();
     return e;
 }
 
@@ -233,7 +245,8 @@ bool Database::migrate()
     }
     struct Step { int version; bool (Database::*apply)(); };
     const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 },
-                           { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 } };
+                           { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 },
+                           { 5, &Database::migrateToV5 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -334,6 +347,68 @@ bool Database::migrateToV4()
     // rider height (cm, 0 = not set) for the air drag of virtual gears
     return addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("height_cm"),
                               QStringLiteral("REAL NOT NULL DEFAULT 0"));
+}
+
+bool Database::columnNotNull(const QString &table, const QString &column) const
+{
+    QSqlQuery q(db());
+    if (!q.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
+        return false;
+    while (q.next()) {
+        if (q.value(1).toString().compare(column, Qt::CaseInsensitive) == 0)
+            return q.value(3).toInt() != 0;
+    }
+    return false;
+}
+
+bool Database::migrateToV5()
+{
+    // Calendar entries of other kinds than workouts (Free Ride, Video Ride).
+    // workout_id must become nullable; SQLite cannot drop NOT NULL with
+    // ALTER TABLE, so the table is rebuilt (new table, copy, drop, rename,
+    // indexes) - all inside the migration's transaction. Ids, completion,
+    // ride links and notes are kept; existing rows become kind 'workout'.
+    // The FK keeps ON DELETE CASCADE (workout rows vanish with their workout);
+    // a CHECK makes sure workout rows always name a workout.
+    const QString table = QStringLiteral("planned_workouts");
+    if (!columnNotNull(table, QStringLiteral("workout_id"))) {
+        // already nullable (e.g. a development build): only add what is missing
+        return addColumnIfMissing(table, QStringLiteral("kind"), QStringLiteral("TEXT NOT NULL DEFAULT 'workout'"))
+               && addColumnIfMissing(table, QStringLiteral("route_path"), QStringLiteral("TEXT"))
+               && addColumnIfMissing(table, QStringLiteral("route_name"), QStringLiteral("TEXT"))
+               && addColumnIfMissing(table, QStringLiteral("planned_duration_sec"), QStringLiteral("INTEGER"))
+               && addColumnIfMissing(table, QStringLiteral("options"), QStringLiteral("TEXT"));
+    }
+    const QStringList steps = {
+        QStringLiteral("DROP TABLE IF EXISTS planned_workouts_v5"),
+        QStringLiteral("CREATE TABLE planned_workouts_v5 ("
+                       " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                       " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,"
+                       " date TEXT NOT NULL,"
+                       " workout_id INTEGER REFERENCES workouts(id) ON DELETE CASCADE,"
+                       " position INTEGER NOT NULL DEFAULT 0,"
+                       " completed INTEGER NOT NULL DEFAULT 0,"
+                       " ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL,"
+                       " notes TEXT,"
+                       " kind TEXT NOT NULL DEFAULT 'workout',"
+                       " route_path TEXT,"
+                       " route_name TEXT,"
+                       " planned_duration_sec INTEGER,"
+                       " options TEXT,"
+                       " CHECK (kind <> 'workout' OR workout_id IS NOT NULL))"),
+        QStringLiteral("INSERT INTO planned_workouts_v5 (id, profile_id, date, workout_id, position, completed, ride_id,"
+                       " notes, kind) SELECT id, profile_id, date, workout_id, position, completed, ride_id, notes,"
+                       " 'workout' FROM planned_workouts"),
+        QStringLiteral("DROP TABLE planned_workouts"),
+        QStringLiteral("ALTER TABLE planned_workouts_v5 RENAME TO planned_workouts"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_plan_profile_date ON planned_workouts(profile_id, date, position)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_plan_ride ON planned_workouts(ride_id)"),
+    };
+    for (const QString &sql : steps) {
+        if (!exec(sql))
+            return false;
+    }
+    return true;
 }
 
 void Database::seedDefaults()
@@ -746,7 +821,7 @@ QVector<PlannedWorkout> Database::plannedWorkouts(qint64 profileId, const QDate 
                                                   bool onlyOpen, int limit) const
 {
     QVector<PlannedWorkout> out;
-    QString sql = QLatin1String(kPlanSelect) + QStringLiteral(" WHERE p.profile_id = ?");
+    QString sql = QLatin1String(kPlanSelect) + QStringLiteral(" AND p.profile_id = ?");
     if (from.isValid())
         sql += QStringLiteral(" AND p.date >= ?");
     if (to.isValid())
@@ -775,7 +850,7 @@ QVector<PlannedWorkout> Database::plannedWorkouts(qint64 profileId, const QDate 
 std::optional<PlannedWorkout> Database::plannedWorkout(qint64 id) const
 {
     QSqlQuery q(db());
-    q.prepare(QLatin1String(kPlanSelect) + QStringLiteral(" WHERE p.id = ?"));
+    q.prepare(QLatin1String(kPlanSelect) + QStringLiteral(" AND p.id = ?"));
     q.addBindValue(id);
     if (q.exec() && q.next())
         return planFromQuery(q);
@@ -784,26 +859,60 @@ std::optional<PlannedWorkout> Database::plannedWorkout(qint64 id) const
 
 qint64 Database::addPlannedWorkout(qint64 profileId, const QDate &date, qint64 workoutId, const QString &notes)
 {
-    if (!date.isValid() || !workout(workoutId)) {
-        setError(QStringLiteral("addPlannedWorkout"), QStringLiteral("invalid date or workout"));
+    PlannedWorkout e;
+    e.profileId = profileId;
+    e.date = date;
+    e.kind = plankind::workout();
+    e.workoutId = workoutId;
+    e.notes = notes;
+    return addPlannedEntry(e);
+}
+
+qint64 Database::addPlannedEntry(const PlannedWorkout &e)
+{
+    const bool isWorkout = e.kind == plankind::workout();
+    if (!e.date.isValid() || !plankind::isValid(e.kind) || (isWorkout && !workout(e.workoutId))
+        || (e.kind == plankind::video() && e.routePath.trimmed().isEmpty())) {
+        setError(QStringLiteral("addPlannedEntry"), QStringLiteral("invalid date, kind, workout or route"));
         return -1;
     }
     QSqlQuery q(db());
-    q.prepare(QStringLiteral("INSERT INTO planned_workouts (profile_id, date, workout_id, position, completed, notes)"
+    q.prepare(QStringLiteral("INSERT INTO planned_workouts (profile_id, date, workout_id, position, completed, notes,"
+                             " kind, route_path, route_name, planned_duration_sec, options)"
                              " VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM planned_workouts"
-                             " WHERE profile_id = ? AND date = ?), 0, ?)"));
-    const QString d = date.toString(Qt::ISODate);
-    q.addBindValue(profileId);
+                             " WHERE profile_id = ? AND date = ?), 0, ?, ?, ?, ?, ?, ?)"));
+    const QString d = e.date.toString(Qt::ISODate);
+    const QVariant nullText(QMetaType::fromType<QString>());
+    q.addBindValue(e.profileId);
     q.addBindValue(d);
-    q.addBindValue(workoutId);
-    q.addBindValue(profileId);
+    q.addBindValue(isWorkout ? nullableId(e.workoutId) : nullableId(-1));
+    q.addBindValue(e.profileId);
     q.addBindValue(d);
-    q.addBindValue(notes);
+    q.addBindValue(e.notes);
+    q.addBindValue(e.kind);
+    q.addBindValue(e.routePath.isEmpty() ? nullText : QVariant(e.routePath));
+    q.addBindValue(e.routeName.isEmpty() ? nullText : QVariant(e.routeName));
+    q.addBindValue(e.plannedDurationSec > 0 ? QVariant(e.plannedDurationSec) : QVariant(QMetaType::fromType<int>()));
+    q.addBindValue(e.options.isEmpty() ? nullText : QVariant(e.options));
     if (!q.exec()) {
-        setError(QStringLiteral("addPlannedWorkout"), q.lastError().text());
+        setError(QStringLiteral("addPlannedEntry"), q.lastError().text());
         return -1;
     }
     return q.lastInsertId().toLongLong();
+}
+
+bool Database::updatePlannedDetails(qint64 id, int plannedDurationSec, const QString &options)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE planned_workouts SET planned_duration_sec = ?, options = ? WHERE id = ?"));
+    q.addBindValue(plannedDurationSec > 0 ? QVariant(plannedDurationSec) : QVariant(QMetaType::fromType<int>()));
+    q.addBindValue(options.isEmpty() ? QVariant(QMetaType::fromType<QString>()) : QVariant(options));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        setError(QStringLiteral("updatePlannedDetails"), q.lastError().text());
+        return false;
+    }
+    return q.numRowsAffected() > 0;
 }
 
 bool Database::removePlannedWorkout(qint64 id)
@@ -857,7 +966,7 @@ qint64 Database::completePlannedWorkout(qint64 profileId, qint64 workoutId, cons
 {
     QSqlQuery q(db());
     q.prepare(QStringLiteral("SELECT id FROM planned_workouts WHERE profile_id = ? AND workout_id = ? AND date = ?"
-                             " AND completed = 0 ORDER BY position, id LIMIT 1"));
+                             " AND kind = 'workout' AND completed = 0 ORDER BY position, id LIMIT 1"));
     q.addBindValue(profileId);
     q.addBindValue(workoutId);
     q.addBindValue(date.toString(Qt::ISODate));

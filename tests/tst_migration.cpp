@@ -1,4 +1,4 @@
-// Schema migrations v1 -> v2 -> v3 (PRAGMA user_version) without data loss.
+// Schema migrations v1 -> v2 -> v3 -> v4 -> v5 (PRAGMA user_version) without data loss.
 #include "Database.h"
 #include "ProfileManager.h"
 #include "WorkoutBuilder.h"
@@ -96,7 +96,9 @@ private slots:
                 QCOMPARE(w.sport, QStringLiteral("cycling"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 4);
+        QCOMPARE(Database::kSchemaVersion, 5);
+        for (const char *c : { "kind", "route_path", "route_name", "planned_duration_sec", "options" })
+            QVERIFY(columns(path, QStringLiteral("planned_workouts")).contains(QString::fromLatin1(c)));
         QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
         QVERIFY(columns(path, QStringLiteral("ride_samples")).contains(QStringLiteral("speed")));
         QVERIFY(columns(path, QStringLiteral("workouts")).contains(QStringLiteral("sport")));
@@ -290,7 +292,7 @@ private slots:
         QVERIFY(!columns(path, QStringLiteral("profiles")).contains(QStringLiteral("height_cm")));
         Database db;
         QVERIFY(db.open(path));
-        QCOMPARE(pragmaVersion(path), 4);
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
         auto p = db.profile(1);
         QVERIFY(p);
         QCOMPARE(p->weightKg, 61.5);
@@ -311,6 +313,162 @@ private slots:
         QCOMPARE(profiles.heightCm(), 181.0);
         QCOMPARE(db.profile(profiles.profileId())->heightCm, 181.0);
         QCOMPARE(db.profile(profiles.profileId())->weightKg, 72.0);
+    }
+
+    void upgradesV4ToV5PlanKinds()
+    {
+        // a v4 database (1.2.0): planned_workouts with workout_id NOT NULL
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v4.sqlite"));
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v4"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            for (const char *sql : kV1Schema)
+                QVERIFY2(q.exec(QString::fromUtf8(sql)), sql);
+            const char *v2to4[] = {
+                "ALTER TABLE workouts ADD COLUMN sport TEXT NOT NULL DEFAULT 'cycling'",
+                "ALTER TABLE rides ADD COLUMN sport TEXT NOT NULL DEFAULT 'cycling'",
+                "ALTER TABLE rides ADD COLUMN distance_m REAL",
+                "ALTER TABLE profiles ADD COLUMN rowing_ftp INTEGER NOT NULL DEFAULT 150",
+                "CREATE TABLE planned_workouts (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE, date TEXT NOT NULL,"
+                " workout_id INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,"
+                " position INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0,"
+                " ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL, notes TEXT)",
+                "CREATE INDEX idx_plan_profile_date ON planned_workouts(profile_id, date, position)",
+                "CREATE TABLE rowing_records (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE, distance_m INTEGER NOT NULL,"
+                " time_sec REAL NOT NULL, ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL, created_at TEXT, trace TEXT)",
+                "ALTER TABLE profiles ADD COLUMN gear_setup TEXT",
+                "ALTER TABLE ride_samples ADD COLUMN speed REAL",
+                "ALTER TABLE profiles ADD COLUMN height_cm REAL NOT NULL DEFAULT 0",
+                "INSERT INTO workouts (id, name, category, intervals, sport) VALUES (8, 'Other', 'Endurance',"
+                " '[{\"type\":\"steady\",\"name\":\"E\",\"duration\":1200,\"start\":0.6,\"end\":0.6}]', 'cycling')",
+                "INSERT INTO planned_workouts (id, profile_id, date, workout_id, position, completed, ride_id, notes)"
+                " VALUES (5, 1, '2026-10-20', 7, 0, 1, 3, 'done')",
+                "INSERT INTO planned_workouts (id, profile_id, date, workout_id, position, completed, notes)"
+                " VALUES (6, 1, '2026-10-20', 8, 1, 0, 'next')",
+                "INSERT INTO planned_workouts (id, profile_id, date, workout_id, position) VALUES (9, 1, '2026-10-22', 7, 0)",
+                "PRAGMA user_version = 4",
+            };
+            for (const char *sql : v2to4)
+                QVERIFY2(q.exec(QString::fromUtf8(sql)), sql);
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v4"));
+        QCOMPARE(pragmaVersion(path), 4);
+        QVERIFY(!columns(path, QStringLiteral("planned_workouts")).contains(QStringLiteral("kind")));
+
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            QCOMPARE(pragmaVersion(path), 5);
+            // existing entries: same ids, order, completion, ride link, notes; kind workout
+            QVector<PlannedWorkout> all = db.plannedWorkouts(1, {}, {});
+            QCOMPARE(all.size(), 3);
+            QCOMPARE(all.at(0).id, qint64(5));
+            QCOMPARE(all.at(0).kind, QStringLiteral("workout"));
+            QCOMPARE(all.at(0).workoutId, qint64(7));
+            QVERIFY(all.at(0).completed);
+            QCOMPARE(all.at(0).rideId, qint64(3));
+            QCOMPARE(all.at(0).notes, QStringLiteral("done"));
+            QCOMPARE(all.at(0).workoutName, QStringLiteral("My Sweet Spot"));
+            QCOMPARE(all.at(0).durationSec, 600);
+            QCOMPARE(all.at(1).id, qint64(6));
+            QCOMPARE(all.at(1).position, 1);
+            QCOMPARE(all.at(1).workoutName, QStringLiteral("Other"));
+            QCOMPARE(all.at(2).id, qint64(9));
+
+            // non-workout kinds: NULL workout_id is accepted
+            PlannedWorkout fr;
+            fr.profileId = 1;
+            fr.date = QDate(2026, 10, 20);
+            fr.kind = QStringLiteral("freeride");
+            fr.plannedDurationSec = 3600;
+            fr.options = QStringLiteral("{\"mode\":\"erg\",\"ergWatts\":180}");
+            const qint64 frId = db.addPlannedEntry(fr);
+            QVERIFY(frId > 9);   // AUTOINCREMENT continues after the copied ids
+            PlannedWorkout rlv;
+            rlv.profileId = 1;
+            rlv.date = QDate(2026, 10, 21);
+            rlv.kind = QStringLiteral("rlv");
+            rlv.routePath = QStringLiteral("/videos/route/route.xml");
+            rlv.routeName = QStringLiteral("Route");
+            const qint64 rlvId = db.addPlannedEntry(rlv);
+            QVERIFY(rlvId > frId);
+            const auto frBack = db.plannedWorkout(frId);
+            QVERIFY(frBack);
+            QCOMPARE(frBack->kind, QStringLiteral("freeride"));
+            QCOMPARE(frBack->workoutId, qint64(-1));
+            QCOMPARE(frBack->position, 2);   // end of the day
+            QCOMPARE(frBack->plannedDurationSec, 3600);
+            QCOMPARE(frBack->options, fr.options);
+            QCOMPARE(db.plannedWorkout(rlvId)->routePath, rlv.routePath);
+            QCOMPARE(db.plannedWorkout(rlvId)->routeName, rlv.routeName);
+            QCOMPARE(db.plannedWorkouts(1, {}, {}).size(), 5);
+            // invalid: workout kind without a workout, rlv without route, unknown kind
+            PlannedWorkout bad = rlv;
+            bad.routePath.clear();
+            QCOMPARE(db.addPlannedEntry(bad), qint64(-1));
+            bad = fr;
+            bad.kind = QStringLiteral("workout");
+            QCOMPARE(db.addPlannedEntry(bad), qint64(-1));
+            bad.kind = QStringLiteral("swim");
+            QCOMPARE(db.addPlannedEntry(bad), qint64(-1));
+            {
+                // the CHECK constraint guards raw SQL too
+                QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("raw"));
+                d.setDatabaseName(path);
+                QVERIFY(d.open());
+                QSqlQuery q(d);
+                QVERIFY(!q.exec(QStringLiteral("INSERT INTO planned_workouts (profile_id, date, kind) VALUES (1, '2026-10-23', 'workout')")));
+                d.close();
+            }
+            QSqlDatabase::removeDatabase(QStringLiteral("raw"));
+
+            // a workout entry's completion helper never ticks off other kinds
+            QCOMPARE(db.completePlannedWorkout(1, 8, QDate(2026, 10, 20), -1), qint64(6));
+            QVERIFY(!db.plannedWorkout(frId)->completed);
+
+            // deleting a ride reopens entries of any kind
+            QVERIFY(db.setPlannedCompleted(frId, true, 3));
+            QVERIFY(db.deleteRide(3));
+            QVERIFY(!db.plannedWorkout(5)->completed);
+            QCOMPARE(db.plannedWorkout(5)->rideId, qint64(-1));
+            QVERIFY(!db.plannedWorkout(frId)->completed);
+
+            // FK cascade still deletes workout entries with their workout - only those
+            QVERIFY(db.deleteWorkout(7));
+            QVERIFY(!db.plannedWorkout(5));
+            QVERIFY(!db.plannedWorkout(9));
+            QVERIFY(db.plannedWorkout(6));
+            QVERIFY(db.plannedWorkout(frId));
+            QVERIFY(db.plannedWorkout(rlvId));
+            {
+                // the FK itself (not only Database::deleteWorkout's explicit delete)
+                QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("raw"));
+                d.setDatabaseName(path);
+                QVERIFY(d.open());
+                QSqlQuery q(d);
+                QVERIFY(q.exec(QStringLiteral("PRAGMA foreign_keys = ON")));
+                QVERIFY(q.exec(QStringLiteral("DELETE FROM workouts WHERE id = 8")));
+                d.close();
+            }
+            QSqlDatabase::removeDatabase(QStringLiteral("raw"));
+            QVERIFY(!db.plannedWorkout(6));
+            QCOMPARE(db.plannedWorkouts(1, {}, {}).size(), 2);
+            QVERIFY(db.updatePlannedDetails(frId, 1800, QStringLiteral("{\"mode\":\"ride\"}")));
+            QCOMPARE(db.plannedWorkout(frId)->plannedDurationSec, 1800);
+            QVERIFY(db.updatePlannedDetails(frId, 0, QString()));
+            QCOMPARE(db.plannedWorkout(frId)->plannedDurationSec, 0);
+            QVERIFY(db.plannedWorkout(frId)->options.isEmpty());
+        }
+        // reopening a v5 database changes nothing
+        Database again;
+        QVERIFY(again.open(path));
+        QCOMPARE(again.plannedWorkouts(1, {}, {}).size(), 2);
     }
 
     void partiallyMigratedColumnsAreTolerated()

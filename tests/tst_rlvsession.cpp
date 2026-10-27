@@ -137,6 +137,26 @@ struct Fixture
 
 double flat(double) { return 0.0; }
 
+// 60 s at 50 %, a 60 s ramp 50 -> 100 %, 60 s at 100 % (FTP 250: 125 W, 125..250 W, 250 W)
+Workout testWorkout()
+{
+    Workout w;
+    w.name = QStringLiteral("Test Workout");
+    w.sport = sport::cycling();
+    auto block = [](const QString &name, double from, double to) {
+        Interval i;
+        i.name = name;
+        i.durationSec = 60;
+        i.startPercent = from;
+        i.endPercent = to;
+        i.type = from == to ? BlockType::Steady : BlockType::Ramp;
+        return i;
+    };
+    w.intervals << block(QStringLiteral("Easy"), 0.5, 0.5) << block(QStringLiteral("Ramp"), 0.5, 1.0)
+                << block(QStringLiteral("Hard"), 1.0, 1.0);
+    return w;
+}
+
 } // namespace
 
 class TestRlvSession : public QObject
@@ -1194,6 +1214,322 @@ private slots:
         }
         QVERIFY2(changes <= 40 * 250 / RlvSession::kRateMinIntervalMs + 1, qPrintable(QString::number(changes)));
         f.rlv->finish(false);
+    }
+
+    // --- workout during the video ride ---------------------------------------------
+
+    void workoutAttachAndTimeline()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QCOMPARE(f.profiles->ftp(), 250);
+        f.hub->setTrainerSimulationSupport(1);
+        QVERIFY(f.addRoute(QStringLiteral("long"), 6000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("long")));
+        const qint64 wid = f.db.saveWorkout(testWorkout());
+        QVERIFY(!f.rlv->hasWorkout());
+        QCOMPARE(f.rlv->workoutId(), qint64(-1));
+        QCOMPARE(f.rlv->workoutTargetWatts(), 0);
+        QCOMPARE(f.rlv->resistancePath(), QStringLiteral("simulation"));
+
+        // refused: unknown, rowing, without intervals
+        QVERIFY(!f.rlv->attachWorkout(99999));
+        Workout rowing = testWorkout();
+        rowing.sport = sport::rowing();
+        QVERIFY(!f.rlv->attachWorkout(rowing));
+        QVERIFY(!f.rlv->attachWorkout(Workout()));
+        QVERIFY(!f.rlv->hasWorkout());
+
+        QSignalSpy changed(f.rlv.get(), &RlvSession::workoutChanged);
+        f.rlv->setWorkoutErg(false);
+        QVERIFY(f.rlv->attachWorkout(wid));
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(f.rlv->hasWorkout());
+        QCOMPARE(f.rlv->workoutId(), wid);
+        QCOMPARE(f.rlv->workoutName(), QStringLiteral("Test Workout"));
+        QVERIFY(f.rlv->workoutErg());   // on when attaching
+        QVERIFY(f.rlv->workoutErgActive());
+        QCOMPARE(f.rlv->workoutTotalSec(), 180);
+        QCOMPARE(f.rlv->workoutRemainingSec(), 180);
+        QCOMPARE(f.rlv->intensityPercent(), 0);
+        const QVariantList iv = f.rlv->workoutIntervals();
+        QCOMPARE(iv.size(), 3);
+        const QVariantMap ramp = iv.at(1).toMap();
+        QCOMPARE(ramp.value(QStringLiteral("startSec")).toInt(), 60);
+        QCOMPARE(ramp.value(QStringLiteral("durationSec")).toInt(), 60);
+        QCOMPARE(ramp.value(QStringLiteral("watts")).toInt(), 125);
+        QCOMPARE(ramp.value(QStringLiteral("endWatts")).toInt(), 250);
+        QCOMPARE(ramp.value(QStringLiteral("percent")).toInt(), 75);
+        QVERIFY(ramp.value(QStringLiteral("ramp")).toBool());
+        QCOMPARE(ramp.value(QStringLiteral("name")).toString(), QStringLiteral("Ramp"));
+        QCOMPARE(iv.at(2).toMap().value(QStringLiteral("startSec")).toInt(), 120);
+        QCOMPARE(f.rlv->workoutTargetWatts(), 125);
+        QCOMPARE(f.rlv->nextTargetWatts(), 125);
+        QCOMPARE(f.rlv->currentIntervalIndex(), 0);
+        QCOMPARE(f.rlv->currentIntervalName(), QStringLiteral("Easy"));
+        // workout ERG: the ERG path with the workout target, real grade
+        QCOMPARE(f.rlv->resistancePath(), QStringLiteral("erg"));
+        QVERIFY(!f.rlv->virtualGears());
+        QCOMPARE(f.rlv->ergTargetNow(), 125);
+
+        // the timeline runs on the ride's clock
+        f.pedal(90, 150);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(f.hub->requestedTarget(), 125);
+        QVERIFY(f.hub->ergActive());
+        f.ride_for(30000);
+        QCOMPARE(f.rlv->workoutElapsedSec(), 30);
+        QCOMPARE(f.rlv->elapsedSeconds(), 30);
+        QCOMPARE(f.rlv->currentIntervalIndex(), 0);
+        QCOMPARE(f.rlv->intervalRemainingSec(), 30);
+        QCOMPARE(f.rlv->workoutRemainingSec(), 150);
+        QVERIFY(f.rlv->speedKmh() > 10);   // speed from power on the route
+        QVERIFY(f.rlv->distanceMeters() > 50);
+        // attaching / detaching rules during a ride
+        QVERIFY(!f.rlv->attachWorkout(wid));
+
+        // ramp: the ERG target follows it
+        f.ride_for(60000);   // 90 s: half way up the ramp
+        QCOMPARE(f.rlv->currentIntervalIndex(), 1);
+        QCOMPARE(f.rlv->currentIntervalName(), QStringLiteral("Ramp"));
+        QCOMPARE(f.rlv->workoutTargetWatts(), 188);   // 125 + 62.5
+        QCOMPARE(f.hub->requestedTarget(), 188);
+        QCOMPARE(f.rlv->nextTargetWatts(), 250);
+
+        // intensity +10 %: 0.75 * 250 * 1.1 = 206
+        QSignalSpy target(f.rlv.get(), &RlvSession::workoutTargetChanged);
+        f.rlv->setIntensityPercent(10);
+        QCOMPARE(f.rlv->intensityPercent(), 10);
+        QCOMPARE(f.rlv->workoutTargetWatts(), 206);
+        QCOMPARE(f.hub->requestedTarget(), 206);
+        QVERIFY(target.count() >= 1);
+        // Zwift Click / keys: ±5 % intensity while the workout ERG holds
+        QSignalSpy shifted(f.rlv.get(), &RlvSession::shifted);
+        const QString gearBefore = f.rlv->gearing().label();
+        f.rlv->controllerShift(1);
+        QCOMPARE(f.rlv->intensityPercent(), 15);
+        QCOMPARE(shifted.count(), 1);
+        QCOMPARE(f.rlv->gearing().label(), gearBefore);   // no gear shift
+        f.rlv->controllerShift(-1);
+        f.rlv->controllerShift(-1);
+        QCOMPARE(f.rlv->intensityPercent(), 5);
+        f.rlv->setIntensityPercent(500);
+        QCOMPARE(f.rlv->intensityPercent(), 50);
+        f.rlv->setIntensityPercent(0);
+        QCOMPARE(f.hub->requestedTarget(), 188);
+
+        // pause: the workout stops with the ride, the trainer is released
+        f.rlv->pause();
+        QVERIFY(!f.hub->ergActive());
+        const int at = f.rlv->workoutElapsedSec();
+        for (int i = 0; i < 40; ++i)
+            f.rlv->advanceClock(250);
+        QCOMPARE(f.rlv->workoutElapsedSec(), at);
+        f.rlv->resume();
+        QCOMPARE(f.hub->requestedTarget(), f.rlv->workoutTargetWatts());
+        f.ride_for(1000);
+        QCOMPARE(f.rlv->workoutElapsedSec(), at + 1);
+
+        // the workout ends before the route: the selected mode takes over
+        QSignalSpy completed(f.rlv.get(), &RlvSession::workoutCompleted);
+        f.ride_for(80000);   // 171 s
+        QVERIFY(!f.rlv->workoutFinished());
+        QCOMPARE(f.rlv->currentIntervalIndex(), 2);
+        QCOMPARE(f.hub->requestedTarget(), 250);
+        f.ride_for(10000);   // 181 s
+        QVERIFY(f.rlv->workoutFinished());
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(!f.rlv->workoutErgActive());
+        QCOMPARE(f.rlv->workoutTargetWatts(), 0);
+        QCOMPARE(f.rlv->resistancePath(), QStringLiteral("simulation"));
+        QVERIFY(f.hub->simulationActive());
+        QVERIFY(f.rlv->running());   // the route goes on
+        f.ride_for(5000);
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(f.rlv->running());
+
+        // saved with the workout
+        const qint64 id = f.rlv->stop();
+        QVERIFY(id > 0);
+        const auto ride = f.db.ride(id);
+        QVERIFY(ride);
+        QCOMPARE(ride->workoutId, wid);
+        QCOMPARE(ride->workoutName, QStringLiteral("RLV: long + Test Workout"));
+        QCOMPARE(ride->blocks, 3);
+        QVERIFY(ride->ergMode);
+        const QVector<Sample> samples = f.db.rideSamples(id);
+        QVERIFY(samples.size() >= 185);
+        QCOMPARE(samples.at(10).targetPower, 125);    // workout target per second
+        QVERIFY(samples.at(90).targetPower >= 185 && samples.at(90).targetPower <= 190);
+        QCOMPARE(samples.at(150).targetPower, 250);
+        QCOMPARE(samples.at(184).targetPower, 0);     // after the workout, sim mode
+        QVERIFY(samples.at(10).speedMps > 0);
+    }
+
+    void workoutComplianceAndRestart()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("long"), 6000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("long")));
+        QVERIFY(f.rlv->attachWorkout(testWorkout()));
+        QCOMPARE(f.rlv->workoutCompliance(), 0);
+        f.pedal(90, 125);   // exactly the easy target
+        QVERIFY(f.rlv->start());
+        f.ride_for(50000);
+        QCOMPARE(f.rlv->workoutCompliance(), 100);
+        f.ride_for(30000);   // 80 s: the ramp leaves 125 W behind after ~6.7 s (>138 W)
+        const int c = f.rlv->workoutCompliance();
+        QVERIFY2(c > 75 && c < 90, qPrintable(QString::number(c)));
+        f.rlv->setIntensityPercent(-20);
+        f.rlv->discard();
+        // a new ride: the workout from 0:00, compliance reset, intensity kept
+        QVERIFY(f.rlv->start());
+        QCOMPARE(f.rlv->workoutElapsedSec(), 0);
+        QCOMPARE(f.rlv->workoutCompliance(), 0);
+        QCOMPARE(f.rlv->intensityPercent(), -20);
+        QCOMPARE(f.rlv->workoutTargetWatts(), 100);   // 125 * 0.8
+        QCOMPARE(f.hub->requestedTarget(), 100);
+        f.rlv->discard();
+        f.rlv->reset();
+        QCOMPARE(f.rlv->workoutElapsedSec(), 0);
+    }
+
+    void workoutErgOffKeepsTheMode()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.hub->setTrainerSimulationSupport(1);
+        QVERIFY(f.addRoute(QStringLiteral("hill"), 6000, 10, [](double) { return 4.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("hill")));
+        f.rlv->setDifficulty(50);
+        QVERIFY(f.rlv->attachWorkout(testWorkout()));
+        f.pedal(90, 150);
+        QVERIFY(f.rlv->start());
+        f.ride_for(5000);
+        // workout ERG: the real grade, the trainer holds the workout target
+        QVERIFY(f.hub->ergActive());
+        QCOMPARE(f.hub->requestedTarget(), 125);
+        QVERIFY(std::abs(f.rlv->effectiveGradePercent() - f.rlv->gradePercent()) < 1e-9);
+
+        // off: simulation (difficulty applies), targets are guidance only
+        QSignalSpy erg(f.rlv.get(), &RlvSession::workoutErgChanged);
+        f.rlv->setWorkoutErg(false);
+        QCOMPARE(erg.count(), 1);
+        QVERIFY(!f.rlv->workoutErgActive());
+        QCOMPARE(f.rlv->resistancePath(), QStringLiteral("simulation"));
+        QVERIFY(!f.hub->ergActive());
+        QVERIFY(f.hub->simulationActive());
+        QVERIFY(std::abs(f.rlv->effectiveGradePercent() - f.rlv->gradePercent() * 0.5) < 1e-9);
+        f.ride_for(5000);
+        QCOMPARE(f.rlv->workoutTargetWatts(), 125);   // still shown
+        QCOMPARE(f.rlv->workoutElapsedSec(), 10);      // and running
+        // Click in simulation: the virtual gear, not the intensity
+        f.rlv->controllerShift(1);
+        QCOMPARE(f.rlv->intensityPercent(), 0);
+
+        // RLV ERG with the workout ERG off: the RLV target, not the workout's
+        f.rlv->setMode(QStringLiteral("erg"));   // starts from the rider's power ...
+        QCOMPARE(f.hub->requestedTarget(), 150);
+        f.rlv->setTargetWatts(200);
+        f.ride_for(1000);
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        f.rlv->controllerShift(1);
+        QCOMPARE(f.rlv->targetWatts(), 210);
+        QCOMPARE(f.rlv->intensityPercent(), 0);
+        // back on: the workout target again
+        f.rlv->setWorkoutErg(true);
+        QCOMPARE(f.hub->requestedTarget(), 125);
+
+        const qint64 id = f.rlv->stop();
+        const QVector<Sample> samples = f.db.rideSamples(id);
+        QCOMPARE(samples.at(7).targetPower, 125);   // guidance target recorded too
+    }
+
+    void routeEndsBeforeWorkout()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("short"), 400, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("short")));
+        QVERIFY(f.rlv->attachWorkout(testWorkout()));
+        QSignalSpy completed(f.rlv.get(), &RlvSession::workoutCompleted);
+        QSignalSpy saved(f.rlv.get(), &RlvSession::rideSaved);
+        f.pedal(90, 200);
+        QVERIFY(f.rlv->start());
+        f.ride_for(300000);
+        QCOMPARE(f.rlv->state(), QStringLiteral("finished"));
+        QVERIFY(f.rlv->completed());
+        QVERIFY(!f.rlv->workoutFinished());   // incomplete
+        QCOMPARE(completed.count(), 0);
+        QCOMPARE(saved.count(), 1);
+        QVERIFY(!f.hub->ergActive());          // released at the end
+        const auto ride = f.db.ride(f.rlv->lastRideId());
+        QVERIFY(ride);
+        QCOMPARE(ride->workoutName, QStringLiteral("RLV: short + Test Workout"));
+        QVERIFY(f.rlv->workoutElapsedSec() < 180);
+    }
+
+    void skipAndDetachDuringTheRide()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("long"), 6000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("long")));
+        QVERIFY(f.rlv->attachWorkout(testWorkout()));
+        f.rlv->skipInterval();   // not before the ride
+        QCOMPARE(f.rlv->currentIntervalIndex(), 0);
+        f.pedal(90, 150);
+        QVERIFY(f.rlv->start());
+        f.ride_for(10000);
+        f.rlv->skipInterval();
+        QCOMPARE(f.rlv->currentIntervalIndex(), 1);
+        QCOMPARE(f.rlv->workoutElapsedSec(), 60);
+        QCOMPARE(f.hub->requestedTarget(), 125);
+        QSignalSpy completed(f.rlv.get(), &RlvSession::workoutCompleted);
+        f.rlv->skipInterval();
+        f.rlv->skipInterval();   // past the end: over, not completed
+        QVERIFY(f.rlv->workoutFinished());
+        QCOMPARE(completed.count(), 0);
+        QVERIFY(f.rlv->running());
+        QVERIFY(!f.hub->ergActive());
+
+        // detach during a ride: the selected mode at once, a plain RLV ride
+        f.rlv->discard();
+        f.rlv->setMode(QStringLiteral("erg"));
+        f.rlv->setTargetWatts(220);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(f.hub->requestedTarget(), 125);   // workout first
+        f.ride_for(6000);
+        f.rlv->detachWorkout();
+        QVERIFY(!f.rlv->hasWorkout());
+        QCOMPARE(f.hub->requestedTarget(), 220);
+        f.ride_for(1000);
+        const qint64 id = f.rlv->stop();
+        QVERIFY(id > 0);
+        QCOMPARE(f.db.ride(id)->workoutName, QStringLiteral("RLV: long"));
+        QCOMPARE(f.db.ride(id)->workoutId, qint64(-1));
+    }
+
+    void workoutHoldsOnTheOpenPage()
+    {
+        // ERG on the open Video Ride page (idle) uses the workout's first target
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("long"), 6000, 10, flat));
+        QVERIFY(f.selectRoute(QStringLiteral("long")));
+        f.gears->setActivePage(QStringLiteral("video"));
+        QVERIFY(!f.hub->ergActive());   // sim without virtual gears: nothing held
+        QVERIFY(f.rlv->attachWorkout(testWorkout()));
+        QVERIFY(f.rlv->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 125);
+        f.rlv->setWorkoutErg(false);
+        QVERIFY(!f.rlv->ergHolding());
+        QVERIFY(!f.hub->ergActive());
+        f.rlv->setWorkoutErg(true);
+        QCOMPARE(f.hub->requestedTarget(), 125);
+        f.rlv->detachWorkout();
+        QVERIFY(!f.hub->ergActive());
     }
 };
 
