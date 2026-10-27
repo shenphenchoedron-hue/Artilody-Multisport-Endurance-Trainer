@@ -17,7 +17,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Artilody Watts Trainer dashboard during a workout" width="900">
+  <img src="docs/screenshots/dashboard.png" alt="Artilody Watts Trainer Watt Training page during a workout" width="900">
 </p>
 
 Artilody Watts Trainer is a desktop app for structured, power-based indoor cycling and rowing. It connects to Bluetooth LE smart trainers (FTMS), heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride and row to a local database on your computer. You don't need an account, a subscription or an internet connection.
@@ -28,7 +28,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 | | |
 |---|---|
-| **Workouts & ERG** | Ride structured workouts – the trainer holds the target watts in ERG mode; intensity ±5 %, skip interval, start on pedaling, FTP test. 8 built-in workouts plus your own. |
+| **Workouts & ERG** | Ride structured workouts – the trainer holds the target watts in ERG mode; intensity ±5 %, skip interval, manual Start (never on pedaling), FTP test. 8 built-in workouts plus your own. |
 | **Training calendar** | Plan workouts, **Free Rides** and **Video Rides** by day, drag to move, start them from the calendar; entries are ticked off automatically. |
 | **Workout Builder** | Visual block editor (watts or % FTP, ramps, cadence, RPE); share workouts as `.awt` or Zwift `.zwo` files. Create workouts on any computer with the companion **[Artilody Workout Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator)**. |
 | **Free Ride & virtual gears** | Ride a road with a grade or hold an ERG wattage; shift **virtual gears** with a **Zwift Click**, on screen or the keyboard, with weight-aware road physics. |
@@ -39,6 +39,11 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
 
 ---
+
+## Next version (in testing)
+
+- **Manual start only** – a session never starts by itself when you start pedaling or rowing (pedaling a little while you clip in no longer starts anything). Load a workout, open Free Ride / Video Ride or set up a row, then press **Start** (or <kbd>Space</kbd>). The *Start When Pedaling* buttons and the rowing *Start on first stroke* switch are gone. Pedaling never resumes a paused session either: press **Resume** (or <kbd>Space</kbd>).
+- **Dashboard is now "Watt Training"** – the first sidebar entry, with a bicycle icon.
 
 ## What's new in 1.3.0
 
@@ -57,7 +62,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **Virtual gears and Zwift Click** – connect a Zwift Click v1 / v2 under **Devices → Controllers**; the **Virtual gears** card holds your bike (**Gear Setup…**: chainrings, cassette, wheel, sequential or front + rear shifting) and is used by Free Ride and Video Ride.
 - **Weight-aware road physics** with automatic air drag (CdA) from your weight and the new optional profile **Height**.
 - **Smooth power (3 s average)** for displayed cycling watts (Settings → Smooth power); recordings still use raw power.
-- **Sidebar order** – Dashboard, Free Ride, Video Ride, Rowing at the top.
+- **Sidebar order** – Watt Training (then called Dashboard), Free Ride, Video Ride, Rowing at the top.
 - **FTP tests detect their protocol** (ramp: 75 % of best 1-min power; 20-min: 95 % of best 20-min power).
 - Database schema version 4, many fixes. See the [1.2.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.2.0).
 
@@ -96,18 +101,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 ## Features
 
 ### Ride
-- **Live dashboard** with power, cadence, heart rate and elapsed/remaining time.
+- **Watt Training page** (sidebar → **Watt Training**, bicycle icon) with live power, cadence, heart rate and elapsed/remaining time.
 - **Smooth power**: the displayed watts are a time-weighted rolling average over the last 3 s (on by default; off, 1, 5 or 10 s under **Settings** or by clicking the **3 s avg** badge on the power tile). It only affects the display – rides are recorded with the raw power.
 - **Workout chart** with targets coloured by RPE/power zone, your heart-rate curve and a position marker, plus a timeline of the intervals.
 - **On-the-fly control**: change the intensity in ±5 % steps, skip the current interval, and turn ERG on or off during the ride.
-- **Start on pedaling**: the workout loads and waits until you start pedaling (cadence ≥ 20 rpm, or power ≥ 30 W on trainers that don't report cadence). Press **Start now** to start it yourself.
+- **Manual start**: **Load Workout** (Workouts page) or the calendar's **Ride** loads the workout on Watt Training (*Ready – press Start*); the clock only starts when you press **Start** (or <kbd>Space</kbd>). Pedaling – e.g. while you clip in – never starts or resumes a workout.
 - **ERG or Free Ride**: in ERG mode the app sends the target power to the trainer. In Free Ride you still see the targets, but the trainer simulates a flat road and you control the effort.
 
 ### Free Ride & virtual shifting
 - **Free Ride page** (sidebar → **Free Ride**): cycle without a workout. Choose a mode at the top: **Ride** or **ERG**. Big tiles show power, speed, cadence, heart rate, time and distance (with averages), and a chart draws power, speed and heart rate.
 - **Ride**: a road with a **grade** control (−15 % to +20 %, ±0.5 % steps); climbs get harder like outdoors. With your bike's gears the trainer gets the grade (gradient simulation) and your speed follows your power. With **virtual gears** (switched on under Devices, or automatically by a Zwift Click) the current gear is shown with a sketch of the chainrings and cassette, and **Easier** / **Harder**, <kbd>↓</kbd>/<kbd>↑</kbd> or the Click shift: the speed comes from your cadence and the gear, and the trainer brakes with the power that speed needs on the road, so a harder gear gives more watts and more speed. A trainer without gradient simulation uses virtual gears automatically.
 - **ERG**: selecting **ERG** at the top is the only ERG switch – the trainer gets the target at once, also before you start the ride (while the page is open; the status shows *ERG on*), and selecting **Ride** releases it (use **Pause** to free-wheel for a moment; ERG returns with **Resume**). The first target is your current 3 s power, else the last target (first time: 60 % FTP). Set the target with the −25/−10/−5/+5/+10/+25 buttons or type an exact value; the trainer holds it until you change it. The Zwift Click and <kbd>PgUp</kbd>/<kbd>PgDn</kbd> change the target by 10 W, <kbd>↑</kbd>/<kbd>↓</kbd> by 5 W.
-- **Start** now or **when pedaling**, **Pause** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; the ride is saved to History as a free ride and can be exported as FIT/CSV. A finish summary shows time, distance, average/max power, average speed and energy.
+- **Start**, **Pause** / **Resume** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; pedaling alone never starts or resumes the ride. The ride is saved to History as a free ride and can be exported as FIT/CSV. A finish summary shows time, distance, average/max power, average speed and energy.
 - **Virtual gears & Zwift Click** (**Devices → Controllers (Zwift Click)**): connect the Click over Bluetooth LE (battery level and a live button test; press a button to wake it; a Click v2 has two pods – pair both). The **Virtual gears** card shows your bike (*50/34 · 11–34 12-speed · 700×25c · 16 gears*), the current gear with − / + to test, **Gear Setup…**, *Use virtual gears* (on as soon as a Click is connected or pressed) and **Bike on the trainer** – the real gear to leave your bike in (default 50×17). The setup is saved per profile, loaded when the Click is recognised and used by Free Ride and Video Ride. The Click always shifts in Free Ride *Ride* and Video Ride *Simulation*, changes the target by ±10 W in ERG, and shifts on any other page so you can try it; it never changes the difficulty.
 - **How virtual gears drive the trainer**: if the trainer simulates gradients, it gets a gear-adjusted grade, so the brake delivers the road power of your virtual gear at the speed of the real gear you left the bike in (that speed comes from your cadence and the *Bike on the trainer* gear – from the trainer's speed only if there is no cadence); otherwise the app sets the trainer (ERG) to that power. Either way a harder gear means more speed and more watts at the same cadence, an easier gear fewer, and climbs are harder; on a descent where the bike rolls faster than your pedals turn it, you spin freely whatever the gear. Free Ride and Video Ride use exactly the same calculation, and it applies as soon as the page is open – shifting changes the resistance before you press Start, too.
 - **Gear setup** (**Gear Setup…** on the Devices page): chainrings and cassette from presets (compact, semi-compact, standard, GRX, 1×, 11–28 … 10–50) or typed as numbers, wheel size, sequential or front + rear shifting, and (advanced) bike weight, air drag (CdA: *auto from your weight* or your own value) and Crr. A live preview lists every gear with ratio, speed at 90 rpm and power on the flat; invalid input is explained.
@@ -149,7 +154,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **Ride a workout during the video** – the **Workout** card on the page (above *Resistance*) lists your cycling workouts (*None* = just ride the route); choose one before you start. Its intervals run on the ride's clock (they pause when you pause) and appear as a block chart above the route profile – heights in % of your FTP, colours by power zone, ramps as slopes, a cursor at the elapsed time – with the current interval, target, time left, next target, workout time and the share of seconds you were *in target* (within ±10 %). In small windows the workout and the route share the bottom card as **Route | Workout** tabs. The Power tile shows the target, green within ±5 %, yellow within ±10 %, orange beyond.
   - **Workout ERG** (on by default): the trainer holds the workout's watts; the route only sets the video's speed (climbs make it slower). Intensity **− / +** (±5 %, also <kbd>↑</kbd>/<kbd>↓</kbd>, <kbd>PgUp</kbd>/<kbd>PgDn</kbd> and the Zwift Click while Workout ERG holds the trainer), **Skip Interval** and **End Workout** (the ride goes on). Switch Workout ERG off to use the targets as a guide only – the Resistance card then applies as usual.
   - **When the workout is over** before the route, the page says *Workout complete – continuing the route in Simulation* (or ERG – whatever the Resistance card is set to) and you ride on to the finish. If the route ends first, the ride finishes and is saved as usual. The saved ride records the workout's targets.
-- **Start** now or **when pedaling**, **Pause** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; reaching the end of the route finishes and saves the ride. Video rides are saved to History with the route name and can be exported as FIT/CSV.
+- **Start**, **Pause** / **Resume** (<kbd>Space</kbd>), **Finish** (save or discard) and **Reset**; pedaling alone never starts or resumes the ride. Reaching the end of the route finishes and saves the ride. Video rides are saved to History with the route name and can be exported as FIT/CSV.
 - **Video formats**: H.264 MP4 plays everywhere. **AV1** videos only play on computers with AV1 hardware decoding (e.g. recent Apple Silicon or recent GPUs) – the page tells you when a video cannot be decoded and shows how to convert it. To convert a video to H.264 with the free [HandBrake](https://handbrake.fr):
   1. Open the video in HandBrake and choose the preset **General → Fast 720p30** (or **HQ 720p30 Surround**).
   2. On the **Video** tab set **Video Encoder** to **H.264 (x264)**, **Framerate** to **Same as source** and select **Constant Framerate** (important, so the video stays in sync with the GPS route).
@@ -168,18 +173,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 ### Plan
 - **Workout calendar**: a month view of your training plan. Click a day or a planned workout to select it; double-click a day, click its **+** or press **Add** to plan a **Workout** (search, Cycling/Rowing filter), a **Free Ride** (planned duration – 30/45/60/90/120 min or any value, or *Open* – and Ride or ERG with the watts) or a **Video Ride** (a route from your video library with distance, climbing, video length and country; Simulation with a difficulty or ERG with the watts; optionally a cycling workout to ride during the video, with or without Workout ERG), each with optional notes.
 - **Free Ride and Video Ride entries** have their own colour and icon (Free Ride green, Video purple; cycling workouts blue, rowing cyan) and a tooltip with the details (route km / climbing, workout, mode). **Ride** opens the Free Ride page (mode, ERG watts and the planned duration – shown as *Planned 60 min • 23:10 left* in the Time tile, a target only) or the Video Ride page with the route, mode and workout loaded. The pencil (or *Edit…* in the right-click menu) changes the settings. A Free Ride entry is ticked off by a saved Free Ride of at least half the planned time (10 min without a planned time), a Video Ride entry by a saved ride on that route that reached the finish or 90 % of the distance. A route that is no longer in the video library shows **Route not found**.
-- **Moving and starting**: drag any entry between days, and right-click (or press and hold) for *Ride/Row this workout* (*Start Free Ride* / *Start Video Ride*), *Edit…* (Free Ride / Video Ride), *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (removing asks for confirmation). Double-click a workout or press **Ride**/**Row** in the side panel to start it: cycling workouts open on the Dashboard, rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout you started from the calendar, exactly that plan entry is ticked off (even if it was planned for another day), and a completed workout started elsewhere ticks off a matching open entry on that day. Stopped or aborted rides don't count, and deleting a ride in History reopens its plan entry.
+- **Moving and starting**: drag any entry between days, and right-click (or press and hold) for *Ride/Row this workout* (*Start Free Ride* / *Start Video Ride*), *Edit…* (Free Ride / Video Ride), *Mark as completed*, *Move to…*, *Move to next day* and *Remove* (removing asks for confirmation). Double-click a workout or press **Ride**/**Row** in the side panel to start it: cycling workouts open on Watt Training (press **Start** there), rowing workouts as a watt plan on the Rowing page. A side panel shows the selected day and your upcoming workouts. When you complete a workout you started from the calendar, exactly that plan entry is ticked off (even if it was planned for another day), and a completed workout started elsewhere ticks off a matching open entry on that day. Stopped or aborted rides don't count, and deleting a ride in History reopens its plan entry.
 
 <p align="center">
   <img src="docs/screenshots/calendar.png" alt="Workout calendar" width="820">
 </p>
 
 ### Row (Concept2 PM5)
-- **Concept2 PM5 over Bluetooth LE**: on the PM5 choose *More Options → Turn Wireless ON → Connect Device*, then connect it under **Devices → Rowers (Concept2 PM5)**. A **Virtual Rower** lets you try everything without a rower. Opening the Rowing page gets the rower ready (the row starts with your first stroke); if you leave the page before you start, the setup is cleared so a stroke can't start a row in the background. Heart rate comes from a connected heart-rate strap if you have one, otherwise from the PM5.
+- **Concept2 PM5 over Bluetooth LE**: on the PM5 choose *More Options → Turn Wireless ON → Connect Device*, then connect it under **Devices → Rowers (Concept2 PM5)**. A **Virtual Rower** lets you try everything without a rower. Opening the Rowing page gets the row ready (*Ready – press Start*); strokes on the rower never start it. Heart rate comes from a connected heart-rate strap if you have one, otherwise from the PM5.
 - **Free Row**: row a set distance (or open-ended) and watch your boat move along the course, with power, distance, pace /500 m, stroke rate, heart rate and a live power/pace/heart-rate chart.
 - **Watt Plan**: row any rowing workout from your library. The interval blocks are shown at the bottom with your position, and you see target vs. actual watts, the time left in the interval, the next target, interval average and a compliance score. The PM5 has no ERG mode, so you follow the target by feel.
 - **Ghost Race**: race your own personal best over 500 m, 1k, 2k, 5k, 6k, 10k or a custom distance. A ghost boat replays your record stroke by stroke, and the gap is shown in metres and seconds. A new best is saved automatically and the personal-bests table keeps your records. A time is only saved as a personal best if the piece was rowed without a pause and the time is plausible.
-- The row starts on your first stroke (or press **Start now**), with **Pause** (or <kbd>Space</kbd>), **Finish** and **Reset**. Rows are saved to History as *Rowing* with distance and can be exported as FIT/CSV.
+- Press **Start** (or <kbd>Space</kbd>) to start the row – strokes alone never start or resume it – with **Pause** / **Resume** (<kbd>Space</kbd>), **Finish** and **Reset**. Rows are saved to History as *Rowing* with distance and can be exported as FIT/CSV.
 - **Rowing FTP**: every profile has a separate rowing FTP; watt-plan targets are a percentage of it.
 
 <table>
@@ -219,7 +224,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **Music player** for your own files (mp3, m4a, flac, wav, ogg, …) with playlists, favourites, shuffle/repeat and album art. Two sample tracks are included.
 - **Light and dark theme.**
 - Larger, easy-to-read menus (Workouts sort/export/**⋯** menus, History **Export**, the Calendar's right-click/press-and-hold menu).
-- **Keyboard shortcuts:** <kbd>Space</kbd> on the Dashboard pauses/resumes the ride and also starts the loaded workout (a waiting, not yet started or finished one); on the Free Ride and Video Ride pages it starts, pauses and resumes the ride, on the Rowing page it pauses/resumes a row. On the Free Ride and Video Ride pages <kbd>↑</kbd>/<kbd>+</kbd> and <kbd>↓</kbd>/<kbd>−</kbd> shift harder/easier with virtual gears or change the ERG target by ±5 W (without virtual gears and ERG they do nothing), <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> change the chainring (or jump 3 gears); <kbd>Page Up</kbd>/<kbd>Page Down</kbd> change the grade by 0.5 % (Free Ride), the difficulty by 10 % (Video Ride) or the ERG target by 10 W. While a workout ridden during a Video Ride holds the trainer (Workout ERG), <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Page Up</kbd>/<kbd>Page Down</kbd> change its intensity by 5 %. In the Builder, <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> move the selected block. While you type in a field (e.g. an exact ERG target) the keys go to the field: <kbd>Enter</kbd> or <kbd>Esc</kbd>, or a click on the page background, hands them back. <kbd>Esc</kbd> closes dialogs.
+- **Keyboard shortcuts:** <kbd>Space</kbd> is the same as the page's Start / Pause / Resume button: on Watt Training it starts the loaded workout, then pauses and resumes it; on the Free Ride, Video Ride and Rowing pages it starts, pauses and resumes the ride or row (Rowing: once a rower is connected). On the Free Ride and Video Ride pages <kbd>↑</kbd>/<kbd>+</kbd> and <kbd>↓</kbd>/<kbd>−</kbd> shift harder/easier with virtual gears or change the ERG target by ±5 W (without virtual gears and ERG they do nothing), <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> change the chainring (or jump 3 gears); <kbd>Page Up</kbd>/<kbd>Page Down</kbd> change the grade by 0.5 % (Free Ride), the difficulty by 10 % (Video Ride) or the ERG target by 10 W. While a workout ridden during a Video Ride holds the trainer (Workout ERG), <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Page Up</kbd>/<kbd>Page Down</kbd> change its intensity by 5 %. In the Builder, <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> move the selected block. While you type in a field (e.g. an exact ERG target) the keys go to the field: <kbd>Enter</kbd> or <kbd>Esc</kbd>, or a click on the page background, hands them back. <kbd>Esc</kbd> closes dialogs.
 - The **UI scales** to small screens such as the official 7" Raspberry Pi display (800 × 480).
 - **Fully offline**: all data is stored in a local SQLite database.
 
@@ -262,7 +267,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
       <sub><b>Free Ride ERG</b>: the trainer holds the wattage you set</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/dashboard-small.png" alt="Dashboard on a small screen"><br>
+      <img src="docs/screenshots/dashboard-small.png" alt="Watt Training on a small screen"><br>
       <sub><b>Small screens</b>: the UI scales down, e.g. for a Raspberry Pi display</sub>
     </td>
   </tr>
@@ -354,10 +359,10 @@ The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every
 1. **Connect your devices.** Open **Devices → Scan for Devices**, then connect your smart trainer and heart-rate sensor (and/or your Concept2 PM5 under *Rowers*). If you have no hardware, connect the **Virtual Trainer**, **Virtual HR Sensor** or **Virtual Rower** instead.
 2. **Set up your profile.** Click **Profile** in the left sidebar (or open the profile menu by clicking your avatar/name at the top right and choose **Edit profile…**) to enter your weight, FTP (and rowing FTP, if you row) and heart-rate values. If you don't know your FTP, run the **Ramp FTP Test** first.
 3. **Choose a workout** under **Workouts**, or create your own in **Builder**.
-4. **Choose ERG or Free Ride**, then press **Start Workout**.
-5. **Start pedaling.** The clock starts as soon as you pedal, or you can press **Start now**. On the dashboard, <kbd>Space</kbd> starts the loaded workout, then pauses and resumes it (on the Rowing page it pauses and resumes the row).
+4. **Choose ERG or Free Ride**, then press **Load Workout** – the workout opens on **Watt Training**, ready.
+5. **Clip in, then press Start** (or <kbd>Space</kbd>). Nothing starts by pedaling, so take your time getting on the bike. <kbd>Space</kbd> also pauses and resumes the workout.
 6. **Stop** saves the ride, and completed workouts are saved automatically. Open **History** to see the analysis, or use **Export** to save it as a FIT file (for Strava, Garmin Connect, TrainingPeaks, …) or CSV.
-7. **Rowing?** Open **Rowing**, pick *Free Row*, *Ghost Race* or *Watt Plan* and take your first stroke.
+7. **Rowing?** Open **Rowing**, pick *Free Row*, *Ghost Race* or *Watt Plan* and press **Start**.
 8. **No workout today?** Open **Free Ride** (a road with a grade, or ERG) or **Video Ride** (a filmed route – optionally with a workout and Workout ERG). Use **Calendar** to plan workouts, Free Rides and Video Rides for the coming weeks and start them from there.
 
 ## Sharing workouts
@@ -427,9 +432,9 @@ An `.awt` file is plain UTF-8 JSON:
 
 ### "Start" is greyed out
 
-Only one session runs at a time. If **Start** on the Dashboard, Free Ride, Video Ride or Rowing page is greyed out, a session on another page is still **in progress** – typically a workout started (or paused) on the Dashboard, or a paused free ride. A yellow card under the button says which one, e.g. *"A workout is paused on the Dashboard. Finish it to start a video ride."*, with **Go to Dashboard**, **End & Save** and **Discard** (click twice to confirm). Everything else on the page (route, workout, gears, difficulty) stays usable meanwhile.
+Only one session runs at a time. If **Start** on Watt Training, Free Ride, Video Ride or Rowing page is greyed out, a session on another page is still **in progress** – typically a workout started (or paused) on Watt Training, or a paused free ride. A yellow card under the button says which one, e.g. *"A workout is paused on Watt Training. Finish it to start a video ride."*, with **Go to Watt Training**, **End & Save** and **Discard** (click twice to confirm). Everything else on the page (route, workout, gears, difficulty) stays usable meanwhile.
 
-Sessions that are only armed (*Start When Pedaling* / the Dashboard's Start before you pedal) are cancelled when you leave their page or start another session, and finished rides never block. The sidebar status chip (*Paused 0:01*) also shows a session in progress. If Start stays grey without a card, start the app from Terminal with `WATT_DEBUG_RLVUI=1` (macOS: `WATT_DEBUG_RLVUI=1 "/Applications/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"`) and attach the `RLVUI` lines to a bug report.
+Sessions that are only prepared (a workout loaded on Watt Training, a route chosen, a row set up) never block, a session started and paused before anything was recorded is given up when another one starts, and finished rides never block. Nothing ever starts by pedaling or rowing. The sidebar status chip (*Paused 0:01*) also shows a session in progress. If Start stays grey without a card, start the app from Terminal with `WATT_DEBUG_RLVUI=1` (macOS: `WATT_DEBUG_RLVUI=1 "/Applications/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"`) and attach the `RLVUI` lines to a bug report.
 
 ## Privacy
 

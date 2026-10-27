@@ -42,7 +42,7 @@ class VirtualGears;
 //              cadence, trainer simulates) or RideResistance::GearErg ("path
 //              b": ERG target P = RideResistance::gearWatts(), every other
 //              trainer) - the same functions as the Video Ride. With the page
-//              open (idle or armed) the trainer already gets this resistance
+//              open (before Start) the trainer already gets this resistance
 //              (gearHolding()), so shifting changes the watts before Start. Coasting releases the trainer and the speed rolls out
 //              (road::coastDeceleration); descents may roll faster than the
 //              pedals turn.
@@ -52,8 +52,9 @@ class VirtualGears;
 //   "erg"  - hold targetWatts (ERG) as long as you like; speed from power on
 //            a flat road.
 //   Stored "gears" / "free" (older versions) are migrated to "ride".
-// States ("state"): "idle", "ready" (armed by startWhenPedaling(), starts on
-// the first pedal stroke), "running", "paused", "finished".
+// States ("state"): "idle", "running", "paused", "finished". A ride only
+// starts with start() (Start button / Space): pedaling never starts or
+// resumes it.
 //
 // Only one session (cycling workout, rowing, free ride) runs at a time:
 // setTrainingSession() installs a start guard on the workout session, further
@@ -67,18 +68,17 @@ class FreeRideSession : public QObject
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)        // running or paused
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
-    Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)      // armed, waits for pedaling
     // Genuinely in progress: riding, or paused with something recorded. Only
-    // such a session blocks starting another one; an armed one (or one paused
-    // before anything was recorded) is given up instead (abandon()).
+    // such a session blocks starting another one; one paused before anything
+    // was recorded is given up instead (abandon()).
     Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(bool ergEnabled READ ergEnabled NOTIFY modeChanged)   // read-only: mode == "erg"
     // The trainer holds the ERG target outside a ride (ERG selected on the open
-    // Free Ride page, idle or armed; see holdWanted()).
+    // Free Ride page before Start; see holdWanted()).
     Q_PROPERTY(bool ergHolding READ ergHolding NOTIFY targetChanged)
     // The trainer has the virtual gear resistance outside a ride (Ride with
-    // virtual gears on the open Free Ride page, idle or armed): shifting is
+    // virtual gears on the open Free Ride page before Start): shifting is
     // felt - and the watts follow the gear - before Start.
     Q_PROPERTY(bool gearHolding READ gearHolding NOTIFY targetChanged)
 
@@ -127,10 +127,9 @@ class FreeRideSession : public QObject
 
 public:
     enum class Mode { Ride, Erg };
-    enum class State { Idle, Ready, Running, Paused, Finished };
+    enum class State { Idle, Running, Paused, Finished };
 
-    static constexpr int kStartCadenceRpm = 20;     // same thresholds as TrainingSession
-    static constexpr int kStartPowerWatts = 30;
+    static constexpr int kPedalPowerWatts = 30;     // below (and no cadence): not pedaling
     static constexpr int kCoastCadenceRpm = RideResistance::kCoastCadenceRpm;   // below: not pedaling (coasting)
     static constexpr int kMinGearWatts = RideResistance::kMinGearWatts;         // lowest gears-mode target while pedaling
     static constexpr int kMinErgWatts = 25;
@@ -150,7 +149,7 @@ public:
     ~FreeRideSession() override;
 
     // Mutual exclusion with the workout session (installs its start guard,
-    // cancels it when it is only armed).
+    // gives it up when it is paused without a recording).
     void setTrainingSession(TrainingSession *training);
     // Another session started / paused / ended (SessionGuard): the page's
     // resistance hold follows (holdBlocked()).
@@ -158,10 +157,10 @@ public:
     // Further guards; while one returns true, start() is refused.
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
-    // Called by start()/startWhenPedaling() once the guards passed: cancels
-    // another session that is only armed (e.g. a video ride waiting for the
-    // first pedal stroke). Empty function removes it.
-    void setArmedCanceller(const QString &key, std::function<void()> cancel);
+    // Called by start() once the guards passed: gives up another session that
+    // has nothing to lose (paused before anything was recorded). Empty
+    // function removes it.
+    void setAbandonCanceller(const QString &key, std::function<void()> cancel);
 
     // Tests
     void setManualClock(bool manual) { m_manualClock = manual; }
@@ -177,11 +176,10 @@ public:
     bool active() const { return m_state == State::Running || m_state == State::Paused; }
     bool running() const { return m_state == State::Running; }
     bool paused() const { return m_state == State::Paused; }
-    bool waiting() const { return m_state == State::Ready; }
     bool hasRecording() const { return m_recordedSec > 0 || m_activeMs > 0; }
     bool inProgress() const { return running() || (paused() && hasRecording()); }
-    bool abandonable() const { return waiting() || (paused() && !hasRecording()); }
-    void abandon() { if (abandonable()) finish(false); }   // armed / empty paused: given up
+    bool abandonable() const { return paused() && !hasRecording(); }
+    void abandon() { if (abandonable()) finish(false); }   // empty paused: given up
     QString mode() const;
     Mode modeValue() const { return m_mode; }
     void setMode(const QString &mode);
@@ -193,7 +191,7 @@ public:
     bool ergEnabled() const { return m_mode == Mode::Erg; }
     // ERG outside a ride: selecting ERG on the Free Ride page (VirtualGears::
     // activePage() == "freeride") puts the trainer in ERG at the target right
-    // away while the ride is idle or armed (trainer connected, no other session
+    // away before Start (trainer connected, no other session
     // busy); Ride / leaving the page releases it. Running: the ride's
     // resistance; paused: released, ERG comes with resume().
     // Likewise Ride with virtual gears on the open page: the trainer gets the
@@ -253,15 +251,14 @@ public:
     // Road model for the current rider (profile weight + bike) and grade.
     road::Model roadModel(double gradePercent) const;
 
-    Q_INVOKABLE bool start();               // start now
-    Q_INVOKABLE void startWhenPedaling();   // arm: starts on the first pedal stroke
+    Q_INVOKABLE bool start();               // the only way a ride starts
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
     Q_INVOKABLE qint64 stop() { return finish(true); }
     Q_INVOKABLE qint64 finish(bool save = true);   // ride id or -1
     Q_INVOKABLE void discard() { finish(false); }
-    Q_INVOKABLE void reset();               // finished/ready -> idle (clears the last ride's values)
+    Q_INVOKABLE void reset();               // finished -> idle (clears the last ride's values)
 
     Q_INVOKABLE void adjustTargetWatts(int delta);
     Q_INVOKABLE void adjustGrade(double delta);
@@ -297,14 +294,13 @@ private:
     void process(int ms);
     void updateModel(double dt);
     void recordUpTo(int second);
-    void checkPedaling();
     void applyTarget(bool force = false);
     int desiredGearWatts() const;
     RideResistance::GearDrive gearDrive(double cadenceRpm) const;
     double controlCadence() const;   // cadence the resistance follows (0..: < coast = coasting)
     bool sendResistance(bool force);  // the current path's command (ride and page hold)
     void updateTimer();
-    void cancelArmedOthers();
+    void abandonOthers();
     void syncRideProfile();
     void resetLastRideId();
     void resistanceSetupChanged();
@@ -322,7 +318,7 @@ private:
     RideResistance m_res;
     QPointer<TrainingSession> m_training;
     QHash<QString, std::function<bool()>> m_startBlockers;
-    QHash<QString, std::function<void()>> m_armedCancellers;
+    QHash<QString, std::function<void()>> m_abandonCancellers;
 
     Mode m_mode = Mode::Ride;
     State m_state = State::Idle;
@@ -336,7 +332,7 @@ private:
     int m_minSaveSec = 30;
     qint64 m_activeMs = 0;
     double m_cadSmooth = 0;
-    double m_speed = 0;           // m/s (model, while ready/running/paused)
+    double m_speed = 0;           // m/s (model, while running/paused)
     double m_distance = 0;
 
     QDateTime m_startedAt;

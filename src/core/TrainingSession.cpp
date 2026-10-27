@@ -26,8 +26,6 @@ TrainingSession::TrainingSession(Database *db, ProfileManager *profiles, SensorH
     connect(m_hub, &SensorHub::powerChanged, this, &TrainingSession::metricsChanged);
     connect(m_hub, &SensorHub::cadenceChanged, this, &TrainingSession::metricsChanged);
     connect(m_hub, &SensorHub::heartRateChanged, this, &TrainingSession::metricsChanged);
-    connect(m_hub, &SensorHub::powerChanged, this, &TrainingSession::checkPedaling);
-    connect(m_hub, &SensorHub::cadenceChanged, this, &TrainingSession::checkPedaling);
 
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         if (!active()) {
@@ -52,17 +50,17 @@ void TrainingSession::setStartBlocker(const QString &key, std::function<bool()> 
         m_startBlockers.remove(key);
 }
 
-void TrainingSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+void TrainingSession::setAbandonCanceller(const QString &key, std::function<void()> cancel)
 {
     if (cancel)
-        m_armedCancellers.insert(key, std::move(cancel));
+        m_abandonCancellers.insert(key, std::move(cancel));
     else
-        m_armedCancellers.remove(key);
+        m_abandonCancellers.remove(key);
 }
 
-void TrainingSession::cancelArmedOthers()
+void TrainingSession::abandonOthers()
 {
-    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+    for (auto it = m_abandonCancellers.cbegin(); it != m_abandonCancellers.cend(); ++it) {
         if (it.value())
             it.value()();
     }
@@ -70,9 +68,7 @@ void TrainingSession::cancelArmedOthers()
 
 void TrainingSession::abandon()
 {
-    if (m_waiting)
-        cancelWaiting();
-    else if (abandonable())
+    if (abandonable())
         discard();
 }
 
@@ -254,12 +250,10 @@ void TrainingSession::start()
     if (active())
         return;
     if (startBlocked()) {
-        cancelWaiting();
         emit startRefused();
         return;
     }
-    m_waiting = false;
-    cancelArmedOthers();
+    abandonOthers();
     if (m_engine.state() == WorkoutEngine::State::Finished)
         m_engine.reset();   // a new ride: no intensity offset / position from the last one
     m_skipped = false;
@@ -282,49 +276,6 @@ void TrainingSession::start()
     emit stateChanged();
     emit intervalChanged();
     emit targetChanged();
-}
-
-void TrainingSession::startWhenPedaling()
-{
-    if (active() || m_waiting)
-        return;
-    if (startBlocked()) {
-        emit startRefused();
-        return;
-    }
-    cancelArmedOthers();   // only one armed session
-    m_waiting = true;
-    if (m_engine.state() == WorkoutEngine::State::Finished)
-        m_engine.reset();   // re-arming after a ride: show the workout from 0:00
-    // Show a fresh, empty ride while armed and leave the trainer free so the
-    // rider can spin up easily. No targets are sent until start().
-    clearRecording();
-    m_lastIndex = -2;
-    m_hub->requestFreeRide();
-    m_hub->expireStale();   // ignore readings left over from an earlier ride
-    emit stateChanged();
-    emit intervalChanged();
-    emit targetChanged();
-    emit tick();
-    checkPedaling();        // already pedaling → start right away
-}
-
-void TrainingSession::checkPedaling()
-{
-    if (!m_waiting)
-        return;
-    if (m_hub->cadence() >= kStartCadenceRpm || m_hub->power() >= kStartPowerWatts)
-        start();
-}
-
-void TrainingSession::cancelWaiting()
-{
-    if (!m_waiting)
-        return;
-    m_waiting = false;
-    m_hub->requestFreeRide();
-    m_lastSentTarget = -1;
-    emit stateChanged();
 }
 
 void TrainingSession::pause()
@@ -357,9 +308,7 @@ void TrainingSession::resume()
 
 void TrainingSession::togglePause()
 {
-    if (m_waiting)
-        start();   // manual override
-    else if (running())
+    if (running())
         pause();
     else if (paused())
         resume();
@@ -369,10 +318,6 @@ void TrainingSession::togglePause()
 
 qint64 TrainingSession::stop()
 {
-    if (m_waiting) {
-        cancelWaiting();   // nothing was ridden: nothing to save
-        return -1;
-    }
     if (!active())
         return -1;
     if (running() && !m_manualClock)
@@ -401,10 +346,6 @@ qint64 TrainingSession::finishAndSave(bool completed)
 
 void TrainingSession::discard()
 {
-    if (m_waiting) {
-        cancelWaiting();
-        return;
-    }
     if (!active())
         return;
     m_timer.stop();

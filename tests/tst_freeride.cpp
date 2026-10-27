@@ -1,7 +1,8 @@
 // FreeRideSession: modes Ride / ERG (old "gears" / "free" migrated), ERG
 // hold, virtual gear targets (path b) and gear-adjusted grades (path a), real
 // gears with the trainer simulating the grade, Zwift Click routing (never
-// the difficulty / grade), auto-start, recording, mutual exclusion with
+// the difficulty / grade), manual start only (pedaling never starts or
+// resumes a ride), recording, mutual exclusion with
 // workouts/rowing, gear setup persistence (VirtualGears).
 #include "CsvExporter.h"
 #include "Database.h"
@@ -513,38 +514,55 @@ private slots:
         QCOMPARE(f.ride->targetWatts(), target);
     }
 
-    void autoStartOnPedaling()
+    // Sessions only start with Start: pedaling (e.g. while clipping in) never
+    // starts a free ride, on the open page or elsewhere, and never resumes it.
+    void pedalingNeverStartsRide()
     {
         Fixture f;
         QVERIFY(f.init());
         QSignalSpy started(f.ride.get(), &FreeRideSession::started);
-        f.ride->startWhenPedaling();
-        QCOMPARE(f.ride->state(), QStringLiteral("ready"));
-        QVERIFY(f.ride->waiting());
-        QCOMPARE(f.hub->requestedTarget(), 0);   // free to spin up
-        f.pedal(10, 0);
-        QCOMPARE(f.ride->state(), QStringLiteral("ready"));
-        f.pedal(FreeRideSession::kStartCadenceRpm, 0);
+        f.gears->setActivePage(QStringLiteral("freeride"));
+        for (int i = 0; i < 20; ++i) {
+            f.pedal(95, 250);
+            f.ride_for(1000);
+        }
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        QCOMPARE(started.count(), 0);
+        QCOMPARE(f.ride->elapsedSeconds(), 0);
+        QCOMPARE(f.ride->samples().size(), 0);
+        QVERIFY(!f.ride->inProgress());
+        // power only (trainer without cadence) neither
+        f.pedal(0, 300);
+        f.ride_for(3000);
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        // Start does
+        QVERIFY(f.ride->start());
         QCOMPARE(f.ride->state(), QStringLiteral("running"));
         QCOMPARE(started.count(), 1);
-        QVERIFY(f.hub->requestedTarget() >= FreeRideSession::kMinGearWatts);
-        f.ride->finish(false);
-
-        // trainer without cadence: power starts it too
-        f.ride->reset();
-        f.pedal(0, 0);
-        f.ride->startWhenPedaling();
-        f.pedal(0, FreeRideSession::kStartPowerWatts);
+        f.ride_for(4000);
+        QCOMPARE(f.ride->elapsedSeconds(), 4);
+        // pause: pedaling on does not resume
+        f.ride->pause();
+        f.pedal(90, 200);
+        f.ride_for(5000);
+        QCOMPARE(f.ride->state(), QStringLiteral("paused"));
+        QCOMPARE(f.ride->elapsedSeconds(), 4);
+        // Space / the button
+        f.ride->togglePause();
         QCOMPARE(f.ride->state(), QStringLiteral("running"));
-        f.ride_for(8000);
-        QVERIFY(f.ride->speedKmh() > 5);   // speed from power
-        f.ride->finish(false);
-
-        // armed ride is cancelled by stop()
+        // coasting does not pause it
         f.pedal(0, 0);
-        f.ride->startWhenPedaling();
-        QCOMPARE(f.ride->stop(), qint64(-1));
-        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        f.ride_for(3000);
+        QCOMPARE(f.ride->state(), QStringLiteral("running"));
+        QCOMPARE(f.ride->elapsedSeconds(), 7);
+        f.ride->finish(false);
+        // finished: pedaling does not start the next ride either
+        f.pedal(90, 200);
+        f.ride_for(3000);
+        QCOMPARE(f.ride->state(), QStringLiteral("finished"));
+        f.ride->togglePause();   // "Ride Again" / Space
+        QCOMPARE(f.ride->state(), QStringLiteral("running"));
+        f.ride->finish(false);
     }
 
     void rideIsSavedAndExportable()
@@ -618,16 +636,20 @@ private slots:
         QVERIFY(f.training->active());
         QVERIFY(!f.ride->start());
         QCOMPARE(rideRefused.count(), 1);
-        f.ride->startWhenPedaling();
-        QCOMPARE(rideRefused.count(), 2);
         QCOMPARE(f.ride->state(), QStringLiteral("finished"));
         f.training->discard();
 
-        // an armed workout is cancelled when the free ride starts
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
+        // a workout paused before anything was recorded is given up when the
+        // free ride starts; a merely loaded one is not touched
+        f.training->loadWorkout(f.training->engine().workout());
         QVERIFY(f.ride->start());
-        QVERIFY(!f.training->waiting());
+        QVERIFY(!f.training->active());
+        f.ride->finish(false);
+        f.training->start();
+        f.training->pause();   // manual clock: nothing recorded
+        QVERIFY(f.training->abandonable());
+        QVERIFY(f.ride->start());
+        QVERIFY(!f.training->active());
         f.ride->finish(false);
 
         // the guard is removed with the free ride session
@@ -759,7 +781,7 @@ private slots:
 
     // Bug: ERG pressed on the Free Ride page did nothing until a ride ran.
     // The selector (FreeRide.mode = "erg") now puts the trainer in ERG at
-    // once while the page is open: idle and armed; running as before; paused
+    // once while the page is open (before Start); running as before; paused
     // on resume. Ride / leaving the page releases it.
     void ergSelectorEngagesTrainerWhenIdle()
     {
@@ -826,7 +848,7 @@ private slots:
         QVERIFY(trainer.log.contains(QStringLiteral("erg 205")));
     }
 
-    void ergSelectorWhileArmedRunningAndPaused()
+    void ergSelectorBeforeStartRunningAndPaused()
     {
         Fixture f;
         QVERIFY(f.init());
@@ -837,15 +859,16 @@ private slots:
         f.gears->setActivePage(QStringLiteral("freeride"));
         f.ride->setTargetWatts(180);
 
-        // armed ("Start When Pedaling"): ERG holds right away
-        f.ride->startWhenPedaling();
-        QCOMPARE(f.ride->state(), QStringLiteral("ready"));
-        QCOMPARE(trainer.last(), QStringLiteral("free"));   // Ride: spin up freely
+        // before Start: ERG holds right away
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
         f.ride->setMode(QStringLiteral("erg"));
         QVERIFY(trainer.inErg(180));
         QVERIFY(f.ride->ergHolding());
-        // first pedal strokes start the ride, ERG stays
+        // pedal strokes do not start the ride; Start does, ERG stays
         f.pedal(85, 175);
+        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        QVERIFY(f.ride->ergHolding());
+        QVERIFY(f.ride->start());
         QCOMPARE(f.ride->state(), QStringLiteral("running"));
         QVERIFY(!f.ride->ergHolding());
         QVERIFY(trainer.inErg(180));
@@ -918,7 +941,7 @@ private slots:
         f.ride->setMode(QStringLiteral("erg"));
         QVERIFY(trainer.log.isEmpty());
         f.ride->setMode(QStringLiteral("ride"));
-        // a workout armed on the Dashboard owns the trainer
+        // a workout riding on Watt Training owns the trainer
         Workout w;
         w.name = QStringLiteral("W");
         Interval i;
@@ -926,15 +949,15 @@ private slots:
         i.startPercent = i.endPercent = 0.5;
         w.intervals << i;
         f.training->loadWorkout(w);
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
+        f.training->start();
+        QVERIFY(f.training->running());
         f.gears->setActivePage(QStringLiteral("freeride"));
         trainer.log.clear();
         f.ride->setMode(QStringLiteral("erg"));
         QVERIFY(!f.ride->ergHolding());
         QVERIFY(trainer.log.isEmpty());
-        // the workout is cancelled: the open page's ERG applies
-        f.training->stop();
+        // the workout is discarded: the open page's ERG applies
+        f.training->discard();
         QVERIFY(f.ride->ergHolding());
         QVERIFY(trainer.inErg(200));
     }
@@ -975,21 +998,18 @@ private slots:
                                                 .arg(road::autoCda(90, 185), 0, 'f', 2));
     }
 
-    // "Start when pedaling" is only armed while the Free Ride page is open.
-    void armedRideDisarmsWhenLeavingPage()
+    // Pedaling never starts a ride, whatever page is open; a running ride is
+    // not affected by the page.
+    void pagesNeverStartRide()
     {
         Fixture f;
         QVERIFY(f.init());
-        f.gears->setActivePage(QStringLiteral("freeride"));
-        f.ride->startWhenPedaling();
-        QVERIFY(f.ride->waiting());
-        f.gears->setActivePage(QStringLiteral("freeride"));   // no change
-        QVERIFY(f.ride->waiting());
-        f.gears->setActivePage(QStringLiteral("dashboard"));
-        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
-        f.pedal(90, 200);   // pedaling elsewhere starts nothing
-        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
-        // a running ride is not affected by the page
+        for (const char *page : { "freeride", "dashboard", "video", "rowing", "history" }) {
+            f.gears->setActivePage(QString::fromLatin1(page));
+            f.pedal(90, 200);
+            f.ride_for(2000);
+            QCOMPARE(f.ride->state(), QStringLiteral("idle"));
+        }
         f.gears->setActivePage(QStringLiteral("freeride"));
         QVERIFY(f.ride->start());
         f.gears->setActivePage(QStringLiteral("history"));
@@ -997,42 +1017,42 @@ private slots:
         f.ride->finish(false);
     }
 
-    // An armed free ride never blocks another session: their start cancels it.
-    void otherSessionsCancelArmedRide()
+    // An idle (or empty paused) free ride never blocks another session.
+    void otherSessionsStartBesideIdleRide()
     {
         Fixture f;
         QVERIFY(f.init());
         QSignalSpy refused(f.training.get(), &TrainingSession::startRefused);
-        f.ride->startWhenPedaling();
-        QVERIFY(f.ride->waiting());
+        f.gears->setActivePage(QStringLiteral("freeride"));
         f.training->start();
         QCOMPARE(refused.count(), 0);
         QVERIFY(f.training->active());
         QCOMPARE(f.ride->state(), QStringLiteral("idle"));
         f.training->discard();
 
-        f.ride->startWhenPedaling();
-        f.training->startWhenPedaling();   // only one armed session
-        QVERIFY(f.training->waiting());
-        QCOMPARE(f.ride->state(), QStringLiteral("idle"));
-        f.training->stop();
+        // an empty paused free ride is given up by the workout's start
+        QVERIFY(f.ride->start());
+        f.ride->pause();
+        QVERIFY(f.ride->abandonable());
+        f.training->start();
+        QCOMPARE(refused.count(), 0);
+        QVERIFY(f.training->active());
+        QCOMPARE(f.ride->state(), QStringLiteral("finished"));
+        f.training->discard();
 
-        // rowing (wired like main.cpp)
+        // rowing (wired like SessionGuard)
         RowingRecords records(&f.db, f.profiles.get());
         WorkoutPlanner planner(&f.db, f.profiles.get());
         RowingSession rowing(&f.db, f.profiles.get(), f.hub.get(), &records, &planner);
         rowing.setManualClock(true);
-        rowing.setStartBlocker(QStringLiteral("freeRide"), [&f] { return f.ride->active(); });
-        rowing.setArmedCanceller(QStringLiteral("freeRide"), [&f] {
-            if (f.ride->waiting())
-                f.ride->finish(false);
-        });
-        f.ride->startWhenPedaling();
+        rowing.setStartBlocker(QStringLiteral("freeRide"), [&f] { return f.ride->inProgress(); });
+        rowing.setAbandonCanceller(QStringLiteral("freeRide"), [&f] { f.ride->abandon(); });
+        f.ride->reset();
         QVERIFY(rowing.start());
         QCOMPARE(f.ride->state(), QStringLiteral("idle"));
         rowing.finish(false);
         rowing.setStartBlocker(QStringLiteral("freeRide"), {});
-        rowing.setArmedCanceller(QStringLiteral("freeRide"), {});
+        rowing.setAbandonCanceller(QStringLiteral("freeRide"), {});
     }
 
     // A long gap between timer ticks (sleep) adds no time or distance.
@@ -1121,7 +1141,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.gears->setBusyCheck([&f] { return f.ride->active() || f.ride->waiting(); });
+        f.gears->setBusyCheck([&f] { return f.ride->active(); });
         f.gears->setHub(f.hub.get());
         QVERIFY(f.profiles->saveProfile({ { QStringLiteral("weight"), 60.0 } }));
         QCOMPARE(f.gears->systemMassKg(), 69.0);
@@ -1142,7 +1162,7 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.gears->setBusyCheck([&f] { return f.ride->active() || f.ride->waiting(); });
+        f.gears->setBusyCheck([&f] { return f.ride->active(); });
         const QString before = f.gears->summary();
         GearSetup other = GearSetup::defaults();
         other.chainrings = { 36, 52 };

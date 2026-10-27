@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Artilody.Backend
 
-// Dashboard "Music Player" card
+// Watt Training "Music Player" card
 Card {
     id: card
     signal openLibrary()

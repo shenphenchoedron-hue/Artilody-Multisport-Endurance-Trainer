@@ -12,19 +12,18 @@ class RowingSession;
 class TrainingSession;
 class VirtualGears;
 
-// One session at a time (workout on the Dashboard, Free Ride, Video Ride,
+// One session at a time (workout on Watt Training, Free Ride, Video Ride,
 // row), without trapping the rider. Exposed to QML as "Sessions".
 //
 // Rules (wired by the constructor between the sessions):
 //   * Only a session that is genuinely in progress - riding, or paused with
 //     something recorded (inProgress()) - blocks starting another one.
-//   * An armed session ("start when pedaling") or one paused before anything
-//     was recorded is given up when another session starts (abandon()).
-//   * An armed session lives only on its own page: leaving the Dashboard
-//     disarms a workout (Free Ride / Video Ride do the same for theirs, the
-//     Rowing page forgets a "ready" row), so it can neither start unseen nor
-//     keep blocking the other pages.
-//   * Finished / idle sessions never block.
+//   * A session paused before anything was recorded is given up when
+//     another session starts (abandon()).
+//   * Sessions only start on an explicit Start (button / Space): pedaling or
+//     rowing never starts or resumes one, so nothing can start unseen.
+//   * Finished / idle / prepared ("ready" row, loaded workout or route)
+//     sessions never block.
 // The pages show WHY their Start is disabled from the *Blocker maps and offer
 // the fix right there (go to the page, end and save, discard: endSession()).
 class SessionGuard : public QObject
@@ -33,7 +32,7 @@ class SessionGuard : public QObject
     // What blocks starting a session of this page; empty map = nothing.
     // Keys: kind ("workout" | "freeride" | "video" | "rowing"), page (Main.qml
     // page name), pageTitle, paused (bool), elapsedSec, text (e.g. "A workout
-    // is paused on the Dashboard."), what ("workout", "free ride", ...).
+    // is paused on Watt Training."), what ("workout", "free ride", ...).
     Q_PROPERTY(QVariantMap workoutBlocker READ workoutBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap freeRideBlocker READ freeRideBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap videoBlocker READ videoBlocker NOTIFY changed)

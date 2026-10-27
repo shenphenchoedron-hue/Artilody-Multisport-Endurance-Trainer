@@ -13,7 +13,8 @@ Rectangle {
     color: Theme.sidebar
 
     readonly property var items: [
-        { label: "Dashboard", icon: "dashboard", page: "dashboard" },
+        // internal page name stays "dashboard" (showPage() compatibility)
+        { label: "Watt Training", icon: "bike", page: "dashboard" },
         { label: "Free Ride", icon: "freeRide", page: "freeride" },
         { label: "Video Ride", icon: "video", page: "video" },
         { label: "Rowing", icon: "rowing", page: "rowing" },
@@ -57,22 +58,19 @@ Rectangle {
     // Live ride / free ride / row indicator at the bottom of the sidebar
     Rectangle {
         id: live
-        // A cycling workout wins, then a free ride / video ride (running or
-        // waiting for the first pedal stroke); otherwise a running row, or a
-        // set-up row that a stroke on the connected rower would start, is shown.
-        readonly property bool freeRide: !Training.armedOrActive && (FreeRide.active || FreeRide.waiting)
-        readonly property bool video: !Training.armedOrActive && !freeRide && (Rlv.active || Rlv.waiting)
+        // Only sessions that were started (running or paused) are shown: a
+        // cycling workout wins, then a free ride, a video ride, a row.
+        // Nothing starts by pedaling or rowing - only Start / Space.
+        readonly property bool freeRide: !Training.active && FreeRide.active
+        readonly property bool video: !Training.active && !freeRide && Rlv.active
         // a workout ridden during the video: "Video 12:34" / "Sweet Spot 2/6 • 230 W"
-        readonly property bool videoWorkout: video && !Rlv.waiting && Rlv.hasWorkout && !Rlv.workoutFinished
+        readonly property bool videoWorkout: video && Rlv.hasWorkout && !Rlv.workoutFinished
                                              && Rlv.currentIntervalIndex >= 0
-        readonly property bool rowing: !Training.armedOrActive && !freeRide && !video
-                                       && (Rowing.active || (Rowing.state === "ready" && Rowing.rowerConnected))
-        readonly property bool waiting: rowing ? Rowing.state === "ready" : freeRide ? FreeRide.waiting
-                                        : video ? Rlv.waiting : Training.waiting
+        readonly property bool rowing: !Training.active && !freeRide && !video && Rowing.active
         readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? Rlv.paused : Training.paused
         readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : video ? Rlv.running : Training.running
 
-        visible: Training.armedOrActive || freeRide || video || rowing
+        visible: Training.active || freeRide || video || rowing
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 20
         x: 12
@@ -90,20 +88,20 @@ Rectangle {
                 Rectangle {
                     width: 9; height: 9; radius: 4.5
                     anchors.verticalCenter: parent.verticalCenter
-                    color: live.waiting ? Theme.success : (live.paused ? Theme.warning : Theme.danger)
+                    color: live.paused ? Theme.warning : Theme.danger
                     SequentialAnimation on opacity {
-                        running: live.moving || live.waiting
+                        running: live.moving
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.25; duration: 700 }
                         NumberAnimation { to: 1; duration: 700 }
                     }
                 }
                 Text {
-                    text: live.rowing ? (live.waiting ? "Rowing ready" : (live.paused ? "Paused" : "Rowing"))
-                          : live.freeRide ? (live.waiting ? "Free Ride ready" : (live.paused ? "Free Ride paused" : "Free Ride"))
-                          : live.video ? (live.waiting ? "Video ready" : (live.paused ? "Video paused" : "Video")
-                                                     + (live.videoWorkout ? "  " + Theme.clock(Rlv.elapsedSeconds) : ""))
-                          : (live.waiting ? "Waiting…" : (live.paused ? "Paused" : "Riding"))
+                    text: live.rowing ? (live.paused ? "Paused" : "Rowing")
+                          : live.freeRide ? (live.paused ? "Free Ride paused" : "Free Ride")
+                          : live.video ? (live.paused ? "Video paused" : "Video")
+                                         + (live.videoWorkout ? "  " + Theme.clock(Rlv.elapsedSeconds) : "")
+                          : (live.paused ? "Paused" : "Riding")
                     color: Theme.text
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
@@ -115,24 +113,20 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
                 text: live.rowing
-                      ? (live.waiting ? "Take the first stroke"
-                                      : Theme.clock(Rowing.elapsedSeconds) + "  •  "
-                                        + (Rowing.heartRate > 0 ? Rowing.heartRate + " BPM" : Rowing.watts + " W"))
+                      ? Theme.clock(Rowing.elapsedSeconds) + "  •  "
+                        + (Rowing.heartRate > 0 ? Rowing.heartRate + " BPM" : Rowing.watts + " W")
                       : live.freeRide
-                        ? (live.waiting ? "Start pedaling"
-                                        : Theme.clock(FreeRide.elapsedSeconds) + " • "
-                                          + (FreeRide.mode === "erg" ? "ERG • "
-                                             : FreeRide.virtualGears ? Gears.gearLabel + " • " : "")
-                                          + Sensors.displayPower + " W")
+                        ? Theme.clock(FreeRide.elapsedSeconds) + " • "
+                          + (FreeRide.mode === "erg" ? "ERG • "
+                             : FreeRide.virtualGears ? Gears.gearLabel + " • " : "")
+                          + Sensors.displayPower + " W"
                         : live.video
-                          ? (live.waiting ? "Start pedaling"
-                                          : live.videoWorkout
-                                            ? Rlv.currentIntervalName + " " + (Rlv.currentIntervalIndex + 1) + "/"
-                                              + Rlv.workoutIntervals.length + " • " + Sensors.displayPower + " W"
-                                            : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
-                                              + " km • " + Sensors.displayPower + " W")
-                        : (Training.waiting ? "Start pedaling"
-                                            : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W")
+                          ? (live.videoWorkout
+                             ? Rlv.currentIntervalName + " " + (Rlv.currentIntervalIndex + 1) + "/"
+                               + Rlv.workoutIntervals.length + " • " + Sensors.displayPower + " W"
+                             : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
+                               + " km • " + Sensors.displayPower + " W")
+                        : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W"
                 color: Theme.textSecondary
                 font.pixelSize: 13
             }

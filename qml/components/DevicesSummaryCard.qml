@@ -1,7 +1,7 @@
 import QtQuick
 import Artilody.Backend
 
-// Dashboard "Devices" card
+// Watt Training "Devices" card
 Card {
     id: card
     signal openDevices()

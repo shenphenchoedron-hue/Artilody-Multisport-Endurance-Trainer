@@ -142,7 +142,6 @@ Item {
                         id: statusPill
                         readonly property color dot: page.st === "idle" && FreeRide.ergHolding ? Theme.warning
                                                    : page.st === "idle" && FreeRide.gearHolding ? Theme.accentLight
-                                                   : page.st === "ready" ? Theme.success
                                                    : page.st === "running" ? Theme.danger
                                                    : page.st === "paused" ? Theme.warning
                                                    : page.st === "finished" ? Theme.accentLight : Theme.textMuted
@@ -162,7 +161,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: statusPill.dot
                                 SequentialAnimation on opacity {
-                                    running: page.st === "ready" || page.st === "running"
+                                    running: page.st === "running"
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.25; duration: 700 }
                                     NumberAnimation { to: 1; duration: 700 }
@@ -172,7 +171,6 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: page.st === "idle" ? (FreeRide.ergHolding ? "ERG on  •  " + FreeRide.targetWatts + " W"
                                                                                 : "Gears on  •  " + Gears.gearLabel)
-                                      : page.st === "ready" ? "Waiting for pedaling…"
                                       : page.st === "running" ? (FreeRide.coasting ? "Coasting" : "Riding") + "  •  " + page.modeName(FreeRide.mode)
                                       : page.st === "paused" ? "Paused" : "Finished"
                                 color: Theme.text
@@ -623,22 +621,11 @@ Item {
                         height: Theme.touch(50)
                         kind: "primary"
                         iconName: "play"
-                        text: page.finished ? "Ride Again" : "Start Now"
+                        objectName: "freeRideStartButton"
+                        text: page.finished ? "Ride Again" : "Start"
                         enabled: FreeRide.trainerConnected && !page.otherSession
+                        // the only way a ride starts (pedaling never does)
                         onClicked: FreeRide.start()
-                    }
-                    AppButton {
-                        visible: !FreeRide.active && !page.finished
-                        width: parent.width
-                        height: Theme.touch(44)
-                        kind: "secondary"
-                        fontSize: 15
-                        iconSize: 18
-                        bold: false
-                        iconName: FreeRide.waiting ? "close" : "cadence"
-                        text: FreeRide.waiting ? "Cancel Auto-Start" : "Start When Pedaling"
-                        enabled: FreeRide.waiting || (FreeRide.trainerConnected && !page.otherSession)
-                        onClicked: FreeRide.waiting ? FreeRide.reset() : FreeRide.startWhenPedaling()
                     }
                     AppButton {
                         visible: FreeRide.active
@@ -679,14 +666,15 @@ Item {
                         width: parent.width
                         namePrefix: "freeRide"
                         startWhat: "a free ride"
-                        blocker: !FreeRide.active && !FreeRide.waiting ? page.blocker : ({})
+                        blocker: !FreeRide.active ? page.blocker : ({})
                     }
                     Text {
                         width: parent.width
                         visible: text.length > 0
-                        text: FreeRide.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
-                              : !FreeRide.active && page.otherSession ? ""
-                              : page.st === "idle" && FreeRide.trainerConnected ? "Space starts and pauses the ride." : ""
+                        text: !FreeRide.active && page.otherSession ? ""
+                              : page.st === "idle" && FreeRide.trainerConnected
+                                ? "Ready – press Start (or Space). Pedaling alone never starts the ride."
+                              : page.st === "paused" ? "Paused – press Resume (or Space)." : ""
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap

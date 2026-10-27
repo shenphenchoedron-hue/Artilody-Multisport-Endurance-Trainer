@@ -96,8 +96,8 @@ struct Fixture
         rlv->setMinimumSaveSeconds(5);
         rlv->setFreeRideSession(freeRide.get());
         rlv->setTrainingSession(training.get());
-        rlv->setStartBlocker(QStringLiteral("freeRide"), [this] { return freeRide->active(); });
-        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active() || rlv->waiting(); });
+        rlv->setStartBlocker(QStringLiteral("freeRide"), [this] { return freeRide->inProgress(); });
+        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->inProgress(); });
         gears->setSessions(freeRide.get(), rlv.get());
         return true;
     }
@@ -130,7 +130,7 @@ struct Fixture
     }
     void ride_for(int ms)
     {
-        for (int t = 0; t < ms && (rlv->running() || rlv->waiting()); t += 250)
+        for (int t = 0; t < ms && (rlv->running()); t += 250)
             rlv->advanceClock(250);
     }
 };
@@ -194,7 +194,6 @@ private slots:
         QCOMPARE(s.resistancePath(), QStringLiteral("simulation"));
         QVERIFY(!s.start());
         QCOMPARE(refused.count(), 1);
-        s.startWhenPedaling();
         QCOMPARE(s.state(), QStringLiteral("idle"));
         QVERIFY(!s.select(0));
         QVERIFY(!s.selectPath(QStringLiteral("/no/such/route")));
@@ -725,7 +724,7 @@ private slots:
     }
 
     // ERG pressed on the Video Ride page puts the trainer in ERG at once
-    // (idle / armed); Simulation or leaving the page releases it; paused:
+    // (before Start); Simulation or leaving the page releases it; paused:
     // applied on resume. The Free Ride page's hold and this one never fight.
     void ergSelectorEngagesTrainerWhenIdle()
     {
@@ -767,11 +766,13 @@ private slots:
         f.gears->setActivePage(QStringLiteral("video"));
         QCOMPARE(f.hub->requestedTarget(), 200);
 
-        // armed -> held, pedaling starts the ride in ERG
-        f.rlv->startWhenPedaling();
-        QCOMPARE(f.rlv->state(), QStringLiteral("ready"));
-        QCOMPARE(f.hub->requestedTarget(), 200);
+        // held before Start; pedaling does not start the ride, Start does (in ERG)
         f.pedal(85, 195);
+        f.ride_for(2000);
+        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        QVERIFY(f.rlv->ergHolding());
+        QCOMPARE(f.hub->requestedTarget(), 200);
+        QVERIFY(f.rlv->start());
         QCOMPARE(f.rlv->state(), QStringLiteral("running"));
         QVERIFY(!f.rlv->ergHolding());
         QCOMPARE(f.hub->requestedTarget(), 200);
@@ -870,7 +871,7 @@ private slots:
         QSignalSpy saved(f.rlv.get(), &RlvSession::rideSaved);
         QSignalSpy finished(f.rlv.get(), &RlvSession::finished);
         f.pedal(95, 220);
-        f.rlv->startWhenPedaling();   // already pedaling -> starts right away
+        QVERIFY(f.rlv->start());
         QVERIFY(f.rlv->running());
         f.ride_for(200000);
         QCOMPARE(f.rlv->state(), QStringLiteral("finished"));
@@ -935,17 +936,17 @@ private slots:
         QCOMPARE(refused.count(), 2);
         f.freeRide->finish(false);
 
-        // armed sessions are cancelled when the video ride starts
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
+        // empty paused sessions are given up when the video ride starts
+        f.training->start();
+        f.training->pause();   // manual clock: nothing recorded
         QVERIFY(f.rlv->start());
-        QVERIFY(!f.training->waiting());
+        QVERIFY(!f.training->active());
         f.rlv->finish(false);
         f.freeRide->reset();
-        f.freeRide->startWhenPedaling();
-        QVERIFY(f.freeRide->waiting());
+        QVERIFY(f.freeRide->start());
+        f.freeRide->pause();
         QVERIFY(f.rlv->start());
-        QVERIFY(!f.freeRide->waiting());
+        QVERIFY(!f.freeRide->active());
         f.rlv->finish(false);
 
         // the guard goes with the session
@@ -1112,28 +1113,50 @@ private slots:
         QCOMPARE(again.setup().bikeWeightKg, 10.0);
     }
 
-    // "Start when pedaling" only while the Video Ride page is open; a workout
-    // start cancels an armed video ride instead of being refused.
-    void armedRideDisarmsAndYields()
+    // Pedaling never starts (or resumes) a video ride, on any page; only
+    // Start does. A prepared (route chosen, not started) video ride never
+    // blocks a workout.
+    void pedalingNeverStartsVideoRide()
     {
         Fixture f;
         QVERIFY(f.init());
         QVERIFY(f.addRoute(QStringLiteral("flat"), 3000, 10, flat));
         QVERIFY(f.selectRoute(QStringLiteral("flat")));
-        f.gears->setActivePage(QStringLiteral("video"));
-        f.rlv->startWhenPedaling();
-        QVERIFY(f.rlv->waiting());
-        f.gears->setActivePage(QStringLiteral("dashboard"));
-        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        QSignalSpy started(f.rlv.get(), &RlvSession::started);
+        for (const char *page : { "video", "dashboard", "freeride" }) {
+            f.gears->setActivePage(QString::fromLatin1(page));
+            f.pedal(95, 250);
+            f.ride_for(3000);
+            QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+            f.pedal(0, 300);   // power only
+            f.ride_for(1000);
+            QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        }
+        QCOMPARE(started.count(), 0);
+        QCOMPARE(f.rlv->distanceMeters(), 0.0);
+        QVERIFY(!f.rlv->videoShouldPlay());
 
-        f.gears->setActivePage(QStringLiteral("video"));
-        f.rlv->startWhenPedaling();
+        // a workout starts beside the prepared video ride
         QSignalSpy refused(f.training.get(), &TrainingSession::startRefused);
         f.training->start();
         QCOMPARE(refused.count(), 0);
         QVERIFY(f.training->active());
-        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
         f.training->discard();
+
+        // Start starts it; pedaling after a pause does not resume
+        f.gears->setActivePage(QStringLiteral("video"));
+        QVERIFY(f.rlv->start());
+        QCOMPARE(started.count(), 1);
+        f.pedal(90, 200);
+        f.ride_for(3000);
+        f.rlv->pause();
+        const int sec = f.rlv->elapsedSeconds();
+        f.ride_for(5000);
+        QCOMPARE(f.rlv->state(), QStringLiteral("paused"));
+        QCOMPARE(f.rlv->elapsedSeconds(), sec);
+        f.rlv->togglePause();   // Space / Resume
+        QVERIFY(f.rlv->running());
+        f.rlv->finish(false);
     }
 
     // Discarding right before the route end must not save the ride through

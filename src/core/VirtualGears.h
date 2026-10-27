@@ -48,8 +48,8 @@ class SensorHub;
 //
 // Zwift Click routing (controllerShift(), the single place):
 //   1. virtual gears off -> turn on + notice "Zwift Click detected – using virtual gears"
-//   2. a video ride is armed/running        -> RlvSession::controllerShift()
-//   3. a free ride is armed/running         -> FreeRideSession::controllerShift()
+//   2. a video ride is running             -> RlvSession::controllerShift()
+//   3. a free ride is running              -> FreeRideSession::controllerShift()
 //   4. the Video Ride page is open (activePage "video")    -> RlvSession::controllerShift()
 //   5. the Free Ride page is open (activePage "freeride")  -> FreeRideSession::controllerShift()
 //   6. otherwise (e.g. Devices page)        -> shift the gear (test it on the Devices page)
@@ -153,7 +153,7 @@ public:
     static QVariantList wheelPresets() { return GearSetup::wheelPresets(); }
     QString lastError() const { return m_lastError; }
 
-    // The rider of a running / armed ride (FreeRideSession / RlvSession call
+    // The rider of a running / paused ride (FreeRideSession / RlvSession call
     // this on start and clear it when the ride ends; owner = the session, a
     // clear by another owner is ignored). While set and different from the
     // current profile, roadModel(), systemMassKg (-> SensorHub::riderMassKg),

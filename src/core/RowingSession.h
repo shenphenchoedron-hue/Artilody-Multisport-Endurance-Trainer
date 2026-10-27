@@ -37,8 +37,9 @@ class WorkoutPlanner;
 //   "plan"  - watt-plan rowing workout (sport "rowing") from the library,
 //             targets = % of the rowing FTP, setupPlan()
 //   "ghost" - race against the personal best over a distance, setupGhost()
-// States ("state"): "idle", "ready" (set up, waits for the first stroke when
-// autoStart is on), "running", "paused", "finished".
+// States ("state"): "idle", "ready" (set up, not running: press Start),
+// "running", "paused", "finished". A row only starts with start() (Start
+// button / Space): strokes on the rower never start or resume it.
 //
 // Distances, strokes and calories are session relative: the monitor values at
 // start are subtracted and a workout reset on the monitor (or a rower switch)
@@ -55,10 +56,9 @@ class RowingSession : public QObject
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     // Genuinely in progress: riding, or paused with something recorded. Only
-    // such a session blocks starting another one; an armed one (or one paused
-    // before anything was recorded) is given up instead (abandon()).
+    // such a session blocks starting another one; a set-up ("ready") row or
+    // one paused before anything was recorded never blocks (abandon()).
     Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
-    Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY autoStartChanged)
     Q_PROPERTY(bool rowerConnected READ rowerConnected NOTIFY rowerConnectedChanged)
     Q_PROPERTY(QString rowerName READ rowerName NOTIFY rowerConnectedChanged)
     Q_PROPERTY(QList<int> standardDistances READ standardDistances CONSTANT)
@@ -133,15 +133,16 @@ public:
     void setRower(RowerDevice *rower);
     RowerDevice *rower() const;
     // Only one session at a time: installs a start guard on the cycling
-    // session; start() refuses while it is active (cancels it when only armed).
+    // session; start() refuses while it is in progress (gives it up when it
+    // is paused without a recording).
     void setTrainingSession(TrainingSession *training);
     // Further guards (e.g. a running free ride): while one returns true,
     // start() is refused with startRefused(reason). Empty function removes it.
     void setStartBlocker(const QString &key, std::function<bool()> blocker, const QString &reason = {});
-    // Called by start() once the guards passed: cancels a cycling session
-    // that is only armed (free ride / video ride waiting for the first pedal
-    // stroke), like an armed workout. Empty function removes it.
-    void setArmedCanceller(const QString &key, std::function<void()> cancel);
+    // Called by start() once the guards passed: gives up a cycling session
+    // that has nothing to lose (paused before anything was recorded). Empty
+    // function removes it.
+    void setAbandonCanceller(const QString &key, std::function<void()> cancel);
 
     // Tests: drive the clock manually (disables the internal timer).
     void setManualClock(bool manual) { m_manualClock = manual; }
@@ -159,8 +160,6 @@ public:
     bool inProgress() const { return running() || (paused() && hasRecording()); }
     bool abandonable() const { return paused() && !hasRecording(); }
     void abandon() { if (abandonable()) finish(false); }   // empty paused row: given up
-    bool autoStart() const { return m_autoStart; }
-    void setAutoStart(bool on);
     bool rowerConnected() const;
     QString rowerName() const;
     static QList<int> standardDistances();
@@ -240,7 +239,6 @@ public:
 signals:
     void setupChanged();
     void stateChanged();
-    void autoStartChanged();
     void rowerConnectedChanged();
     void metricsChanged();
     void intervalChanged();
@@ -272,10 +270,7 @@ private:
     void process(int ms);
     void recordUpTo(int second);
     void onMeasurement();
-    void onStroke();
-    void onRowingActive(bool on);
     void onWorkoutReset();
-    void maybeAutoStart();
     void extendTrace(double now, double d);
     void completeDistance(double finishTime);
     qint64 finishInternal(bool save, bool completed, double finishTime);
@@ -292,13 +287,12 @@ private:
     WorkoutPlanner *m_planner;
     QPointer<TrainingSession> m_training;
     QHash<QString, QPair<std::function<bool()>, QString>> m_startBlockers;
-    QHash<QString, std::function<void()>> m_armedCancellers;
+    QHash<QString, std::function<void()>> m_abandonCancellers;
     QPointer<RowerDevice> m_rower;
     QList<QMetaObject::Connection> m_rowerConnections;
 
     Mode m_mode = Mode::None;
     State m_state = State::Idle;
-    bool m_autoStart = true;
     bool m_manualClock = false;
     int m_minSaveSec = 30;
     QTimer m_timer;

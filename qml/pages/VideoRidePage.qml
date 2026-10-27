@@ -24,13 +24,13 @@ Item {
 
     readonly property string st: Rlv.state
     readonly property bool finished: st === "finished"
-    readonly property bool locked: Rlv.active || Rlv.waiting
+    readonly property bool locked: Rlv.active
     // Only one session at a time: a workout / free ride / row IN PROGRESS on
     // another page (riding, or paused with a recording) disables Start - and
     // only Start: the pickers, gears, difficulty etc. stay usable. The reason
-    // card (SessionBlockNotice) says which session and offers the fix. Armed
-    // sessions elsewhere are disarmed when their page is left, finished ones
-    // never block (SessionGuard).
+    // card (SessionBlockNotice) says which session and offers the fix.
+    // Prepared (not started) and finished sessions never block (SessionGuard);
+    // nothing starts by pedaling, only by Start / Space.
     readonly property var blocker: Sessions.videoBlocker
     readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     // resistance mode: "sim" (the route as a simulated road, default) or
@@ -51,7 +51,7 @@ Item {
     // (never depends on the video: the ride starts even when the video cannot be played)
     readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
     // why Start is disabled ("" = it is not)
-    readonly property string startBlockedReason: Rlv.active || Rlv.waiting || page.canStart ? ""
+    readonly property string startBlockedReason: Rlv.active || page.canStart ? ""
         : page.otherSession ? page.blocker.text
         : !Rlv.hasRoute ? (Videos.scanning && Videos.count === 0 ? "Scanning the video library…" : "No video chosen")
         : !Rlv.trainerConnected ? "No trainer connected" : ""
@@ -522,7 +522,7 @@ Item {
     MediaPlayer {
         id: player
         // only while the page is shown (or a ride runs): no decoding in the background
-        source: page.visible || Rlv.active || Rlv.waiting ? Rlv.videoUrl : ""
+        source: page.visible || Rlv.active ? Rlv.videoUrl : ""
         videoOutput: videoOut
         // RLVs are usually silent: no audio output unless switched on
         audioOutput: page.audioOn ? audioOut : null
@@ -946,8 +946,7 @@ Item {
                     spacing: 8
                     Rectangle {
                         id: statusChip
-                        readonly property color dot: page.st === "ready" ? Theme.success
-                                                   : page.st === "running" ? Theme.danger
+                        readonly property color dot: page.st === "running" ? Theme.danger
                                                    : page.st === "paused" ? Theme.warning
                                                    : page.st === "finished" ? Theme.accentLight : "#9aa3c0"
                         height: 34
@@ -964,7 +963,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: statusChip.dot
                                 SequentialAnimation on opacity {
-                                    running: page.st === "ready" || page.st === "running"
+                                    running: page.st === "running"
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.25; duration: 700 }
                                     NumberAnimation { to: 1; duration: 700 }
@@ -972,13 +971,12 @@ Item {
                             }
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: page.st === "ready" ? "Waiting for pedaling…"
-                                      : page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  "
+                                text: page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  "
                                                                 + (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
                                                                    : page.gears ? "Virtual gears" : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
                                       : page.st === "paused" ? "Paused"
                                       : page.st === "finished" ? (Rlv.completed ? "Route complete" : "Finished")
-                                      : "Preview"
+                                      : Rlv.trainerConnected && !page.otherSession ? "Ready – press Start" : "Preview"
                                 color: "white"
                                 font.pixelSize: 15
                                 font.weight: Font.DemiBold
@@ -1228,10 +1226,10 @@ Item {
                     }
                 }
 
-                // paused / waiting / finished
+                // paused / finished
                 Rectangle {
                     visible: videoCard.showVideo && !page.noPicture
-                             && (page.st === "paused" || page.st === "ready" || page.finished)
+                             && (page.st === "paused" || page.finished)
                     anchors.centerIn: parent
                     width: centerCol.implicitWidth + 56
                     height: centerCol.implicitHeight + 32
@@ -1243,14 +1241,14 @@ Item {
                         spacing: 6
                         Icon {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            name: page.st === "paused" ? "pause" : page.st === "ready" ? "cadence" : "flag"
+                            name: page.st === "paused" ? "pause" : "flag"
                             size: 34
                             strokeWidth: 2.2
                             color: "white"
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: page.st === "paused" ? "Paused" : page.st === "ready" ? "Waiting for pedaling…"
+                            text: page.st === "paused" ? "Paused – press Resume"
                                   : Rlv.completed ? "Route complete" : "Ride finished"
                             color: "white"
                             font.pixelSize: 26
@@ -1259,7 +1257,6 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: page.st === "paused" ? "Press Space or Resume to continue"
-                                  : page.st === "ready" ? "The ride starts with your first pedal strokes"
                                   : page.kmText(Rlv.riddenMeters) + " km in " + Theme.clock(Rlv.elapsedSeconds)
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: 15
@@ -1627,23 +1624,10 @@ Item {
                             kind: "primary"
                             iconName: "play"
                             objectName: "videoStartButton"
-                            text: page.finished ? "Ride Again" : "Start Now"
+                            text: page.finished ? "Ride Again" : "Start"
                             enabled: page.canStart
+                            // the only way a ride starts (pedaling never does)
                             onClicked: Rlv.start()
-                        }
-                        AppButton {
-                            visible: !Rlv.active && !page.finished
-                            width: parent.width
-                            height: Theme.touch(44)
-                            kind: "secondary"
-                            fontSize: 15
-                            iconSize: 18
-                            bold: false
-                            iconName: Rlv.waiting ? "close" : "cadence"
-                            objectName: "videoArmButton"
-                            text: Rlv.waiting ? "Cancel Auto-Start" : "Start When Pedaling"
-                            enabled: Rlv.waiting || page.canStart
-                            onClicked: Rlv.waiting ? Rlv.finish(false) : Rlv.startWhenPedaling()
                         }
                         AppButton {
                             visible: Rlv.active
@@ -1685,19 +1669,19 @@ Item {
                             width: parent.width
                             namePrefix: "video"
                             startWhat: "a video ride"
-                            blocker: !Rlv.active && !Rlv.waiting ? page.blocker : ({})
+                            blocker: !Rlv.active ? page.blocker : ({})
                         }
                         Text {
                             objectName: "videoStartReason"
                             width: parent.width
                             visible: text.length > 0
-                            text: Rlv.waiting ? "Start pedaling – the ride begins with the first pedal strokes."
-                                  : !Rlv.active && page.otherSession ? ""
+                            text: !Rlv.active && page.otherSession ? ""
                                   : !Rlv.hasRoute && !Rlv.active ? (Videos.scanning && Videos.count === 0
                                                                     ? "Scanning the video library…" : "Choose a video to start.")
                                   : !Rlv.active && !Rlv.trainerConnected ? "Connect a trainer to start."
                                   : page.st === "idle" && Rlv.trainerConnected
-                                    ? "Starts at " + page.kmText(Rlv.startDistanceM, 2) + " km. Space starts and pauses the ride." : ""
+                                    ? "Ready – press Start (or Space). Starts at " + page.kmText(Rlv.startDistanceM, 2)
+                                      + " km; pedaling alone never starts the ride." : ""
                             color: Theme.textSecondary
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap

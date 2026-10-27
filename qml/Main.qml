@@ -30,8 +30,11 @@ ApplicationWindow {
     // Navigation API for every page (component ids of Main.qml are not
     // visible from other files):
     //   ApplicationWindow.window.showPage("rowing")   (import QtQuick.Controls)
-    // Names: see pageNames. Returns false for an unknown name.
+    // Names: see pageNames ("dashboard" is the Watt Training page; "training"
+    // and "watt" are accepted as aliases). Returns false for an unknown name.
     function showPage(name) {
+        if (name === "training" || name === "watt")
+            name = "dashboard"
         var i = pageNames.indexOf(name)
         if (i < 0) {
             console.warn("showPage: unknown page", name)
@@ -411,7 +414,9 @@ ApplicationWindow {
         }
     }
 
-    // keyboard shortcuts for the trainer room
+    // keyboard shortcuts for the trainer room. Space is an explicit Start /
+    // Pause / Resume (like the page's button): sessions never start or resume
+    // by pedaling or rowing.
     Shortcut {
         sequence: "Space"
         enabled: window.currentPage === "dashboard" && !window.anyDialogOpen
@@ -419,7 +424,8 @@ ApplicationWindow {
     }
     Shortcut {
         sequence: "Space"
-        enabled: window.currentPage === "rowing" && Rowing.active && !window.anyDialogOpen
+        enabled: window.currentPage === "rowing" && !window.anyDialogOpen
+                 && (Rowing.active || (Rowing.state === "ready" && Rowing.rowerConnected))
         onActivated: Rowing.togglePause()
     }
 
@@ -483,7 +489,7 @@ ApplicationWindow {
     readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
     Shortcut {
         sequences: ["Space"]
-        enabled: window.videoKeys && (Rlv.active || (Rlv.hasRoute && Rlv.trainerConnected && !Rlv.waiting))
+        enabled: window.videoKeys && (Rlv.active || (Rlv.hasRoute && Rlv.trainerConnected))
         onActivated: Rlv.togglePause()
     }
     function videoStep(direction) {

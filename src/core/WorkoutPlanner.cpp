@@ -87,7 +87,7 @@ void WorkoutPlanner::clearActiveEntry()
 void WorkoutPlanner::activeEntryReset(qint64)
 {
     // The Free Ride's planned duration belongs to its (active) plan entry.
-    if (!m_freeRide || m_freeRide->active() || m_freeRide->waiting())
+    if (!m_freeRide || m_freeRide->active())
         return;
     const auto e = m_activeEntryId >= 0 ? m_db->plannedWorkout(m_activeEntryId) : std::nullopt;
     if (!e || e->kind != plankind::freeRide())
@@ -610,7 +610,7 @@ QString WorkoutPlanner::startEntry(const QVariant &entryOrId)
             setError(QStringLiteral("Free rides are not available"));
             return {};
         }
-        if (m_freeRide->active() || m_freeRide->waiting()) {
+        if (m_freeRide->active()) {
             setError(QStringLiteral("A free ride is in progress – finish it first"));
             return {};
         }
@@ -664,7 +664,7 @@ QString WorkoutPlanner::startVideo(const PlannedWorkout &e, const QVariantMap &o
         setError(QStringLiteral("Video rides are not available"));
         return {};
     }
-    if (m_rlv->active() || m_rlv->waiting()) {
+    if (m_rlv->active()) {
         setError(QStringLiteral("A video ride is in progress – finish it first"));
         return {};
     }

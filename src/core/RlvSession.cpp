@@ -44,8 +44,6 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     connect(m_hub, &SensorHub::displayPowerChanged, this, &RlvSession::metricsChanged);
     connect(m_hub, &SensorHub::cadenceChanged, this, &RlvSession::metricsChanged);
     connect(m_hub, &SensorHub::heartRateChanged, this, &RlvSession::metricsChanged);
-    connect(m_hub, &SensorHub::powerChanged, this, &RlvSession::checkPedaling);
-    connect(m_hub, &SensorHub::cadenceChanged, this, &RlvSession::checkPedaling);
     connect(m_hub, &SensorHub::trainerConnectedChanged, this, &RlvSession::devicesChanged);
     connect(m_hub, &SensorHub::trainerConnectedChanged, this, [this] {
         if (running() && trainerConnected())
@@ -54,15 +52,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
             updateHold(true);   // ERG selected on the open page: hold it now
     });
     // ERG outside a ride follows the open page (Main.qml: Gears.activePage).
-    connect(m_gears, &VirtualGears::activePageChanged, this, [this] {
-        // armed ("start when pedaling") only while its page is open: it must
-        // not start unseen or keep blocking other sessions
-        if (waiting() && m_gears->activePage() != QLatin1String("video")) {
-            finish(false);
-            return;
-        }
-        updateHold();
-    });
+    connect(m_gears, &VirtualGears::activePageChanged, this, [this] { updateHold(); });
     connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::trainerReportsSpeedChanged, this, &RlvSession::resistanceSetupChanged);
     connect(m_hub, &SensorHub::cadenceReportedChanged, this, &RlvSession::resistanceSetupChanged);
@@ -110,9 +100,9 @@ RlvSession::~RlvSession()
 {
     if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
-        m_training->setArmedCanceller(QStringLiteral("rlv"), {});
+        m_training->setAbandonCanceller(QStringLiteral("rlv"), {});
     }
-    if (active() || waiting() || m_ergHold)
+    if (active() || m_ergHold)
         m_res.release();
     m_gears->clearRideProfile(this);
 }
@@ -123,14 +113,14 @@ void RlvSession::setTrainingSession(TrainingSession *training)
 {
     if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rlv"), {});
-        m_training->setArmedCanceller(QStringLiteral("rlv"), {});
+        m_training->setAbandonCanceller(QStringLiteral("rlv"), {});
     }
     m_training = training;
     if (training) {
-        // a ride in progress blocks the workout; an armed (or empty paused)
-        // one is given up by its start
+        // a ride in progress blocks the workout; an empty paused one is
+        // given up by its start
         training->setStartBlocker(QStringLiteral("rlv"), [this] { return inProgress(); });
-        training->setArmedCanceller(QStringLiteral("rlv"), [this] { abandon(); });
+        training->setAbandonCanceller(QStringLiteral("rlv"), [this] { abandon(); });
         connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
     }
 }
@@ -143,22 +133,22 @@ void RlvSession::setStartBlocker(const QString &key, std::function<bool()> block
         m_startBlockers.remove(key);
 }
 
-void RlvSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+void RlvSession::setAbandonCanceller(const QString &key, std::function<void()> cancel)
 {
     if (cancel)
-        m_armedCancellers.insert(key, std::move(cancel));
+        m_abandonCancellers.insert(key, std::move(cancel));
     else
-        m_armedCancellers.remove(key);
+        m_abandonCancellers.remove(key);
 }
 
-void RlvSession::cancelArmedOthers()
+void RlvSession::abandonOthers()
 {
-    // only armed / paused before anything was recorded: nothing is lost
+    // only paused before anything was recorded: nothing is lost
     if (m_training)
         m_training->abandon();
     if (m_freeRide)
         m_freeRide->abandon();
-    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+    for (auto it = m_abandonCancellers.cbegin(); it != m_abandonCancellers.cend(); ++it) {
         if (it.value())
             it.value()();
     }
@@ -166,7 +156,7 @@ void RlvSession::cancelArmedOthers()
 
 void RlvSession::syncRideProfile()
 {
-    if (active() || waiting())
+    if (active())
         m_gears->setRideProfile(this, m_rideProfile);
     else
         m_gears->clearRideProfile(this);
@@ -209,7 +199,6 @@ QString RlvSession::state() const
 {
     switch (m_state) {
     case State::Idle: return QStringLiteral("idle");
-    case State::Ready: return QStringLiteral("ready");
     case State::Running: return QStringLiteral("running");
     case State::Paused: return QStringLiteral("paused");
     case State::Finished: return QStringLiteral("finished");
@@ -227,15 +216,15 @@ void RlvSession::setState(State s)
     syncRideProfile();
     emit stateChanged();
     if (!active())
-        updateHold();   // idle / armed: ERG on the open page holds the target
+        updateHold();   // idle / finished: ERG on the open page holds the target
 }
 
 void RlvSession::updateTimer()
 {
-    // the clock runs while a ride is armed or running and while the page
+    // the clock runs while a ride is running and while the page
     // holds the virtual gear resistance (it follows the cadence) - not while
     // paused, idle or holding a fixed ERG target
-    const bool want = !m_manualClock && (m_state == State::Ready || running() || gearHolding());
+    const bool want = !m_manualClock && (running() || gearHolding());
     if (want && !m_timer.isActive()) {
         m_clock.start();
         m_timer.start();
@@ -272,7 +261,7 @@ void RlvSession::setMode(const QString &modeText)
     if (m_mode == Mode::Erg) {
         // start from what the rider is pushing right now
         const int now = m_hub->displayPower();
-        if (now >= kStartPowerWatts) {
+        if (now >= kPedalPowerWatts) {
             // stored here, sent once by applyTarget() below
             m_ergTarget = std::clamp(int(std::lround(now / 5.0)) * 5, int(kMinErgWatts), int(kMaxWatts));
             m_db->setSetting(kSettingErgWatts, m_ergTarget);
@@ -361,7 +350,7 @@ void RlvSession::setDifficulty(int percent)
 
 bool RlvSession::canSelect() const
 {
-    return !active() && !waiting();
+    return !active();
 }
 
 int RlvSession::routeIndex() const
@@ -511,7 +500,7 @@ bool RlvSession::trainerConnected() const { return m_hub->trainerConnected(); }
 
 bool RlvSession::coasting() const
 {
-    return m_hub->cadence() < kCoastCadenceRpm && m_hub->power() < kStartPowerWatts;
+    return m_hub->cadence() < kCoastCadenceRpm && m_hub->power() < kPedalPowerWatts;
 }
 
 road::Model RlvSession::roadModel(double grade) const
@@ -519,7 +508,7 @@ road::Model RlvSession::roadModel(double grade) const
     // the rider of the ride; weight / height edits of the same profile apply
     // at once (like the trainer's weight, SensorHub::riderMassKg)
     const Profile &cur = m_profiles->current();
-    const Profile &p = (active() || waiting()) && m_rideProfile.id != cur.id ? m_rideProfile : cur;
+    const Profile &p = active() && m_rideProfile.id != cur.id ? m_rideProfile : cur;
     return p.weightKg > 0 ? m_gears->roadModel(grade, p) : m_gears->roadModel(grade);
 }
 
@@ -532,7 +521,7 @@ double RlvSession::solveSpeedForPower(double w, double grade) const
 
 double RlvSession::speedMps() const
 {
-    if (m_state == State::Ready || active())
+    if (active())
         return m_speed;
     const int cad = m_hub->cadence();
     if (virtualGears() && cad >= kCoastCadenceRpm)
@@ -572,15 +561,15 @@ double RlvSession::controlCadence() const
     const int raw = m_hub->cadence();
     if (raw < kCoastCadenceRpm)
         return raw;   // coasting (or no cadence)
-    // smoothed while a ride is armed/running, else the live cadence
-    return (m_state == State::Ready || active()) ? std::max(m_cadSmooth, double(kCoastCadenceRpm)) : double(raw);
+    // smoothed during a ride, else the live cadence
+    return active() ? std::max(m_cadSmooth, double(kCoastCadenceRpm)) : double(raw);
 }
 
 int RlvSession::gearTargetWatts() const
 {
     if (!virtualGears())
         return 0;
-    const double cad = (m_state == State::Ready || active()) ? m_cadSmooth : double(m_hub->cadence());
+    const double cad = active() ? m_cadSmooth : double(m_hub->cadence());
     return RideResistance::gearWatts(gearDrive(cad));
 }
 
@@ -611,7 +600,7 @@ bool RlvSession::sendResistance(bool force)
 void RlvSession::applyTarget(bool force)
 {
     if (!running()) {
-        updateHold(force);   // idle / armed: ERG on the open page
+        updateHold(force);   // not running: ERG / gears on the open page
         return;
     }
     const bool wasHolding = m_ergHold;
@@ -629,13 +618,13 @@ void RlvSession::releaseTrainer()
 
 bool RlvSession::holdBlocked() const
 {
-    // another session drives the trainer right now (armed or riding). A
+    // another session drives the trainer right now (riding). A
     // paused workout / free ride has released it: meanwhile the open Video
     // Ride page holds it (gears, ERG, difficulty react); their resume()
     // takes it back (updateHold() then leaves the trainer alone).
-    if (m_training && (m_training->waiting() || m_training->running()))
+    if (m_training && m_training->running())
         return true;
-    if (m_freeRide && (m_freeRide->waiting() || m_freeRide->running()))
+    if (m_freeRide && m_freeRide->running())
         return true;
     for (auto it = m_startBlockers.cbegin(); it != m_startBlockers.cend(); ++it) {
         if (it.key() != QLatin1String("freeRide") && it.value() && it.value()())
@@ -646,7 +635,7 @@ bool RlvSession::holdBlocked() const
 
 bool RlvSession::holdWanted() const
 {
-    return (ergNow() || virtualGears()) && (m_state == State::Idle || m_state == State::Ready)
+    return (ergNow() || virtualGears()) && m_state == State::Idle
            && m_gears->activePage() == QLatin1String("video") && trainerConnected() && !holdBlocked();
 }
 
@@ -728,20 +717,15 @@ bool RlvSession::start()
     if (active())
         return false;
     if (!hasRoute()) {
-        if (m_state == State::Ready)
-            setState(State::Idle);
         emit startRefused(QStringLiteral("Choose a video first."));
         return false;
     }
     if (startBlocked()) {
-        if (m_state == State::Ready)
-            setState(State::Idle);
         emit startRefused(kRefused);
         return false;
     }
-    cancelArmedOthers();
+    abandonOthers();
     m_gears->reloadIfPending();
-    const bool wasReady = m_state == State::Ready;
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
@@ -750,8 +734,7 @@ bool RlvSession::start()
     resetLastRideId();
     m_startedAt = QDateTime::currentDateTime();
     m_cadSmooth = m_hub->cadence();
-    if (!wasReady)
-        m_speed = 0;
+    m_speed = 0;
     m_res.reset();
     if (m_hasWorkout) {
         // a new ride: the workout from 0:00 at the rider's FTP (intensity kept)
@@ -777,48 +760,6 @@ bool RlvSession::start()
     emit started();
     emit metricsChanged();
     return true;
-}
-
-void RlvSession::startWhenPedaling()
-{
-    if (active() || waiting())
-        return;
-    if (!hasRoute()) {
-        emit startRefused(QStringLiteral("Choose a video first."));
-        return;
-    }
-    if (startBlocked()) {
-        emit startRefused(kRefused);
-        return;
-    }
-    cancelArmedOthers();   // only one armed session
-    if (m_state == State::Finished || m_distance >= totalDistanceM())
-        m_distance = m_startDistance;
-    clearRecording();
-    m_rideProfile = m_profiles->current();
-    m_speed = 0;
-    m_cadSmooth = 0;
-    if (m_hasWorkout && m_workout.state() != WorkoutEngine::State::Idle) {
-        const int intensity = m_workout.intensityOffset();
-        m_workout.reset();   // shown from 0:00 while armed
-        m_workout.setIntensityOffset(intensity);
-        m_workoutFinished = false;
-        m_complianceSec = m_compliantSec = 0;
-        emitWorkoutAll();
-    }
-    m_hub->expireStale();
-    releaseTrainer();
-    setState(State::Ready);
-    emit positionChanged();
-    checkPedaling();
-}
-
-void RlvSession::checkPedaling()
-{
-    if (m_state != State::Ready)
-        return;
-    if (m_hub->cadence() >= kStartCadenceRpm || m_hub->power() >= kStartPowerWatts)
-        start();
 }
 
 void RlvSession::pause()
@@ -864,11 +805,6 @@ void RlvSession::togglePause()
 
 qint64 RlvSession::finish(bool save)
 {
-    if (m_state == State::Ready) {
-        releaseTrainer();
-        setState(State::Idle);
-        return -1;
-    }
     if (!active())
         return -1;
     // the last time slice only when the ride is kept: its step may reach the
@@ -894,8 +830,6 @@ void RlvSession::reset()
 {
     if (active())
         return;
-    if (m_state == State::Ready)
-        releaseTrainer();
     clearRecording();
     m_speed = 0;
     m_completed = false;
@@ -919,7 +853,7 @@ void RlvSession::reset()
 
 bool RlvSession::seekToDistance(double meters)
 {
-    if (!hasRoute() || active() || waiting() || !std::isfinite(meters))
+    if (!hasRoute() || active() || !std::isfinite(meters))
         return false;
     const double total = totalDistanceM();
     meters = std::clamp(meters, 0.0, std::max(0.0, total - 1.0));
@@ -977,7 +911,7 @@ void RlvSession::updateModel(double dt)
     m_cadSmooth += (cad - m_cadSmooth) * std::min(1.0, dt / kCadenceSmoothingSec);
 
     if (!virtualGears()) {   // sim / ERG: speed from power
-        integratePower(power >= kStartPowerWatts || m_speed > 0 ? power : 0, dt);
+        integratePower(power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
         return;
     }
     const road::Model model = roadModel(effectiveGradePercent());
@@ -986,7 +920,7 @@ void RlvSession::updateModel(double dt)
         const double pedal = gearing().virtualSpeed(cad);
         // downhill the bike may roll faster than the pedals turn it
         m_speed = model.gradePercent < 0 ? std::max(pedal, roll) : pedal;
-    } else if (power >= kStartPowerWatts && cad <= 0) {
+    } else if (power >= kPedalPowerWatts && cad <= 0) {
         integratePower(power, dt);   // trainer without cadence
     } else {
         m_speed = roll;
@@ -1001,7 +935,7 @@ void RlvSession::process(int ms)
     if (ms <= 0)
         return;
     m_nowMs += ms;
-    if (!(m_state == State::Ready || active())) {
+    if (!active()) {
         if (m_ergHold) {   // idle page holding the virtual gear: follow the cadence
             m_res.elapse(ms);
             updateHold();
@@ -1031,9 +965,6 @@ void RlvSession::process(int ms)
             finish(true);   // route end: save automatically
             return;
         }
-    } else if (m_ergHold) {
-        m_res.elapse(ms);
-        updateHold();   // armed: the page hold follows the cadence
     }
     emit metricsChanged();
 }
@@ -1178,8 +1109,7 @@ bool RlvSession::attachWorkout(const Workout &w)
                      .arg(w.name));
         return false;
     }
-    const Profile &p = (waiting() && m_rideProfile.id >= 0) ? m_rideProfile : m_profiles->current();
-    m_workout.load(w, p.ftpFor(sport::cycling()));   // intensity 0, from 0:00
+    m_workout.load(w, m_profiles->current().ftpFor(sport::cycling()));   // intensity 0, from 0:00
     m_hasWorkout = true;
     m_workoutErg = true;
     m_workoutFinished = false;

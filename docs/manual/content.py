@@ -78,7 +78,7 @@ def build(s, env):
         "them by feel. A ride without any workout is also called a Free Ride.")
     s.sub("Power zones and RPE")
     s.p("Training intensity is divided into six power zones, each with a colour that is used consistently in "
-        "charts, the timeline and the dashboard. Each zone also corresponds to a range on the RPE scale "
+        "charts, the timeline and the Watt Training page. Each zone also corresponds to a range on the RPE scale "
         "(Rating of Perceived Exertion, 1–10), which tells you how hard an effort should feel:")
     s.table(["Zone", "Name", "Default range", "RPE", "Feels"], [
         ["Z1", "Recovery", "below 55 % FTP", "1", "Very easy"],
@@ -208,8 +208,8 @@ def build(s, env):
         f"{UI('Set up your profile')} – weight, FTP and heart-rate values (chapter 4). If you don't know your "
         "FTP, ride the Ramp FTP Test first (chapter 8).",
         f"{UI('Choose a workout')} under {UI('Workouts')}, or build your own in {UI('Builder')}.",
-        f"Choose {UI('ERG Mode')} or {UI('Free Ride')} and press {UI('Start Workout')}. Start pedaling – "
-        "the clock starts automatically.",
+        f"Choose {UI('ERG Mode')} or {UI('Free Ride')} and press {UI('Load Workout')}. The workout opens on "
+        f"{UI('Watt Training')}; clip in and press {UI('Start')} (or {K('Space')}). Nothing starts by pedaling.",
         f"When you are done, press {UI('Stop')} and save the ride. Open {UI('History')} for the analysis.",
     ])
 
@@ -218,11 +218,11 @@ def build(s, env):
               "The window consists of a navigation sidebar on the left, the current page in the middle and a "
               "small top bar in the upper-right corner.")
     s.figure(SHOTS / "dashboard.png",
-             "The main window with the Dashboard during a ride: sidebar (left), live metrics and charts "
+             "The main window with the Watt Training page during a ride: sidebar (left), live metrics and charts "
              "(centre), devices, ERG switch, controls and music player (right).")
     s.section("Sidebar")
     s.table(["Item", "Purpose"], [
-        [UI("Dashboard"), "Live view of the current workout or free ride – metrics, charts and controls."],
+        [UI("Watt Training"), "(Bicycle icon; formerly Dashboard.) The cycling workout page – live metrics, charts and controls; press Start to begin."],
         [UI("Free Ride"), "Ride without a workout: a road with a grade (your gears or virtual gears) or ERG (chapter 12)."],
         [UI("Video Ride"), "Ride a filmed route (Real Life Video): the video follows your speed (chapter 13)."],
         [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
@@ -234,11 +234,11 @@ def build(s, env):
         [UI("Devices"), "Bluetooth scanning, connections, diagnostics and trainer test."],
         [UI("Profile"), "Opens the User Profile dialog for the current rider."],
     ], [1.2, 4.5])
-    s.p("The four training pages – Dashboard (cycling workouts), Free Ride, Video Ride and Rowing – are at the top, "
+    s.p("The four training pages – Watt Training (cycling workouts), Free Ride, Video Ride and Rowing – are at the top, "
         "followed by planning (Workouts, Calendar, Builder), History and Devices.")
-    s.p("While a workout is armed or running, a status box appears at the bottom of the sidebar. It shows "
-        "<i>Waiting… / Start pedaling</i>, <i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
-        "current power. Click it to jump back to the Dashboard from any page. A free ride shows "
+    s.p("While a workout is running or paused, a status box appears at the bottom of the sidebar. It shows "
+        "<i>Riding</i> or <i>Paused</i> together with the elapsed time and the "
+        "current power (a workout that is only loaded, not started, is not shown). Click it to jump back to the Watt Training page from any page. A free ride shows "
         "<i>Free Ride 12:34 • 50×17 • 210 W</i> (time, gear or ERG, power) and leads to the Free Ride page; a video "
         "ride shows <i>Video 12:34 • 4.3 km • 210 W</i> (with a workout: <i>Video 12:34</i> / <i>Sweet Spot "
         "2/6 • 230 W</i>) and leads to the Video Ride page; a row leads to the Rowing page.")
@@ -282,14 +282,14 @@ def build(s, env):
         ["Max heart rate", "100 – 230 BPM", "Must be more than 20 BPM above the resting heart rate."],
         ["Resting heart rate", "30 – 110 BPM", "Used together with max HR for the Karvonen zones."],
         ["Preferred cadence", "50 – 130 RPM",
-         "Default cadence target on the dashboard when an interval has no cadence of its own."],
+         "Default cadence target on the Watt Training page when an interval has no cadence of its own."],
         ["Default mode", "ERG or Free Ride", "Pre-selected ride mode in the workout preview."],
     ], [1.4, 1.8, 3.0])
     s.p(f"Click {UI('Save Profile')} to store the changes. If a value is invalid, the dialog stays open and "
         "shows the reason in red (for example <i>“Max heart rate must be above resting heart rate”</i>). "
         f"{UI('Cancel')} closes the dialog without saving.")
     s.p("Changes to FTP and zones take effect immediately for the workout library, the Builder and the "
-        "Dashboard. A ride that is already running keeps the profile values it started with.")
+        "Watt Training page. A ride that is already running keeps the profile values it started with.")
     s.sub("Avatar")
     s.p("Click the round picture (camera icon) to choose a profile picture (PNG, JPG, JPEG, BMP or WebP). "
         "Without a picture the first letter of your name is shown. The app remembers the location of the "
@@ -322,7 +322,7 @@ def build(s, env):
         ["Z4 Hard", "80 – 90 %", "152 – 163 BPM"],
         ["Z5 Maximum", "90 – 100 %", "163 – 175 BPM"],
     ], [1.6, 1.9, 2.2], swatches=["#3d86fb", "#45d659", "#ffd21f", "#ff8a26", "#ff3b30"], keep=True)
-    s.p("A heart rate below 50 % of the reserve is shown as <i>“Below zone 1”</i> on the Dashboard.")
+    s.p("A heart rate below 50 % of the reserve is shown as <i>“Below zone 1”</i> on the Watt Training page.")
 
     s.section("Multiple profiles")
     s.p("Several riders can share one installation. Every profile has its own values, zones and ride history; "
@@ -375,7 +375,7 @@ def build(s, env):
         "If no heart-rate sensor is connected but your trainer reports heart rate (some trainers pass on a "
         "paired strap), the trainer's heart rate is used.",
     ])
-    s.p("The Dashboard's <b>Devices</b> card summarises both connections (<i>Connected</i>, <i>Connecting</i>, "
+    s.p("The Watt Training page's <b>Devices</b> card summarises both connections (<i>Connected</i>, <i>Connecting</i>, "
         "<i>Offline</i> or <i>Not paired</i>); click it to open the Devices page.")
 
     s.section("Selected trainer and capabilities")
@@ -556,8 +556,8 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Choosing and riding a workout",
-              "Pick a workout in the library, choose ERG or Free Ride, and start pedaling – the Dashboard "
-              "guides you through every interval.")
+              "Pick a workout in the library, choose ERG or Free Ride, load it and press Start – the Watt Training "
+              "page guides you through every interval.")
     s.figure(SHOTS / "workouts.png", "The Workouts library with the preview panel on the right.")
     s.section("The workout library")
     s.bullets([
@@ -575,12 +575,12 @@ def build(s, env):
         "profile chart and a summary such as <i>3 × 12 min @ 225 W • Intervals</i>. Watt values are always "
         "calculated from your current FTP. Click the heart to mark a favourite. Click a card to select it, "
         "double-click to open it in the Builder.")
-    s.p("Selecting a workout while nothing is riding also loads it on the Dashboard, so you can look at it "
+    s.p("Selecting a workout while nothing is riding also loads it on the Watt Training page, so you can look at it "
         "there before starting.")
     s.sub("Workout preview")
     s.p("The preview panel shows the name, category, duration and focus, a larger profile chart, and the "
         f"tiles {UI('Duration')}, {UI('Intensity')} (average % of FTP) and {UI('Intervals')} (e.g. 3 × 12 min), "
-        f"followed by the description. Below it are {UI('Start Workout')}, {UI('Edit')} (opens the workout in "
+        f"followed by the description. Below it are {UI('Load Workout')}, {UI('Edit')} (opens the workout in "
         f"the Builder) and a share button that exports the selected workout (section 6.2). The {UI('•••')} "
         "(more) menu offers:")
     s.bullets([
@@ -667,28 +667,28 @@ def build(s, env):
     s.section("Ride mode: ERG or Free Ride")
     s.p(f"Under {UI('Ride Mode')} choose {UI('ERG Mode')} (<i>automatically match target power</i>) or "
         f"{UI('Free Ride')} (<i>follow the workout at your own pace</i>). The default comes from your profile. "
-        "You can also switch ERG on or off during the ride on the Dashboard.")
+        "You can also switch ERG on or off during the ride on the Watt Training page.")
 
-    s.section("Starting: the app waits for you to pedal")
+    s.section("Starting: you press Start")
     s.steps([
-        f"Press {UI('Start Workout')}. The app switches to the Dashboard and the workout is <b>armed</b>: "
-        f"a blinking <i>“Start pedaling to begin”</i> label appears, the Elapsed Time card reads "
-        f"<i>“Waiting for pedaling”</i> and the button changes to {UI('Waiting for pedaling…')}.",
-        "While armed, the trainer is left in free-ride mode so you can spin up easily, and readings left over "
-        "from an earlier ride are cleared.",
-        "The workout starts automatically as soon as your <b>cadence reaches 20 RPM</b> – or, for trainers "
-        "that do not report cadence, as soon as your <b>power reaches 30 W</b>. If you are already pedaling "
-        "when you press Start Workout, it starts immediately.",
-        f"To start without waiting, press {UI('Start now')} in the Dashboard's Controls card.",
+        f"Press {UI('Load Workout')}. The app switches to the Watt Training page with the workout loaded; a "
+        f"<i>“Ready – press Start”</i> label is shown in the header. The trainer stays free, so you can clip "
+        "in and spin your legs without anything starting.",
+        f"Press {UI('Start')} in the Controls card (or {K('Space')}). The clock, the recording and – in ERG mode "
+        "– the target power start now.",
     ])
-    s.p(f"While a workout is armed you can still choose a different workout and press {UI('Start Workout')} "
-        f"again – it replaces the armed one. {UI('Stop')} cancels the waiting; nothing is saved.")
-    s.p(f"{UI('Ride without workout ›')} (below the Start button) arms a Free Ride without any intervals in "
+    s.note("A session never starts by itself when you start pedaling (or rowing): pedaling a little while you "
+           "clip in does not start the clock. This applies to the Watt Training, Free Ride, Video Ride and "
+           "Rowing pages alike. There is no automatic pause either, and pedaling never resumes a paused "
+           f"session: press {UI('Resume')} (or {K('Space')}) – the header then reads <i>“Paused – press Resume”</i>.")
+    s.p(f"Until you press Start you can choose a different workout and press {UI('Load Workout')} again – it "
+        "replaces the loaded one. A loaded workout never blocks the other training pages.")
+    s.p(f"{UI('Ride without workout ›')} (below the Load button) loads a Free Ride without any intervals in "
         "the same way.")
 
-    s.section("The Dashboard in detail")
+    s.section("The Watt Training page in detail")
     s.sub("Header")
-    s.p("The header shows a breadcrumb (<i>Indoor Cycling › focus of the workout</i>), the workout name and a "
+    s.p("The header shows a breadcrumb (<i>Watt Training › focus of the workout</i>), the workout name and a "
         "summary line such as <i>3 × 12 min @ 225 W • Sweet Spot • 56 min total</i>.")
     s.sub("Metric cards")
     s.table(["Card", "Shows"], [
@@ -728,7 +728,7 @@ def build(s, env):
         f"{UI('Devices')} – connection status of trainer and heart-rate sensor.",
         f"{UI('ERG Mode')} switch – turns trainer control on or off at any time during a workout (disabled in a "
         "Free Ride). The text below explains the current mode.",
-        f"{UI('Controls')} – {UI('Start')} / {UI('Start now')} / {UI('Pause')} / {UI('Resume')} and "
+        f"{UI('Controls')} – {UI('Start')} / {UI('Pause')} / {UI('Resume')} and "
         f"{UI('Stop')}.",
         f"{UI('Music Player')} – see chapter 14.",
     ])
@@ -748,15 +748,14 @@ def build(s, env):
     s.warning("Rides shorter than <b>30 seconds</b> of recorded time are not saved (<i>“Ride too short to "
               "save”</i>).")
     s.sub("Keyboard shortcut")
-    s.p(f"On the Dashboard, {K('Space')} pauses and resumes the ride. While a workout is waiting for pedaling, "
-        f"{K('Space')} starts it immediately (like Start now); when nothing is armed, it starts the loaded "
-        "workout immediately. The shortcut is inactive on other pages and while the profile dialog or the "
+    s.p(f"On the Watt Training page, {K('Space')} works like the Start / Pause / Resume button: it starts the "
+        "loaded workout, then pauses and resumes it. The shortcut is inactive on other pages and while the profile dialog or the "
         "FTP result dialog is open.")
 
     s.section("Free ride without a workout")
     s.tip(f"For riding without a workout on a road with a grade (your gears or virtual gears) or a fixed ERG wattage, use the "
           f"{UI('Free Ride')} page (chapter 12).")
-    s.p(f"Choose {UI('Ride without workout ›')} on the Workouts page. The Dashboard shows <i>Free Ride – ride at "
+    s.p(f"Choose {UI('Ride without workout ›')} on the Workouts page. The Watt Training page shows <i>Free Ride – ride at "
         "your own pace without structured intervals</i>; there are no targets, ERG is unavailable and the "
         "trainer simulates a flat road. Power, cadence and heart rate are still recorded, and the ride is saved "
         "under the name <i>Free Ride</i>. A free ride runs until you press Stop.")
@@ -780,7 +779,7 @@ def build(s, env):
         "Intervals) with three blocks: a 10-minute warm-up, a 12-minute sweet-spot interval and a 5-minute "
         "cool-down.",
         f"<b>Edit a workout:</b> double-click it in the library, choose {UI('Edit')} in the preview, or "
-        f"{UI('Edit Workout')} on the Dashboard.",
+        f"{UI('Edit Workout')} on the Watt Training page.",
     ])
     s.p("At the top of the page you enter the <b>workout name</b> and choose the <b>category</b> (Endurance, "
         "Intervals, Recovery or FTP Tests). The <b>Cycling / Rowing</b> selector sets the sport; rowing "
@@ -814,7 +813,7 @@ def build(s, env):
          "changes linearly between the two."],
         [UI("% FTP"), "The same target as a percentage of FTP (steps of 1 %, up to 400 %). Watts and % FTP are "
                       "two views of one value."],
-        [UI("Cadence (RPM)"), "Optional cadence target for the block (“–” = none; the Dashboard then uses your "
+        [UI("Cadence (RPM)"), "Optional cadence target for the block (“–” = none; the Watt Training page then uses your "
                               "preferred cadence)."],
         [UI("RPE"), "<i>Auto (from power)</i> colours the block by the power zone of its target. Choose a "
                     "fixed RPE (1 Very Easy … 10 Max Effort) to override the colour and zone shown."],
@@ -879,7 +878,7 @@ def build(s, env):
         "Be rested. Set up a fan, have water ready and make sure the trainer is calibrated if it requires it.",
         f"Select {UI('Ramp FTP Test')} (category <i>FTP Tests</i>). <b>ERG mode</b> is recommended: the trainer "
         "then raises the power for you.",
-        f"Press {UI('Start Workout')} and start pedaling.",
+        f"Press {UI('Load Workout')}, clip in and press {UI('Start')} on the Watt Training page.",
         "Ride the warm-up easily, then follow the ramp. Keep a steady cadence.",
         f"When you cannot keep the cadence or the target any longer, press {UI('Stop')} and choose "
         f"{UI('Save &amp; Finish')}. If you ride to the end, the ride is saved automatically.",
@@ -1135,10 +1134,10 @@ def build(s, env):
         f"{UI('Ride')} or {UI('Row')} for the entry in the side panel (or the play button in "
         f"{UI('Upcoming')}), or choose {UI('Ride this workout')} / {UI('Row this workout')} in its menu:")
     s.bullets([
-        f"a <b>cycling</b> workout is loaded on the {UI('Dashboard')} – choose ERG or Free Ride and start "
-        "pedaling as usual (chapter 6);",
+        f"a <b>cycling</b> workout is loaded on the {UI('Watt Training')} page – choose ERG or Free Ride and "
+        f"press {UI('Start')} as usual (chapter 6);",
         f"a <b>rowing</b> workout is set up as a <b>Watt Plan</b> on the {UI('Rowing')} page (chapter 11) – "
-        "take your first stroke to begin;",
+        f"press {UI('Start')} to begin;",
         f"a <b>Free Ride</b> opens the {UI('Free Ride')} page with the planned mode, ERG watts and duration "
         "(chapter 12);",
         f"a <b>Video Ride</b> opens the {UI('Video Ride')} page with the route, the resistance mode and the "
@@ -1148,7 +1147,7 @@ def build(s, env):
         "it first.")
     s.note("When you <b>complete</b> a workout you started from the calendar, exactly that plan entry is "
            "<b>marked as completed automatically</b> and linked to the ride – even if it was planned for another "
-           "day. A completed workout started elsewhere (Workouts page, Dashboard) ticks off the first open entry "
+           "day. A completed workout started elsewhere (Workouts page, Watt Training) ticks off the first open entry "
            "of that workout on the same day. Rides you stop before the end of the workout, aborted rows, free "
            "rides and free rows do not change the calendar. If you delete the ride in History, its plan entry "
            "is opened again. A <b>Free Ride</b> entry started from the calendar is ticked off by a saved Free "
@@ -1329,14 +1328,13 @@ def build(s, env):
 
     s.section("Starting, pausing and finishing")
     s.bullets([
-        f"With {UI('Start on first stroke')} on (default) the row is armed as soon as it is set up "
-        "(<i>Waiting for first stroke…</i>) and starts with your first stroke. Turn it off to start only "
-        f"with {UI('Start Now')}.",
-        f"{UI('Start Now')} starts at once; without any setup it starts an open Free Row.",
-        "If you leave the Rowing page before the row has started, the setup is cleared, so a stroke on the "
-        "rower cannot start a row while you are on another page. Coming back sets it up again.",
+        "Opening the Rowing page sets the row up (<i>Ready – press Start</i>). Strokes on the rower never "
+        "start it – take a few warm-up strokes or get settled first.",
+        f"{UI('Start')} (or {K('Space')} once a rower is connected) starts the row; without any setup it starts "
+        "an open Free Row. Metres and strokes rowed before Start do not count.",
         f"{UI('Pause Row')} / {UI('Resume')} (or {K('Space')}) stops and continues the clock; distance rowed "
-        "during a pause is not counted.",
+        "during a pause is not counted, and rowing on never resumes the row by itself "
+        "(<i>Paused – press Resume</i>).",
         f"{UI('Finish')} asks <i>Finish row?</i>: {UI('Save &amp; Finish')} saves the row, {UI('Discard')} "
         "throws it away.",
         f"{UI('Reset')} (when paused or finished) discards an unfinished row and prepares the same session "
@@ -1373,7 +1371,7 @@ def build(s, env):
     s.bullets([
         f"<b>Workouts page:</b> cards show a Cycling or Rowing badge, and the filter {UI('All sports')} / "
         f"{UI('Cycling')} / {UI('Rowing')} at the top limits the library to one sport. For a rowing workout "
-        f"the preview shows {UI('Row Workout')} instead of Start Workout; it opens the workout as a Watt Plan "
+        f"the preview shows {UI('Row Workout')} instead of Load Workout; it opens the workout as a Watt Plan "
         f"on the Rowing page. {UI('New Workout')} asks for {UI('New cycling workout')} or "
         f"{UI('New rowing workout')}. Watt values on rowing cards use your rowing FTP.",
         f"<b>Builder:</b> the {UI('Cycling')} / {UI('Rowing')} selector at the top sets the sport. In rowing "
@@ -1427,7 +1425,7 @@ def build(s, env):
         "<i>Shifting:</i> line. In ERG the panel holds the target (below).",
         f"<b>Chart</b> – power (yellow area), speed (cyan) and heart rate (pink) over time; in ERG a dashed "
         "line marks the target.",
-        f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
+        f"<b>Right column</b> – {UI('Start')}, {UI('Pause Ride')} / "
         f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the {UI('Shifting')} card with the Zwift Click "
         f"status, its buttons as you press them and a link to the Devices page. Without a trainer a "
         f"<i>No trainer connected</i> card with {UI('Open Devices')} appears.",
@@ -1463,11 +1461,11 @@ def build(s, env):
 
     s.section("Starting, pausing and finishing")
     s.bullets([
-        f"{UI('Start Now')} starts the ride immediately; {UI('Start When Pedaling')} arms it – the status pill "
-        "shows <i>Waiting for pedaling…</i> and the ride starts with the first pedal strokes (cadence ≥ 20 rpm or "
-        f"power ≥ 30 W). {UI('Cancel Auto-Start')} disarms it.",
+        f"{UI('Start')} (or {K('Space')}) starts the ride – the only way it starts: pedaling never starts it, "
+        "so you can clip in and spin up calmly (the page says <i>Ready – press Start</i>). The resistance of the "
+        "selected mode (ERG target, grade, virtual gear) already applies while the page is open.",
         f"{UI('Pause Ride')} (or {K('Space')}) stops the clock and releases the trainer; {UI('Resume')} "
-        "continues.",
+        "(or Space) continues – pedaling on never resumes it.",
         f"{UI('Finish')} asks <i>Finish free ride?</i> – {UI('Save &amp; Finish')} saves the ride to History "
         f"under the name <i>Free Ride</i>, {UI('Discard')} throws it away. A summary (time, distance, average and "
         f"maximum power, average speed, energy) and {UI('View in History')} appear; {UI('Ride Again')} starts a "
@@ -1475,7 +1473,7 @@ def build(s, env):
         "Only one session runs at a time: a free ride cannot start while a workout, a video ride or a row is "
         "in progress (running, or paused) on another page. Start is then greyed out and a yellow card says "
         f"why, with {UI('Go to …')}, {UI('End &amp; Save')} and {UI('Discard')} (click twice to confirm). "
-        "Armed sessions (start when pedaling) are cancelled when you leave their page; finished rides never block.",
+        "Prepared (not started) and finished sessions never block.",
     ])
     s.warning("Rides shorter than <b>30 seconds</b> are not saved.")
 
@@ -1542,7 +1540,7 @@ def build(s, env):
         "<i>4.3 / 12.0 km</i>, km marks and small ticks where the route has texts. Above it: distance, "
         "remaining distance, elevation, climbing done and gradient. Before the start, click the profile to "
         "start part-way along the route (hovering shows the distance and elevation).",
-        f"<b>Right column</b> – {UI('Start Now')}, {UI('Start When Pedaling')}, {UI('Pause Ride')} / "
+        f"<b>Right column</b> – {UI('Start')}, {UI('Pause Ride')} / "
         f"{UI('Resume')}, {UI('Finish')} and {UI('Reset')}; the {UI('Resistance')} card; the Zwift Click status. "
         f"Without a trainer a <i>No trainer connected</i> card with {UI('Open Devices')} appears.",
     ])
@@ -1593,7 +1591,7 @@ def build(s, env):
         f"(for example 800 × 480) the chart and the profile share the bottom card: {UI('Route')} | "
         f"{UI('Workout')}.",
         f"<b>{UI('Workout ERG')}</b> (on by default) – the trainer holds the workout's target watts, as on the "
-        "Dashboard; the route only sets the speed of the video, so a climb makes it slower but not heavier. The "
+        "Watt Training; the route only sets the speed of the video, so a climb makes it slower but not heavier. The "
         "Resistance card shows <i>Workout ERG holds the trainer. This mode applies after the workout.</i> Switch "
         "it off to use the targets as a guide: then Simulation or ERG from the Resistance card applies as usual.",
         f"<b>Status and controls</b> – the card shows the interval, the big target (green within ±5 %, yellow "
@@ -1611,15 +1609,16 @@ def build(s, env):
 
     s.section("Starting, pausing and finishing")
     s.bullets([
-        f"{UI('Start Now')} starts at the chosen start point; {UI('Start When Pedaling')} waits for the first "
-        "pedal strokes.",
-        f"{UI('Pause Ride')} (or {K('Space')}) stops the clock and the video; {UI('Resume')} continues.",
+        f"{UI('Start')} (or {K('Space')}) starts at the chosen start point. Pedaling never starts the ride; "
+        "before Start the status pill reads <i>Ready – press Start</i>.",
+        f"{UI('Pause Ride')} (or {K('Space')}) stops the clock and the video; {UI('Resume')} (or Space) "
+        "continues – pedaling on never resumes it.",
         f"{UI('Finish')} asks <i>Finish video ride?</i> – {UI('Save &amp; Finish')} or {UI('Discard')}. "
         "Reaching the end of the route finishes and saves the ride by itself. Video rides appear in History "
         "with the route name and can be exported as FIT or CSV.",
         "Only one session runs at a time – a video ride cannot start while a workout, a free ride or a row is "
         "in progress (running or paused) on another page. Start is then greyed out and a yellow card under it "
-        f"says why – e.g. <i>A workout is paused on the Dashboard</i> – with {UI('Go to Dashboard')}, "
+        f"says why – e.g. <i>A workout is paused on Watt Training</i> – with {UI('Go to Watt Training')}, "
         f"{UI('End &amp; Save')} and {UI('Discard')}. The route, workout, gears and difficulty stay usable. "
         "The ride never depends on the video: it can start even when the video cannot be played.",
     ])
@@ -1666,9 +1665,9 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Music player",
-              "Play your own music while you ride – from the Dashboard, without leaving the app.")
+              "Play your own music while you ride – from the Watt Training page, without leaving the app.")
     s.section("The player card")
-    s.p(f"The {UI('Music Player')} card on the Dashboard shows the album art (when the file contains it), "
+    s.p(f"The {UI('Music Player')} card on the Watt Training page shows the album art (when the file contains it), "
         "title and artist, a heart button, previous / play-pause / next, a position bar, a mute button and a "
         f"volume slider (default 70 %, remembered). {UI('Up Next')} lists the next up to three songs; click one "
         "to play it. When the card is small, the list stays inside the card and scrolls. The playlist icon in the card header opens the music library.")
@@ -1720,7 +1719,7 @@ def build(s, env):
         "for as long as it was current, so it works the same with trainers that send 1, 2 or 4 readings a "
         "second. When the trainer stops sending, the value drops to 0 after 3 seconds.")
     s.bullets([
-        "Used for the displayed watts on the Dashboard power card (including the deviation from the target and "
+        "Used for the displayed watts on the Watt Training page power card (including the deviation from the target and "
         "the zone colour of its bar), the Free Ride power tile and ERG panel (<i>Actual … W</i>), the sidebar "
         "status box and the live trainer values on the Devices page (<i>Power 3s</i>).",
         "<b>Not</b> used for recording: rides keep the raw per-second power, so averages, NP, IF, TSS, zones, "
@@ -1766,10 +1765,9 @@ def build(s, env):
     faq = [
         ("“Start” is greyed out.",
          "Another session is still in progress on another page – usually a workout started or paused on the "
-         "Dashboard, or a paused free ride (the sidebar chip shows <i>Paused</i>). The yellow card under Start "
+         "Watt Training page, or a paused free ride (the sidebar chip shows <i>Paused</i>). The yellow card under Start "
          "says which one and offers <b>Go to …</b>, <b>End &amp; Save</b> and <b>Discard</b> (click twice). A "
-         "workout or ride that was only armed (<i>Start When Pedaling</i>) is cancelled when you leave its "
-         "page, and finished rides never block. If Start stays grey without a card, start the app from a "
+         "workout, route or row that is only prepared (not started) and finished rides never block. If Start stays grey without a card, start the app from a "
          "terminal with <i>WATT_DEBUG_RLVUI=1</i> and send the <i>RLVUI</i> lines with your report."),
         ("My trainer is not found.",
          "Make sure it is an FTMS (Bluetooth LE) trainer – ANT+-only and proprietary-protocol trainers are not "
@@ -1777,8 +1775,8 @@ def build(s, env):
          "computers), check that Bluetooth is on (and, on macOS, that the app has Bluetooth permission), then "
          "press Scan for Devices. Look at the Connection Log for errors."),
         ("ERG does not change the resistance.",
-         "Check that the ERG Mode switch on the Dashboard is on and that the ride is running (ERG is released "
-         "while waiting, paused and in Free Ride). Check that the trainer lists <i>ERG Control</i> under "
+         "Check that the ERG Mode switch on the Watt Training page is on and that the ride is running (ERG is released "
+         "before Start, while paused and in Free Ride). Check that the trainer lists <i>ERG Control</i> under "
          "Capabilities, and try the Trainer Control Test. A log entry <i>Trainer control refused</i> means "
          "another app holds control of the trainer. Some trainers react with a delay of a few seconds."),
         ("Heart rate shows “–”.",
@@ -1789,9 +1787,11 @@ def build(s, env):
          "Values are reset after 3 seconds without data, typically because of a weak Bluetooth signal. Reduce "
          "the distance, avoid metal obstacles and 2.4 GHz interference, or use a USB Bluetooth adapter with an "
          "extension cable and select it under Bluetooth Adapter."),
-        ("The workout does not start.",
-         "An armed workout waits until your cadence reaches 20 RPM (or power 30 W). If your trainer reports "
-         "neither, press Start now or Space."),
+        ("The workout does not start when I pedal.",
+         "That is intended: sessions only start when you press Start (or Space) on the Watt Training, Free "
+         "Ride, Video Ride or Rowing page, so pedaling while you clip in never starts the clock. Load the "
+         "workout, get on the bike, then press Start. Pedaling (or rowing) also never resumes a paused "
+         "session – press Resume."),
         ("My ride was not saved.",
          "Rides with less than 30 seconds of recorded time are not saved, and Discard deletes the ride. Rides "
          "are saved for the profile that was active when the ride started."),
@@ -1886,15 +1886,14 @@ def build(s, env):
     ], [1.1, 4.7])
     s.section("Keyboard shortcuts")
     s.table(["Key", "Where", "Action"], [
-        [K("Space"), "Dashboard", "Pause / resume the ride. While waiting for pedaling: start now. With nothing "
-                                  "armed: start the loaded workout immediately."],
-        [K("Space"), "Rowing", "Pause / resume a running row."],
-        [K("Space"), "Free Ride", "Start now / pause / resume the free ride."],
+        [K("Space"), "Watt Training", "Start the loaded workout / pause / resume (like the Start button)."],
+        [K("Space"), "Rowing", "Start a set-up row (rower connected) / pause / resume."],
+        [K("Space"), "Free Ride", "Start / pause / resume the free ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Free Ride",
          "Shift harder / easier (Ride with virtual gears); target ±5 W (ERG). Inactive otherwise."],
         [K("Shift") + "+" + K("↑") + " / " + K("↓"), "Free Ride / Video Ride", "Bigger / smaller chainring; sequential: jump 3 gears."],
         [K("Page Up") + " / " + K("Page Down"), "Free Ride", "Grade ±0.5 % (Ride); target ±10 W (ERG)."],
-        [K("Space"), "Video Ride", "Start now / pause / resume the video ride."],
+        [K("Space"), "Video Ride", "Start / pause / resume the video ride."],
         [K("↑") + " " + K("+") + " / " + K("↓") + " " + K("−"), "Video Ride",
          "Shift harder / easier (Simulation with virtual gears); target ±5 W (ERG)."],
         [K("Page Up") + " / " + K("Page Down"), "Video Ride", "Difficulty ±10 %; target ±10 W (ERG); intensity ±5 % "
@@ -1944,7 +1943,7 @@ def build(s, env):
         ["Z5 Threshold", "94 – 105 %", "9", "Efforts around FTP, 8–20+ minutes."],
         ["Z6 VO<sub>2</sub> Max", "&gt; 105 %", "10", "Short, very hard intervals of 1–5 minutes."],
     ], [1.4, 1.1, 0.7, 3.4], swatches=list(Z), keep=True)
-    s.p("The zone colours are used everywhere in the app: Dashboard power bar, workout charts, timeline blocks, "
+    s.p("The zone colours are used everywhere in the app: Watt Training power bar, workout charts, timeline blocks, "
         "Builder and History. Zone boundaries can be changed per profile (section 4.3).")
 
     s.chapter("The .awt file format", appendix=True,

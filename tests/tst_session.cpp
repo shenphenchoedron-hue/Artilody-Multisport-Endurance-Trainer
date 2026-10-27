@@ -279,115 +279,98 @@ private slots:
         QCOMPARE(session->stop(), qint64(-1));   // second stop is a no-op
     }
 
-    // --- start when pedaling ---------------------------------------------
+    // --- manual start only (pedaling never starts a workout) ---------------
 
-    void armedSessionWaitsForPedaling()
+    void pedalingNeverStartsWorkout()
     {
         QSignalSpy targets(hub, &SensorHub::targetPowerRequested);
+        QSignalSpy states(session, &TrainingSession::stateChanged);
         session->loadWorkout(shortWorkout());
         session->setErgMode(true);
-        session->startWhenPedaling();
-        QVERIFY(session->waiting());
-        QVERIFY(session->armedOrActive());
-        QVERIFY(!session->active());
-        QVERIFY(!session->running());
-        QCOMPARE(session->workoutName(), QStringLiteral("Short"));
-        // rider not pedaling: clock frozen, nothing recorded, no ERG target
-        for (int i = 0; i < 10; ++i) {
-            hub->updateCadence(0);
-            hub->updatePower(0);
+        states.clear();
+        // clipping in / spinning up: hard pedaling for a while
+        for (int i = 0; i < 20; ++i) {
+            hub->updateCadence(95);
+            hub->updatePower(250);
             session->advanceClock(1000);
         }
-        hub->updateCadence(TrainingSession::kStartCadenceRpm - 1);
-        hub->updatePower(TrainingSession::kStartPowerWatts - 1);
-        session->advanceClock(1000);
-        QVERIFY(session->waiting());
+        QVERIFY(!session->active());
+        QVERIFY(!session->running());
+        QCOMPARE(session->state(), int(TrainingSession::Idle));
         QCOMPARE(session->elapsedSec(), 0);
         QCOMPARE(session->samples().size(), 0);
         QCOMPARE(targets.size(), 0);
-        QCOMPARE(hub->requestedTarget(), 0);
+        QCOMPARE(states.size(), 0);
+        QCOMPARE(session->workoutName(), QStringLiteral("Short"));
+        // the free ride (no workout) neither
+        session->loadFreeRide();
+        hub->updateCadence(100);
+        hub->updatePower(300);
+        session->advanceClock(5000);
+        QVERIFY(!session->active());
+        QCOMPARE(db->rides(profiles->profileId()).size(), 0);
     }
 
-    void cadenceStartsArmedSession()
+    void startStartsWorkout()
     {
         QSignalSpy targets(hub, &SensorHub::targetPowerRequested);
         session->loadWorkout(shortWorkout());
         session->setErgMode(true);
-        session->startWhenPedaling();
-        QVERIFY(session->waiting());
-        hub->updateCadence(TrainingSession::kStartCadenceRpm);
-        QVERIFY(!session->waiting());
+        session->start();
         QVERIFY(session->running());
-        QVERIFY(session->active());
         QCOMPARE(targets.size(), 1);
         QCOMPARE(targets.at(0).at(0).toInt(), 125);
         ride(10, 125);
         QCOMPARE(session->elapsedSec(), 10);
-        QCOMPARE(session->samples().size(), 10);
+        session->discard();
+
+        // Space / the Start button: togglePause() from idle starts
+        session->loadWorkout(shortWorkout());
+        session->togglePause();
+        QVERIFY(session->running());
     }
 
-    void powerOnlyStartsArmedSession()
+    // There is no auto-pause, and resuming is manual too: pedaling again
+    // after a pause never resumes the clock.
+    void pedalingNeverResumesPausedWorkout()
     {
         session->loadWorkout(shortWorkout());
-        session->startWhenPedaling();
-        QVERIFY(session->waiting());
-        hub->updatePower(TrainingSession::kStartPowerWatts);   // no cadence sensor
+        session->start();
+        ride(5, 125);
+        session->pause();
+        QVERIFY(session->paused());
+        const int before = session->elapsedSec();
+        for (int i = 0; i < 10; ++i) {
+            hub->updateCadence(90);
+            hub->updatePower(200);
+            session->advanceClock(1000);
+        }
+        QVERIFY(session->paused());
+        QCOMPARE(session->elapsedSec(), before);
+        // stopping to pedal while running does not pause either
+        session->resume();
         QVERIFY(session->running());
-        QVERIFY(!session->waiting());
+        for (int i = 0; i < 5; ++i) {
+            hub->updateCadence(0);
+            hub->updatePower(0);
+            session->advanceClock(1000);
+        }
+        QVERIFY(session->running());
+        QCOMPARE(session->elapsedSec(), before + 5);
+        session->discard();
     }
 
-    void alreadyPedalingStartsImmediately()
-    {
-        hub->updateCadence(85);
-        hub->updatePower(150);
-        session->loadFreeRide();
-        session->startWhenPedaling();
-        QVERIFY(!session->waiting());
-        QVERIFY(session->running());
-    }
-
-    void stopOrDiscardWhileWaitingSavesNothing()
+    void stopOrDiscardBeforeStartSavesNothing()
     {
         QSignalSpy saved(session, &TrainingSession::rideSaved);
         session->setMinimumSaveSeconds(0);
         session->loadWorkout(shortWorkout());
-        session->startWhenPedaling();
         session->advanceClock(5000);
         QCOMPARE(session->stop(), qint64(-1));
-        QVERIFY(!session->waiting());
-        QVERIFY(!session->armedOrActive());
-        QCOMPARE(session->state(), int(TrainingSession::Idle));
-
-        session->startWhenPedaling();
-        QVERIFY(session->waiting());
         session->discard();
-        QVERIFY(!session->waiting());
         QCOMPARE(session->state(), int(TrainingSession::Idle));
-
-        // pedaling after cancelling must not start anything
-        hub->updateCadence(90);
-        QVERIFY(!session->running());
         QCOMPARE(saved.size(), 0);
         QCOMPARE(db->rides(profiles->profileId()).size(), 0);
-    }
-
-    void manualStartOverridesWaiting()
-    {
-        QSignalSpy targets(hub, &SensorHub::targetPowerRequested);
-        session->loadWorkout(shortWorkout());
-        session->setErgMode(true);
-        session->startWhenPedaling();
-        session->start();
-        QVERIFY(!session->waiting());
-        QVERIFY(session->running());
-        QCOMPARE(targets.size(), 1);
-
-        session->discard();
-        session->loadWorkout(shortWorkout());
-        session->startWhenPedaling();
-        session->togglePause();   // Space / "Start now"
-        QVERIFY(!session->waiting());
-        QVERIFY(session->running());
     }
 
     // --- FTP test ------------------------------------------------------------
@@ -689,18 +672,6 @@ private slots:
         QCOMPARE(session->elapsedSec(), before + 1);
         QVERIFY(!session->timerActive());          // manual clock
         session->discard();
-    }
-
-    void reloadWhileWaitingKeepsArmed()
-    {
-        session->loadWorkout(shortWorkout());
-        session->startWhenPedaling();
-        session->loadFreeRide();
-        QVERIFY(session->waiting());
-        QVERIFY(session->freeRide());
-        hub->updateCadence(60);
-        QVERIFY(session->running());
-        QVERIFY(session->freeRide());
     }
 
     // Plan entries are only ticked off for completed workouts.

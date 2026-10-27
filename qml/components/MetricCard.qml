@@ -1,6 +1,6 @@
 import QtQuick
 
-// Dashboard live metric (Power, Cadence, Heart Rate, Elapsed Time)
+// Watt Training live metric (Power, Cadence, Heart Rate, Elapsed Time)
 Card {
     id: metric
     property string label

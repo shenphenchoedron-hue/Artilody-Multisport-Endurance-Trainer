@@ -675,13 +675,13 @@ Item {
                 Layout.fillHeight: true
                 kind: "danger"
                 iconName: "play"
-                // While waiting for pedaling another workout can be chosen; it replaces the armed one.
-                readonly property bool armedHere: Training.waiting && Training.workoutId === page.sel.workoutId
+                // Loads the workout and opens Watt Training (ready, not started):
+                // the rider presses Start there - pedaling never starts it.
+                objectName: "workoutLoadButton"
                 text: page.selRowing ? (Rowing.active ? "Rowing…" : "Row Workout")
-                      : Training.active ? "In progress"
-                                        : (armedHere ? "Waiting…" : "Start Workout")
+                      : Training.active ? "In progress" : "Load Workout"
                 fontSize: 20
-                enabled: page.selRowing ? !Rowing.active : (!Training.active && !armedHere)
+                enabled: page.selRowing ? !Rowing.active : !Training.active
                 onClicked: {
                     if (page.selRowing) {
                         page.rowWorkout(page.sel.workoutId)
@@ -689,7 +689,6 @@ Item {
                     }
                     if (Training.loadWorkout(page.sel.workoutId)) {
                         Training.ergMode = page.ergSelected
-                        Training.startWhenPedaling()
                         page.started()
                     }
                 }
@@ -732,13 +731,12 @@ Item {
             text: "Ride without workout ›"
             color: Theme.accentLight
             font.pixelSize: 14
-            visible: !page.selRowing && !Training.active && !(Training.waiting && Training.freeRide)
+            visible: !page.selRowing && !Training.active
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    Training.loadFreeRide()
-                    Training.startWhenPedaling()
+                    Training.loadFreeRide()   // ready on Watt Training: press Start there
                     page.started()
                 }
             }
@@ -771,13 +769,12 @@ Item {
         }
     }
 
-    // When a workout is chosen and nothing is riding, show it on the dashboard.
+    // When a workout is chosen and nothing is riding, show it on Watt Training.
     Connections {
         target: Workouts
         function onSelectedChanged() {
-            // an armed workout is only replaced by pressing Start Workout again
-            // rowing workouts are set up on the Rowing page, not the cycling dashboard
-            if (!Training.armedOrActive && Workouts.selectedId >= 0 && Workouts.selected.sport !== "rowing")
+            // rowing workouts are set up on the Rowing page, not on Watt Training
+            if (!Training.active && Workouts.selectedId >= 0 && Workouts.selected.sport !== "rowing")
                 Training.loadWorkout(Workouts.selectedId)
         }
     }

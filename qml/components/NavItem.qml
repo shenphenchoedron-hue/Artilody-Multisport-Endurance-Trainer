@@ -24,6 +24,12 @@ Rectangle {
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
+            // long labels ("Watt Training") shrink a little instead of
+            // touching the edge of the highlight
+            width: item.width - 18 - 26 - 16 - 10
+            fontSizeMode: Text.HorizontalFit
+            minimumPixelSize: 15
+            elide: Text.ElideRight
             text: item.label
             font.pixelSize: 18
             font.weight: item.selected ? Font.DemiBold : Font.Normal

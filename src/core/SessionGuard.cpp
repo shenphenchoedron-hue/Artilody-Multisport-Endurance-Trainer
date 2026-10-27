@@ -45,7 +45,7 @@ SessionGuard::~SessionGuard()
     unwire();
 }
 
-// Blockers ("in progress" only) and cancellers ("armed / empty paused" are
+// Blockers ("in progress" only) and cancellers ("empty paused" sessions are
 // given up) between Free Ride, Video Ride and rowing. The workout's
 // (TrainingSession) are set by each session's setTrainingSession().
 void SessionGuard::wire()
@@ -55,24 +55,24 @@ void SessionGuard::wire()
     RowingSession *row = m_rowing;
     if (fr && row) {
         fr->setStartBlocker(kRowing, [row] { return row->inProgress(); });
-        fr->setArmedCanceller(kRowing, [row] { row->abandon(); });
+        fr->setAbandonCanceller(kRowing, [row] { row->abandon(); });
         row->setStartBlocker(kFreeRide, [fr] { return fr->inProgress(); },
                              QStringLiteral("A free ride is in progress. Finish it before rowing."));
-        row->setArmedCanceller(kFreeRide, [fr] { fr->abandon(); });
+        row->setAbandonCanceller(kFreeRide, [fr] { fr->abandon(); });
     }
     if (rlv && row) {
         rlv->setStartBlocker(kRowing, [row] { return row->inProgress(); });
-        rlv->setArmedCanceller(kRowing, [row] { row->abandon(); });
+        rlv->setAbandonCanceller(kRowing, [row] { row->abandon(); });
         row->setStartBlocker(kVideo, [rlv] { return rlv->inProgress(); },
                              QStringLiteral("A video ride is in progress. Finish it before rowing."));
-        row->setArmedCanceller(kVideo, [rlv] { rlv->abandon(); });
+        row->setAbandonCanceller(kVideo, [rlv] { rlv->abandon(); });
     }
     if (fr && rlv) {
-        // (an armed / empty paused free ride is given up by RlvSession::start()
+        // (an empty paused free ride is given up by RlvSession::start()
         // itself, see RlvSession::setFreeRideSession())
         rlv->setStartBlocker(kFreeRide, [fr] { return fr->inProgress(); });
         fr->setStartBlocker(kVideo, [rlv] { return rlv->inProgress(); });
-        fr->setArmedCanceller(kVideo, [rlv] { rlv->abandon(); });
+        fr->setAbandonCanceller(kVideo, [rlv] { rlv->abandon(); });
     }
 }
 
@@ -80,30 +80,25 @@ void SessionGuard::unwire()
 {
     if (m_freeRide) {
         m_freeRide->setStartBlocker(kRowing, {});
-        m_freeRide->setArmedCanceller(kRowing, {});
+        m_freeRide->setAbandonCanceller(kRowing, {});
         m_freeRide->setStartBlocker(kVideo, {});
-        m_freeRide->setArmedCanceller(kVideo, {});
+        m_freeRide->setAbandonCanceller(kVideo, {});
     }
     if (m_rlv) {
         m_rlv->setStartBlocker(kRowing, {});
-        m_rlv->setArmedCanceller(kRowing, {});
+        m_rlv->setAbandonCanceller(kRowing, {});
         m_rlv->setStartBlocker(kFreeRide, {});
     }
     if (m_rowing) {
         m_rowing->setStartBlocker(kFreeRide, {});
-        m_rowing->setArmedCanceller(kFreeRide, {});
+        m_rowing->setAbandonCanceller(kFreeRide, {});
         m_rowing->setStartBlocker(kVideo, {});
-        m_rowing->setArmedCanceller(kVideo, {});
+        m_rowing->setAbandonCanceller(kVideo, {});
     }
 }
 
 void SessionGuard::onPageChanged()
 {
-    // a workout armed on the Dashboard ("Start": start when pedaling) must not
-    // start unseen on another page, nor block it (Workouts / Calendar arm it
-    // and then open the Dashboard: that is no "leaving")
-    if (m_training && m_training->waiting() && m_gears->activePage() != QLatin1String("dashboard"))
-        m_training->abandon();
     onSessionChanged();
 }
 
@@ -140,10 +135,10 @@ QVariantMap SessionGuard::blockerFor(const QString &kind) const
     };
     if (kind != kWorkout && m_training && m_training->inProgress()) {
         const bool p = m_training->paused();
-        return make(kWorkout, QStringLiteral("dashboard"), QStringLiteral("Dashboard"), QStringLiteral("workout"), p,
+        return make(kWorkout, QStringLiteral("dashboard"), QStringLiteral("Watt Training"), QStringLiteral("workout"), p,
                     m_training->elapsedSec(),
-                    p ? QStringLiteral("A workout is paused on the Dashboard.")
-                      : QStringLiteral("A workout is running on the Dashboard."));
+                    p ? QStringLiteral("A workout is paused on Watt Training.")
+                      : QStringLiteral("A workout is running on Watt Training."));
     }
     if (kind != kFreeRide && m_freeRide && m_freeRide->inProgress()) {
         const bool p = m_freeRide->paused();
@@ -172,14 +167,14 @@ QVariantMap SessionGuard::blockerFor(const QString &kind) const
 qint64 SessionGuard::endSession(const QString &kind, bool save)
 {
     qint64 id = -1;
-    if (kind == kWorkout && m_training && m_training->armedOrActive()) {
+    if (kind == kWorkout && m_training && m_training->active()) {
         if (save)
             id = m_training->stop();
         else
             m_training->discard();
-    } else if (kind == kFreeRide && m_freeRide && (m_freeRide->active() || m_freeRide->waiting())) {
+    } else if (kind == kFreeRide && m_freeRide && m_freeRide->active()) {
         id = m_freeRide->finish(save);
-    } else if (kind == kVideo && m_rlv && (m_rlv->active() || m_rlv->waiting())) {
+    } else if (kind == kVideo && m_rlv && m_rlv->active()) {
         id = m_rlv->finish(save);
     } else if (kind == kRowing && m_rowing && m_rowing->active()) {
         id = m_rowing->finish(save);
@@ -197,8 +192,7 @@ QString SessionGuard::describe() const
     auto rec = [](bool has, int sec) { return has ? QStringLiteral("(%1 s)").arg(sec) : QStringLiteral("(empty)"); };
     QString w = QStringLiteral("-");
     if (m_training) {
-        w = m_training->waiting() ? QStringLiteral("armed")
-          : m_training->running() ? QStringLiteral("running")
+        w = m_training->running() ? QStringLiteral("running")
           : m_training->paused() ? QStringLiteral("paused") + rec(m_training->hasRecording(), m_training->elapsedSec())
           : m_training->state() == TrainingSession::Finished ? QStringLiteral("finished") : QStringLiteral("idle");
     }

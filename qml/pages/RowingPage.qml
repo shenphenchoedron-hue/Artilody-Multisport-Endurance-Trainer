@@ -107,20 +107,13 @@ Item {
         syncFromBackend()
         refreshWorkouts()
     }
-    property bool wasShown: false
     onVisibleChanged: {
-        if (!visible) {
-            // Leaving the page with a row that is only set up ("ready"): forget it,
-            // so a stroke on the rower while another page is open cannot silently
-            // start a row. Coming back sets it up again from the page's selection.
-            if (wasShown && Rowing.state === "ready")
-                Rowing.clear()
+        if (!visible)
             return
-        }
-        wasShown = true
         refreshWorkouts()
-        // opening the page gets the rower ready: the row starts with the first stroke
-        if (Rowing.state === "idle" && !page.otherSession && !Training.waiting && !FreeRide.waiting && !Rlv.waiting)
+        // opening the page prepares the row ("ready"); it only starts with
+        // Start / Space - strokes on the rower never start it
+        if (Rowing.state === "idle" && !page.otherSession)
             applySetup()
     }
 
@@ -206,7 +199,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             color: statusPill.dot
                             SequentialAnimation on opacity {
-                                running: statusPill.st === "ready" || statusPill.st === "running"
+                                running: statusPill.st === "running"
                                 loops: Animation.Infinite
                                 NumberAnimation { to: 0.25; duration: 700 }
                                 NumberAnimation { to: 1; duration: 700 }
@@ -214,10 +207,9 @@ Item {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: statusPill.st === "ready"
-                                  ? (Rowing.autoStart ? "Waiting for first stroke…" : "Ready – press Start")
+                            text: statusPill.st === "ready" ? "Ready – press Start"
                                   : statusPill.st === "running" ? "Rowing  •  " + Rowing.workoutName
-                                  : statusPill.st === "paused" ? "Paused"
+                                  : statusPill.st === "paused" ? "Paused – press Resume"
                                   : (Rowing.completed ? "Finished" : "Stopped")
                             color: Theme.text
                             font.pixelSize: 15
@@ -989,33 +981,15 @@ Item {
                     width: parent.width - 28
                     spacing: 10
 
-                    Item {
-                        // not needed after the finish ("Row Again" starts right away);
-                        // keeps the right column within the window with the summary shown
-                        visible: !page.finished
-                        width: parent.width
-                        height: 32
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Start on first stroke"
-                            color: Theme.text
-                            font.pixelSize: 15
-                        }
-                        ToggleSwitch {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            checked: Rowing.autoStart
-                            onToggled: (on) => Rowing.autoStart = on
-                        }
-                    }
-
                     AppButton {
                         visible: !Rowing.active
                         width: parent.width
                         height: 50
                         kind: "primary"
                         iconName: "play"
-                        text: page.finished ? "Row Again" : "Start Now"
+                        objectName: "rowingStartButton"
+                        // the only way a row starts (strokes never do)
+                        text: page.finished ? "Row Again" : "Start"
                         enabled: Rowing.rowerConnected && (page.uiMode !== "plan" || Rowing.mode === "plan") && !page.otherSession
                         onClicked: page.startNow()
                     }
@@ -1055,6 +1029,19 @@ Item {
                             enabled: Rowing.paused || page.finished
                             onClicked: Rowing.reset()
                         }
+                    }
+                    Text {
+                        // (not after the finish: keeps the right column within
+                        // the window with the summary shown)
+                        width: parent.width
+                        visible: text.length > 0
+                        text: page.finished || page.otherSession ? ""
+                              : Rowing.state === "ready" && Rowing.rowerConnected
+                                ? "Ready – press Start (or Space). Strokes alone never start the row."
+                              : Rowing.paused ? "Paused – press Resume (or Space)." : ""
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

@@ -28,12 +28,9 @@ class TrainingSession : public QObject
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
-    // Armed via startWhenPedaling(): workout loaded, clock stopped until the rider pedals.
-    Q_PROPERTY(bool waiting READ waiting NOTIFY stateChanged)
-    Q_PROPERTY(bool armedOrActive READ armedOrActive NOTIFY stateChanged)
     // Genuinely in progress: riding, or paused with something recorded. Only
-    // such a session blocks starting another one; an armed one (or one paused
-    // before anything was recorded) is given up instead (abandon()).
+    // such a session blocks starting another one; one paused before anything
+    // was recorded is given up instead (abandon()).
     Q_PROPERTY(bool inProgress READ inProgress NOTIFY stateChanged)
     Q_PROPERTY(bool ergMode READ ergMode WRITE setErgMode NOTIFY ergModeChanged)
     Q_PROPERTY(bool freeRide READ freeRide NOTIFY workoutChanged)
@@ -83,19 +80,13 @@ public:
     bool active() const { return running() || paused(); }
     bool running() const { return m_engine.state() == WorkoutEngine::State::Running; }
     bool paused() const { return m_engine.state() == WorkoutEngine::State::Paused; }
-    bool waiting() const { return m_waiting; }
-    bool armedOrActive() const { return m_waiting || active(); }
     bool hasRecording() const { return m_recordedSec > 0 || m_rideMs > 0; }
     bool inProgress() const { return running() || (paused() && hasRecording()); }
-    // Armed, or paused before anything was recorded: nothing to lose.
-    bool abandonable() const { return m_waiting || (paused() && !hasRecording()); }
-    // Cancels an armed / empty paused session (another session starts, or
-    // the rider left the Dashboard while it was armed). No-op otherwise.
+    // Paused before anything was recorded: nothing to lose.
+    bool abandonable() const { return paused() && !hasRecording(); }
+    // Gives up an empty paused session (another session starts). No-op otherwise.
     void abandon();
 
-    // Pedaling detection thresholds for startWhenPedaling().
-    static constexpr int kStartCadenceRpm = 20;   // cadence that counts as pedaling
-    static constexpr int kStartPowerWatts = 30;   // fallback for trainers without cadence
     bool ergMode() const { return m_ergMode; }
     void setErgMode(bool erg);
     bool freeRide() const { return m_engine.isFreeRide(); }
@@ -151,25 +142,26 @@ public:
     // gaps count as a pause, see SessionClock.h).
     void advanceWallClock(qint64 elapsedMs);
     bool timerActive() const { return m_timer.isActive(); }
-    // Optional guards: while one returns true, start()/startWhenPedaling() are
+    // Optional guards: while one returns true, start() is
     // refused (e.g. a rowing or free ride session is running; only one
     // session at a time). Each owner uses its own key; an empty function
     // removes the guard. The key-less overload is the "default" guard.
     void setStartBlocker(std::function<bool()> blocker) { setStartBlocker(QStringLiteral("default"), std::move(blocker)); }
     void setStartBlocker(const QString &key, std::function<bool()> blocker);
     bool startBlocked() const;
-    // Called by start()/startWhenPedaling() once the guards passed: cancels a
-    // session that is only armed (free ride / video ride waiting for the
-    // first pedal stroke). Each owner uses its own key; empty removes it.
-    void setArmedCanceller(const QString &key, std::function<void()> cancel);
+    // Called by start() once the guards passed: gives up another session that
+    // has nothing to lose (paused before anything was recorded). Each owner
+    // uses its own key; empty removes it.
+    void setAbandonCanceller(const QString &key, std::function<void()> cancel);
 
     // Indoor cycling only: rowing workouts are refused (false + rowingWorkoutRefused());
     // they run in RowingSession.
     Q_INVOKABLE bool loadWorkout(qint64 id);
     bool loadWorkout(const Workout &workout);
     Q_INVOKABLE void loadFreeRide();
+    // Sessions only start on an explicit start() (Start button / Space);
+    // pedaling never starts (or resumes) a workout.
     Q_INVOKABLE void start();               // starts the clock immediately
-    Q_INVOKABLE void startWhenPedaling();   // arms; start() runs once the rider pedals
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
@@ -192,7 +184,7 @@ signals:
     // workout (not stopped early). Plan entries are only ticked off by this.
     void workoutCompleted(qint64 rideId, qint64 workoutId);
     void finished();
-    // start()/startWhenPedaling() was refused because another session (rowing) is active.
+    // start() was refused because another session (rowing) is active.
     void startRefused();
     // loadWorkout() was given a rowing workout (use Rowing.setupPlan()).
     void rowingWorkoutRefused(qint64 workoutId, const QString &name);
@@ -208,9 +200,7 @@ signals:
 
 private:
     void onTimer();
-    void checkPedaling();
-    void cancelWaiting();
-    void cancelArmedOthers();
+    void abandonOthers();
     void process(int ms);
     void recordUpTo(int second);
     void applyTarget(bool force = false);
@@ -227,7 +217,6 @@ private:
     QTimer m_timer;
     QElapsedTimer m_clock;
     bool m_manualClock = false;
-    bool m_waiting = false;
     bool m_ergMode = true;
     int m_lastSentTarget = -1;
     int m_recordedSec = 0;
@@ -244,7 +233,7 @@ private:
     qint64 m_lastRideId = -1;
     bool m_lastCompleted = false;
     QHash<QString, std::function<bool()>> m_startBlockers;
-    QHash<QString, std::function<void()>> m_armedCancellers;
+    QHash<QString, std::function<void()>> m_abandonCancellers;
     bool m_skipped = false;     // an interval was skipped in this ride
 };
 

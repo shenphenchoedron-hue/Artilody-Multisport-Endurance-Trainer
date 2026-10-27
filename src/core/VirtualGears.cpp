@@ -176,15 +176,15 @@ void VirtualGears::controllerShift(int direction)
         setEnabled(true);
         emit notice(QStringLiteral("Zwift Click detected – using virtual gears"));
     }
-    // a ride that runs (or is armed) gets the buttons wherever the rider is;
+    // a ride that runs gets the buttons wherever the rider is;
     // a paused one only on its own page (else the open page's session does)
     const bool onVideo = m_activePage == QLatin1String("video");
     const bool onFreeRide = m_activePage == QLatin1String("freeride");
-    if (m_rlv && (m_rlv->running() || m_rlv->waiting() || (m_rlv->paused() && onVideo))) {
+    if (m_rlv && (m_rlv->running() || (m_rlv->paused() && onVideo))) {
         m_rlv->controllerShift(direction);
         return;
     }
-    if (m_freeRide && (m_freeRide->running() || m_freeRide->waiting() || (m_freeRide->paused() && onFreeRide))) {
+    if (m_freeRide && (m_freeRide->running() || (m_freeRide->paused() && onFreeRide))) {
         m_freeRide->controllerShift(direction);
         return;
     }

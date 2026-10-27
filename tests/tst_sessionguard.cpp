@@ -1,7 +1,8 @@
 // SessionGuard ("Sessions"): only a session genuinely in progress (riding /
-// paused with a recording) blocks starting another one; armed or empty paused
-// sessions are given up by another start; an armed workout is disarmed when
-// the rider leaves the Dashboard; finished sessions never block; the blocker
+// paused with a recording) blocks starting another one; empty paused
+// sessions are given up by another start; prepared (loaded / set up, not
+// started) and finished sessions never block and pedaling / rowing never
+// starts anything (manual start only); the blocker
 // maps the pages show (why Start is disabled) and endSession() (the fix).
 // Also: the video library scan always ends (failure / time-out).
 #include "Database.h"
@@ -38,6 +39,15 @@ public:
     void connectDevice() override { setState(LinkState::Connected); }
     void disconnectDevice() override { setState(LinkState::Disconnected); }
     void requestTargetPower(int) override {}
+    void stroke(int watts)
+    {
+        applyWorkoutState(1, true);   // PM5: rowing active
+        applyStroke(++strokes, watts);
+        applyStrokeRate(24);
+        commitMeasurement();
+    }
+    void progress(double t, double d) { applyElapsed(t); applyDistance(d); commitMeasurement(); }
+    int strokes = 0;
 };
 
 // flat straight route north, 1 point per second at 8 m/s, with a dummy video
@@ -134,11 +144,11 @@ struct Fixture
         hub->updateCadence(90);
         hub->updatePower(180);
     }
-    // the Dashboard's Start (start when pedaling) + riding `ms`
+    // the Watt Training page's Start + riding `ms`
     void rideWorkout(int ms)
     {
         pedal();
-        training->startWhenPedaling();
+        training->start();
         for (int t = 0; t < ms; t += 250)
             training->advanceClock(250);
     }
@@ -158,7 +168,7 @@ class TestSessionGuard : public QObject
 {
     Q_OBJECT
 private slots:
-    // The user's report: a workout tested (and paused) on the Dashboard, then
+    // The user's report: a workout tested (and paused) on Watt Training, then
     // the Video Ride page: Start disabled - with the reason and the fix.
     void pausedWorkoutBlocksVideoRideWithReason()
     {
@@ -170,14 +180,14 @@ private slots:
         QVERIFY(f.training->paused());
         QVERIFY(f.training->inProgress());
         f.gears->setActivePage(QStringLiteral("video"));
-        QVERIFY(f.training->paused());   // a paused ride is kept (not armed)
+        QVERIFY(f.training->paused());   // a paused ride is kept
 
         const QVariantMap b = f.guard->videoBlocker();
         QCOMPARE(f.blockerKind(b), QStringLiteral("workout"));
         QCOMPARE(b.value(QStringLiteral("page")).toString(), QStringLiteral("dashboard"));
-        QCOMPARE(b.value(QStringLiteral("pageTitle")).toString(), QStringLiteral("Dashboard"));
+        QCOMPARE(b.value(QStringLiteral("pageTitle")).toString(), QStringLiteral("Watt Training"));
         QVERIFY(b.value(QStringLiteral("paused")).toBool());
-        QCOMPARE(b.value(QStringLiteral("text")).toString(), QStringLiteral("A workout is paused on the Dashboard."));
+        QCOMPARE(b.value(QStringLiteral("text")).toString(), QStringLiteral("A workout is paused on Watt Training."));
         QCOMPARE(f.blockerKind(f.guard->freeRideBlocker()), QStringLiteral("workout"));
         QCOMPARE(f.blockerKind(f.guard->rowingBlocker()), QStringLiteral("workout"));
         QVERIFY(f.guard->workoutBlocker().isEmpty());   // its own page is never blocked by itself
@@ -193,7 +203,7 @@ private slots:
         QVERIFY(id >= 0);   // 8 s >= the minimum of 5 s: saved
         QCOMPARE(ended.count(), 1);
         QVERIFY(changed.count() >= 1);
-        QVERIFY(!f.training->armedOrActive());
+        QVERIFY(!f.training->active());
         QVERIFY(f.guard->videoBlocker().isEmpty());
         QVERIFY(f.rlv->start());
     }
@@ -237,7 +247,7 @@ private slots:
         f.gears->setActivePage(QStringLiteral("video"));
         QVERIFY(f.training->running());   // riding on: never cancelled by a page change
         const QVariantMap b = f.guard->videoBlocker();
-        QCOMPARE(b.value(QStringLiteral("text")).toString(), QStringLiteral("A workout is running on the Dashboard."));
+        QCOMPARE(b.value(QStringLiteral("text")).toString(), QStringLiteral("A workout is running on Watt Training."));
         QVERIFY(!b.value(QStringLiteral("paused")).toBool());
         QCOMPARE(f.guard->endSession(QStringLiteral("workout"), false), qint64(-1));   // discard
         QVERIFY(!f.training->active());
@@ -248,58 +258,71 @@ private slots:
         QCOMPARE(f.guard->endSession(QStringLiteral("workout"), true), qint64(-1));
     }
 
-    // Dashboard "Start" arms the workout; leaving the Dashboard disarms it:
-    // no unseen start on the Video Ride page, nothing blocks there.
-    void armedWorkoutDisarmedWhenLeavingDashboard()
+    // Manual start only: pedaling with a workout loaded on Watt Training
+    // never starts it - on that page or any other - and a loaded workout
+    // never blocks the other pages.
+    void loadedWorkoutNeverStartsOrBlocks()
     {
         Fixture f;
         QVERIFY(f.init());
         f.stopPedaling();
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
-        QVERIFY(!f.training->inProgress());
-        QVERIFY(f.guard->videoBlocker().isEmpty());   // armed never blocks
-        f.gears->setActivePage(QStringLiteral("video"));
-        QVERIFY(!f.training->waiting());
-        f.pedal();   // pedaling on the Video Ride page
-        QVERIFY(!f.training->active());
+        for (const char *page : { "workouts", "dashboard", "video", "freeride", "rowing" }) {
+            f.gears->setActivePage(QString::fromLatin1(page));
+            f.pedal();
+            for (int t = 0; t < 3000; t += 250)
+                f.training->advanceClock(250);
+            QVERIFY(!f.training->active());
+            QCOMPARE(f.training->elapsedSec(), 0);
+        }
         QVERIFY(f.guard->videoBlocker().isEmpty());
+        QVERIFY(f.guard->freeRideBlocker().isEmpty());
+        QVERIFY(f.guard->rowingBlocker().isEmpty());
         QVERIFY(f.rlv->start());
-    }
-
-    // Workouts / Calendar arm the workout and then open the Dashboard
-    void armedWorkoutSurvivesOpeningDashboard()
-    {
-        Fixture f;
-        QVERIFY(f.init());
-        f.gears->setActivePage(QStringLiteral("workouts"));
-        f.stopPedaling();
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
-        f.gears->setActivePage(QStringLiteral("dashboard"));
-        QVERIFY(f.training->waiting());
-        f.pedal();
-        QVERIFY(f.training->running());
-    }
-
-    // armed elsewhere (no page change in between): the video ride's start
-    // cancels it instead of being refused
-    void armedWorkoutCancelledByVideoStart()
-    {
-        Fixture f;
-        QVERIFY(f.init());
-        f.stopPedaling();
-        f.training->startWhenPedaling();
-        QVERIFY(f.training->waiting());
-        QVERIFY(f.rlv->start());
-        QVERIFY(!f.training->waiting());
         QVERIFY(!f.training->active());
-        // and the other way round: a running video ride blocks the workout
+        // a running video ride blocks the workout
         QCOMPARE(f.blockerKind(f.guard->workoutBlocker()), QStringLiteral("video"));
         QSignalSpy refused(f.training.get(), &TrainingSession::startRefused);
         f.training->start();
         QCOMPARE(refused.count(), 1);
         QVERIFY(!f.training->active());
+    }
+
+    // Prepared sessions on every page (route chosen, free ride page open, row
+    // set up) never start by pedaling / rowing and never block each other;
+    // Start starts exactly the one pressed.
+    void preparedSessionsNeverStartOrBlock()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.rowing->setupSolo(1000));
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+        for (const char *page : { "dashboard", "freeride", "video", "rowing" }) {
+            f.gears->setActivePage(QString::fromLatin1(page));
+            f.pedal();
+            f.rower.stroke(250);
+            f.rower.progress(10, 50);
+            for (int t = 0; t < 2000; t += 250) {
+                f.training->advanceClock(250);
+                f.freeRide->advanceClock(250);
+                f.rlv->advanceClock(250);
+                f.rowing->advanceClock(250);
+            }
+            QVERIFY(!f.training->active());
+            QCOMPARE(f.freeRide->state(), QStringLiteral("idle"));
+            QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+            QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+            QVERIFY(f.guard->workoutBlocker().isEmpty());
+            QVERIFY(f.guard->freeRideBlocker().isEmpty());
+            QVERIFY(f.guard->videoBlocker().isEmpty());
+            QVERIFY(f.guard->rowingBlocker().isEmpty());
+        }
+        f.gears->setActivePage(QStringLiteral("rowing"));
+        QVERIFY(f.rowing->start());
+        QVERIFY(f.rowing->running());
+        QVERIFY(!f.training->active());
+        QCOMPARE(f.freeRide->state(), QStringLiteral("idle"));
+        QCOMPARE(f.rlv->state(), QStringLiteral("idle"));
+        f.rowing->finish(false);
     }
 
     // started and paused before anything was recorded: nothing to lose
@@ -377,20 +400,6 @@ private slots:
         QVERIFY(f.guard->videoBlocker().isEmpty());
         QVERIFY(f.rlv->start());
         QVERIFY(!f.freeRide->active());
-    }
-
-    // an armed free ride never survives leaving its page (FreeRideSession)
-    void armedFreeRideDisarmedWhenLeavingPage()
-    {
-        Fixture f;
-        QVERIFY(f.init());
-        f.gears->setActivePage(QStringLiteral("freeride"));
-        f.stopPedaling();
-        f.freeRide->startWhenPedaling();
-        QVERIFY(f.freeRide->waiting());
-        f.gears->setActivePage(QStringLiteral("dashboard"));
-        QVERIFY(!f.freeRide->waiting());
-        QVERIFY(f.guard->workoutBlocker().isEmpty());
     }
 
     void rowInProgressBlocksVideoRide()

@@ -64,7 +64,7 @@ struct Sessions
         rlv->setFreeRideSession(freeRide.get());
         rlv->setTrainingSession(training.get());
         rlv->setStartBlocker(QStringLiteral("freeRide"), [this] { return freeRide->active(); });
-        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active() || rlv->waiting(); });
+        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active(); });
         gears->setSessions(freeRide.get(), rlv.get());
         planner = std::make_unique<WorkoutPlanner>(&db, profiles.get());
         if (withSessions) {

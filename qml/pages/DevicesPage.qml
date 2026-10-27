@@ -1132,7 +1132,7 @@ Item {
             height: 52
             iconName: "play"
             text: Devices.ergTestActive ? "Testing… " + Sensors.power + " W" : "Test ERG"
-            enabled: Devices.trainerSupportsControl && !Training.armedOrActive
+            enabled: Devices.trainerSupportsControl && !Training.active
             onClicked: Devices.startErgTest(page.ergTarget)
         }
         AppButton {

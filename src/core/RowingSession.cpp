@@ -66,7 +66,7 @@ RowingSession::~RowingSession()
         disconnect(c);
     if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rowing"), {});
-        m_training->setArmedCanceller(QStringLiteral("rowing"), {});
+        m_training->setAbandonCanceller(QStringLiteral("rowing"), {});
     }
 }
 
@@ -84,8 +84,6 @@ void RowingSession::setRower(RowerDevice *rower)
     m_rower = rower;
     if (rower) {
         m_rowerConnections << connect(rower, &RowerDevice::measurementChanged, this, &RowingSession::onMeasurement)
-                           << connect(rower, &RowerDevice::strokeMeasured, this, &RowingSession::onStroke)
-                           << connect(rower, &RowerDevice::rowingActiveChanged, this, &RowingSession::onRowingActive)
                            << connect(rower, &RowerDevice::workoutReset, this, &RowingSession::onWorkoutReset)
                            << connect(rower, &RowerDevice::connectedChanged, this, &RowingSession::rowerConnectedChanged)
                            << connect(rower, &SensorDevice::stateChanged, this, &RowingSession::rowerConnectedChanged)
@@ -111,13 +109,13 @@ void RowingSession::setTrainingSession(TrainingSession *training)
 {
     if (m_training) {
         m_training->setStartBlocker(QStringLiteral("rowing"), {});
-        m_training->setArmedCanceller(QStringLiteral("rowing"), {});
+        m_training->setAbandonCanceller(QStringLiteral("rowing"), {});
     }
     m_training = training;
     if (training) {
         // a row in progress blocks the workout; an empty paused one is given up
         training->setStartBlocker(QStringLiteral("rowing"), [this] { return inProgress(); });
-        training->setArmedCanceller(QStringLiteral("rowing"), [this] { abandon(); });
+        training->setAbandonCanceller(QStringLiteral("rowing"), [this] { abandon(); });
     }
 }
 
@@ -130,12 +128,12 @@ void RowingSession::setStartBlocker(const QString &key, std::function<bool()> bl
         m_startBlockers.remove(key);
 }
 
-void RowingSession::setArmedCanceller(const QString &key, std::function<void()> cancel)
+void RowingSession::setAbandonCanceller(const QString &key, std::function<void()> cancel)
 {
     if (cancel)
-        m_armedCancellers.insert(key, std::move(cancel));
+        m_abandonCancellers.insert(key, std::move(cancel));
     else
-        m_armedCancellers.remove(key);
+        m_abandonCancellers.remove(key);
 }
 
 RowerDevice *RowingSession::rower() const
@@ -156,14 +154,6 @@ QString RowingSession::rowerName() const
 QList<int> RowingSession::standardDistances()
 {
     return RowingRecords::standardDistances();
-}
-
-void RowingSession::setAutoStart(bool on)
-{
-    if (m_autoStart == on)
-        return;
-    m_autoStart = on;
-    emit autoStartChanged();
 }
 
 // --- strings ----------------------------------------------------------------
@@ -666,20 +656,19 @@ bool RowingSession::start()
         return false;
     }
     if (m_training)
-        m_training->abandon();   // only armed / empty paused: nothing ridden yet
-    for (auto it = m_armedCancellers.cbegin(); it != m_armedCancellers.cend(); ++it) {
+        m_training->abandon();   // only an empty paused workout: nothing ridden yet
+    for (auto it = m_abandonCancellers.cbegin(); it != m_abandonCancellers.cend(); ++it) {
         if (it.value())
-            it.value()();   // an armed free ride / video ride
+            it.value()();   // an empty paused free ride / video ride
     }
 
     m_rideProfile = m_profiles->current();
     clearRecording();
     clearResults();
-    // Values from the last update before the start; for a start triggered by
-    // the first stroke this keeps the distance of that stroke. Without such a
-    // reported baseline (e.g. the very first packet of the monitor starts the
-    // row) the current values are used, and without any data yet the
-    // baseline is taken from the first measurement.
+    // Values from the last update before the start (metres rowed before
+    // Start do not count). Without such a reported baseline the current
+    // values are used, and without any data yet the baseline is taken from
+    // the first measurement.
     if (m_rower && m_readyValid) {
         m_offset = m_ready;
     } else if (m_rower && m_rower->hasData()) {
@@ -951,23 +940,6 @@ void RowingSession::completeDistance(double finishTime)
     else
         m_trace.append({ finishTime, double(m_targetDistance) });
     finishInternal(true, true, finishTime);
-}
-
-void RowingSession::onStroke()
-{
-    maybeAutoStart();
-}
-
-void RowingSession::onRowingActive(bool on)
-{
-    if (on)
-        maybeAutoStart();
-}
-
-void RowingSession::maybeAutoStart()
-{
-    if (m_autoStart && m_state == State::Ready)
-        start();
 }
 
 void RowingSession::onWorkoutReset()

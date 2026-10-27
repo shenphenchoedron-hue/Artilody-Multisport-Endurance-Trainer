@@ -9,6 +9,7 @@
 
 #include <QSignalSpy>
 #include <QtTest>
+#include <functional>
 #include <memory>
 
 using namespace watt;
@@ -127,6 +128,8 @@ private slots:
         // monitor without a stroke rate: strokes every 2 s -> 30 spm computed
         f.rower.bareStroke(200);
         QCOMPARE(f.rowing->spm(), 0);
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));   // strokes never start the row
+        QVERIFY(f.rowing->start());
         for (int k = 1; k <= 20; ++k) {
             now += 1000;
             f.rowing->advanceClock(1000);
@@ -173,9 +176,11 @@ private slots:
         QCOMPARE(f.rowing->distanceMeters(), 0.0);
 
         f.hub->setStaleTimeoutMs(600000);
-        f.rower.stroke(200);   // first stroke starts the session
+        f.rower.stroke(200);   // a stroke never starts the row ...
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+        QVERIFY(f.rowing->start());   // ... only Start does
         QCOMPARE(f.rowing->state(), QStringLiteral("running"));
-        QCOMPARE(f.rowing->strokeCount(), 1);
+        QCOMPARE(f.rowing->strokeCount(), 0);   // strokes before Start do not count
         QCOMPARE(f.rowing->avgSpm(), 0);
         QCOMPARE(f.rowing->avgHeartRate(), 0);
         int k = 0;
@@ -267,7 +272,6 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rowing->setAutoStart(false);
         f.rower.progress(100, 1000);
         QVERIFY(f.rowing->setupSolo(0));   // open-ended
         f.rower.stroke(180);
@@ -490,17 +494,19 @@ private slots:
         f.rowing->setTrainingSession(&training);
         training.loadFreeRide();
 
-        // Rower data never starts the armed cycling session ...
-        training.startWhenPedaling();
-        QVERIFY(training.waiting());
+        // Rower data never starts the cycling session (nor the row) ...
         f.rower.progress(1, 10);
         f.rower.stroke(300);
-        QVERIFY(training.waiting());
         QVERIFY(!training.active());
-        // ... and starting to row disarms it.
+        // ... a loaded (not started) workout never blocks rowing, and an
+        // empty paused one is given up by the row's start.
         QVERIFY(f.rowing->setupSolo(2000));
+        f.rower.stroke(300);
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+        training.start();
+        training.pause();   // manual clock: nothing recorded
         QVERIFY(f.rowing->start());
-        QVERIFY(!training.waiting());
+        QVERIFY(!training.active());
 
         QSignalSpy refused(&training, &TrainingSession::startRefused);
         training.start();
@@ -523,7 +529,6 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rowing->setAutoStart(false);
         f.rower.progress(10, 1000);
         QVERIFY(f.rowing->setupSolo(0));
         QVERIFY(f.rowing->start());
@@ -546,7 +551,7 @@ private slots:
         f.rowing->finish(false);
     }
 
-    void autoStartOnFirstPacketUsesItsValues()
+    void firstPacketBeforeStartIsTheBaseline()
     {
         Fixture f;
         QVERIFY(f.init());
@@ -554,9 +559,12 @@ private slots:
         fresh.connectDevice();
         f.rowing->setRower(&fresh);
         QVERIFY(f.rowing->setupSolo(500));
-        // The very first packet already shows 5000 m of an earlier piece; its
-        // stroke starts the row. Baseline: that packet, not zeros.
+        // The very first packet already shows 5000 m of an earlier piece and
+        // the PM5 reports rowing: that never starts the row. Start does;
+        // baseline: that packet, not zeros.
         fresh.packet(600, 5000, 400, 200);
+        QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+        QVERIFY(f.rowing->start());
         QCOMPARE(f.rowing->state(), QStringLiteral("running"));
         QCOMPARE(f.rowing->distanceMeters(), 0.0);
         QCOMPARE(f.rowing->strokeCount(), 0);
@@ -586,7 +594,6 @@ private slots:
     {
         Fixture f;
         QVERIFY(f.init());
-        f.rowing->setAutoStart(false);
         f.rower.progress(10, 100);
         f.rower.counters(50, 20);
         QVERIFY(f.rowing->setupSolo(0));
@@ -789,6 +796,52 @@ private slots:
         QCOMPARE(f.rowing->state(), QStringLiteral("finished"));
         QCOMPARE(f.rowing->lastRideId(), rideId);
         QVERIFY(f.rowing->completed());
+    }
+
+    // Strokes / the PM5's "rowing" state never start a row in any mode, and
+    // never resume a paused one; only Start (button / Space) does.
+    void strokesNeverStartRow()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QSignalSpy started(f.rowing.get(), &RowingSession::started);
+        f.hub->setStaleTimeoutMs(600000);
+        const QList<std::function<bool()>> setups {
+            [&f] { return f.rowing->setupSolo(0); },
+            [&f] { return f.rowing->setupSolo(1000); },
+            [&f] { return f.rowing->setupGhost(1000); },
+        };
+        double t = 10, d = 100;
+        for (const auto &setup : setups) {
+            QVERIFY(setup());
+            QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+            for (int k = 0; k < 10; ++k) {
+                f.rower.stroke(250);
+                f.rower.packet(t += 1, d += 5, f.rower.strokes + 1, 250);   // PM5: rowing active
+                f.rowing->advanceClock(1000);
+            }
+            QCOMPARE(f.rowing->state(), QStringLiteral("ready"));
+            QVERIFY(!f.rowing->inProgress());
+            QCOMPARE(f.rowing->distanceMeters(), 0.0);
+        }
+        QCOMPARE(started.count(), 0);
+
+        QVERIFY(f.rowing->start());
+        QCOMPARE(started.count(), 1);
+        f.rowing->advanceClock(3000);
+        f.rower.progress(t += 3, d += 12);
+        QCOMPARE(f.rowing->distanceMeters(), 12.0);
+        f.rowing->pause();
+        f.rower.stroke(250);
+        f.rower.progress(t += 3, d += 12);
+        f.rowing->advanceClock(3000);
+        QCOMPARE(f.rowing->state(), QStringLiteral("paused"));
+        f.rowing->togglePause();   // Space / Resume
+        QVERIFY(f.rowing->running());
+        f.rowing->finish(false);
+        // finished: strokes do not start the next row
+        f.rower.stroke(250);
+        QCOMPARE(f.rowing->state(), QStringLiteral("finished"));
     }
 
     void clearFromReadyIsSafe()

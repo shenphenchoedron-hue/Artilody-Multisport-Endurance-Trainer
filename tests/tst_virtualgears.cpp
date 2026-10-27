@@ -109,7 +109,7 @@ struct Rig
         rlv->setManualClock(true);
         rlv->setFreeRideSession(freeRide.get());
         rlv->setStartBlocker(QStringLiteral("freeRide"), [this] { return freeRide->active(); });
-        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active() || rlv->waiting(); });
+        freeRide->setStartBlocker(QStringLiteral("rlv"), [this] { return rlv->active(); });
         gears->setSessions(freeRide.get(), rlv.get());
 
         // the virtual trainer, wired like DeviceManager::attachTrainer()

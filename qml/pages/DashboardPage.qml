@@ -15,7 +15,7 @@ Item {
     // a free ride / video ride / row IN PROGRESS on another page: Start is
     // disabled, the reason card above the controls says why and offers the fix
     readonly property var blocker: Sessions.workoutBlocker
-    readonly property bool otherSession: !Training.armedOrActive && !!page.blocker
+    readonly property bool otherSession: !Training.active && !!page.blocker
                                          && ("" + (page.blocker.kind || "")).length > 0
     readonly property int hrZone: Training.heartRateZone
     readonly property int chartTotal: Training.freeRide
@@ -47,7 +47,7 @@ Item {
                         id: crumbs
                         spacing: 14
                         Text {
-                            text: "Indoor Cycling"
+                            text: "Watt Training"
                             color: Theme.text
                             font.pixelSize: 16
                         }
@@ -63,17 +63,19 @@ Item {
                         }
                     }
 
-                    // armed via startWhenPedaling(): the clock starts with the first pedal strokes
+                    // loaded, not started: nothing starts by pedaling, only Start / Space
                     Rectangle {
                         id: waitingPill
-                        visible: Training.waiting
+                        objectName: "workoutReadyPill"
+                        visible: !Training.running && Training.state !== 3 && !page.otherSession
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         height: 32
                         width: waitingRow.implicitWidth + 28
                         radius: height / 2
                         color: Theme.navSelected
-                        border.color: Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.55)
+                        readonly property color dot: Training.paused ? Theme.warning : Theme.success
+                        border.color: Qt.rgba(dot.r, dot.g, dot.b, 0.55)
                         border.width: 1
                         Row {
                             id: waitingRow
@@ -82,16 +84,10 @@ Item {
                             Rectangle {
                                 width: 9; height: 9; radius: 4.5
                                 anchors.verticalCenter: parent.verticalCenter
-                                color: Theme.success
-                                SequentialAnimation on opacity {
-                                    running: waitingPill.visible
-                                    loops: Animation.Infinite
-                                    NumberAnimation { to: 0.25; duration: 700 }
-                                    NumberAnimation { to: 1; duration: 700 }
-                                }
+                                color: waitingPill.dot
                             }
                             Text {
-                                text: "Start pedaling to begin"
+                                text: Training.paused ? "Paused – press Resume" : "Ready – press Start"
                                 color: Theme.text
                                 font.pixelSize: 14
                                 font.weight: Font.DemiBold
@@ -180,8 +176,7 @@ Item {
                     valueSize: 62
                     fraction: Training.freeRide ? (Training.elapsedSec % 3600) / 3600 : Training.progress
                     barColor: Theme.purple
-                    footerLeft: Training.waiting ? "Waiting for pedaling"
-                                                 : (Training.freeRide ? "Free ride" : "of " + Theme.clock(Training.totalSec))
+                    footerLeft: Training.freeRide ? "Free ride" : "of " + Theme.clock(Training.totalSec)
                 }
             }
 
@@ -479,15 +474,11 @@ Item {
                         Layout.preferredHeight: 52
                         kind: Training.active ? "secondary" : "success"
                         iconName: Training.running ? "pause" : "play"
-                        text: Training.running ? "Pause"
-                                               : (Training.paused ? "Resume" : (Training.waiting ? "Start now" : "Start"))
+                        objectName: "workoutStartButton"
+                        text: Training.running ? "Pause" : (Training.paused ? "Resume" : "Start")
                         enabled: !page.otherSession
-                        onClicked: {
-                            if (Training.active || Training.waiting)
-                                Training.togglePause()   // pause/resume, or manual start while waiting
-                            else
-                                Training.startWhenPedaling()
-                        }
+                        // the only way a workout starts or resumes (pedaling never does)
+                        onClicked: Training.togglePause()
                     }
                     AppButton {
                         Layout.fillWidth: true
@@ -495,13 +486,8 @@ Item {
                         kind: "danger"
                         iconName: "stop"
                         text: "Stop"
-                        enabled: Training.armedOrActive
-                        onClicked: {
-                            if (Training.waiting)
-                                Training.stop()          // just cancels waiting, nothing to save
-                            else
-                                page.requestStop()
-                        }
+                        enabled: Training.active
+                        onClicked: page.requestStop()
                     }
                 }
             }
