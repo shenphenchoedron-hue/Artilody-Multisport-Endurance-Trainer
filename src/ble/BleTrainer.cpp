@@ -1,4 +1,5 @@
 #include "BleTrainer.h"
+#include "ZwiftHubLink.h"
 
 #include "BleLink.h"
 #include "DiagLog.h"
@@ -101,6 +102,21 @@ void BleTrainer::setTimingForTesting(int writeTimeoutMs, int retryBaseMs, int co
 
 void BleTrainer::init()
 {
+    m_zhub = new ZwiftHubLink(m_link, this);
+    connect(m_zhub, &ZwiftHubLink::stateChanged, this, [this] {
+        emit zwiftHubChanged();
+        emit controlStatusChanged();
+        if (m_zhub->active() && m_lastRequest == Request::Hub)
+            m_zhub->update(m_lastHub, true);
+    });
+    connect(m_zhub, &ZwiftHubLink::failed, this, [this](const QString &reason) {
+        emit logMessage(QStringLiteral("Zwift protocol failed (%1) – using FTMS gradient simulation").arg(reason), false);
+    });
+    connect(m_link, &GattLink::otherServicesDiscovered, this, [this] {
+        m_zhub->detect();
+        maybeStartHub();
+    });
+
     m_writeTimeout.setSingleShot(true);
     m_writeTimeout.setInterval(2000);
     connect(&m_writeTimeout, &QTimer::timeout, this, [this] { onWriteFinished(true); });
@@ -146,6 +162,7 @@ void BleTrainer::init()
             m_refusals.reset();
             m_mode = Mode::Unknown;
             m_problem.clear();
+            m_zhub->reset();   // detected again after the next discovery
             // re-apply the last command after a reconnect
             restorePendingCommand();
         }
@@ -277,6 +294,73 @@ void BleTrainer::onServiceReady()
         requestControl();
     }
     emit capabilitiesChanged();
+    if (m_link->otherServicesInspected()) {
+        m_zhub->detect();
+        maybeStartHub();
+    }
+}
+
+// --- Zwift hub protocol ------------------------------------------------------------------
+
+void BleTrainer::maybeStartHub()
+{
+    if (!m_zhubEnabled || !m_ready || state() != LinkState::Connected)
+        return;
+    if (m_zhub->state() == ZwiftHubLink::State::Available) {
+        emit logMessage(QStringLiteral("Zwift Click connected and %1 has the Zwift trainer service – starting the Zwift protocol").arg(m_name), true);
+        m_zhub->start();
+    }
+}
+
+int BleTrainer::zwiftHubState() const
+{
+    return state() == LinkState::Connected ? m_zhub->hubState() : int(SensorHub::HubNone);
+}
+
+QString BleTrainer::zwiftHubStatus() const
+{
+    return m_zhub->failureReason();
+}
+
+void BleTrainer::setZwiftHubEnabled(bool on)
+{
+    if (m_zhubEnabled == on)
+        return;
+    m_zhubEnabled = on;
+    DiagLog::write("ZHUB", QStringLiteral("%1: Zwift protocol %2 (virtual shifting %3)")
+                               .arg(m_name, on ? QStringLiteral("wanted") : QStringLiteral("not wanted"),
+                                    on ? QStringLiteral("active: Zwift Click connected")
+                                       : QStringLiteral("off: no Zwift Click – FTMS only"))
+                               + QStringLiteral(", hub state %1").arg(m_zhub->stateText()));
+    if (on) {
+        if (m_zhub->state() == ZwiftHubLink::State::Failed)
+            m_zhub->stop();   // the Click came back: try again
+        maybeStartHub();
+    } else {
+        m_zhub->stop();
+    }
+}
+
+void BleTrainer::setHubSimulation(const HubSimulation &p)
+{
+    m_lastRequest = Request::Hub;
+    m_lastHub = p;
+    // no FTMS resistance command while the hub path is active
+    dropQueuedControlCommands();
+    if (!m_hasControl) {
+        m_pending = true;
+        requestControl();   // FTMS control is still held (start / data)
+    } else {
+        m_pending = false;
+    }
+    if (m_zhub->active()) {
+        m_hubIgnoredLogged = false;
+        m_zhub->update(p);
+    } else if (!m_hubIgnoredLogged) {
+        m_hubIgnoredLogged = true;
+        DiagLog::write("ZHUB", QStringLiteral("hub simulation requested but the Zwift protocol is %1 – nothing sent "
+                                              "(the session switches to FTMS gradient)").arg(m_zhub->stateText()));
+    }
 }
 
 void BleTrainer::onRead(const QBluetoothUuid &uuid, const QByteArray &value)
@@ -380,6 +464,7 @@ BleTrainer::Mode BleTrainer::expectedMode() const
     case Request::Target: return Mode::Erg;
     case Request::Simulation: return Mode::Simulation;
     case Request::FreeRide: return simulationSupport() != 0 ? Mode::Simulation : Mode::Resistance;
+    case Request::Hub: return Mode::Unknown;   // the hub protocol has no FTMS status
     }
     return Mode::Unknown;
 }
@@ -388,6 +473,8 @@ QString BleTrainer::trainerMode() const
 {
     if (state() != LinkState::Connected)
         return QString();
+    if (m_lastRequest == Request::Hub && m_zhub->active())
+        return QStringLiteral("zwift");
     return modeName(m_mode);
 }
 
@@ -409,6 +496,10 @@ QString BleTrainer::controlStatus() const
         return QString();
     if (!m_problem.isEmpty())
         return m_problem;
+    if (m_lastRequest == Request::Hub && m_zhub->active())
+        return QStringLiteral("Zwift protocol – trainer simulates %1 %, gear ratio %2")
+            .arg(m_lastHub.inclinePercent, 0, 'f', 1)
+            .arg(m_lastHub.gearRatio, 0, 'f', 2);
     if (!m_hasControl)
         return m_mode == Mode::NoControl ? QStringLiteral("Trainer control lost – requesting it again")
                                          : QStringLiteral("Waiting for trainer control…");
@@ -584,6 +675,10 @@ void BleTrainer::sendLastRequest()
     case Request::Simulation:
         setSimulation(m_lastSim.grade, m_lastSim.wind, m_lastSim.crr, m_lastSim.cw);
         break;
+    case Request::Hub:
+        if (m_zhub->active())
+            m_zhub->update(m_lastHub, true);
+        break;
     }
 }
 
@@ -659,6 +754,8 @@ void BleTrainer::onWriteFinished(bool failed)
 
 void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &value)
 {
+    if (m_zhub->handleNotification(uuid, value))
+        return;   // Zwift service (0002 / 0004)
     if (uuid == uuid16(ftms::kIndoorBikeDataUuid)) {
         const auto d = ftms::parseIndoorBikeData(value);
         if (!d) {

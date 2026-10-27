@@ -42,11 +42,30 @@ namespace watt {
 // ~kSimCadenceRpm (tests).
 // WATT_SIM_TRAINER_NO_SIM=1 makes it a trainer without simulation support
 // (demo of the fallback).
+// WATT_SIM_TRAINER_ZWIFT=1: the virtual trainer also exposes the Zwift hub
+// service (in-process fake GATT, answered like a Zwift Hub: RideOn, riding
+// data 0x03 every second, settings echo 0x3C, commands applied to its
+// physics), so the real ZwiftHubLink driver runs end to end;
+// WATT_SIM_TRAINER_ZWIFT=fail: the handshake is never answered (fallback).
+class ZwiftHubLink;
+class SimZwiftGatt;
 class SimulatedTrainer : public TrainerDevice
 {
     Q_OBJECT
 public:
     explicit SimulatedTrainer(QObject *parent = nullptr);
+
+    // Zwift hub capability (env WATT_SIM_TRAINER_ZWIFT, or tests)
+    void setZwiftHubCapability(bool on, bool answerHandshake = true);
+    int zwiftHubState() const override;
+    QString zwiftHubStatus() const override;
+    void setZwiftHubEnabled(bool on) override;
+    void setHubSimulation(const watt::HubSimulation &p) override;
+    ZwiftHubLink *zwiftHub() const { return m_zhub; }
+    bool hubSimulating() const { return m_hubSim; }
+    double hubGearRatio() const { return m_hubRatio; }
+    // the trainer side applies a decoded hub command (SimZwiftGatt)
+    void applyHubCommand(const QByteArray &payload);
 
     QString id() const override { return QStringLiteral("sim:trainer"); }
     QString name() const override { return QStringLiteral("Virtual Trainer"); }
@@ -119,6 +138,18 @@ public:
 private:
     double gearRatio(int index) const;
     double fixedGearDemand(double cadenceRpm) const;   // crank power at that cadence
+    // the gear the flywheel speed follows: the hub's virtual gear while the
+    // Zwift protocol drives it, else the fixed (reference) gear
+    double effectiveRatio() const { return m_hubSim && m_hubRatio > 0 ? m_hubRatio : m_fixedRatio; }
+    void maybeStartHub();
+
+    SimZwiftGatt *m_zgatt = nullptr;
+    ZwiftHubLink *m_zhub = nullptr;
+    bool m_zhubEnabled = false;
+    bool m_hubSim = false;           // physics from the hub commands
+    double m_hubRatio = 0;
+    double m_hubRiderKg = 0, m_hubBikeKg = 0;
+    HubSimulation m_lastHubReq;
 
     QTimer m_timer;
     double m_power = 0;

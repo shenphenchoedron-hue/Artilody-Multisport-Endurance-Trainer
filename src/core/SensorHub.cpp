@@ -155,6 +155,8 @@ void SensorHub::setTrainerConnected(bool connected)
     } else if (m_requestedTarget > 0) {
         // re-apply ERG target after (re)connect
         emit targetPowerRequested(m_requestedTarget);
+    } else if (m_simActive && m_hubSimActive) {
+        emit hubSimulationRequested(m_hubSim);
     } else if (m_simActive) {
         emit simulationRequested(m_simGrade, m_simWind, m_simCrr, m_simCw);
     }
@@ -206,10 +208,45 @@ void SensorHub::setTrainerSimulationSupport(int support)
     emit trainerSimulationSupportChanged();
 }
 
+void SensorHub::setZwiftHubWanted(bool on)
+{
+    if (m_hubWanted == on)
+        return;
+    m_hubWanted = on;
+    emit zwiftHubChanged();
+}
+
+void SensorHub::setTrainerZwiftHub(int state, const QString &status)
+{
+    state = std::clamp(state, int(HubNone), int(HubFailed));
+    if (state == m_hubState && status == m_hubStatus)
+        return;
+    m_hubState = state;
+    m_hubStatus = status;
+    emit zwiftHubChanged();
+}
+
+void SensorHub::requestHubSimulation(const HubSimulation &p)
+{
+    ++m_commandSerial;
+    const bool changed = m_requestedTarget != 0 || !m_simActive || !m_hubSimActive
+                         || p.inclinePercent != m_simGrade;
+    m_requestedTarget = 0;
+    m_simActive = true;
+    m_hubSimActive = true;
+    m_hubSim = p;
+    m_simGrade = p.inclinePercent;
+    m_simWind = p.windMps;
+    if (changed)
+        emit requestedTargetChanged();
+    emit hubSimulationRequested(p);
+}
+
 void SensorHub::requestTargetPower(int watts)
 {
     watts = std::max(0, watts);
     ++m_commandSerial;
+    m_hubSimActive = false;
     if (watts != m_requestedTarget || m_simActive) {
         m_requestedTarget = watts;
         m_simActive = false;
@@ -221,6 +258,7 @@ void SensorHub::requestTargetPower(int watts)
 void SensorHub::requestFreeRide()
 {
     ++m_commandSerial;
+    m_hubSimActive = false;
     if (m_requestedTarget != 0 || m_simActive) {
         m_requestedTarget = 0;
         m_simActive = false;
@@ -234,8 +272,9 @@ void SensorHub::requestSimulation(double gradePercent, double windSpeedMps, doub
     if (!std::isfinite(gradePercent))
         gradePercent = 0;
     ++m_commandSerial;
-    const bool changed = m_requestedTarget != 0 || !m_simActive || gradePercent != m_simGrade || crr != m_simCrr
-                         || cwKgPerM != m_simCw;
+    const bool changed = m_requestedTarget != 0 || !m_simActive || m_hubSimActive || gradePercent != m_simGrade
+                         || crr != m_simCrr || cwKgPerM != m_simCw;
+    m_hubSimActive = false;
     m_requestedTarget = 0;
     m_simActive = true;
     m_simGrade = gradePercent;

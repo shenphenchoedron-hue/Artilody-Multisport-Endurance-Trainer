@@ -1,4 +1,5 @@
 #include "DeviceManager.h"
+#include "ZwiftHubLink.h"
 
 #include "GradientTest.h"
 
@@ -195,6 +196,15 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
         m_simWind = wind;
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setSimulation(grade, wind, crr, cw);
+    });
+    // virtual shifting through the Zwift hub protocol (Zwift Click + Zwift trainer service)
+    connect(m_hub, &SensorHub::hubSimulationRequested, this, [this](const HubSimulation &p) {
+        if (m_trainer && sessionOwnsTrainer())
+            m_trainer->setHubSimulation(p);
+    });
+    connect(m_hub, &SensorHub::zwiftHubChanged, this, [this] {
+        if (m_trainer)
+            m_trainer->setZwiftHubEnabled(m_hub->zwiftHubWanted());
     });
 
     m_gradientTest = new GradientTest(m_hub, this);
@@ -957,6 +967,32 @@ QString DeviceManager::diagnosticsReport() const
             << "\n";
         if (!m_trainer->inclinationNote().isEmpty())
             out << "Note: " << m_trainer->inclinationNote() << "\n";
+        static const char *hubNames[] = { "not available (no Zwift service with 0002/0003/0004 on this trainer)",
+                                          "available (not in use)", "handshake running", "ACTIVE (trainer does the physics)",
+                                          "FAILED" };
+        const int hs = std::clamp(m_trainer->zwiftHubState(), 0, 4);
+        out << "Zwift trainer protocol: " << hubNames[hs]
+            << (m_trainer->zwiftHubStatus().isEmpty() ? QString() : QStringLiteral(" – ") + m_trainer->zwiftHubStatus())
+            << "  wanted: " << (m_hub->zwiftHubWanted() ? "yes (Zwift Click connected)" : "no (no Zwift Click / override off)")
+            << "\n";
+        ZwiftHubLink *z = nullptr;
+        if (auto *bt = qobject_cast<BleTrainer *>(m_trainer.data()))
+            z = bt->zwiftHub();
+        else if (auto *sim = qobject_cast<SimulatedTrainer *>(m_trainer.data()))
+            z = sim->zwiftHub();
+        {
+            if (z) {
+                if (auto r = z->lastRidingData())
+                    out << "  last hub riding data: " << r->power << " W, " << r->cadence << " rpm, "
+                        << QString::number(r->speedKmh, 'f', 2) << " km/h\n";
+                if (auto st = z->lastSettings())
+                    out << "  last settings echo: incline "
+                        << (st->inclinePercent ? QString::number(*st->inclinePercent, 'f', 2) : QStringLiteral("-"))
+                        << " %, gear ratio " << (st->gearRatio ? QString::number(*st->gearRatio, 'f', 4) : QStringLiteral("-"))
+                        << ", rider " << (st->riderKg ? QString::number(*st->riderKg, 'f', 1) : QStringLiteral("-"))
+                        << " kg, bike " << (st->bikeKg ? QString::number(*st->bikeKg, 'f', 1) : QStringLiteral("-")) << " kg\n";
+            }
+        }
     } else {
         out << "No trainer selected\n";
     }
@@ -1609,6 +1645,22 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
     connect(t, &TrainerDevice::simulationSupportChanged, this, simSupport);
     connect(t, &TrainerDevice::capabilitiesChanged, this, simSupport);
     m_hub->setTrainerSimulationSupport(-1);   // known once connected
+    // Zwift hub protocol: only THIS (connected) trainer's own services count
+    auto hubState = [this, t] {
+        const int st = t->zwiftHubState();
+        if (st != m_hub->trainerZwiftHubState())
+            addLog(QStringLiteral("Zwift protocol: %1").arg(
+                       st == SensorHub::HubAvailable ? QStringLiteral("trainer has the Zwift trainer service (used with a Zwift Click)")
+                       : st == SensorHub::HubStarting ? QStringLiteral("handshake…")
+                       : st == SensorHub::HubActive   ? QStringLiteral("active – the trainer does the physics")
+                       : st == SensorHub::HubFailed   ? QStringLiteral("failed (%1) – FTMS gradient simulation").arg(t->zwiftHubStatus())
+                                                      : QStringLiteral("not available")),
+                   st != SensorHub::HubFailed);
+        m_hub->setTrainerZwiftHub(st, t->zwiftHubStatus());
+    };
+    connect(t, &TrainerDevice::zwiftHubChanged, this, hubState);
+    m_hub->setTrainerZwiftHub(SensorHub::HubNone, QString());
+    t->setZwiftHubEnabled(m_hub->zwiftHubWanted());
     connect(t, &TrainerDevice::rssiChanged, this, [this, t](int rssi) {
         m_trainers.setRssi(t->id(), rssi);
         emit devicesChanged();
@@ -1716,6 +1768,7 @@ void DeviceManager::releaseTrainer()
     t->deleteLater();
     m_hub->setTrainerConnected(false);
     m_hub->setTrainerSimulationSupport(-1);
+    m_hub->setTrainerZwiftHub(SensorHub::HubNone, QString());
     QTimer::singleShot(0, this, &DeviceManager::trainerStatusChanged);
     if (gradientTestRunning())
         m_gradientTest->stop();
@@ -1849,6 +1902,8 @@ void DeviceManager::restoreSessionCommand()
         return;
     if (m_hub->requestedTarget() > 0)
         m_trainer->setTargetPower(m_hub->requestedTarget());
+    else if (m_hub->hubSimulationActive())
+        m_trainer->setHubSimulation(m_hub->hubSimulation());
     else if (m_hub->simulationActive())
         m_trainer->setSimulation(m_hub->requestedGrade(), m_simWind, m_hub->simulationCrr(), m_hub->simulationCw());
     else

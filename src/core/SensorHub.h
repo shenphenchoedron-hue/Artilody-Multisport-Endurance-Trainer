@@ -10,6 +10,25 @@
 
 namespace watt {
 
+// Virtual shifting through the Zwift hub protocol (trainer-side physics): the
+// road and the virtual gear as the trainer gets them (ZwiftHubProtocol).
+struct HubSimulation
+{
+    double inclinePercent = 0;   // route grade × difficulty
+    double windMps = 0;
+    double cw = 0.51;            // CWa = rho * CdA of the rider, kg/m (Zwift: 0.51)
+    double crr = 0.004;
+    double gearRatio = 0;        // virtual gear: chainring / cog
+    double riderKg = 0;
+    double bikeKg = 0;
+    bool operator==(const HubSimulation &o) const
+    {
+        return inclinePercent == o.inclinePercent && windMps == o.windMps && cw == o.cw && crr == o.crr
+               && gearRatio == o.gearRatio && riderKg == o.riderKg && bikeKg == o.bikeKg;
+    }
+    bool operator!=(const HubSimulation &o) const { return !(*this == o); }
+};
+
 // Decouples the training logic from the concrete sensors. Device code (BLE or
 // simulator) pushes measurements in; the training session reads them and asks
 // for resistance changes through signals. Tests can drive the hub directly.
@@ -44,6 +63,16 @@ class SensorHub : public QObject
     // VirtualGears): the weight setting of the virtual trainer, which
     // simulates with the app's road model (a real trainer has its own).
     Q_PROPERTY(double riderMassKg READ riderMassKg NOTIFY riderMassChanged)
+    // Zwift hub protocol (virtual shifting with a Zwift Click): wanted while
+    // virtual gears are active, i.e. a Zwift Click is connected
+    // (zwiftHubWanted, set by VirtualGears), and what the CONNECTED trainer
+    // can do with it (trainerZwiftHub*, set by the device layer).
+    Q_PROPERTY(bool zwiftHubWanted READ zwiftHubWanted NOTIFY zwiftHubChanged)
+    Q_PROPERTY(int trainerZwiftHubState READ trainerZwiftHubState NOTIFY zwiftHubChanged)
+    Q_PROPERTY(bool trainerZwiftHubActive READ trainerZwiftHubActive NOTIFY zwiftHubChanged)
+    Q_PROPERTY(QString trainerZwiftHubStatus READ trainerZwiftHubStatus NOTIFY zwiftHubChanged)
+    // the last resistance request went through the hub protocol
+    Q_PROPERTY(bool hubSimulationActive READ hubSimulationActive NOTIFY requestedTargetChanged)
 
 public:
     explicit SensorHub(QObject *parent = nullptr);
@@ -95,6 +124,24 @@ public:
 
     double riderMassKg() const { return m_riderMassKg; }
     void setRiderMassKg(double kg);   // ignored unless 20..400
+
+    // --- Zwift hub protocol --------------------------------------------------
+    enum ZwiftHubState {
+        HubNone = 0,        // no trainer, or it has no Zwift service (0xFC82 / 19CA)
+        HubAvailable = 1,   // the trainer has it; not in use
+        HubStarting = 2,    // handshake running
+        HubActive = 3,      // handshake done: virtual shifting can use it
+        HubFailed = 4,      // handshake failed / trainer silent -> FTMS gradient
+    };
+    bool zwiftHubWanted() const { return m_hubWanted; }
+    void setZwiftHubWanted(bool on);
+    int trainerZwiftHubState() const { return m_hubState; }
+    bool trainerZwiftHubActive() const { return m_hubState == HubActive; }
+    bool trainerHasZwiftHub() const { return m_hubState != HubNone; }
+    QString trainerZwiftHubStatus() const { return m_hubStatus; }
+    void setTrainerZwiftHub(int state, const QString &status);   // set by the device layer
+    bool hubSimulationActive() const { return m_simActive && m_hubSimActive; }
+    HubSimulation hubSimulation() const { return m_hubSim; }
     // Crr / Cw of the last simulation request (FTMS 0x11).
     double simulationCrr() const { return m_simCrr; }
     double simulationCw() const { return m_simCw; }
@@ -123,6 +170,10 @@ public slots:
     // Gradient simulation: the trainer makes climbs harder by itself.
     void requestSimulation(double gradePercent, double windSpeedMps = 0.0, double crr = kDefaultCrr,
                            double cwKgPerM = kDefaultCw);
+    // Virtual shifting via the Zwift hub protocol: the trainer gets the road
+    // (incline, CdA, Crr) and the virtual gear ratio and does the physics.
+    // requestedGrade() = the incline.
+    void requestHubSimulation(const watt::HubSimulation &p);
 
 signals:
     void powerChanged();
@@ -142,6 +193,8 @@ signals:
     void targetPowerRequested(int watts);
     void freeRideRequested();
     void simulationRequested(double gradePercent, double windSpeedMps, double crr, double cwKgPerM);
+    void hubSimulationRequested(const watt::HubSimulation &p);
+    void zwiftHubChanged();
 
 private:
     int m_power = 0;
@@ -155,6 +208,11 @@ private:
     bool m_simActive = false;
     double m_simGrade = 0, m_simWind = 0, m_simCrr = kDefaultCrr, m_simCw = kDefaultCw;
     int m_simSupport = -1;
+    bool m_hubSimActive = false;
+    HubSimulation m_hubSim;
+    bool m_hubWanted = false;
+    int m_hubState = HubNone;
+    QString m_hubStatus;
     double m_riderMassKg = 84.0;
     bool m_speedReported = false;
     bool m_cadenceReported = false;

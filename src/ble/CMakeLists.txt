@@ -5,6 +5,7 @@ qt_add_library(watt_bleprotocol STATIC
     HrsProtocol.h HrsProtocol.cpp
     Pm5Protocol.h Pm5Protocol.cpp
     ZwiftClickProtocol.h ZwiftClickProtocol.cpp
+    ZwiftHubProtocol.h ZwiftHubProtocol.cpp
 )
 target_include_directories(watt_bleprotocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(watt_bleprotocol PUBLIC Qt6::Core)
@@ -15,6 +16,7 @@ qt_add_library(watt_ble STATIC
     BleLink.h BleLink.cpp
     BleTrainer.h BleTrainer.cpp
     GradientTest.h GradientTest.cpp
+    ZwiftHubLink.h ZwiftHubLink.cpp
     BleHeartRateSensor.h BleHeartRateSensor.cpp
     Pm5Rower.h Pm5Rower.cpp
     ZwiftClick.h ZwiftClick.cpp

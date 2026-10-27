@@ -79,6 +79,7 @@ private:
     QString displayName() const;
     void onDiscoveryFinished();
     void inspectNextService();
+    QLowEnergyService *serviceWith(const QBluetoothUuid &characteristic) const;
     void finishInspection(const QString &line);
     void wireService(QLowEnergyService *svc, bool primary);
     QString characteristicLines(const QLowEnergyService *svc, const QString &indent) const;

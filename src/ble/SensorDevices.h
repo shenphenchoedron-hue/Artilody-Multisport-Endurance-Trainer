@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SensorHub.h"   // HubSimulation
+
 #include <QElapsedTimer>
 #include <QObject>
 #include <QStringList>
@@ -94,7 +96,21 @@ public:
     // so; "" otherwise.
     virtual QString inclinationNote() const { return QString(); }
 
+    // --- Zwift hub protocol (virtual shifting with a Zwift Click) ---
+    // SensorHub::ZwiftHubState of THIS (connected) trainer: none / available /
+    // starting / active / failed; zwiftHubStatus() = the reason after a failure.
+    virtual int zwiftHubState() const { return 0; }
+    virtual QString zwiftHubStatus() const { return QString(); }
+    // Virtual gears are active (a Zwift Click is connected) and the advanced
+    // override allows it: the trainer may start the handshake (off: back to
+    // FTMS only).
+    virtual void setZwiftHubEnabled(bool on) { Q_UNUSED(on) }
+    // Path GearHub: incline + gear ratio + weights through the hub protocol
+    // (no FTMS 0x11 / 0x05 meanwhile; FTMS still provides control and data).
+    virtual void setHubSimulation(const watt::HubSimulation &p) { Q_UNUSED(p) }
+
 signals:
+    void zwiftHubChanged();
     // trainerMode() / controlStatus() / controlProblem() / inclination range changed
     void controlStatusChanged();
     void powerMeasured(int watts);

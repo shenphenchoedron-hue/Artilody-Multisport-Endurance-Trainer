@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Gearing.h"
+#include "SensorHub.h"
 
 #include <QString>
 #include <QVector>
@@ -99,7 +100,10 @@ private:
 class RideResistance
 {
 public:
-    enum class Path { Erg, Simulation, GearSimulation, GearErg, GearHybrid };
+    // GearHub: virtual gears through the Zwift hub protocol (the trainer gets
+    // incline + gear ratio + weights and does the physics itself); only while
+    // SensorHub::trainerZwiftHubActive() - otherwise the FTMS paths.
+    enum class Path { Erg, Simulation, GearSimulation, GearErg, GearHybrid, GearHub };
     enum class GearMethod { Auto, Gradient, Erg };
     static QString methodName(GearMethod m);                       // "auto" / "gradient" / "erg"
     static std::optional<GearMethod> parseMethod(const QString &text);
@@ -117,6 +121,7 @@ public:
                                      // downhill = freewheeling (< 0: unknown)
         double trainerMassKg = 0;    // the trainer's own rider weight setting, 0 = unknown
                                      // (assumed to be road.massKg)
+        double riderKg = 0;          // rider alone (road.massKg - riderKg = bike), 0 = unknown
     };
     static constexpr int kCoastCadenceRpm = 15;
     static constexpr int kMinGearWatts = 20;     // lowest gear power while pedaling
@@ -218,6 +223,12 @@ public:
     bool sendGrade(double gradePercent, bool force, const road::TrainerModel &trainer);
     // GearHybrid (see kLightEnterGrade). cadenceReported false: the gear grade
     // (path a, the trainer's speed stands in for the cadence).
+    // Path GearHub: the road (incline = d.road.gradePercent, CdA, Crr) and
+    // the virtual gear ratio + weights to the trainer's own physics (Zwift hub
+    // protocol). Rate limits are the driver's (ZwiftHubLink): every call is
+    // forwarded, a gear change goes out at once.
+    bool sendHub(const GearDrive &d);
+    static HubSimulation hubSimulationFor(const GearDrive &d);
     bool sendHybrid(const GearDrive &d, bool force, double liveCadenceRpm, bool cadenceReported,
                     double minGrade = kMinGrade, double maxGrade = kMaxGrade);
     bool hybridLight() const { return m_light == 1; }
@@ -236,6 +247,7 @@ public:
     int lastWatts() const { return m_lastWatts > 0 ? m_lastWatts : 0; }   // last ERG/gear watts sent
     bool sentAnything() const { return m_lastWatts >= 0 || simulating(); }
     bool simulating() const { return m_lastGrade == m_lastGrade; }      // not NaN
+    bool lastWasHub() const { return m_lastWasHub; }
     double lastGrade() const { return simulating() ? m_lastGrade : 0.0; }
     // The trainer's last command came from here (nobody sent one since).
     bool lastCommandIsOurs() const;
@@ -243,6 +255,7 @@ public:
 private:
     SensorHub *m_hub;
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts
+    bool m_lastWasHub = false;   // the last command went through the Zwift hub protocol
     double m_lastGrade = std::numeric_limits<double>::quiet_NaN();
     double m_lastCrr = 0, m_lastCw = 0;
     int m_sinceMs = 0;

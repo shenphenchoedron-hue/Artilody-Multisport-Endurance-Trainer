@@ -15,6 +15,7 @@
 namespace watt {
 
 class GattLink;
+class ZwiftHubLink;
 
 // Smart trainer using the Fitness Machine Service (FTMS).
 //
@@ -69,6 +70,15 @@ public:
     double maxInclinationPercent() const override { return m_inclination ? m_inclination->maximumPercent : 100.0; }
     QString inclinationNote() const override;
 
+    // Zwift hub protocol on this trainer's own link (ZwiftHubLink): detected
+    // after the other services were inspected, started only when enabled
+    // (the rider's opt-in) and the FTMS control point is ready.
+    int zwiftHubState() const override;
+    QString zwiftHubStatus() const override;
+    void setZwiftHubEnabled(bool on) override;
+    void setHubSimulation(const watt::HubSimulation &p) override;
+    ZwiftHubLink *zwiftHub() const { return m_zhub; }
+
     // Rowing machine check after service discovery (public for tests).
     static bool looksLikeRower(const QList<QBluetoothUuid> &services, bool hasRowerData, bool hasIndoorBikeData);
 
@@ -107,6 +117,7 @@ private:
     Mode expectedMode() const;
     static QString modeName(Mode m);
     double clampGrade(double gradePercent);
+    void maybeStartHub();
 
     QString m_id;
     QString m_name;
@@ -118,7 +129,8 @@ private:
     bool m_controlRequested = false;
     // Last command requested by the app, re-sent after control was (re)gained
     // or the link came back.
-    enum class Request { None, Target, FreeRide, Simulation };
+    // Hub: virtual shifting through the Zwift hub protocol (no 0x11 / 0x05).
+    enum class Request { None, Target, FreeRide, Simulation, Hub };
     Request m_lastRequest = Request::None;
     int m_lastTarget = -1;
     struct SimParams
@@ -150,6 +162,11 @@ private:
     double m_lastClampedFrom = 0;
     QElapsedTimer m_modeRepairClock;  // last re-send because the status showed another mode
     QElapsedTimer m_reacquireClock;   // last control re-request after "control lost" / reset
+
+    ZwiftHubLink *m_zhub = nullptr;
+    bool m_zhubEnabled = false;
+    HubSimulation m_lastHub;
+    bool m_hubIgnoredLogged = false;
 };
 
 } // namespace watt

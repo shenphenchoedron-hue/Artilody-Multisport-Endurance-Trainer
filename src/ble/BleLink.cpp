@@ -435,68 +435,78 @@ void BleLink::scheduleReconnect()
     m_reconnectTimer.start(delay);
 }
 
+QLowEnergyService *BleLink::serviceWith(const QBluetoothUuid &characteristic) const
+{
+    // the primary (FTMS) service first, then the other services inspected for
+    // diagnostics (Zwift 0xFC82 / 00000001-19CA-...: a second service object on
+    // the same controller; the FTMS service is not touched)
+    if (m_service && m_service->characteristic(characteristic).isValid())
+        return m_service;
+    for (const QPointer<QLowEnergyService> &o : m_others)
+        if (o && o->characteristic(characteristic).isValid())
+            return o;
+    return nullptr;
+}
+
 bool BleLink::hasCharacteristic(const QBluetoothUuid &uuid) const
 {
-    return m_service && m_service->characteristic(uuid).isValid();
+    return serviceWith(uuid) != nullptr;
 }
 
 bool BleLink::enableNotifications(const QBluetoothUuid &characteristic, bool indicate)
 {
-    if (!m_service)
+    QLowEnergyService *svc = serviceWith(characteristic);
+    if (!svc)
         return false;
-    const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
-    if (!ch.isValid())
-        return false;
+    const QLowEnergyCharacteristic ch = svc->characteristic(characteristic);
     const QLowEnergyDescriptor cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (!cccd.isValid())
         return false;
     m_pendingCccd.append({ characteristic, true });
-    m_service->writeDescriptor(cccd, indicate ? QLowEnergyCharacteristic::CCCDEnableIndication
-                                              : QLowEnergyCharacteristic::CCCDEnableNotification);
+    svc->writeDescriptor(cccd, indicate ? QLowEnergyCharacteristic::CCCDEnableIndication
+                                        : QLowEnergyCharacteristic::CCCDEnableNotification);
     return true;
 }
 
 bool BleLink::disableNotifications(const QBluetoothUuid &characteristic)
 {
-    if (!m_service)
+    QLowEnergyService *svc = serviceWith(characteristic);
+    if (!svc)
         return false;
-    const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
-    if (!ch.isValid())
-        return false;
+    const QLowEnergyCharacteristic ch = svc->characteristic(characteristic);
     const QLowEnergyDescriptor cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (!cccd.isValid())
         return false;
     m_pendingCccd.append({ characteristic, false });
-    m_service->writeDescriptor(cccd, QLowEnergyCharacteristic::CCCDDisable);
+    svc->writeDescriptor(cccd, QLowEnergyCharacteristic::CCCDDisable);
     return true;
 }
 
 bool BleLink::write(const QBluetoothUuid &characteristic, const QByteArray &data, bool withResponse)
 {
-    if (!m_service || m_state != LinkState::Connected)
+    if (m_state != LinkState::Connected)
         return false;
-    const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
-    if (!ch.isValid())
+    QLowEnergyService *svc = serviceWith(characteristic);
+    if (!svc)
         return false;
+    const QLowEnergyCharacteristic ch = svc->characteristic(characteristic);
     // Use a write type the characteristic actually supports.
     const auto props = ch.properties();
     if (withResponse && !(props & QLowEnergyCharacteristic::Write) && (props & QLowEnergyCharacteristic::WriteNoResponse))
         withResponse = false;
     else if (!withResponse && !(props & QLowEnergyCharacteristic::WriteNoResponse) && (props & QLowEnergyCharacteristic::Write))
         withResponse = true;
-    m_service->writeCharacteristic(ch, data, withResponse ? QLowEnergyService::WriteWithResponse
-                                                          : QLowEnergyService::WriteWithoutResponse);
+    svc->writeCharacteristic(ch, data, withResponse ? QLowEnergyService::WriteWithResponse
+                                                    : QLowEnergyService::WriteWithoutResponse);
     return true;
 }
 
 bool BleLink::read(const QBluetoothUuid &characteristic)
 {
-    if (!m_service)
+    QLowEnergyService *svc = serviceWith(characteristic);
+    if (!svc)
         return false;
-    const QLowEnergyCharacteristic ch = m_service->characteristic(characteristic);
-    if (!ch.isValid())
-        return false;
-    m_service->readCharacteristic(ch);
+    svc->readCharacteristic(svc->characteristic(characteristic));
     return true;
 }
 

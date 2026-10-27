@@ -156,6 +156,10 @@ RideResistance::Path RideResistance::choose(bool erg, bool virtualGears, const S
         return Path::Erg;
     if (!virtualGears)
         return Path::Simulation;
+    // Zwift hub protocol chosen by the rider and its handshake done: the
+    // trainer does the physics (never ERG); otherwise the FTMS paths below.
+    if (hub && hub->trainerZwiftHubActive())
+        return Path::GearHub;
     if (method == GearMethod::Erg || !gearSimulationPossible(hub))
         return Path::GearErg;
     return method == GearMethod::Auto ? Path::GearHybrid : Path::GearSimulation;
@@ -169,12 +173,14 @@ const char *RideResistance::pathName(Path p)
     case Path::GearSimulation: return "gearSimulation";
     case Path::GearErg: return "gearErg";
     case Path::GearHybrid: return "gearHybrid";
+    case Path::GearHub: return "gearZwiftHub";
     }
     return "erg";
 }
 
 void RideResistance::reset()
 {
+    m_lastWasHub = false;
     m_light = -1;
     m_sinceHybridMs = kHybridSwitchMs;
     m_debug = GearDebug();
@@ -197,8 +203,49 @@ bool RideResistance::lastCommandIsOurs() const
     return m_serial != 0 && m_hub->commandSerial() == m_serial;
 }
 
+HubSimulation RideResistance::hubSimulationFor(const GearDrive &d)
+{
+    HubSimulation p;
+    p.inclinePercent = std::isfinite(d.road.gradePercent)
+                           ? std::round(std::clamp(d.road.gradePercent, kMinGrade, kMaxGrade) * 100.0) / 100.0
+                           : 0.0;
+    p.windMps = 0;
+    // CWa = rho * CdA and Crr of the rider in the resolution the protocol
+    // carries (the same road the app's speed model uses)
+    const road::TrainerModel tm = road::trainerModelFor(d.road);
+    p.cw = std::round(tm.cwKgPerM * 10000.0) / 10000.0;
+    p.crr = std::round(d.road.crr * 100000.0) / 100000.0;
+    p.gearRatio = d.virtualRatio;
+    const double total = d.road.massKg;
+    p.riderKg = d.riderKg > 0 && d.riderKg < total ? d.riderKg : std::max(20.0, total - road::kDefaultBikeKg);
+    p.bikeKg = std::max(0.0, total - p.riderKg);
+    return p;
+}
+
+bool RideResistance::sendHub(const GearDrive &d)
+{
+    const HubSimulation p = hubSimulationFor(d);
+    m_hub->requestHubSimulation(p);
+    m_serial = m_hub->commandSerial();
+    const bool newValue = !m_lastWasHub || p.inclinePercent != m_lastGrade;
+    m_lastWasHub = true;
+    m_lastGrade = p.inclinePercent;
+    m_lastWatts = 0;
+    m_sinceMs = 0;
+    m_debug.wantedGrade = p.inclinePercent;
+    m_debug.referenceRatio = d.referenceRatio;
+    m_debug.demandedWatts = 0;
+    m_debug.referenceSpeedMps = 0;
+    m_debug.decision = QStringLiteral("zwift-hub");
+    return newValue;
+}
+
 bool RideResistance::sendErg(int watts, bool force)
 {
+    if (m_lastWasHub) {
+        force = true;
+        m_lastWasHub = false;
+    }
     if (!force && !simulating() && m_lastWatts == watts)
         return false;
     m_hub->requestTargetPower(watts);
@@ -211,6 +258,7 @@ bool RideResistance::sendErg(int watts, bool force)
 
 bool RideResistance::sendGearWatts(int watts, bool force)
 {
+    m_lastWasHub = false;
     if (simulating()) {
         force = true;   // coming from a simulation path
         m_lastGrade = std::numeric_limits<double>::quiet_NaN();
@@ -309,7 +357,10 @@ bool RideResistance::sendGrade(double grade, bool force, const road::TrainerMode
         grade = 0;
     grade = std::round(std::clamp(grade, kMinGrade, kMaxGrade) * 100.0) / 100.0;
     // new rider parameters (weight / CdA edited) go out like a new road
-    const bool first = !simulating() || m_lastWatts > 0 || trainer.crr != m_lastCrr || trainer.cwKgPerM != m_lastCw;
+    // leaving the Zwift hub path (handshake failed, option off): FTMS again at once
+    const bool first = !simulating() || m_lastWasHub || m_lastWatts > 0 || trainer.crr != m_lastCrr
+                       || trainer.cwKgPerM != m_lastCw;
+    m_lastWasHub = false;
     const bool changed = first || std::abs(grade - m_lastGrade) >= kMinGradeChange - 1e-9;
     const bool due = first || m_sinceMs >= kMinGradeIntervalMs;
     if (!(force || first || (changed && due) || m_sinceMs >= kGradeRefreshMs))

@@ -4,6 +4,8 @@
 #include "FtmsProtocol.h"
 #include "Gearing.h"   // road::kDrivetrainEfficiency (watt_core)
 #include "Pm5Protocol.h"
+#include "ZwiftHubLink.h"
+#include "ZwiftHubProtocol.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +30,84 @@ void logVirtualCommand(const QByteArray &cmd, const char *answer = "Success (vir
 
 // ---------------------------------------------------------------------------
 
+// In-process "GATT" of the virtual trainer's Zwift hub service: answers like
+// a Zwift Hub (unencrypted trainer variant), see ZwiftHubProtocol.h.
+class SimZwiftGatt : public GattLink
+{
+public:
+    SimZwiftGatt(SimulatedTrainer *trainer, bool answerHandshake)
+        : GattLink(trainer)
+        , m_trainer(trainer)
+        , m_answer(answerHandshake)
+    {
+        m_stream.setInterval(1000);
+        QObject::connect(&m_stream, &QTimer::timeout, this, [this] { sendRiding(); });
+    }
+    void sendRiding()
+    {
+        {
+            zhub::RidingData d;
+            d.power = int(std::lround(m_trainer->currentPower()));
+            d.cadence = int(std::lround(m_trainer->cadenceRpm()));
+            d.speedKmh = m_trainer->wheelSpeedMps() * 3.6;
+            emit characteristicChanged(ZwiftHubLink::asyncUuid(), zhub::encodeRidingData(d));
+            if (++m_ticks % 5 == 0)
+                emit characteristicChanged(ZwiftHubLink::asyncUuid(), QByteArray::fromHex("1910"));   // idle / keep-alive
+        }
+    }
+    void connectToDevice() override { m_state = LinkState::Connected; }
+    void disconnectFromDevice() override
+    {
+        m_state = LinkState::Disconnected;
+        m_stream.stop();
+    }
+    bool reconnectNow() override { return false; }
+    void setAutoReconnect(bool) override {}
+    LinkState state() const override { return m_state; }
+    bool hasCharacteristic(const QBluetoothUuid &c) const override
+    {
+        return c == ZwiftHubLink::asyncUuid() || c == ZwiftHubLink::syncRxUuid() || c == ZwiftHubLink::syncTxUuid();
+    }
+    QList<QBluetoothUuid> discoveredServices() const override
+    {
+        return { QBluetoothUuid(quint16(0x1826)), QBluetoothUuid(quint16(zwift::kServiceUuid16)) };
+    }
+    bool otherServicesInspected() const override { return true; }
+    bool enableNotifications(const QBluetoothUuid &c, bool) override { return hasCharacteristic(c); }
+    bool read(const QBluetoothUuid &) override { return false; }
+    bool write(const QBluetoothUuid &c, const QByteArray &data, bool) override
+    {
+        if (m_state != LinkState::Connected || c != ZwiftHubLink::syncRxUuid() || data.isEmpty())
+            return false;
+        if (zhub::isRideOn(data)) {
+            if (m_answer)
+                QTimer::singleShot(150, this, [this] { emit characteristicChanged(ZwiftHubLink::syncTxUuid(), QByteArray("RideOn")); });
+        } else if (data == zhub::startStream()) {
+            if (m_answer)
+                QTimer::singleShot(300, this, [this] {
+                    m_stream.start();
+                    sendRiding();
+                });
+        } else if (quint8(data.at(0)) == zhub::OutCommand) {
+            m_trainer->applyHubCommand(data.mid(1));
+        } else if (quint8(data.at(0)) == zhub::OutRequest) {
+            const auto id = zhub::decodeRequest(data.mid(1));
+            if (id && *id == zhub::kSettingsDataId) {
+                QTimer::singleShot(100, this, [this] { emit characteristicChanged(ZwiftHubLink::asyncUuid(), zhub::encodeSettingsEcho(m_settings)); });
+            }
+        }
+        return true;
+    }
+    zhub::Settings m_settings;
+
+private:
+    SimulatedTrainer *m_trainer;
+    bool m_answer;
+    LinkState m_state = LinkState::Disconnected;
+    QTimer m_stream;
+    int m_ticks = 0;
+};
+
 SimulatedTrainer::SimulatedTrainer(QObject *parent)
     : TrainerDevice(parent)
 {
@@ -36,6 +116,129 @@ SimulatedTrainer::SimulatedTrainer(QObject *parent)
     m_simSupported = qEnvironmentVariableIntValue("WATT_SIM_TRAINER_NO_SIM") <= 0;
     // test aid: answer negative grades with "Invalid parameter" (rejection UI)
     m_rejectDescents = qEnvironmentVariableIntValue("WATT_SIM_TRAINER_REJECT_DESCENTS") > 0;
+    const QString zwift = qEnvironmentVariable("WATT_SIM_TRAINER_ZWIFT");
+    if (!zwift.isEmpty() && zwift != QLatin1String("0"))
+        setZwiftHubCapability(true, zwift != QLatin1String("fail"));
+}
+
+// --- Zwift hub (virtual) -------------------------------------------------------------
+
+void SimulatedTrainer::setZwiftHubCapability(bool on, bool answerHandshake)
+{
+    if (m_zhub) {
+        delete m_zhub;
+        delete m_zgatt;
+        m_zhub = nullptr;
+        m_zgatt = nullptr;
+    }
+    if (!on)
+        return;
+    m_zgatt = new SimZwiftGatt(this, answerHandshake);
+    m_zhub = new ZwiftHubLink(m_zgatt, this);
+    connect(m_zgatt, &GattLink::characteristicChanged, m_zhub, &ZwiftHubLink::handleNotification);
+    connect(m_zhub, &ZwiftHubLink::stateChanged, this, [this] {
+        if (!m_zhub->active())
+            m_hubSim = false;   // (becomeActive() re-sends a request made before)
+        emit zwiftHubChanged();
+        emit controlStatusChanged();
+    });
+    connect(m_zhub, &ZwiftHubLink::failed, this, [this](const QString &reason) {
+        emit logMessage(QStringLiteral("Zwift protocol failed (%1) – using FTMS gradient simulation").arg(reason), false);
+    });
+    if (state() == LinkState::Connected) {
+        m_zgatt->connectToDevice();
+        m_zhub->detect();
+    }
+}
+
+int SimulatedTrainer::zwiftHubState() const
+{
+    return m_zhub && state() == LinkState::Connected ? m_zhub->hubState() : int(SensorHub::HubNone);
+}
+
+QString SimulatedTrainer::zwiftHubStatus() const
+{
+    return m_zhub ? m_zhub->failureReason() : QString();
+}
+
+void SimulatedTrainer::maybeStartHub()
+{
+    if (m_zhub && m_zhubEnabled && state() == LinkState::Connected && m_zhub->state() == ZwiftHubLink::State::Available) {
+        emit logMessage(QStringLiteral("Zwift Click connected and %1 has the Zwift trainer service – starting the Zwift protocol (virtual)").arg(name()), true);
+        m_zhub->start();
+    }
+}
+
+void SimulatedTrainer::setZwiftHubEnabled(bool on)
+{
+    if (m_zhubEnabled == on)
+        return;
+    m_zhubEnabled = on;
+    if (!m_zhub)
+        return;
+    DiagLog::write("ZHUB", QStringLiteral("virtual trainer: Zwift protocol %1").arg(on ? QStringLiteral("wanted (Zwift Click connected)")
+                                                                                       : QStringLiteral("not wanted (no Zwift Click)")));
+    if (on) {
+        if (m_zhub->state() == ZwiftHubLink::State::Failed)
+            m_zhub->stop();
+        maybeStartHub();
+    } else {
+        m_zhub->stop();
+        m_hubSim = false;
+    }
+}
+
+void SimulatedTrainer::setHubSimulation(const HubSimulation &p)
+{
+    m_lastHubReq = p;
+    if (m_zhub && m_zhub->active())
+        m_zhub->update(p);
+}
+
+void SimulatedTrainer::applyHubCommand(const QByteArray &payload)
+{
+    const auto cmd = zhub::decodeCommand(payload);
+    if (!cmd)
+        return;
+    if (cmd->simulation) {
+        const zhub::Simulation &sim = *cmd->simulation;
+        if (sim.inclinePercent)
+            m_grade = *sim.inclinePercent;
+        if (sim.crr)
+            m_crr = *sim.crr;
+        if (sim.cw)
+            m_cw = *sim.cw;
+        m_zgatt->m_settings.inclinePercent = m_grade;
+        m_zgatt->m_settings.crr = m_crr;
+        if (sim.windMps)
+            m_zgatt->m_settings.windMps = *sim.windMps;
+    }
+    if (cmd->physical) {
+        const zhub::Physical &phys = *cmd->physical;
+        if (phys.gearRatio && *phys.gearRatio > 0)
+            m_hubRatio = *phys.gearRatio;
+        if (phys.riderKg)
+            m_hubRiderKg = *phys.riderKg;
+        if (phys.bikeKg)
+            m_hubBikeKg = *phys.bikeKg;
+        if (m_hubRiderKg > 0)
+            m_massKg = m_hubRiderKg + m_hubBikeKg;
+        m_zgatt->m_settings.gearRatio = m_hubRatio;
+        m_zgatt->m_settings.riderKg = m_hubRiderKg;
+        m_zgatt->m_settings.bikeKg = m_hubBikeKg;
+    }
+    if (cmd->powerTarget) {
+        m_erg = true;
+        m_target = *cmd->powerTarget;
+        m_hubSim = false;
+        return;
+    }
+    // the trainer does the physics: simulation at the hub's gear
+    m_hubSim = true;
+    m_sim = true;
+    m_erg = false;
+    m_problem.clear();
+    emit controlStatusChanged();
 }
 
 void SimulatedTrainer::setSimulationSupported(bool on)
@@ -63,12 +266,28 @@ void SimulatedTrainer::connectDevice()
         emit logMessage(QStringLiteral("FTMS capabilities detected"), true);
         emit capabilitiesChanged();
         m_timer.start();
+        if (m_zgatt) {
+            // like BleLink: the other services are inspected a little later
+            m_zgatt->connectToDevice();
+            QTimer::singleShot(800, this, [this] {
+                if (!m_zhub || state() != LinkState::Connected)
+                    return;
+                m_zhub->detect();
+                emit zwiftHubChanged();
+                maybeStartHub();
+            });
+        }
     });
 }
 
 void SimulatedTrainer::disconnectDevice()
 {
     m_timer.stop();
+    if (m_zhub) {
+        m_zgatt->disconnectFromDevice();
+        m_zhub->reset();
+        m_hubSim = false;
+    }
     m_power = m_cadence = 0;
     setState(LinkState::Disconnected);
     emit logMessage(QStringLiteral("Trainer disconnected"), false);
@@ -79,6 +298,7 @@ void SimulatedTrainer::setTargetPower(int watts)
     logVirtualCommand(ftms::setTargetPower(watts));
     m_erg = true;
     m_sim = false;
+    m_hubSim = false;
     m_target = watts;
     m_problem.clear();
     emit controlStatusChanged();
@@ -91,6 +311,7 @@ void SimulatedTrainer::setFreeRide()
                                               : QStringLiteral("free ride (virtual trainer): released"));
     m_erg = false;
     m_sim = false;
+    m_hubSim = false;
     m_problem.clear();
     emit controlStatusChanged();
 }
@@ -104,6 +325,7 @@ void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, d
                                       : "Success (virtual)");
     if (!m_simSupported)
         return;   // like a trainer answering "Op Code not supported"
+    m_hubSim = false;
     if (reject) {
         // the trainer keeps its previous state; the problem is shown
         m_problem = ftms::rejectionText(quint8(ftms::OpCode::SetIndoorBikeSimulation), 0x03);
@@ -135,6 +357,8 @@ QString SimulatedTrainer::trainerMode() const
         return QString();
     if (m_erg)
         return QStringLiteral("erg");
+    if (m_hubSim)
+        return QStringLiteral("zwift");
     if (m_sim)
         return QStringLiteral("simulation");
     return m_simSupported ? QStringLiteral("simulation") : QStringLiteral("resistance");
@@ -148,6 +372,8 @@ QString SimulatedTrainer::controlStatus() const
         return m_problem;
     if (m_erg)
         return QStringLiteral("ERG – trainer accepted %1 W").arg(m_target);
+    if (m_hubSim)
+        return QStringLiteral("Zwift protocol – trainer simulates %1 %, gear ratio %2").arg(m_grade, 0, 'f', 1).arg(m_hubRatio, 0, 'f', 2);
     if (m_sim)
         return QStringLiteral("Simulation – trainer accepted %1%2 %")
             .arg(m_grade < 0 ? QStringLiteral("−") : QString())
@@ -213,7 +439,7 @@ double SimulatedTrainer::riderCapacity() const
 
 double SimulatedTrainer::fixedGearDemand(double cadence) const
 {
-    const double v = cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
+    const double v = cadence / 60.0 * effectiveRatio() * kWheelCircumferenceM;
     if (m_erg && m_target > 0)
         return m_target;   // ERG holds the target at any speed
     return m_sim ? crankPower(v) : crankPowerAt(v, 0.0);
@@ -222,7 +448,7 @@ double SimulatedTrainer::fixedGearDemand(double cadence) const
 double SimulatedTrainer::riderCadence() const
 {
     const double preferred = kSimCadenceRpm + 2.0 * std::sin(m_t / 23.0);
-    if (m_ftp <= 0 || m_fixedRatio <= 0)
+    if (m_ftp <= 0 || effectiveRatio() <= 0)
         return preferred;
     const double capacity = riderCapacity();
     const double demand = fixedGearDemand(preferred);
@@ -252,7 +478,7 @@ double SimulatedTrainer::riderCadence() const
 
 double SimulatedTrainer::riderGoal() const
 {
-    if (m_fixedRatio > 0)
+    if (effectiveRatio() > 0)
         return 0.0;   // virtual gears: no effort target, the brake decides
     // >= 1 W: std::clamp needs lo <= hi (a free ride power near 0 made base
     // negative, i.e. 0.5·base > 1.8·base - undefined behaviour)
@@ -264,7 +490,7 @@ void SimulatedTrainer::step()
 {
     ++m_t;
     double goal;
-    if (m_fixedRatio > 0) {
+    if (effectiveRatio() > 0) {
         // Virtual gears: the bike stays in the reference gear and the rider
         // pedals at the cadence his legs allow in it (riderCadence()). No
         // shifting, no effort target - the power is whatever the brake asks
@@ -272,7 +498,7 @@ void SimulatedTrainer::step()
         // virtual gear) decides the watts: the (gear-adjusted) grade, the
         // ERG target, or the flywheel's basic resistance (free ride).
         m_cadence += (riderCadence() - m_cadence) * 0.5;
-        m_wheelSpeed = m_cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
+        m_wheelSpeed = m_cadence / 60.0 * effectiveRatio() * kWheelCircumferenceM;
         goal = fixedGearDemand(m_cadence);
         if (m_ftp > 0)
             goal = std::min(goal, riderCapacity());   // never more than his legs give
@@ -304,7 +530,7 @@ void SimulatedTrainer::step()
             goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
         }
     }
-    const bool brake = m_fixedRatio > 0 || m_sim;
+    const bool brake = effectiveRatio() > 0 || m_sim;
     m_power += (goal - m_power) * (brake ? 0.7 : 0.45);
     if (m_ftp > 0) {
         // burst reserve: drains above FTP (kBurstSec at the full burst),
@@ -329,9 +555,11 @@ void SimulatedTrainer::step()
         DiagLog::write("IBD", QStringLiteral("(virtual trainer) %1; brake %2 grade %3 % gear %4")
                                   .arg(ftms::describeIndoorBikeData(d),
                                        m_erg ? QStringLiteral("ERG %1 W").arg(m_target)
+                                             : m_hubSim ? QStringLiteral("ZWIFT-HUB")
                                              : m_sim ? QStringLiteral("SIM") : QStringLiteral("FREE"))
                                   .arg(m_grade, 0, 'f', 2)
-                                  .arg(m_fixedRatio > 0 ? QStringLiteral("fixed %1").arg(m_fixedRatio, 0, 'f', 3)
+                                  .arg(m_hubSim && m_hubRatio > 0 ? QStringLiteral("hub %1").arg(m_hubRatio, 0, 'f', 3)
+                                       : m_fixedRatio > 0 ? QStringLiteral("fixed %1").arg(m_fixedRatio, 0, 'f', 3)
                                                         : QString::number(m_gear)));
     }
 }
