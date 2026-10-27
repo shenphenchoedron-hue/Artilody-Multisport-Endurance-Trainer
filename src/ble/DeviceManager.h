@@ -6,6 +6,7 @@
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QLoggingCategory>
 #include <QObject>
@@ -157,14 +158,25 @@ public:
     // Virtual trainer: the bike stays in this gear ratio (virtual shifting
     // on, see VirtualGears), 0 = the simulated rider shifts himself.
     void setSimulatedFixedGear(double ratio);
-    // Developer/screenshot aid: a connected virtual Zwift Click ("sim:click").
-    void connectSimulatedController();
+    // Developer/screenshot aid: a connected virtual Zwift Click ("sim:click";
+    // "sim:click2" etc. for a second pod). Goes through connectDevice(), so
+    // kMaxControllers applies; listed under controllers and reconnectable
+    // from there (not remembered as a known controller).
+    void connectSimulatedController(const QString &id = QStringLiteral("sim:click"));
     // Developer aid: a button press on the virtual Zwift Click (same route as
     // a real Click: shiftRequested -> controllerShift). false without one.
-    bool pressSimulatedController(int direction);
+    bool pressSimulatedController(int direction, const QString &id = QStringLiteral("sim:click"));
     // The active trainer object (may be null), e.g. for diagnostics.
     TrainerDevice *trainerDevice() const { return m_trainer; }
     static constexpr int kMaxControllers = 2;
+    // ble/knownControllers keeps the most recently used ids only.
+    static constexpr int kMaxKnownControllers = 4;
+    // Both pods of a Click v2 / Zwift Ride may report the same press (the
+    // left pod's buttons also arrive through the right one): a ±1 shift equal
+    // to one of ANOTHER controller less than this long ago is dropped. A
+    // double press on the same controller is never merged.
+    static constexpr int kShiftDedupeMs = 80;
+    QStringList knownControllers() const { return m_knownControllers; }
 
     // Active rower for C++ consumers (e.g. a RowingSession): connect to
     // rowerChanged() and (re)attach to the RowerDevice signals. May be null.
@@ -296,8 +308,11 @@ private:
     ControllerDevice *controllerFor(const QString &id) const;
     ControllerDevice *primaryController() const;
     void releaseController(const QString &id);
-    void releaseControllers(const QString &exceptId = QString());
     void saveKnownControllers();
+    void rememberController(const QString &id);
+    void onControllerShift(const QString &id, int dir);
+    void onControllerButtons(const QString &id, bool plus, bool minus);
+    void emitControllerButtons();
     void releaseTrainer();
     void releaseHeartRate();
     void releaseRower();
@@ -330,7 +345,16 @@ private:
     QPointer<HeartRateDevice> m_hr;
     QPointer<RowerDevice> m_rower;
     QList<QPointer<ControllerDevice>> m_controllerDevs;
-    QStringList m_knownControllers;
+    QStringList m_knownControllers;      // most recently used last
+    QHash<QString, QPair<bool, bool>> m_controllerButtons;   // plus/minus per controller
+    bool m_buttonsPlus = false, m_buttonsMinus = false;     // last controllerButtonsChanged()
+    QElapsedTimer m_shiftClock;
+    qint64 m_lastShiftMs = -1;
+    int m_lastShiftDir = 0;
+    QString m_lastShiftFrom;
+    // last simulation request (FTMS 0x11) as sent to the trainer: stopErgTest()
+    // restores it (SensorHub has no getter for the wind)
+    double m_simWind = 0.0;
     QVariantList m_log;
     QDateTime m_lastScan;
     QString m_scanStatus;

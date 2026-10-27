@@ -268,10 +268,36 @@ private slots:
         QCOMPARE(s->strokesPerMinute, 24);
         QCOMPARE(s->restDistanceMeters, 300);   // metres per the interface definition
         QCOMPARE(s->restTimeSeconds, 45.0);
-        // 18 bytes: machine type at 16, no average power
+        // 18 bytes: ambiguous (byte 16 may be the average power low byte),
+        // no machine type, no average power
         const auto e = pm5::parseAdditionalStatus1(QByteArray(status1(false)) + QByteArray(1, '\0'));
         QVERIFY(e && !e->averagePowerW);
         QCOMPARE(e->ergMachineType, 0);
+    }
+
+    void additionalStatus1Direct18BytesNoMachineType()
+    {
+        // direct 0x0032 of 18 bytes in the 19-byte layout cut short: byte 16
+        // is the average power low byte (187 = 0xBB), not a machine type
+        const QByteArray d = status1(true).left(18);
+        QCOMPARE(d.size(), 18);
+        QCOMPARE(int(quint8(d.at(16))), 187);
+        const auto s = pm5::parseAdditionalStatus1(d);
+        QVERIFY(s);
+        QCOMPARE(s->ergMachineType, 0);   // default (rower), not 187
+        QCOMPARE(pm5::machineKind(s->ergMachineType), pm5::machineKind(0));
+        QVERIFY(!s->averagePowerW);
+        QCOMPARE(s->strokesPerMinute, 24);
+        // 17 bytes: machine type at 16
+        QByteArray d17 = status1(false);
+        QCOMPARE(d17.size(), 17);
+        d17[16] = char(64);
+        QCOMPARE(pm5::parseAdditionalStatus1(d17)->ergMachineType, 64);
+        // >= 19 bytes: machine type at 18
+        QByteArray d19 = status1(true);
+        d19[18] = char(65);
+        QCOMPARE(pm5::parseAdditionalStatus1(d19)->ergMachineType, 65);
+        QCOMPARE(*pm5::parseAdditionalStatus1(d19)->averagePowerW, 187);
     }
 
     void additionalStrokeDataDirect17Bytes()

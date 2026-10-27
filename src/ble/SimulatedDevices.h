@@ -104,12 +104,18 @@ public:
     // Brake power (W) at wheel speed v for the current simulation parameters.
     double brakePower(double speedMps) const;
     double brakePowerAt(double speedMps, double gradePercent) const;
+    // Rider (crank) power the brake asks for at speed v: brakePower / η
+    // (road::kDrivetrainEfficiency). The sim reports crank power, like a real
+    // smart trainer and like the app's convention (trainer/ERG watts = crank
+    // watts, the grade is solved for the wheel power crank·η).
+    double crankPower(double speedMps) const;
+    double crankPowerAt(double speedMps, double gradePercent) const;
     // One simulation second (driven by a 1 s timer; public for tests).
     void step();
 
 private:
     double gearRatio(int index) const;
-    double fixedGearDemand(double cadenceRpm) const;   // brake power at that cadence
+    double fixedGearDemand(double cadenceRpm) const;   // crank power at that cadence
 
     QTimer m_timer;
     double m_power = 0;
@@ -131,20 +137,27 @@ private:
 };
 
 // Virtual Zwift Click (developer/screenshot aid, never listed by a scan):
-// connects at once, battery 85 %. pressButton() emits a shift request.
+// connects at once, battery 85 %. pressButton() emits a shift request,
+// setButtons() a button state. Default id "sim:click"; ids such as
+// "sim:click2" give a second pod (tests of two controllers).
 class SimulatedController : public ControllerDevice
 {
     Q_OBJECT
 public:
     explicit SimulatedController(QObject *parent = nullptr);
+    explicit SimulatedController(const QString &id, QObject *parent = nullptr);
 
-    QString id() const override { return QStringLiteral("sim:click"); }
+    QString id() const override { return m_id; }
     QString name() const override { return QStringLiteral("Zwift Click"); }
     QString protocol() const override { return QStringLiteral("Simulated Zwift Click"); }
     bool isSimulated() const override { return true; }
     void connectDevice() override;
     void disconnectDevice() override;
     void pressButton(int direction);
+    void setButtons(bool plus, bool minus);
+
+private:
+    QString m_id = QStringLiteral("sim:click");
 };
 
 // Virtual heart-rate sensor that responds to the virtual trainer's load.

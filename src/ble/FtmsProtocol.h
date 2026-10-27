@@ -157,6 +157,28 @@ struct ControlPointResponse
 std::optional<ControlPointResponse> parseControlPointResponse(const QByteArray &data);
 QString resultCodeText(quint8 result);
 
+// Guards against an endless "request control -> command -> Control Not
+// Permitted (0x05) -> request control" loop: a trainer may grant control and
+// still refuse the command. Counts consecutive 0x05 answers for the same
+// command op code; the first kMaxImmediate refusals ask for control again at
+// once, later ones only after a delay (BleTrainer: 3 s retry timer). A
+// success of that op code (or reset(), e.g. after a reconnect) clears it.
+class ControlRefusalGuard
+{
+public:
+    static constexpr int kMaxImmediate = 2;
+    enum class Action { RequestNow, RetryLater };
+    Action onNotPermitted(quint8 opCode);
+    void onSuccess(quint8 opCode);
+    void reset();
+    int count() const { return m_count; }
+    quint8 opCode() const { return m_op; }
+
+private:
+    quint8 m_op = 0;
+    int m_count = 0;
+};
+
 // Control point commands
 QByteArray requestControl();
 QByteArray reset();
@@ -164,6 +186,8 @@ QByteArray startOrResume();
 QByteArray stopOrPause(bool pause);
 QByteArray setTargetPower(int watts);
 QByteArray setTargetResistance(double level);          // unit 0.1
+// Non-finite values are replaced (wind/grade 0, Crr 0.004, Cw 0.39 kg/m) and
+// finite ones clamped to the field ranges before rounding.
 QByteArray setIndoorBikeSimulation(double windSpeedMs, double gradePercent, double crr, double cwKgPerM);
 
 } // namespace watt::ftms

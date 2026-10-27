@@ -1,5 +1,6 @@
 #include "SimulatedDevices.h"
 
+#include "Gearing.h"   // road::kDrivetrainEfficiency (watt_core)
 #include "Pm5Protocol.h"
 
 #include <algorithm>
@@ -84,10 +85,14 @@ void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, d
     }
     m_erg = false;
     m_sim = true;
-    m_grade = gradePercent;
-    m_wind = windSpeedMps;
-    m_crr = crr;
-    m_cw = cwKgPerM;
+    // NaN / infinity would poison the brake model (and the reported power)
+    // for the rest of the ride: keep the last valid Crr / Cw, no wind / flat.
+    m_grade = std::isfinite(gradePercent) ? gradePercent : 0.0;
+    m_wind = std::isfinite(windSpeedMps) ? windSpeedMps : 0.0;
+    if (std::isfinite(crr) && crr >= 0)
+        m_crr = crr;
+    if (std::isfinite(cwKgPerM) && cwKgPerM >= 0)
+        m_cw = cwKgPerM;
 }
 
 QStringList SimulatedTrainer::capabilities() const
@@ -123,6 +128,16 @@ double SimulatedTrainer::brakePowerAt(double v, double gradePercent) const
     return std::max(0.0, force * v);
 }
 
+double SimulatedTrainer::crankPower(double v) const
+{
+    return crankPowerAt(v, m_grade);
+}
+
+double SimulatedTrainer::crankPowerAt(double v, double gradePercent) const
+{
+    return brakePowerAt(v, gradePercent) / road::kDrivetrainEfficiency;
+}
+
 void SimulatedTrainer::setMassKg(double kg)
 {
     if (std::isfinite(kg) && kg >= 20 && kg <= 400)
@@ -141,7 +156,7 @@ double SimulatedTrainer::fixedGearDemand(double cadence) const
     const double v = cadence / 60.0 * m_fixedRatio * kWheelCircumferenceM;
     if (m_erg && m_target > 0)
         return m_target;   // ERG holds the target at any speed
-    return m_sim ? brakePower(v) : brakePowerAt(v, 0.0);
+    return m_sim ? crankPower(v) : crankPowerAt(v, 0.0);
 }
 
 double SimulatedTrainer::riderCadence() const
@@ -179,7 +194,9 @@ double SimulatedTrainer::riderGoal() const
 {
     if (m_fixedRatio > 0)
         return 0.0;   // virtual gears: no effort target, the brake decides
-    const double base = m_freeRidePower + 15.0 * std::sin(m_t / 40.0);
+    // >= 1 W: std::clamp needs lo <= hi (a free ride power near 0 made base
+    // negative, i.e. 0.5·base > 1.8·base - undefined behaviour)
+    const double base = std::max(1.0, m_freeRidePower + 15.0 * std::sin(m_t / 40.0));
     return std::clamp(base + kSimWattsPerPercent * m_grade, 0.5 * base, 1.8 * base);
 }
 
@@ -207,7 +224,7 @@ void SimulatedTrainer::step()
             // the brake decides the power; the rider shifts one gear per second
             // (up to three when far off) towards the effort he wants
             const double want = riderGoal();
-            auto powerIn = [this](int g) { return brakePower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
+            auto powerIn = [this](int g) { return crankPower(m_cadence / 60.0 * gearRatio(g) * kWheelCircumferenceM); };
             for (int i = 0; i < 3; ++i) {
                 const double p = powerIn(m_gear);
                 const bool farOff = p > want * 1.3 || p < want * 0.7;
@@ -222,7 +239,7 @@ void SimulatedTrainer::step()
                     break;
             }
             m_wheelSpeed = m_cadence / 60.0 * gearRatio(m_gear) * kWheelCircumferenceM;
-            goal = brakePower(m_wheelSpeed);
+            goal = crankPower(m_wheelSpeed);   // reported: crank power
         } else {
             goal = m_freeRidePower + 25.0 * std::sin(m_t / 40.0) + 10.0 * std::sin(m_t / 7.0);
         }
@@ -251,6 +268,12 @@ SimulatedController::SimulatedController(QObject *parent)
 {
 }
 
+SimulatedController::SimulatedController(const QString &id, QObject *parent)
+    : ControllerDevice(parent)
+    , m_id(id.isEmpty() ? QStringLiteral("sim:click") : id)
+{
+}
+
 void SimulatedController::connectDevice()
 {
     if (state() != LinkState::Disconnected)
@@ -264,6 +287,12 @@ void SimulatedController::connectDevice()
 void SimulatedController::disconnectDevice()
 {
     setState(LinkState::Disconnected);
+}
+
+void SimulatedController::setButtons(bool plus, bool minus)
+{
+    if (state() == LinkState::Connected)
+        emit buttonsChanged(plus, minus);
 }
 
 void SimulatedController::pressButton(int direction)

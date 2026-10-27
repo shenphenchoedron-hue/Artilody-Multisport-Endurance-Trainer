@@ -5,6 +5,7 @@
 #include <QBluetoothAddress>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
+#include <QElapsedTimer>
 #include <QLowEnergyController>
 #include <QLowEnergyService>
 #include <QPointer>
@@ -24,6 +25,14 @@ public:
 
     void connectToDevice();
     void disconnectFromDevice();
+    // The peripheral was seen advertising again (scan result): a dropped link
+    // that waits for its next reconnect attempt connects at once and the
+    // backoff starts over. Does nothing (false) while connecting/connected,
+    // after an explicit disconnect or an incompatible device (service
+    // missing), with auto-reconnect off, or within kMinReconnectGapMs of the
+    // last attempt (advertisements arrive about every second).
+    bool reconnectNow();
+    static constexpr int kMinReconnectGapMs = 5000;
     void setAutoReconnect(bool on) { m_autoReconnect = on; }
     // Services tried (in this order) when the primary service is missing.
     void setFallbackServices(const QList<QBluetoothUuid> &uuids) { m_fallbacks = uuids; }
@@ -90,6 +99,7 @@ private:
     // CoreBluetooth resolve the address type themselves.
     QLowEnergyController::RemoteAddressType m_addressType = QLowEnergyController::PublicAddress;
     QTimer m_reconnectTimer;
+    QElapsedTimer m_lastAttempt;        // last connectToDevice()
     QTimer m_rssiTimer;
     QTimer m_settleTimer;
     QTimer m_detailsTimeout;

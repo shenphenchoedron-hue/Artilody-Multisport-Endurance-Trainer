@@ -19,6 +19,9 @@ QString deviceTypeText(int type)
     case TypeRideRight: return QStringLiteral("Zwift Ride (right)");
     case TypeRideLeft: return QStringLiteral("Zwift Ride (left)");
     case TypeClick: return QStringLiteral("Zwift Click");
+    case TypeClickV2A: return QStringLiteral("Zwift Click v2");
+    case TypeClickV2B: return QStringLiteral("Zwift Click v2");
+    case TypeController0E: return QStringLiteral("Zwift controller (0x0e)");
     default: break;
     }
     return QStringLiteral("Zwift device 0x%1").arg(type, 2, 16, QLatin1Char('0'));
@@ -26,9 +29,37 @@ QString deviceTypeText(int type)
 
 bool isControllerType(int type)
 {
-    // Everything Zwift makes that is not the Hub trainer is a controller
-    // (Click v2 pods use further type values).
-    return type > 0 && type != TypeHub && type <= 0xFF;
+    // Whitelist of the known Zwift controller types. Other values (the Hub
+    // trainer, future trainers or accessories) are never taken as a
+    // controller from the type byte alone; the caller falls back to the
+    // name / the 0xFC82 service.
+    switch (type) {
+    case TypePlayRight:
+    case TypePlayLeft:
+    case TypeRideRight:
+    case TypeRideLeft:
+    case TypeClick:
+    case TypeClickV2A:
+    case TypeClickV2B:
+    case TypeController0E:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isV2ControllerType(int type)
+{
+    switch (type) {
+    case TypeRideRight:
+    case TypeRideLeft:
+    case TypeClickV2A:
+    case TypeClickV2B:
+    case TypeController0E:
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool nameLooksLikeController(const QString &name)
@@ -191,9 +222,9 @@ Message parseAsync(const QByteArray &data)
     }
     case MsgBattery: {
         if (fields) {
-            auto level = varintField(*fields, 2);
-            if (!level)
-                level = varintField(*fields, 1);
+            // BatteryStatus: field 1 is the type, field 2 the level. Without
+            // a level field the message is only a periodic "idle" frame.
+            const auto level = varintField(*fields, 2);
             if (level && *level <= 100) {
                 m.kind = Message::Kind::Battery;
                 m.battery = int(*level);

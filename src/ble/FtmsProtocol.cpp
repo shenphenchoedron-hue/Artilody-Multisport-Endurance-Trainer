@@ -295,6 +295,40 @@ QString resultCodeText(quint8 result)
     return QStringLiteral("Unknown (%1)").arg(result);
 }
 
+ControlRefusalGuard::Action ControlRefusalGuard::onNotPermitted(quint8 opCode)
+{
+    if (m_count > 0 && m_op == opCode) {
+        ++m_count;
+    } else {
+        m_op = opCode;
+        m_count = 1;
+    }
+    return m_count <= kMaxImmediate ? Action::RequestNow : Action::RetryLater;
+}
+
+void ControlRefusalGuard::onSuccess(quint8 opCode)
+{
+    if (opCode == m_op)
+        reset();
+}
+
+void ControlRefusalGuard::reset()
+{
+    m_op = 0;
+    m_count = 0;
+}
+
+namespace {
+// value * scale rounded and clamped to [lo, hi]; `fallback` (already scaled)
+// for NaN / infinity. Clamping before rounding keeps lround() defined.
+long scaledField(double value, double scale, long lo, long hi, long fallback)
+{
+    if (!std::isfinite(value))
+        return fallback;
+    return std::lround(std::clamp(value * scale, double(lo), double(hi)));
+}
+} // namespace
+
 QByteArray requestControl() { return op(OpCode::RequestControl); }
 QByteArray reset() { return op(OpCode::Reset); }
 QByteArray startOrResume() { return op(OpCode::StartOrResume); }
@@ -316,17 +350,17 @@ QByteArray setTargetPower(int watts)
 QByteArray setTargetResistance(double level)
 {
     QByteArray b = op(OpCode::SetTargetResistance);
-    b.append(char(quint8(std::clamp(int(std::lround(level * 10)), 0, 255))));
+    b.append(char(quint8(scaledField(level, 10, 0, 255, 0))));
     return b;
 }
 
 QByteArray setIndoorBikeSimulation(double windSpeedMs, double gradePercent, double crr, double cw)
 {
     QByteArray b = op(OpCode::SetIndoorBikeSimulation);
-    putU16(b, quint16(qint16(std::clamp(std::lround(windSpeedMs * 1000), -32768L, 32767L))));
-    putU16(b, quint16(qint16(std::clamp(std::lround(gradePercent * 100), -32768L, 32767L))));
-    b.append(char(quint8(std::clamp(std::lround(crr * 10000), 0L, 255L))));
-    b.append(char(quint8(std::clamp(std::lround(cw * 100), 0L, 255L))));
+    putU16(b, quint16(qint16(scaledField(windSpeedMs, 1000, -32768, 32767, 0))));
+    putU16(b, quint16(qint16(scaledField(gradePercent, 100, -32768, 32767, 0))));
+    b.append(char(quint8(scaledField(crr, 10000, 0, 255, 40))));    // 0.004
+    b.append(char(quint8(scaledField(cw, 100, 0, 255, 39))));       // 0.39 kg/m
     return b;
 }
 

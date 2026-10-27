@@ -44,6 +44,12 @@ void BleHeartRateSensor::disconnectDevice()
     m_link->disconnectFromDevice();
 }
 
+bool BleHeartRateSensor::reconnectNow()
+{
+    m_link->setAutoReconnect(m_autoReconnect);
+    return m_link->reconnectNow();
+}
+
 void BleHeartRateSensor::setAutoReconnect(bool on)
 {
     HeartRateDevice::setAutoReconnect(on);

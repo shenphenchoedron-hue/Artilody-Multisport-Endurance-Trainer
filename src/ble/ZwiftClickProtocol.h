@@ -51,11 +51,19 @@ enum DeviceType : quint8 {
     TypeRideRight = 0x07,
     TypeRideLeft = 0x08,
     TypeClick = 0x09,
+    TypeClickV2A = 0x0A,    // Click v2 pods (one value per pod)
+    TypeClickV2B = 0x0B,
+    TypeController0E = 0x0E, // newer controller seen with the v2 (0x23) protocol
 };
 
 QString deviceTypeText(int type);
-// true for every Zwift controller type (not the Hub trainer)
+// true only for the known Zwift controller types {0x02, 0x03, 0x07, 0x08,
+// 0x09, 0x0A, 0x0B, 0x0E}; unknown values (the Hub trainer, future devices)
+// are never taken as a controller from the type byte alone.
 bool isControllerType(int type);
+// Types that speak the Ride / Click v2 protocol (0x23 messages, keep-alive):
+// 0x07, 0x08, 0x0A, 0x0B, 0x0E.
+bool isV2ControllerType(int type);
 // "Zwift Click", "Zwift Play", "Zwift Ride", "Zwift SF2" (any case)
 bool nameLooksLikeController(const QString &name);
 
@@ -95,7 +103,7 @@ std::optional<quint64> varintField(const QVector<PbField> &fields, int number);
 enum MessageType : quint8 {
     MsgPlayKeys = 0x07,       // Zwift Play (encrypted in practice)
     MsgEmpty = 0x15,          // idle
-    MsgBattery = 0x19,        // battery level (field 2), also periodic idle
+    MsgBattery = 0x19,        // BatteryStatus: type (field 1), level (field 2); no level = idle
     MsgRideKeys = 0x23,       // Zwift Ride / Click v2: active-low bitmap (field 1)
     MsgClickKeys = 0x37,      // Zwift Click v1: Button_Plus (1), Button_Minus (2); 0 = pressed
     MsgDeviceInfo = 0x3C,

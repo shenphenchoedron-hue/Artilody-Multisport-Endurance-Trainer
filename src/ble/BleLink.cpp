@@ -93,6 +93,7 @@ void BleLink::connectToDevice()
         return;
     m_userDisconnect = false;
     m_reconnectTimer.stop();
+    m_lastAttempt.start();
     cleanup();
     setState(LinkState::Connecting);
     emit logMessage(QStringLiteral("Connecting to %1…").arg(displayName()), true);
@@ -270,6 +271,18 @@ void BleLink::disconnectFromDevice()
     m_reconnectTimer.stop();
     cleanup();
     setState(LinkState::Disconnected);
+}
+
+bool BleLink::reconnectNow()
+{
+    if (m_state != LinkState::Disconnected || m_userDisconnect || !m_autoReconnect)
+        return false;
+    if (m_lastAttempt.isValid() && m_lastAttempt.elapsed() < kMinReconnectGapMs)
+        return false;
+    m_reconnectAttempts = 0;
+    emit logMessage(QStringLiteral("%1 is advertising again – reconnecting").arg(displayName()), true);
+    connectToDevice();
+    return true;
 }
 
 void BleLink::scheduleReconnect()

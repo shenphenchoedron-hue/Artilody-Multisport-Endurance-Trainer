@@ -2,6 +2,7 @@
 #include "HrsProtocol.h"
 
 #include <QtTest>
+#include <limits>
 
 using namespace watt;
 
@@ -113,6 +114,55 @@ private slots:
         // Crr/Cw UInt8 saturate
         QCOMPARE(ftms::setIndoorBikeSimulation(0, 0, 0.1, 9.0).mid(5, 2), bytes({ 0xFF, 0xFF }));
         QCOMPARE(ftms::setIndoorBikeSimulation(0, 0, -1, -1).mid(5, 2), bytes({ 0x00, 0x00 }));
+    }
+
+    void indoorBikeSimulationNonFinite()
+    {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double inf = std::numeric_limits<double>::infinity();
+        // NaN / inf: wind and grade 0, Crr 0.004 (40), Cw 0.39 kg/m (39)
+        QCOMPARE(ftms::setIndoorBikeSimulation(nan, nan, nan, nan),
+                 bytes({ 0x11, 0x00, 0x00, 0x00, 0x00, 0x28, 0x27 }));
+        QCOMPARE(ftms::setIndoorBikeSimulation(inf, -inf, inf, -inf),
+                 bytes({ 0x11, 0x00, 0x00, 0x00, 0x00, 0x28, 0x27 }));
+        // huge finite values saturate instead of overflowing lround()
+        QCOMPARE(ftms::setIndoorBikeSimulation(1e300, -1e300, 1e300, 1e300),
+                 bytes({ 0x11, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0xFF }));
+        // valid values are untouched by the guard
+        QCOMPARE(ftms::setIndoorBikeSimulation(0, 2.38, 0.004, 0.51),
+                 bytes({ 0x11, 0x00, 0x00, 0xEE, 0x00, 0x28, 0x33 }));
+        QCOMPARE(ftms::setTargetResistance(nan), bytes({ 0x04, 0x00 }));
+        QCOMPARE(ftms::setTargetResistance(1e300), bytes({ 0x04, 0xFF }));
+    }
+
+    void controlRefusalGuard()
+    {
+        using G = ftms::ControlRefusalGuard;
+        G g;
+        const quint8 power = quint8(ftms::OpCode::SetTargetPower);
+        const quint8 sim = quint8(ftms::OpCode::SetIndoorBikeSimulation);
+        // the first refusals ask for control again at once ...
+        QCOMPARE(g.onNotPermitted(power), G::Action::RequestNow);
+        QCOMPARE(g.onNotPermitted(power), G::Action::RequestNow);
+        // ... a trainer that keeps refusing the same command only gets the
+        // delayed retry (no endless request/refuse loop)
+        QCOMPARE(g.onNotPermitted(power), G::Action::RetryLater);
+        QCOMPARE(g.onNotPermitted(power), G::Action::RetryLater);
+        QCOMPARE(g.count(), 4);
+        // other op codes succeeding (request control, start) do not clear it
+        g.onSuccess(quint8(ftms::OpCode::RequestControl));
+        g.onSuccess(quint8(ftms::OpCode::StartOrResume));
+        QCOMPARE(g.onNotPermitted(power), G::Action::RetryLater);
+        // the refused command going through does
+        g.onSuccess(power);
+        QCOMPARE(g.count(), 0);
+        QCOMPARE(g.onNotPermitted(power), G::Action::RequestNow);
+        // a different command starts its own count
+        QCOMPARE(g.onNotPermitted(sim), G::Action::RequestNow);
+        QCOMPARE(g.count(), 1);
+        QCOMPARE(g.opCode(), sim);
+        g.reset();
+        QCOMPARE(g.count(), 0);
     }
 
     void featureBitsForResistanceModes()

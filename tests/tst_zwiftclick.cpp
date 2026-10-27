@@ -5,6 +5,7 @@
 #include "DeviceManager.h"
 #include "SensorHub.h"
 #include "ZwiftClick.h"
+#include "SimulatedDevices.h"
 #include "ZwiftClickProtocol.h"
 
 #include <QBluetoothDeviceInfo>
@@ -78,9 +79,15 @@ private slots:
         QCOMPARE(unlockAck(), hex("ff 04 00"));
         QVERIFY(isControllerType(TypeClick));
         QVERIFY(isControllerType(TypeRideLeft));
-        QVERIFY(isControllerType(0x0b));   // unknown newer controller
-        QVERIFY(!isControllerType(TypeHub));
-        QVERIFY(!isControllerType(0));
+        // whitelist of the known controller types only
+        for (int t : { 0x02, 0x03, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0E })
+            QVERIFY2(isControllerType(t), qPrintable(QString::number(t, 16)));
+        for (int t : { 0x00, 0x01, 0x04, 0x05, 0x06, 0x0C, 0x0D, 0x0F, 0x10, 0x42, 0xFF, -1, 0x109 })
+            QVERIFY2(!isControllerType(t), qPrintable(QString::number(t, 16)));
+        for (int t : { 0x07, 0x08, 0x0A, 0x0B, 0x0E })
+            QVERIFY(isV2ControllerType(t));
+        for (int t : { 0x01, 0x02, 0x03, 0x09, 0x0C })
+            QVERIFY(!isV2ControllerType(t));
         QCOMPARE(deviceTypeText(TypeClick), QStringLiteral("Zwift Click"));
         QVERIFY(nameLooksLikeController(QStringLiteral("Zwift Click")));
         QVERIFY(nameLooksLikeController(QStringLiteral("zwift click v2")));
@@ -170,8 +177,15 @@ private slots:
         Message m = parseAsync(hex("19 10 5d"));   // field 2 = 93 %
         QCOMPARE(m.kind, Message::Kind::Battery);
         QCOMPARE(m.battery, 93);
-        m = parseAsync(hex("19 08 40"));           // field 1 fallback
+        m = parseAsync(hex("19 08 01 10 40"));     // type 1, level 64
+        QCOMPARE(m.kind, Message::Kind::Battery);
         QCOMPARE(m.battery, 64);
+        // field 1 is the battery TYPE, never a level: without field 2 it is idle
+        m = parseAsync(hex("19 08 40"));
+        QCOMPARE(m.kind, Message::Kind::Idle);
+        QCOMPARE(m.battery, -1);
+        QCOMPARE(parseAsync(hex("19 08 01")).kind, Message::Kind::Idle);
+        QCOMPARE(parseAsync(hex("19")).kind, Message::Kind::Idle);
         QCOMPARE(parseAsync(hex("19 10 c8 01")).kind, Message::Kind::Idle);   // 200: not a level
         QCOMPARE(parseAsync(hex("15")).kind, Message::Kind::Idle);
         QCOMPARE(parseAsync(hex("3c 08 00")).kind, Message::Kind::Other);
@@ -258,6 +272,93 @@ private slots:
         QCOMPARE(shifts.count(), n);
     }
 
+    // A held button is re-reported with every frame (Click v2: 10-20/s).
+    // Restarting the 50 ms repeat timer on each frame kept it from firing.
+    void deviceAutoRepeatWithFastFrames()
+    {
+        ZwiftClick click(clickInfo(QStringLiteral("DE:53:77:EB:6B:B1"), QStringLiteral("Zwift Click"), TypeClick));
+        QSignalSpy shifts(&click, &ControllerDevice::shiftRequested);
+        const QBluetoothUuid async(asyncUuid());
+        QElapsedTimer t;
+        t.start();
+        while (t.elapsed() < 1300) {   // press held, a frame every ~20 ms
+            click.handleNotification(async, hex("37 08 00 10 01"));
+            QVERIFY(click.repeatTimerActive());
+            QTest::qWait(20);
+        }
+        // first press + repeats at ~500, 750, 1000, 1250 ms
+        QVERIFY2(shifts.count() >= 3, qPrintable(QString::number(shifts.count())));
+        for (const auto &a : shifts)
+            QCOMPARE(a.at(0).toInt(), 1);
+        click.handleNotification(async, hex("37 08 01 10 01"));
+        QVERIFY(!click.repeatTimerActive());
+        const int n = shifts.count();
+        QTest::qWait(400);
+        QCOMPARE(shifts.count(), n);
+        // same with Click v2 frames
+        shifts.clear();
+        t.restart();
+        while (t.elapsed() < 1100) {
+            click.handleNotification(async, rideKeys(RideShiftUpLeft));
+            QTest::qWait(15);
+        }
+        QVERIFY2(shifts.count() >= 3, qPrintable(QString::number(shifts.count())));
+        QCOMPARE(shifts.first().at(0).toInt(), -1);
+        click.handleNotification(async, rideKeys(0));
+    }
+
+    void buttonsChangedOnlyOnChange()
+    {
+        ZwiftClick click(clickInfo(QStringLiteral("DE:53:77:EB:6B:B2"), QStringLiteral("Zwift Click"), TypeClick));
+        QSignalSpy buttons(&click, &ControllerDevice::buttonsChanged);
+        const QBluetoothUuid async(asyncUuid());
+        click.handleNotification(async, hex("37 08 00 10 01"));
+        click.handleNotification(async, hex("37 08 00 10 01"));
+        QCOMPARE(buttons.count(), 1);
+        // both pressed (no shift, "held" is false) - still a state change
+        click.handleNotification(async, hex("37 08 00 10 00"));
+        QCOMPARE(buttons.count(), 2);
+        QCOMPARE(buttons.last().at(0).toBool(), true);
+        QCOMPARE(buttons.last().at(1).toBool(), true);
+        click.handleNotification(async, hex("37 08 01 10 01"));
+        QCOMPARE(buttons.count(), 3);
+        QCOMPARE(buttons.last().at(0).toBool(), false);
+        QCOMPARE(buttons.last().at(1).toBool(), false);
+    }
+
+    void disconnectReleasesButtons()
+    {
+#ifdef Q_OS_MACOS
+        QSKIP("needs a Bluetooth stack (not in a bare macOS test binary)");
+#endif
+        // both buttons pressed: ButtonTracker::held() is false, the release
+        // must still be reported when the link drops
+        ZwiftClick click(clickInfo(QStringLiteral("DE:53:77:EB:6B:B3"), QStringLiteral("Zwift Click"), TypeClick));
+        QSignalSpy buttons(&click, &ControllerDevice::buttonsChanged);
+        click.handleNotification(QBluetoothUuid(asyncUuid()), hex("37 08 00 10 00"));
+        QCOMPARE(buttons.count(), 1);
+        click.connectDevice();      // Connecting (no adapter in the test)
+        click.disconnectDevice();   // -> Disconnected
+        QTRY_COMPARE(buttons.count(), 2);
+        QCOMPARE(buttons.last().at(0).toBool(), false);
+        QCOMPARE(buttons.last().at(1).toBool(), false);
+    }
+
+    void v2DetectedFromDeviceType()
+    {
+        // Ride / Click v2 types: v2 (keep-alive, unlock ack) from the advertisement
+        for (int t : { 0x07, 0x08, 0x0A, 0x0B, 0x0E }) {
+            ZwiftClick click(clickInfo(QStringLiteral("DE:53:77:EB:6B:C1"), QString(), t));
+            QVERIFY2(click.isV2(), qPrintable(QString::number(t, 16)));
+            QCOMPARE(click.deviceType(), t);
+            QVERIFY(click.protocol().contains(QStringLiteral("v2")));
+        }
+        for (int t : { 0x09, 0x02, -1 }) {
+            ZwiftClick click(clickInfo(QStringLiteral("DE:53:77:EB:6B:C2"), QStringLiteral("Zwift Click"), t));
+            QVERIFY(!click.isV2());
+        }
+    }
+
     void classification()
     {
         using K = DeviceManager::Kind;
@@ -270,6 +371,16 @@ private slots:
                  K::Controller);
         // Click v2 pods without a name
         QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:A4"), QString(), 0x0b)), K::Controller);
+        QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:A8"), QString(), 0x0e)), K::Controller);
+        // unknown Zwift type without name / 0xFC82: never a controller
+        QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:A9"), QString(), 0x0c)), K::Unknown);
+        QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:AA"), QString(), 0x42)), K::Unknown);
+        // ... unless the name or the service says so
+        QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:AB"), QStringLiteral("Zwift Click"), 0x0c)),
+                 K::Controller);
+        QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:AC"), QString(), 0x42,
+                                                   { QBluetoothUuid(quint16(0xFC82)) })),
+                 K::Controller);
         // newer firmware: 0xFC82 service only
         QCOMPARE(DeviceManager::classify(clickInfo(QStringLiteral("DE:53:77:EB:6B:A5"), QString(), -1,
                                                    { QBluetoothUuid(quint16(0xFC82)) })),
@@ -327,6 +438,138 @@ private slots:
         f.mgr.disconnectDevice(QStringLiteral("DE:53:77:EB:6B:A1"));
         QCOMPARE(f.mgr.controllerDevices().size(), 0);
         QCOMPARE(f.db.setting(QStringLiteral("ble/knownControllers")).toString(), QString());
+    }
+
+    void knownControllersCapped()
+    {
+#ifdef Q_OS_MACOS
+        QSKIP("initialize() queries the Bluetooth adapter (not in a bare macOS test binary)");
+#endif
+        ManagerFixture f;
+        f.db.setSetting(QStringLiteral("ble/knownControllers"), QStringLiteral("a;b;c;b;d;e;f"));
+        f.mgr.setAutoConnect(false);
+        f.mgr.initialize();
+        QCOMPARE(f.mgr.knownControllers(), QStringList({ QStringLiteral("c"), QStringLiteral("d"),
+                                                         QStringLiteral("e"), QStringLiteral("f") }));
+        QCOMPARE(f.db.setting(QStringLiteral("ble/knownControllers")).toString(), QStringLiteral("c;d;e;f"));
+    }
+
+    // Both pods of a Click v2 / Zwift Ride may report one press: a ±1 equal
+    // to one of the other controller within kShiftDedupeMs is dropped.
+    void managerDedupesBothPods()
+    {
+        ManagerFixture f;
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click"));
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click2"));
+        QCOMPARE(f.mgr.controllerCount(), 2);
+        QSignalSpy shift(&f.mgr, &DeviceManager::controllerShift);
+        QSignalSpy down(&f.mgr, &DeviceManager::controllerShiftDown);
+        QVERIFY(f.mgr.pressSimulatedController(-1, QStringLiteral("sim:click")));
+        QVERIFY(f.mgr.pressSimulatedController(-1, QStringLiteral("sim:click2")));   // same press, other pod
+        QCOMPARE(shift.count(), 1);
+        QCOMPARE(down.count(), 1);
+        // opposite direction from the other pod: a real press
+        QVERIFY(f.mgr.pressSimulatedController(1, QStringLiteral("sim:click2")));
+        QCOMPARE(shift.count(), 2);
+        // a quick double press on the SAME controller is never merged
+        QVERIFY(f.mgr.pressSimulatedController(1, QStringLiteral("sim:click2")));
+        QCOMPARE(shift.count(), 3);
+        // the other pod after the window: counts
+        QTest::qWait(DeviceManager::kShiftDedupeMs + 40);
+        QVERIFY(f.mgr.pressSimulatedController(1, QStringLiteral("sim:click")));
+        QCOMPARE(shift.count(), 4);
+        QCOMPARE(shift.last().at(0).toInt(), 1);
+    }
+
+    void managerOrsButtonStates()
+    {
+        ManagerFixture f;
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click"));
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click2"));
+        auto sim = [&](const QString &id) {
+            for (ControllerDevice *c : f.mgr.controllerDevices())
+                if (c->id() == id)
+                    return qobject_cast<SimulatedController *>(c);
+            return static_cast<SimulatedController *>(nullptr);
+        };
+        SimulatedController *a = sim(QStringLiteral("sim:click"));
+        SimulatedController *b = sim(QStringLiteral("sim:click2"));
+        QVERIFY(a && b);
+        QSignalSpy buttons(&f.mgr, &DeviceManager::controllerButtonsChanged);
+        a->setButtons(true, false);
+        QCOMPARE(buttons.count(), 1);
+        QCOMPARE(buttons.last().at(0).toBool(), true);
+        b->setButtons(true, false);   // the same button on the other pod: no change
+        QCOMPARE(buttons.count(), 1);
+        a->setButtons(false, false);  // b still holds it
+        QCOMPARE(buttons.count(), 1);
+        b->setButtons(true, true);
+        QCOMPARE(buttons.count(), 2);
+        QCOMPARE(buttons.last().at(1).toBool(), true);
+        a->setButtons(true, false);
+        // releasing one controller only clears its own state
+        f.mgr.disconnectDevice(QStringLiteral("sim:click2"));
+        QCOMPARE(buttons.count(), 3);
+        QCOMPARE(buttons.last().at(0).toBool(), true);
+        QCOMPARE(buttons.last().at(1).toBool(), false);
+        f.mgr.disconnectDevice(QStringLiteral("sim:click"));
+        QCOMPARE(buttons.count(), 4);
+        QCOMPARE(buttons.last().at(0).toBool(), false);
+        QCOMPARE(buttons.last().at(1).toBool(), false);
+    }
+
+    // Single-sensor mode: controllers do not count toward the exclusivity.
+    void singleSensorModeKeepsControllers()
+    {
+        ManagerFixture f;
+        f.mgr.setSimulatorEnabled(false);
+        f.mgr.setSimulatorEnabled(true);   // virtual devices without Bluetooth
+        f.mgr.setAllowMultiple(false);
+        f.mgr.connectDevice(QStringLiteral("sim:trainer"));
+        QTRY_COMPARE_WITH_TIMEOUT(f.mgr.trainerState(), int(LinkState::Connected), 3000);
+        // a Click next to the trainer, and both Click v2 pods
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click"));
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click2"));
+        QCOMPARE(f.mgr.controllerCount(), 2);
+        QCOMPARE(f.mgr.trainerState(), int(LinkState::Connected));
+        // the HR sensor replaces the trainer (single sensor) but not the controllers
+        f.mgr.connectDevice(QStringLiteral("sim:hr"));
+        QCOMPARE(f.mgr.trainerId(), QString());
+        QCOMPARE(f.mgr.controllerCount(), 2);
+        QTRY_COMPARE_WITH_TIMEOUT(f.mgr.heartRateState(), int(LinkState::Connected), 3000);
+        // the limit still applies: a third controller is refused while both are connected
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click3"));
+        QCOMPARE(f.mgr.controllerDevices().size(), DeviceManager::kMaxControllers);
+        QCOMPARE(f.mgr.controllerCount(), 2);
+        // a released sim:click can be connected again from the list
+        f.mgr.disconnectDevice(QStringLiteral("sim:click"));
+        QCOMPARE(f.mgr.controllerCount(), 1);
+        QVERIFY(f.mgr.controllers()->contains(QStringLiteral("sim:click")));
+        f.mgr.connectDevice(QStringLiteral("sim:click"));
+        QCOMPARE(f.mgr.controllerCount(), 2);
+        // simulated controllers are not remembered as known controllers
+        QVERIFY(f.mgr.knownControllers().isEmpty());
+    }
+
+    void managerDoesNotEvictForUnknownId()
+    {
+        ManagerFixture f;
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click"));
+        f.mgr.connectSimulatedController(QStringLiteral("sim:click2"));
+        auto *a = qobject_cast<SimulatedController *>(f.mgr.controllerDevices().first());
+        QVERIFY(a);
+        a->disconnectDevice();   // not connected: would be dropped to make room
+        QCOMPARE(f.mgr.controllerDevices().size(), 2);
+        // a listed controller without scan info (nothing to connect to) must
+        // not evict the sleeping one
+        DeviceEntry e;
+        e.id = QStringLiteral("DE:53:77:EB:6B:D1");
+        e.name = QStringLiteral("Zwift Click");
+        e.kind = QStringLiteral("controller");
+        f.mgr.controllers()->upsert(e);
+        f.mgr.connectDevice(e.id);
+        QCOMPARE(f.mgr.controllerDevices().size(), 2);
+        QVERIFY(f.mgr.controllerDevices().contains(a));
     }
 };
 

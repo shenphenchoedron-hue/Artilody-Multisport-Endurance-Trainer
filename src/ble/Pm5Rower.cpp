@@ -85,6 +85,12 @@ void Pm5Rower::disconnectDevice()
     m_link->disconnectFromDevice();
 }
 
+bool Pm5Rower::reconnectNow()
+{
+    m_link->setAutoReconnect(m_autoReconnect);
+    return m_link->reconnectNow();
+}
+
 void Pm5Rower::setAutoReconnect(bool on)
 {
     RowerDevice::setAutoReconnect(on);

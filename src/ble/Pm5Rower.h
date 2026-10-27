@@ -47,6 +47,7 @@ public:
     void connectDevice() override;
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
+    bool reconnectNow() override;
 
     enum class Source { Unknown, Concept2, Ftms };
     Source source() const { return m_source; }

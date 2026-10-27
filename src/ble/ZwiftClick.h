@@ -37,10 +37,12 @@ public:
     void connectDevice() override;
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
+    bool reconnectNow() override;
 
     int deviceType() const { return m_type; }       // manufacturer data type byte, -1 = unknown
     bool handshakeDone() const { return m_handshakeDone; }
     bool isV2() const { return m_v2; }
+    bool repeatTimerActive() const { return m_repeatTimer.isActive(); }   // tests
 
     // Feeds a notification as if it came from the device (tests / diagnostics).
     void handleNotification(const QBluetoothUuid &uuid, const QByteArray &value);
@@ -50,6 +52,7 @@ private:
     void sendHandshake();
     void markV2(const QString &why);
     void emitShifts(const QVector<int> &events);
+    void reportButtons(bool plus, bool minus);   // emits buttonsChanged on a change
 
     QString m_id;
     QString m_name;
@@ -65,6 +68,8 @@ private:
     bool m_handshakeDone = false;
     bool m_v2 = false;
     bool m_warnedEncryption = false;
+    bool m_reportedPlus = false;    // last buttonsChanged() state
+    bool m_reportedMinus = false;
 };
 
 } // namespace watt

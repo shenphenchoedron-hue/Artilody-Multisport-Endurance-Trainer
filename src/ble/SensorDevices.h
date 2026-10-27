@@ -29,6 +29,10 @@ public:
     LinkState state() const { return m_state; }
     int rssi() const { return m_rssi; }
     virtual void setAutoReconnect(bool on) { m_autoReconnect = on; }
+    // A scan saw this (dropped) device advertising again: reconnect at once
+    // instead of waiting for the reconnect backoff. Returns true when a
+    // connection attempt was started (see BleLink::reconnectNow()).
+    virtual bool reconnectNow() { return false; }
     bool autoReconnect() const { return m_autoReconnect; }
 
 signals:

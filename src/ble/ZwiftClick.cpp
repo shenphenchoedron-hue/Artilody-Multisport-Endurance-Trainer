@@ -34,6 +34,11 @@ ZwiftClick::ZwiftClick(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     m_handshakeFallback.setInterval(kHandshakeFallbackMs);
     connect(&m_handshakeFallback, &QTimer::timeout, this, &ZwiftClick::sendHandshake);
 
+    // Ride / Click v2 types are known from the advertisement: keep-alive and
+    // the unlock acknowledgement from the first handshake on.
+    if (zwift::isV2ControllerType(m_type))
+        markV2(QStringLiteral("device type 0x%1").arg(m_type, 2, 16, QLatin1Char('0')));
+
     setRssi(info.rssi());
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
     connect(m_link, &BleLink::logMessage, this, &ZwiftClick::logMessage);
@@ -44,9 +49,8 @@ ZwiftClick::ZwiftClick(const QBluetoothDeviceInfo &info, const QBluetoothAddress
             m_keepAlive.stop();
             m_handshakeFallback.stop();
             m_handshakeSent = m_handshakeDone = false;
-            if (m_tracker.held())
-                emit buttonsChanged(false, false);
             m_tracker.reset();
+            reportButtons(false, false);   // whatever was pressed is released now
         }
         setState(s);
     });
@@ -74,6 +78,12 @@ void ZwiftClick::connectDevice()
 void ZwiftClick::disconnectDevice()
 {
     m_link->disconnectFromDevice();
+}
+
+bool ZwiftClick::reconnectNow()
+{
+    m_link->setAutoReconnect(m_autoReconnect);
+    return m_link->reconnectNow();
 }
 
 void ZwiftClick::setAutoReconnect(bool on)
@@ -133,8 +143,22 @@ void ZwiftClick::markV2(const QString &why)
         return;
     m_v2 = true;
     emit logMessage(QStringLiteral("%1: Click v2 protocol (%2) – keep-alive on").arg(m_name, why), true);
-    if (m_link->state() == LinkState::Connected)
+    if (m_link->state() == LinkState::Connected) {
         m_keepAlive.start();
+        // detected after the handshake went out (0x23 frames, challenge):
+        // send the unlock acknowledgement sendHandshake() skipped
+        if (m_handshakeSent)
+            m_link->write(QBluetoothUuid(zwift::syncRxUuid()), zwift::unlockAck(), false);
+    }
+}
+
+void ZwiftClick::reportButtons(bool plus, bool minus)
+{
+    if (plus == m_reportedPlus && minus == m_reportedMinus)
+        return;
+    m_reportedPlus = plus;
+    m_reportedMinus = minus;
+    emit buttonsChanged(plus, minus);
 }
 
 void ZwiftClick::emitShifts(const QVector<int> &events)
@@ -188,12 +212,15 @@ void ZwiftClick::handleNotification(const QBluetoothUuid &uuid, const QByteArray
     switch (m.kind) {
     case zwift::Message::Kind::Buttons: {
         const QVector<int> events = m_tracker.update(m.buttons, m_clock.elapsed());
-        emit buttonsChanged(m.buttons.plus, m.buttons.minus);
+        reportButtons(m.buttons.plus, m.buttons.minus);
         emitShifts(events);
-        if (m_tracker.held())
-            m_repeatTimer.start();
-        else
+        // A held button is reported again with every frame (the Click v2
+        // sends ~10-20 per second): restarting the timer on each one would
+        // keep it from ever firing, so only start it when it is idle.
+        if (!m_tracker.held())
             m_repeatTimer.stop();
+        else if (!m_repeatTimer.isActive())
+            m_repeatTimer.start();
         break;
     }
     case zwift::Message::Kind::Battery:

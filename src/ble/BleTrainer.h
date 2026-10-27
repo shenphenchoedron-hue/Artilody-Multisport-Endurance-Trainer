@@ -27,6 +27,7 @@ public:
     void connectDevice() override;
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
+    bool reconnectNow() override;
 
     void setTargetPower(int watts) override;
     void setFreeRide() override;
@@ -72,6 +73,8 @@ private:
     } m_lastSim;
     bool m_pending = false;           // m_lastRequest waits for control
     bool m_simRejected = false;       // 0x11 answered "Op Code not supported"
+    bool m_simConfirmed = false;      // 0x11 answered "Success" (features unknown / unread)
+    ftms::ControlRefusalGuard m_refusals;   // consecutive "Control Not Permitted"
     QQueue<QByteArray> m_queue;
     QByteArray m_inFlight;            // command written, waiting for its response
     bool m_busy = false;

@@ -48,6 +48,7 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
             m_busy = false;
             m_writeTimeout.stop();
             m_controlRetry.stop();
+            m_refusals.reset();
             // re-apply the last command after a reconnect
             restorePendingCommand();
         }
@@ -87,6 +88,12 @@ void BleTrainer::connectDevice()
 void BleTrainer::disconnectDevice()
 {
     m_link->disconnectFromDevice();
+}
+
+bool BleTrainer::reconnectNow()
+{
+    m_link->setAutoReconnect(m_autoReconnect);
+    return m_link->reconnectNow();
 }
 
 void BleTrainer::setAutoReconnect(bool on)
@@ -148,6 +155,11 @@ void BleTrainer::onRead(const QBluetoothUuid &uuid, const QByteArray &value)
                                 .arg(f->simulation ? QString() : QStringLiteral(" (no gradient simulation)")), true);
             emit capabilitiesChanged();
             emit simulationSupportChanged();
+        } else {
+            // Support stays "unknown": the first 0x11 is still sent and its
+            // answer ("Op Code not supported" or success) decides.
+            emit logMessage(QStringLiteral("%1: FTMS features unreadable (%2 bytes) – gradient simulation will be tried")
+                                .arg(m_name).arg(value.size()), false);
         }
     }
 }
@@ -191,6 +203,8 @@ int BleTrainer::simulationSupport() const
 {
     if (m_simRejected)
         return 0;
+    if (m_simConfirmed)
+        return 1;
     if (m_featuresKnown)
         return m_features.simulation ? 1 : 0;
     return -1;
@@ -270,15 +284,36 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
         } else {
             scheduleControlRetry();
         }
-    } else if (!r->success()) {
+    } else if (r->success()) {
+        m_refusals.onSuccess(r->requestOpCode);
+        if (op == ftms::OpCode::SetIndoorBikeSimulation && simulationSupport() != 1) {
+            // features unknown (read failed) but the trainer accepted 0x11
+            m_simConfirmed = true;
+            emit simulationSupportChanged();
+            emit capabilitiesChanged();
+        }
+    } else {
         if (r->result == quint8(ftms::ResultCode::ControlNotPermitted)) {
             // Control was lost (e.g. another app took it): request it again and
-            // re-send the last command once it is granted.
+            // re-send the last command once it is granted. A trainer that
+            // grants control and keeps refusing the command would loop here
+            // without pause: after ControlRefusalGuard::kMaxImmediate
+            // refusals of the same command, retry only every 3 s.
             m_hasControl = false;
             m_controlRequested = false;
             m_queue.clear();
             restorePendingCommand();
-            requestControl();
+            if (m_refusals.onNotPermitted(r->requestOpCode) == ftms::ControlRefusalGuard::Action::RequestNow) {
+                requestControl();
+            } else {
+                if (m_refusals.count() == ftms::ControlRefusalGuard::kMaxImmediate + 1)
+                    emit logMessage(QStringLiteral("%1 keeps refusing command 0x%2 (control not permitted) – "
+                                                   "retrying every %3 s")
+                                        .arg(m_name)
+                                        .arg(r->requestOpCode, 2, 16, QLatin1Char('0'))
+                                        .arg(m_controlRetry.interval() / 1000), false);
+                scheduleControlRetry();
+            }
         } else if (op == ftms::OpCode::SetIndoorBikeSimulation
                    && r->result == quint8(ftms::ResultCode::NotSupported)) {
             // No gradient simulation: the app falls back (virtual gears via

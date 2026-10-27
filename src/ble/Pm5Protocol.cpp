@@ -138,13 +138,16 @@ std::optional<AdditionalStatus1> parseAdditionalStatus1(const QByteArray &d, Lay
     s.restTimeSeconds = u24(d, 13) * 0.01;
     // Average power is part of the multiplexed packet. Current firmware also
     // sends the direct 0x0032 with 19 bytes in that layout (average power at
-    // 16-17, machine type at 18), so the length decides.
+    // 16-17, machine type at 18), so the length decides. A direct packet of
+    // exactly 17 bytes has the machine type at 16; one of 18 bytes is
+    // ambiguous (byte 16 may be the average power low byte), so it carries
+    // no machine type (the default, rower, stays).
     if (d.size() >= 19) {
         s.averagePowerW = int(u16(d, 16));
         s.ergMachineType = int(u8(d, 18));
     } else if (layout == Layout::Multiplexed && d.size() >= 18) {
         s.averagePowerW = int(u16(d, 16));   // machine type cut off
-    } else if (layout == Layout::Direct) {
+    } else if (layout == Layout::Direct && d.size() == 17) {
         s.ergMachineType = int(u8(d, 16));
     }
     return s;
