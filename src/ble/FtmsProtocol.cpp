@@ -102,13 +102,20 @@ std::optional<ServiceData> parseServiceData(const QByteArray &raw)
 {
     QByteArray data = raw;
     // Some stacks hand over the AD payload including the 16-bit UUID.
-    if (data.size() >= 5 && quint8(data.at(0)) == 0x26 && quint8(data.at(1)) == 0x18)
+    if (data.size() >= 4 && quint8(data.at(0)) == 0x26 && quint8(data.at(1)) == 0x18)
         data = data.mid(2);
-    if (data.size() < 3)
+    if (data.size() < 2)
         return std::nullopt;
     ServiceData d;
     d.available = quint8(data.at(0)) & 0x01;
-    d.machineType = quint16(quint8(data.at(1)) | (quint8(data.at(2)) << 8));
+    if (data.size() == 2) {
+        // Lenient: Jetblack Victory / Zwift Hub send Flags + a 1-byte type
+        // ("01 20" = available, Indoor Bike) instead of the UInt16 type.
+        d.machineType = quint8(data.at(1));
+        d.shortForm = true;
+    } else {
+        d.machineType = quint16(quint8(data.at(1)) | (quint8(data.at(2)) << 8));
+    }
     return d;
 }
 
@@ -274,6 +281,54 @@ std::optional<PowerRange> parsePowerRange(const QByteArray &data)
     if (!r.ok())
         return std::nullopt;
     return p;
+}
+
+double InclinationRange::clamp(double gradePercent) const
+{
+    if (!(maximumPercent >= minimumPercent))
+        return gradePercent;
+    return std::clamp(gradePercent, minimumPercent, maximumPercent);
+}
+
+std::optional<InclinationRange> parseInclinationRange(const QByteArray &data)
+{
+    Reader r(data);
+    InclinationRange range;
+    range.minimumPercent = r.s16() / 10.0;
+    range.maximumPercent = r.s16() / 10.0;
+    range.incrementPercent = r.u16() / 10.0;
+    if (!r.ok() || range.maximumPercent < range.minimumPercent)
+        return std::nullopt;
+    return range;
+}
+
+QString commandNoun(quint8 opCode)
+{
+    switch (OpCode(opCode)) {
+    case OpCode::RequestControl: return QStringLiteral("control request");
+    case OpCode::Reset: return QStringLiteral("reset command");
+    case OpCode::SetTargetResistance: return QStringLiteral("resistance command");
+    case OpCode::SetTargetPower: return QStringLiteral("target power command");
+    case OpCode::StartOrResume: return QStringLiteral("start command");
+    case OpCode::StopOrPause: return QStringLiteral("stop command");
+    case OpCode::SetIndoorBikeSimulation: return QStringLiteral("gradient command");
+    default: break;
+    }
+    return QStringLiteral("command 0x%1").arg(opCode, 2, 16, QLatin1Char('0'));
+}
+
+QString rejectionText(quint8 opCode, quint8 result)
+{
+    if (opCode == quint8(OpCode::RequestControl))
+        return QStringLiteral("Trainer refused control (%1)").arg(resultCodeText(result));
+    return QStringLiteral("Trainer rejected the %1 (%2)").arg(commandNoun(opCode), resultCodeText(result));
+}
+
+QString timeoutText(quint8 opCode, int timeoutMs)
+{
+    return QStringLiteral("Trainer did not answer the %1 (no response within %2 s)")
+        .arg(commandNoun(opCode))
+        .arg(timeoutMs / 1000.0, 0, 'g', 2);
 }
 
 std::optional<ControlPointResponse> parseControlPointResponse(const QByteArray &data)

@@ -34,6 +34,8 @@ SimulatedTrainer::SimulatedTrainer(QObject *parent)
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, &SimulatedTrainer::step);
     m_simSupported = qEnvironmentVariableIntValue("WATT_SIM_TRAINER_NO_SIM") <= 0;
+    // test aid: answer negative grades with "Invalid parameter" (rejection UI)
+    m_rejectDescents = qEnvironmentVariableIntValue("WATT_SIM_TRAINER_REJECT_DESCENTS") > 0;
 }
 
 void SimulatedTrainer::setSimulationSupported(bool on)
@@ -78,6 +80,8 @@ void SimulatedTrainer::setTargetPower(int watts)
     m_erg = true;
     m_sim = false;
     m_target = watts;
+    m_problem.clear();
+    emit controlStatusChanged();
 }
 
 void SimulatedTrainer::setFreeRide()
@@ -87,14 +91,26 @@ void SimulatedTrainer::setFreeRide()
                                               : QStringLiteral("free ride (virtual trainer): released"));
     m_erg = false;
     m_sim = false;
+    m_problem.clear();
+    emit controlStatusChanged();
 }
 
 void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
 {
+    const bool reject = m_simSupported && m_rejectDescents && gradePercent < 0;
     logVirtualCommand(ftms::setIndoorBikeSimulation(windSpeedMps, gradePercent, crr, cwKgPerM),
-                      m_simSupported ? "Success (virtual)" : "Not supported (virtual, WATT_SIM_TRAINER_NO_SIM)");
+                      !m_simSupported ? "Not supported (virtual, WATT_SIM_TRAINER_NO_SIM)"
+                      : reject        ? "Invalid parameter (virtual, WATT_SIM_TRAINER_REJECT_DESCENTS)"
+                                      : "Success (virtual)");
     if (!m_simSupported)
         return;   // like a trainer answering "Op Code not supported"
+    if (reject) {
+        // the trainer keeps its previous state; the problem is shown
+        m_problem = ftms::rejectionText(quint8(ftms::OpCode::SetIndoorBikeSimulation), 0x03);
+        emit controlStatusChanged();
+        return;
+    }
+    m_problem.clear();
     if (!m_sim) {
         // start in a middle gear; the rider shifts from there
         m_wheelSpeed = 0;
@@ -110,6 +126,33 @@ void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, d
         m_crr = crr;
     if (std::isfinite(cwKgPerM) && cwKgPerM >= 0)
         m_cw = cwKgPerM;
+    emit controlStatusChanged();
+}
+
+QString SimulatedTrainer::trainerMode() const
+{
+    if (state() != LinkState::Connected)
+        return QString();
+    if (m_erg)
+        return QStringLiteral("erg");
+    if (m_sim)
+        return QStringLiteral("simulation");
+    return m_simSupported ? QStringLiteral("simulation") : QStringLiteral("resistance");
+}
+
+QString SimulatedTrainer::controlStatus() const
+{
+    if (state() != LinkState::Connected)
+        return QString();
+    if (!m_problem.isEmpty())
+        return m_problem;
+    if (m_erg)
+        return QStringLiteral("ERG – trainer accepted %1 W").arg(m_target);
+    if (m_sim)
+        return QStringLiteral("Simulation – trainer accepted %1%2 %")
+            .arg(m_grade < 0 ? QStringLiteral("−") : QString())
+            .arg(std::abs(m_grade), 0, 'f', 2);
+    return m_simSupported ? QStringLiteral("Simulation – flat road") : QStringLiteral("Free ride (no gradient simulation)");
 }
 
 QStringList SimulatedTrainer::capabilities() const

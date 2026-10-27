@@ -2219,6 +2219,11 @@ Item {
                             font.pixelSize: Theme.small(13)
                             wrapMode: Text.WordWrap
                         }
+                        TrainerStatusNotice {
+                            width: parent.width
+                            gears: page.gears
+                            namePrefix: "video"
+                        }
                         Text {
                             visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
                             width: parent.width

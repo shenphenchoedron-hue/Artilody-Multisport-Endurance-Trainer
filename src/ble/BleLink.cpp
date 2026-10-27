@@ -7,7 +7,7 @@ namespace watt {
 
 BleLink::BleLink(const QBluetoothDeviceInfo &info, const QBluetoothUuid &serviceUuid,
                  const QBluetoothAddress &localAdapter, QObject *parent)
-    : QObject(parent)
+    : GattLink(parent)
     , m_info(info)
     , m_serviceUuid(serviceUuid)
     , m_localAdapter(localAdapter)
@@ -32,6 +32,15 @@ BleLink::BleLink(const QBluetoothDeviceInfo &info, const QBluetoothUuid &service
             return;
         emit logMessage(QStringLiteral("%1: service discovery timed out").arg(displayName()), false);
         m_controller->disconnectFromDevice();
+    });
+
+    // start delay, then the timeout of the service being inspected
+    m_inspectTimer.setSingleShot(true);
+    connect(&m_inspectTimer, &QTimer::timeout, this, [this] {
+        if (m_inspecting)
+            finishInspection(QStringLiteral("    (detail discovery timed out)"));
+        else
+            inspectNextService();
     });
 
     m_rssiTimer.setInterval(5000);
@@ -63,6 +72,13 @@ void BleLink::setState(LinkState s)
     if (s == LinkState::Connected) {
         m_reconnectAttempts = 0;
         m_rssiTimer.start();
+        if (m_inspectOthers && !m_othersDone && m_inspectQueue.isEmpty() && !m_inspecting) {
+            m_otherLines.clear();
+            for (const QBluetoothUuid &u : std::as_const(m_discovered))
+                if (u != m_activeUuid)
+                    m_inspectQueue << u;
+            m_inspectTimer.start(kInspectDelayMs);
+        }
     } else {
         m_rssiTimer.stop();
     }
@@ -74,6 +90,21 @@ void BleLink::cleanup()
     m_settleTimer.stop();
     m_detailsTimeout.stop();
     m_pendingCccd.clear();
+    m_inspectTimer.stop();
+    m_inspectQueue.clear();
+    m_othersDone = false;
+    if (m_inspecting) {
+        m_inspecting->disconnect(this);
+        m_inspecting->deleteLater();
+    }
+    m_inspecting = nullptr;
+    for (const QPointer<QLowEnergyService> &o : std::as_const(m_others)) {
+        if (o) {
+            o->disconnect(this);
+            o->deleteLater();
+        }
+    }
+    m_others.clear();
     if (m_service) {
         m_service->disconnect(this);
         m_service->deleteLater();
@@ -171,15 +202,21 @@ void BleLink::onDiscoveryFinished()
         return;
     }
     connect(m_service, &QLowEnergyService::stateChanged, this, &BleLink::onServiceState);
-    connect(m_service, &QLowEnergyService::characteristicChanged, this,
+    wireService(m_service, true);
+    m_service->discoverDetails();
+}
+
+void BleLink::wireService(QLowEnergyService *svc, bool primary)
+{
+    connect(svc, &QLowEnergyService::characteristicChanged, this,
             [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicChanged(ch.uuid(), v); });
-    connect(m_service, &QLowEnergyService::characteristicRead, this,
+    connect(svc, &QLowEnergyService::characteristicRead, this,
             [this](const QLowEnergyCharacteristic &ch, const QByteArray &v) { emit characteristicRead(ch.uuid(), v); });
-    connect(m_service, &QLowEnergyService::descriptorWritten, this,
-            [this](const QLowEnergyDescriptor &d, const QByteArray &value) {
-                if (!m_service || d.uuid() != QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration))
+    connect(svc, &QLowEnergyService::descriptorWritten, this,
+            [this, svc](const QLowEnergyDescriptor &d, const QByteArray &value) {
+                if (d.uuid() != QBluetoothUuid(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration))
                     return;
-                const auto chars = m_service->characteristics();
+                const auto chars = svc->characteristics();
                 for (const QLowEnergyCharacteristic &ch : chars) {
                     if (ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration) != d)
                         continue;
@@ -194,8 +231,9 @@ void BleLink::onDiscoveryFinished()
                     return;
                 }
             });
-    connect(m_service, &QLowEnergyService::errorOccurred, this, [this](QLowEnergyService::ServiceError e) {
-        if (e == QLowEnergyService::CharacteristicWriteError)
+    connect(svc, &QLowEnergyService::errorOccurred, this, [this, svc, primary](QLowEnergyService::ServiceError e) {
+        // only the primary (FTMS) service's write errors concern the control point
+        if (e == QLowEnergyService::CharacteristicWriteError && primary)
             emit writeFailed();
         if (e == QLowEnergyService::DescriptorWriteError && !m_pendingCccd.isEmpty()) {
             // Requests are processed in order: the oldest open CCCD write failed.
@@ -204,9 +242,115 @@ void BleLink::onDiscoveryFinished()
                                 p.enable ? QStringLiteral("enable") : QStringLiteral("disable"), uuidText(p.uuid)), false);
             emit notificationResult(p.uuid, false, false);
         }
-        emit logMessage(QStringLiteral("GATT error %1").arg(int(e)), false);
+        emit logMessage(QStringLiteral("GATT error %1 (service %2)").arg(int(e)).arg(uuidText(svc->serviceUuid())), false);
     });
-    m_service->discoverDetails();
+}
+
+void BleLink::inspectNextService()
+{
+    if (!m_controller || m_state != LinkState::Connected)
+        return;
+    if (m_inspectQueue.isEmpty()) {
+        m_inspectTimer.stop();
+        m_othersDone = true;
+        emit gattDiscovered(gattSummary());
+        emit otherServicesDiscovered();
+        return;
+    }
+    const QBluetoothUuid uuid = m_inspectQueue.takeFirst();
+    QLowEnergyService *svc = m_controller->createServiceObject(uuid, this);
+    if (!svc) {
+        m_otherLines << QStringLiteral("service %1%2: could not create the service object")
+                            .arg(uuidText(uuid), serviceName(uuid).isEmpty() ? QString() : QStringLiteral(" ") + serviceName(uuid));
+        QTimer::singleShot(0, this, &BleLink::inspectNextService);
+        return;
+    }
+    m_inspecting = svc;
+    connect(svc, &QLowEnergyService::stateChanged, this, [this, svc](QLowEnergyService::ServiceState st) {
+        if (svc != m_inspecting)
+            return;
+        if (st == QLowEnergyService::RemoteServiceDiscovered) {
+            m_others.append(svc);
+            finishInspection(characteristicLines(svc, QStringLiteral("    ")));
+        } else if (st == QLowEnergyService::InvalidService) {
+            finishInspection(QStringLiteral("    (service became invalid)"));
+        }
+    });
+    wireService(svc, false);
+    m_inspectTimer.start(kInspectTimeoutMs);
+    svc->discoverDetails(QLowEnergyService::SkipValueDiscovery);
+}
+
+void BleLink::finishInspection(const QString &lines)
+{
+    QLowEnergyService *svc = m_inspecting;
+    m_inspecting = nullptr;
+    m_inspectTimer.stop();
+    if (svc) {
+        const QString name = serviceName(svc->serviceUuid());
+        m_otherLines << QStringLiteral("service %1%2").arg(uuidText(svc->serviceUuid()),
+                                                            name.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(name));
+        if (!lines.isEmpty())
+            m_otherLines << lines;
+        if (!m_others.contains(svc)) {
+            svc->disconnect(this);
+            svc->deleteLater();
+        }
+    }
+    QTimer::singleShot(0, this, &BleLink::inspectNextService);
+}
+
+QString BleLink::propertiesText(QLowEnergyCharacteristic::PropertyTypes p)
+{
+    QStringList props;
+    if (p & QLowEnergyCharacteristic::Read) props << QStringLiteral("read");
+    if (p & QLowEnergyCharacteristic::Write) props << QStringLiteral("write");
+    if (p & QLowEnergyCharacteristic::WriteNoResponse) props << QStringLiteral("write-no-resp");
+    if (p & QLowEnergyCharacteristic::Notify) props << QStringLiteral("notify");
+    if (p & QLowEnergyCharacteristic::Indicate) props << QStringLiteral("indicate");
+    return props.join(QLatin1Char(' '));
+}
+
+QString BleLink::characteristicLines(const QLowEnergyService *svc, const QString &indent) const
+{
+    QStringList lines;
+    const auto chars = svc->characteristics();
+    for (const QLowEnergyCharacteristic &ch : chars) {
+        const bool cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration).isValid();
+        lines << QStringLiteral("%1char %2 [%3]%4").arg(indent, uuidText(ch.uuid()), propertiesText(ch.properties()),
+                                                        cccd ? QStringLiteral(" cccd") : QString());
+    }
+    if (lines.isEmpty())
+        lines << indent + QStringLiteral("(no characteristics)");
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString BleLink::serviceName(const QBluetoothUuid &uuid)
+{
+    bool ok = false;
+    const quint16 s16 = uuid.toUInt16(&ok);
+    if (ok) {
+        switch (s16) {
+        case 0x1800: return QStringLiteral("Generic Access");
+        case 0x1801: return QStringLiteral("Generic Attribute");
+        case 0x180A: return QStringLiteral("Device Information");
+        case 0x180D: return QStringLiteral("Heart Rate");
+        case 0x180F: return QStringLiteral("Battery");
+        case 0x1816: return QStringLiteral("Cycling Speed and Cadence");
+        case 0x1818: return QStringLiteral("Cycling Power");
+        case 0x1826: return QStringLiteral("Fitness Machine (FTMS)");
+        case 0xFC82: return QStringLiteral("Zwift (16-bit Zwift service)");
+        case 0xFE59: return QStringLiteral("Nordic DFU");
+        default: break;
+        }
+        return QString();
+    }
+    const QString t = uuid.toString(QUuid::WithoutBraces).toLower();
+    if (t == QLatin1String("00000001-19ca-4651-86e5-fa29dcdd09d1"))
+        return QStringLiteral("Zwift (custom service)");
+    if (t.startsWith(QLatin1String("a026ee")))
+        return QStringLiteral("Wahoo vendor service");
+    return QStringLiteral("vendor service");
 }
 
 void BleLink::onServiceState(QLowEnergyService::ServiceState s)
@@ -246,21 +390,15 @@ QString BleLink::gattSummary() const
                      .arg(uuidText(m_service->serviceUuid()),
                           m_service->state() == QLowEnergyService::RemoteServiceDiscovered ? QStringLiteral("details discovered")
                                                                                             : QStringLiteral("details pending"));
-        const auto chars = m_service->characteristics();
-        for (const QLowEnergyCharacteristic &ch : chars) {
-            QStringList props;
-            const auto p = ch.properties();
-            if (p & QLowEnergyCharacteristic::Read) props << QStringLiteral("read");
-            if (p & QLowEnergyCharacteristic::Write) props << QStringLiteral("write");
-            if (p & QLowEnergyCharacteristic::WriteNoResponse) props << QStringLiteral("write-no-resp");
-            if (p & QLowEnergyCharacteristic::Notify) props << QStringLiteral("notify");
-            if (p & QLowEnergyCharacteristic::Indicate) props << QStringLiteral("indicate");
-            const bool cccd = ch.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration).isValid();
-            lines << QStringLiteral("  char %1 [%2]%3").arg(uuidText(ch.uuid()), props.join(QLatin1Char(' ')),
-                                                            cccd ? QStringLiteral(" cccd") : QString());
-        }
+        lines << characteristicLines(m_service, QStringLiteral("  "));
     } else if (!m_discovered.isEmpty()) {
         lines << QStringLiteral("required service %1 not found").arg(uuidText(m_serviceUuid));
+    }
+    if (!m_otherLines.isEmpty()) {
+        lines << QStringLiteral("other services (details, values not read):");
+        lines += m_otherLines;
+    } else if (m_inspectOthers && m_service && !m_othersDone) {
+        lines << QStringLiteral("other services: being inspected…");
     }
     return lines.join(QLatin1Char('\n'));
 }

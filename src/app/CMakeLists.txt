@@ -55,6 +55,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/RouteProfile.qml
     ${QML_ROOT}/components/WorkoutStrip.qml
     ${QML_ROOT}/components/SessionBlockNotice.qml
+    ${QML_ROOT}/components/TrainerStatusNotice.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/FreeRidePage.qml

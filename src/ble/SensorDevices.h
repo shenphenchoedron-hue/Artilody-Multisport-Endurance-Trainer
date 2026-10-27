@@ -75,7 +75,28 @@ public:
     virtual QStringList capabilities() const = 0;
     virtual bool supportsControl() const = 0;
 
+    // --- what the trainer actually does (from its answers, not our requests) ---
+    // "simulation", "erg", "resistance", "stopped", "no control", "unknown"
+    // ("" = not connected). "simulation" only after the trainer accepted a
+    // Set Indoor Bike Simulation command (or reported the change itself).
+    virtual QString trainerMode() const { return QString(); }
+    // One line for the UI: "Simulation – trainer accepted −2.00 %", or the
+    // problem ("Trainer rejected the gradient command (Invalid parameter)").
+    virtual QString controlStatus() const { return QString(); }
+    // The last control command was rejected / not answered, or the trainer is
+    // not in the mode the app asked for (controlStatus() explains).
+    virtual bool controlProblem() const { return false; }
+    // Supported Inclination Range (FTMS 0x2AD5), when the trainer reports it.
+    virtual bool inclinationRangeKnown() const { return false; }
+    virtual double minInclinationPercent() const { return -100.0; }
+    virtual double maxInclinationPercent() const { return 100.0; }
+    // "This trainer doesn't simulate descents below 0 %" when the range says
+    // so; "" otherwise.
+    virtual QString inclinationNote() const { return QString(); }
+
 signals:
+    // trainerMode() / controlStatus() / controlProblem() / inclination range changed
+    void controlStatusChanged();
     void powerMeasured(int watts);
     void cadenceMeasured(double rpm);
     void speedMeasured(double kmh);

@@ -5,6 +5,7 @@
 #include "ProfileManager.h"
 #include "RlvSession.h"
 #include "SensorHub.h"
+#include "DiagLog.h"
 
 #include <QTextStream>
 
@@ -102,12 +103,49 @@ void VirtualGears::sampleHub()
 
 void VirtualGears::addTrainerSample(qint64 ms, double cadenceRpm, double speedMps)
 {
-    if (m_detector.addSample(ms, cadenceRpm, speedMps, setup().circumferenceMm))
+    const bool wasStable = m_detector.stable();
+    const int confirmations = m_detector.confirmations();
+    const bool changed = m_detector.addSample(ms, cadenceRpm, speedMps, setup().circumferenceMm);
+    // Both inputs in the log (a trainer may report a simulated speed rather
+    // than its flywheel speed): every 5 s and at every result.
+    if (changed || confirmations != m_detector.confirmations() || ms - m_lastDetectLogMs >= 5000) {
+        m_lastDetectLogMs = ms;
+        const double sampleRatio = cadenceRpm > 0 && setup().circumferenceMm > 0
+                                       ? speedMps / (cadenceRpm / 60.0 * setup().circumferenceMm / 1000.0) : 0.0;
+        DiagLog::write("GEAR", QStringLiteral("detect: trainer speed %1 km/h cadence %2 rpm -> ratio %3 | result %4 (%5 confirmations%6) "
+                                              "virtual gear %7 (%8) reference %9 (%10)")
+                                   .arg(speedMps * 3.6, 0, 'f', 1)
+                                   .arg(cadenceRpm, 0, 'f', 0)
+                                   .arg(sampleRatio, 0, 'f', 3)
+                                   .arg(m_detector.valid() ? QString::number(m_detector.ratio(), 'f', 3) : QStringLiteral("-"))
+                                   .arg(m_detector.confirmations())
+                                   .arg(m_detector.stable() ? QStringLiteral(", stable") : QString())
+                                   .arg(gearLabel())
+                                   .arg(gearRatio(), 0, 'f', 3)
+                                   .arg(referenceLabel())
+                                   .arg(referenceRatio(), 0, 'f', 3));
+    }
+    if (changed || confirmations != m_detector.confirmations()) {
+        // a "real gear" equal to the current virtual gear (that is not the
+        // reference) means the trainer reports its simulated speed
+        const double ref = referenceRatio();
+        const bool looksVirtual = m_enabled && m_detector.valid() && std::abs(gearRatio() - ref) > ref * kDetectMismatch
+                                  && std::abs(m_detector.ratio() - gearRatio()) <= gearRatio() * 0.02;
+        if (looksVirtual != m_detectLooksVirtual) {
+            m_detectLooksVirtual = looksVirtual;
+            DiagLog::write("GEAR", looksVirtual ? QStringLiteral("detected ratio follows the VIRTUAL gear: the trainer seems to report a "
+                                                                 "simulated speed - no reference gear suggestion")
+                                                : QStringLiteral("detected ratio no longer follows the virtual gear"));
+            emit detectionChanged();
+        }
+    }
+    if (changed || wasStable != m_detector.stable())
         emit detectionChanged();
 }
 
 void VirtualGears::clearDetection()
 {
+    m_detectLooksVirtual = false;
     if (!m_detector.valid()) {
         m_detector.clear();
         return;
@@ -121,18 +159,60 @@ bool VirtualGears::detectedTeeth(int *front, int *rear) const
     if (!m_detector.valid())
         return false;
     const double r = m_detector.ratio();
+    // candidates: the gears of the setup and the Zwift Cog presets
+    QVector<QPair<int, int>> candidates;
+    for (int f : setup().chainrings)
+        for (int c : setup().cogs)
+            candidates.append({ f, c });
+    for (const QVariant &v : GearSetup::cogPresets()) {
+        const QVariantMap m = v.toMap();
+        candidates.append({ m.value(QStringLiteral("front")).toInt(), m.value(QStringLiteral("rear")).toInt() });
+    }
     double bestErr = 1e9;
-    for (int f : setup().chainrings) {
-        for (int c : setup().cogs) {
-            const double err = std::abs(double(f) / c - r) / r;
-            if (err < bestErr) {
-                bestErr = err;
-                *front = f;
-                *rear = c;
-            }
+    for (const auto &c : std::as_const(candidates)) {
+        const double err = std::abs(double(c.first) / c.second - r) / r;
+        if (err < bestErr) {
+            bestErr = err;
+            *front = c.first;
+            *rear = c.second;
         }
     }
-    return bestErr <= 0.03;
+    if (bestErr > 0.03)
+        return false;
+    // several combinations give about the same ratio (44×14 ≈ 50×16): the
+    // rider's chainring is the likelier one
+    for (const auto &c : std::as_const(candidates)) {
+        const double err = std::abs(double(c.first) / c.second - r) / r;
+        if (c.first == referenceFrontTeeth() && err <= bestErr + 0.005) {
+            *front = c.first;
+            *rear = c.second;
+            break;
+        }
+    }
+    return true;
+}
+
+QString VirtualGears::referencePrompt() const
+{
+    if (!detectedDiffers() || !detectedStable() || m_detectLooksVirtual)
+        return QString();
+    if (m_promptDismissedRatio > 0 && std::abs(m_promptDismissedRatio - m_detector.ratio()) <= m_detector.ratio() * 0.02)
+        return QString();
+    const QString label = detectedLabel();
+    return QStringLiteral("Your trainer reports %1(%2) but the setting is %3 (%4) — use the detected gear?")
+        .arg(label.isEmpty() ? QString() : label + QLatin1Char(' '))
+        .arg(m_detector.ratio(), 0, 'f', 2)
+        .arg(referenceLabel())
+        .arg(referenceRatio(), 0, 'f', 2);
+}
+
+void VirtualGears::dismissReferencePrompt()
+{
+    if (!m_detector.valid())
+        return;
+    m_promptDismissedRatio = m_detector.ratio();
+    DiagLog::write("GEAR", QStringLiteral("reference gear suggestion %1 dismissed by the rider").arg(m_detector.ratio(), 0, 'f', 3));
+    emit detectionChanged();
 }
 
 QString VirtualGears::detectedLabel() const
@@ -144,7 +224,12 @@ QString VirtualGears::detectedLabel() const
 bool VirtualGears::useDetectedGear()
 {
     int f = 0, c = 0;
-    return detectedTeeth(&f, &c) && setReferenceGear(f, c);
+    if (!detectedTeeth(&f, &c) || !setReferenceGearAny(f, c))
+        return false;
+    DiagLog::write("GEAR", QStringLiteral("rider accepted the detected gear: reference now %1 (%2)")
+                               .arg(referenceLabel())
+                               .arg(referenceRatio(), 0, 'f', 3));
+    return true;
 }
 
 bool VirtualGears::detectedDiffers() const
@@ -728,11 +813,35 @@ bool VirtualGears::setReferenceGear(int frontTeeth, int rearTeeth)
         setError(QStringLiteral("Choose a chainring and a cog of your bike"));
         return false;
     }
-    if (frontTeeth == cur.referenceFrontTeeth && rearTeeth == cur.referenceRearTeeth)
+    if (frontTeeth == cur.referenceFrontTeeth && rearTeeth == cur.referenceRearTeeth && !cur.referenceCustom)
         return true;
     GearSetup s = cur;
     s.referenceFrontTeeth = frontTeeth;
     s.referenceRearTeeth = rearTeeth;
+    s.referenceCustom = false;
+    m_gearing.setSetup(s);
+    setupChanged(false);
+    return true;
+}
+
+bool VirtualGears::setReferenceGearAny(int frontTeeth, int rearTeeth)
+{
+    const GearSetup &cur = setup();
+    if (cur.chainrings.contains(frontTeeth) && cur.cogs.contains(rearTeeth))
+        return setReferenceGear(frontTeeth, rearTeeth);
+    if (frontTeeth < GearSetup::kMinReferenceRing || frontTeeth > GearSetup::kMaxReferenceRing
+        || rearTeeth < GearSetup::kMinReferenceCog || rearTeeth > GearSetup::kMaxReferenceCog) {
+        setError(QStringLiteral("Chainring %1–%2 and cog %3–%4 teeth")
+                     .arg(GearSetup::kMinReferenceRing).arg(GearSetup::kMaxReferenceRing)
+                     .arg(GearSetup::kMinReferenceCog).arg(GearSetup::kMaxReferenceCog));
+        return false;
+    }
+    if (frontTeeth == cur.referenceFrontTeeth && rearTeeth == cur.referenceRearTeeth && cur.referenceCustom)
+        return true;
+    GearSetup s = cur;
+    s.referenceFrontTeeth = frontTeeth;
+    s.referenceRearTeeth = rearTeeth;
+    s.referenceCustom = true;
     m_gearing.setSetup(s);
     setupChanged(false);
     return true;

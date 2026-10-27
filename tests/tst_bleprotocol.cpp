@@ -283,7 +283,24 @@ private slots:
         QVERIFY(d && d->rowerOnly());
         QVERIFY(!ftms::parseServiceData(QByteArray()));
         QVERIFY(!ftms::parseServiceData(bytes({ 0x01 })));
-        QVERIFY(!ftms::parseServiceData(bytes({ 0x01, 0x10 })));
+    }
+
+    void serviceDataShortForm()
+    {
+        // Jetblack Victory / Zwift Hub: Flags + 1-byte type ("01 20")
+        const auto d = ftms::parseServiceData(bytes({ 0x01, 0x20 }));
+        QVERIFY(d);
+        QVERIFY(d->shortForm);
+        QVERIFY(d->available);
+        QVERIFY(d->indoorBike());
+        QCOMPARE(d->machineType, quint16(0x0020));
+        const auto rower = ftms::parseServiceData(bytes({ 0x01, 0x10 }));
+        QVERIFY(rower && rower->rowerOnly() && rower->shortForm);
+        // with the UUID in front
+        const auto prefixed = ftms::parseServiceData(bytes({ 0x26, 0x18, 0x01, 0x20 }));
+        QVERIFY(prefixed && prefixed->indoorBike() && prefixed->shortForm);
+        // the spec form is not short
+        QVERIFY(!ftms::parseServiceData(bytes({ 0x01, 0x20, 0x00 }))->shortForm);
     }
 
     // --- FTMS Rower Data (FTMS v1.0 §4.8) -------------------------------------

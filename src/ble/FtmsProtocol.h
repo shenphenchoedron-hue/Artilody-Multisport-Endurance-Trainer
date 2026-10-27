@@ -73,6 +73,7 @@ struct ServiceData
 {
     bool available = false;
     quint16 machineType = 0;
+    bool shortForm = false;   // 2-byte form: Flags + 1-byte type (Victory, Zwift Hub)
     bool rower() const { return machineType & MachineRower; }
     bool indoorBike() const { return machineType & MachineIndoorBike; }
     // A rower and not (also) an indoor bike: classify as rowing machine.
@@ -80,8 +81,10 @@ struct ServiceData
 };
 // `data` is the service data value as returned by
 // QBluetoothDeviceInfo::serviceData(0x1826), i.e. without the UUID. A copy that
-// still starts with the UUID (26 18) is accepted too. Returns nullopt when the
-// value is too short.
+// still starts with the UUID (26 18) is accepted too. The spec form is Flags +
+// UInt16 type; a 2-byte value (Flags + 1-byte type, sent by the Jetblack
+// Victory and the Zwift Hub: "01 20") is accepted leniently (shortForm).
+// Returns nullopt when the value is shorter than 2 bytes.
 std::optional<ServiceData> parseServiceData(const QByteArray &data);
 // "Rower, Indoor Bike" / "none"
 QString machineTypeText(quint16 machineType);
@@ -150,6 +153,41 @@ struct PowerRange
     int increment = 1;
 };
 std::optional<PowerRange> parsePowerRange(const QByteArray &data);
+
+// Supported Inclination Range (0x2AD5): sint16 minimum, sint16 maximum,
+// uint16 minimum increment, unit 0.1 %.
+struct InclinationRange
+{
+    double minimumPercent = 0;
+    double maximumPercent = 0;
+    double incrementPercent = 0.1;
+    // the trainer cannot simulate descents (negative grades)
+    bool noDescents() const { return minimumPercent >= 0.0; }
+    double clamp(double gradePercent) const;
+};
+std::optional<InclinationRange> parseInclinationRange(const QByteArray &data);
+
+// Fitness Machine Status (0x2ADA) op codes the trainer driver reacts to.
+enum class MachineStatus : quint8 {
+    Reset = 0x01,
+    StoppedOrPausedByUser = 0x02,
+    StoppedBySafetyKey = 0x03,
+    StartedOrResumedByUser = 0x04,
+    TargetResistanceChanged = 0x07,
+    TargetPowerChanged = 0x08,
+    SimulationParametersChanged = 0x12,
+    ControlPermissionLost = 0xFF,
+};
+
+// "gradient command" (0x11), "target power command" (0x05), "resistance
+// command" (0x04), "start command" (0x07), "control request" (0x00), ...
+// for user-facing messages.
+QString commandNoun(quint8 opCode);
+// User-facing text for a refused / unanswered control point command, e.g.
+// "Trainer rejected the gradient command (Invalid parameter)" or
+// "Trainer did not answer the gradient command (no response within 2 s)".
+QString rejectionText(quint8 opCode, quint8 result);
+QString timeoutText(quint8 opCode, int timeoutMs);
 
 struct ControlPointResponse
 {

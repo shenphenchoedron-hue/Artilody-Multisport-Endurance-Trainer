@@ -658,6 +658,11 @@ Item {
             readonly property var setup: Gears.gearSetup
             readonly property var rings: (setup.chainrings || []).slice().reverse()
             readonly property var cogs: setup.cogs || []
+            // the reference gear may be outside the setup (Zwift Cog preset, detected gear)
+            readonly property var refRings: rings.indexOf(Gears.referenceFrontTeeth) < 0
+                                            ? rings.concat([Gears.referenceFrontTeeth]) : rings
+            readonly property var refCogs: cogs.indexOf(Gears.referenceRearTeeth) < 0
+                                           ? cogs.concat([Gears.referenceRearTeeth]) : cogs
             width: parent ? parent.width : 0
             height: vgCol.implicitHeight + 24
             radius: 10
@@ -842,53 +847,88 @@ Item {
                         AppComboBox {
                             width: 96; height: 40
                             fontSize: 15
-                            model: vg.rings
-                            currentIndex: vg.rings.indexOf(Gears.referenceFrontTeeth)
-                            onActivated: (index) => Gears.setReferenceGear(vg.rings[index], Gears.referenceRearTeeth)
+                            model: vg.refRings
+                            currentIndex: vg.refRings.indexOf(Gears.referenceFrontTeeth)
+                            onActivated: (index) => Gears.setReferenceGearAny(vg.refRings[index], Gears.referenceRearTeeth)
                         }
                         Text { text: "×"; color: Theme.text; font.pixelSize: 17; anchors.verticalCenter: parent.verticalCenter }
                         AppComboBox {
                             width: 96; height: 40
                             fontSize: 15
-                            model: vg.cogs
-                            currentIndex: vg.cogs.indexOf(Gears.referenceRearTeeth)
-                            onActivated: (index) => Gears.setReferenceGear(Gears.referenceFrontTeeth, vg.cogs[index])
+                            model: vg.refCogs
+                            currentIndex: vg.refCogs.indexOf(Gears.referenceRearTeeth)
+                            onActivated: (index) => Gears.setReferenceGearAny(Gears.referenceFrontTeeth, vg.refCogs[index])
+                        }
+                        // single-cog trainers (Jetblack Victory, Zwift Hub, Kickr Core: 14T Zwift Cog)
+                        AppComboBox {
+                            objectName: "zwiftCogPresets"
+                            width: 168; height: 40
+                            fontSize: 14
+                            model: ["Zwift Cog…"].concat(Gears.cogPresets.map(p => p.label))
+                            currentIndex: 0
+                            onActivated: (index) => {
+                                if (index > 0) {
+                                    const p = Gears.cogPresets[index - 1]
+                                    Gears.setReferenceGearAny(p.front, p.rear)
+                                }
+                                currentIndex = 0
+                            }
                         }
                     }
                 }
-                // the real gear measured from the trainer's speed and cadence
-                Item {
+                // the real gear measured from the trainer's speed and cadence:
+                // only a PROMPT, never applied by itself
+                Text {
                     width: parent.width
-                    height: 26
+                    visible: Gears.referencePrompt === ""
+                    text: Gears.detectedRatio > 0
+                          ? "Detected on the trainer: " + (Gears.detectedLabel !== "" ? Gears.detectedLabel + " " : "")
+                            + "(" + Gears.detectedRatio.toFixed(2) + ")"
+                            + (Gears.detectedLooksVirtual ? " – follows the virtual gear (the trainer reports a simulated speed)"
+                               : Gears.detectedDiffers && !Gears.detectedStable ? " – checking…" : "")
+                          : "Detected on the trainer: pedal steadily for a few seconds (needs speed + cadence from the trainer)"
+                    color: Theme.textSecondary
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                }
+                Rectangle {
+                    objectName: "referencePrompt"
+                    visible: Gears.referencePrompt !== ""
+                    width: parent.width
+                    height: visible ? promptText.implicitHeight + 54 : 0
+                    radius: 8
+                    color: Qt.rgba(1, 0.65, 0.1, 0.10)
+                    border.color: Theme.warningText
                     Text {
-                        id: detectedText
-                        width: parent.width - (useDetected.visible ? useDetected.width + 12 : 0)
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: Gears.detectedRatio > 0
-                              ? "Detected on the trainer: " + (Gears.detectedLabel !== "" ? Gears.detectedLabel + " " : "")
-                                + "(" + Gears.detectedRatio.toFixed(2) + ")"
-                                + (Gears.detectedDiffers ? " – used instead of " + Gears.referenceLabel : "")
-                              : "Detected on the trainer: pedal steadily for a few seconds (needs speed + cadence from the trainer)"
-                        color: Gears.detectedDiffers ? Theme.warningText : Theme.textSecondary
+                        id: promptText
+                        x: 12; y: 8
+                        width: parent.width - 24
+                        text: Gears.referencePrompt
+                        color: Theme.warningText
                         font.pixelSize: 14
-                        elide: Text.ElideRight
+                        wrapMode: Text.WordWrap
                     }
-                    Text {
-                        id: useDetected
-                        visible: Gears.detectedDiffers && Gears.detectedLabel !== ""
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Save " + Gears.detectedLabel
-                        color: Theme.accentText
-                        font.pixelSize: 14
-                        font.underline: useArea.containsMouse
-                        MouseArea {
-                            id: useArea
-                            anchors.fill: parent
-                            anchors.margins: -4
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                    Row {
+                        x: 12
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 6
+                        spacing: 10
+                        AppButton {
+                            height: 32
+                            fontSize: 13
+                            bold: false
+                            horizontalPadding: 12
+                            text: "Use detected gear" + (Gears.detectedLabel !== "" ? " (" + Gears.detectedLabel + ")" : "")
                             onClicked: Gears.useDetectedGear()
+                        }
+                        AppButton {
+                            height: 32
+                            fontSize: 13
+                            bold: false
+                            horizontalPadding: 12
+                            kind: "secondary"
+                            text: "Keep " + Gears.referenceLabel
+                            onClicked: Gears.dismissReferencePrompt()
                         }
                     }
                 }
@@ -1001,6 +1041,8 @@ Item {
                     { k: "Connection mode", v: "Bluetooth Low Energy" },
                     { k: "Signal", v: Devices.trainerState === 2 ? (Devices.trainerRssi >= -75 ? "Stable" : "Weak") : "–", good: Devices.trainerRssi >= -75 },
                     { k: "Last scan", v: Devices.lastScanText },
+                    { k: "Trainer control", v: Devices.trainerControlStatus.length > 0 ? Devices.trainerControlStatus : "–",
+                      problem: Devices.trainerControlProblem },
                     { k: "Rower data", v: Devices.rowerConnected
                                           ? Devices.rowerDataSource + "  •  " + Devices.rowerStrokesPerMinute + " SPM"
                                             + (Devices.rowerStrokeRateEstimated ? " (from stroke timing)" : "")
@@ -1008,8 +1050,8 @@ Item {
                 ]
                 Item {
                     width: parent.width
-                    // five rows share the space below the header
-                    height: Math.max(26, Math.min(36, (diagCard.height - 64 - 8) / 5))
+                    // six rows share the space below the header
+                    height: Math.max(24, Math.min(36, (diagCard.height - 64 - 8) / 6))
                     Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
                     Text { x: 6; anchors.verticalCenter: parent.verticalCenter; text: modelData.k; color: Theme.text; font.pixelSize: 17 }
                     Text {
@@ -1018,7 +1060,8 @@ Item {
                         elide: Text.ElideRight
                         anchors.verticalCenter: parent.verticalCenter
                         text: modelData.v
-                        color: modelData.k === "Signal" && modelData.v === "Stable" ? Theme.success : Theme.textSecondary
+                        color: modelData.problem ? Theme.warningText
+                               : modelData.k === "Signal" && modelData.v === "Stable" ? Theme.success : Theme.textSecondary
                         font.pixelSize: 17
                     }
                 }
@@ -1101,6 +1144,20 @@ Item {
                         Icon { name: "signal"; size: 20; color: Theme.success; anchors.verticalCenter: parent.verticalCenter }
                         Text { text: Devices.signalText(Devices.trainerRssi); color: Theme.text; font.pixelSize: 16 }
                     }
+                }
+                // what the trainer ACTUALLY does (from its answers), or the problem
+                Text {
+                    objectName: "trainerControlStatus"
+                    visible: Devices.trainerState === 2 && Devices.trainerControlStatus.length > 0
+                    width: trainerCard.width - 200 - 18
+                    text: Devices.trainerControlStatus
+                          + (Devices.trainerInclinationNote.length > 0 ? "  •  " + Devices.trainerInclinationNote : "")
+                    color: Devices.trainerControlProblem ? Theme.warningText : Theme.textSecondary
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    ToolTip.visible: statusHover.containsMouse
+                    ToolTip.text: text
+                    MouseArea { id: statusHover; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
                 }
             }
             Rectangle {
@@ -1461,6 +1518,15 @@ Item {
                 bold: false
                 onClicked: if (!Devices.scanning) Devices.startScan()
             }
+            AppButton {
+                objectName: "gradientTestButton"
+                kind: "secondary"
+                iconName: "trendUp"
+                text: "Gradient test…"
+                fontSize: 16
+                bold: false
+                onClicked: gradientDialog.open()
+            }
             Text {
                 id: copiedHint
                 visible: false
@@ -1485,6 +1551,138 @@ Item {
                 text: "Close"
                 onClicked: diagDialog.close()
             }
+        }
+    }
+
+    // Screenshot aid (WATT_SCREENSHOT_MENU=diagnostics / gradienttest, see Main.qml):
+    // "" closes both.
+    function openScreenshotDialog(name) {
+        if (name === "diagnostics")
+            diagDialog.show()
+        else if (diagDialog.visible)
+            diagDialog.close()
+        if (name === "gradienttest")
+            gradientDialog.open()
+        else if (gradientDialog.visible && !Devices.gradientTest.running)
+            gradientDialog.close()
+    }
+
+    // --- gradient test (simulation only) ---------------------------------------------------
+    AppDialog {
+        id: gradientDialog
+        objectName: "gradientTestDialog"
+        readonly property var test: Devices.gradientTest
+        title: "Gradient test"
+        panelWidth: 760
+        panelHeight: 600
+        closable: !test.running
+        Text {
+            x: 28; y: 72
+            width: gradientDialog.panelWidth - 56
+            text: "Finds out whether your trainer really simulates descents. Pedal steadily at about 90 rpm in any real gear "
+                  + "and keep it there: the app sends the gradients +2 %, 0 %, −2 % and −5 % (FTMS simulation, 20 s each) "
+                  + "and measures power, speed and cadence. Virtual gears are not used during the test; afterwards "
+                  + "the previous command is restored. Everything goes to the diagnostic log."
+            color: Theme.textSecondary
+            font.pixelSize: 14
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            x: 28; y: 168
+            width: gradientDialog.panelWidth - 56
+            text: gradientDialog.test.running
+                  ? gradientDialog.test.status + "  •  " + gradientDialog.test.secondsLeft + " s left  •  "
+                    + Sensors.power + " W  " + Sensors.cadence + " rpm  " + Sensors.speedKmh.toFixed(1) + " km/h"
+                  : (gradientDialog.test.status.length > 0 ? gradientDialog.test.status : "Not started")
+            color: Theme.text
+            font.pixelSize: 16
+            font.weight: Font.DemiBold
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            x: 28; y: 196
+            width: gradientDialog.panelWidth - 56
+            visible: Devices.trainerControlStatus.length > 0
+            text: "Trainer: " + Devices.trainerControlStatus
+            color: Devices.trainerControlProblem ? Theme.warningText : Theme.textSecondary
+            font.pixelSize: 14
+            elide: Text.ElideRight
+        }
+        // result table
+        Column {
+            objectName: "gradientTestTable"
+            x: 28; y: 230
+            width: gradientDialog.panelWidth - 56
+            Repeater {
+                model: [{ h: true }].concat(gradientDialog.test.results)
+                Item {
+                    width: parent.width
+                    height: 34
+                    Rectangle { width: parent.width; height: 1; color: Theme.cardBorder; anchors.bottom: parent.bottom }
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: 6
+                        Repeater {
+                            model: modelData.h
+                                   ? ["Grade", "Power", "Speed", "Cadence", "Force", "Trainer"]
+                                   : [(modelData.grade > 0 ? "+" : modelData.grade < 0 ? "−" : "") + Math.abs(modelData.grade) + " %",
+                                      modelData.done || modelData.samples > 0 ? modelData.power + " W" : "–",
+                                      modelData.done || modelData.samples > 0 ? modelData.speedKmh.toFixed(1) + " km/h" : "–",
+                                      modelData.done || modelData.samples > 0 ? modelData.cadence + " rpm" : "–",
+                                      modelData.done && modelData.force > 0 ? modelData.force.toFixed(1) + " N" : "–",
+                                      !modelData.done ? "" : modelData.accepted ? "accepted" : "not confirmed"]
+                            Text {
+                                width: index === 5 ? 150 : 106
+                                text: modelData
+                                color: index === 5 && text === "not confirmed" ? Theme.warningText : Theme.text
+                                font.pixelSize: 15
+                                font.weight: parent.parent.modelHeader ? Font.DemiBold : Font.Normal
+                            }
+                        }
+                    }
+                    readonly property bool modelHeader: modelData.h === true
+                }
+            }
+        }
+        Text {
+            objectName: "gradientTestVerdict"
+            x: 28; y: 230 + 5 * 34 + 14
+            width: gradientDialog.panelWidth - 56
+            visible: gradientDialog.test.verdict.length > 0
+            text: "Result: " + gradientDialog.test.verdict
+            color: Theme.text
+            font.pixelSize: 15
+            wrapMode: Text.WordWrap
+        }
+        Row {
+            x: 28
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 24
+            spacing: 12
+            AppButton {
+                objectName: "gradientTestStart"
+                iconName: "play"
+                text: "Start"
+                enabled: !gradientDialog.test.running && Devices.trainerState === 2 && !Training.active
+                onClicked: Devices.startGradientTest()
+            }
+            AppButton {
+                kind: "secondary"
+                iconName: "stop"
+                text: "Stop"
+                bold: false
+                enabled: gradientDialog.test.running
+                onClicked: Devices.stopGradientTest()
+            }
+        }
+        AppButton {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            kind: "secondary"
+            text: "Close"
+            enabled: !gradientDialog.test.running
+            onClicked: gradientDialog.close()
         }
     }
 

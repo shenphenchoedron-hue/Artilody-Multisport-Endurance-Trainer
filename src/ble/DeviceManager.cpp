@@ -1,5 +1,7 @@
 #include "DeviceManager.h"
 
+#include "GradientTest.h"
+
 #include "BleHeartRateSensor.h"
 #include "BleTrainer.h"
 #include "Database.h"
@@ -102,12 +104,13 @@ QString ftmsServiceDataText(const QBluetoothDeviceInfo &info)
     const auto d = ftms::parseServiceData(raw);
     if (!d)
         return QStringLiteral("malformed (%1)").arg(QString::fromLatin1(raw.toHex(' ')));
-    return QStringLiteral("machine %1, type 0x%2 (%3) -> %4  [raw %5]")
+    return QStringLiteral("machine %1, type 0x%2 (%3) -> %4%6  [raw %5]")
         .arg(d->available ? QStringLiteral("available") : QStringLiteral("not available"))
         .arg(d->machineType, 4, 16, QLatin1Char('0'))
         .arg(ftms::machineTypeText(d->machineType),
              d->rowerOnly() ? QStringLiteral("rower") : d->indoorBike() ? QStringLiteral("indoor bike") : QStringLiteral("other"),
-             QString::fromLatin1(raw.toHex(' ')));
+             QString::fromLatin1(raw.toHex(' ')),
+             d->shortForm ? QStringLiteral(" (short 2-byte form, accepted)") : QString());
 }
 
 QString uuidText(const QBluetoothUuid &u)
@@ -181,17 +184,23 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
     // Route ERG requests from the (cycling) training session to the trainer.
     // The rower only follows RowingSession (RowerDevice::requestTargetPower()).
     connect(m_hub, &SensorHub::targetPowerRequested, this, [this](int watts) {
-        if (m_trainer && !m_ergTest)
+        if (m_trainer && sessionOwnsTrainer())
             m_trainer->setTargetPower(watts);
     });
     connect(m_hub, &SensorHub::freeRideRequested, this, [this] {
-        if (m_trainer && !m_ergTest)
+        if (m_trainer && sessionOwnsTrainer())
             m_trainer->setFreeRide();
     });
     connect(m_hub, &SensorHub::simulationRequested, this, [this](double grade, double wind, double crr, double cw) {
         m_simWind = wind;
-        if (m_trainer && !m_ergTest)
+        if (m_trainer && sessionOwnsTrainer())
             m_trainer->setSimulation(grade, wind, crr, cw);
+    });
+
+    m_gradientTest = new GradientTest(m_hub, this);
+    connect(m_gradientTest, &GradientTest::finished, this, [this] {
+        addLog(QStringLiteral("Gradient test: %1 – %2").arg(m_gradientTest->status(), m_gradientTest->verdict()), true);
+        restoreSessionCommand();
     });
     // the virtual trainer simulates with the app's rider + bike (a real
     // trainer uses its own weight setting: FTMS 0x11 has no weight)
@@ -930,6 +939,40 @@ QString DeviceManager::diagnosticsReport() const
         << "  virtual devices: " << (m_simulatorEnabled ? "on" : "off") << "\n";
     if (m_rower)
         out << "Active rower: " << m_rower->name() << " " << m_rower->id() << " state " << int(m_rower->state()) << "\n";
+    out << "\n[Trainer control]\n";
+    if (m_trainer) {
+        out << "Trainer: " << m_trainer->name() << "  state " << int(m_trainer->state())
+            << "  gradient simulation: "
+            << (m_trainer->simulationSupport() > 0 ? "supported" : m_trainer->simulationSupport() == 0 ? "not supported" : "unknown")
+            << "\n";
+        out << "Actual mode (from the trainer's answers): "
+            << (m_trainer->trainerMode().isEmpty() ? QStringLiteral("-") : m_trainer->trainerMode()) << "\n";
+        out << "Status: " << (m_trainer->controlStatus().isEmpty() ? QStringLiteral("-") : m_trainer->controlStatus())
+            << (m_trainer->controlProblem() ? "  (PROBLEM)" : "") << "\n";
+        out << "Supported inclination range: "
+            << (m_trainer->inclinationRangeKnown() ? QStringLiteral("%1 … %2 %")
+                                                         .arg(m_trainer->minInclinationPercent(), 0, 'f', 1)
+                                                         .arg(m_trainer->maxInclinationPercent(), 0, 'f', 1)
+                                                   : QStringLiteral("not reported by the trainer (no 0x2AD5 – grades sent unclamped)"))
+            << "\n";
+        if (!m_trainer->inclinationNote().isEmpty())
+            out << "Note: " << m_trainer->inclinationNote() << "\n";
+    } else {
+        out << "No trainer selected\n";
+    }
+    if (m_gradientTest && (m_gradientTest->running() || !m_gradientTest->verdict().isEmpty())) {
+        out << "Gradient test: " << m_gradientTest->status() << "\n";
+        for (const GradientTest::Step &st : m_gradientTest->steps())
+            out << QStringLiteral("  %1 %: %2 W  %3 km/h  %4 rpm  %5 N  %6\n")
+                       .arg(st.grade, 5, 'f', 1)
+                       .arg(st.power(), 0, 'f', 0)
+                       .arg(st.speedKmh(), 0, 'f', 1)
+                       .arg(st.cadence(), 0, 'f', 0)
+                       .arg(st.force(), 0, 'f', 1)
+                       .arg(!st.done ? QStringLiteral("not run") : st.accepted ? QStringLiteral("accepted") : QStringLiteral("not confirmed"));
+        if (!m_gradientTest->verdict().isEmpty())
+            out << "  Verdict: " << m_gradientTest->verdict() << "\n";
+    }
     out << "\n[Controllers]\n";
     if (m_controllerDevs.isEmpty())
         out << "No controller selected\n";
@@ -1561,6 +1604,7 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
             sim->setLoad(watts);
     });
     connect(t, &TrainerDevice::capabilitiesChanged, this, &DeviceManager::devicesChanged);
+    connect(t, &TrainerDevice::controlStatusChanged, this, &DeviceManager::trainerStatusChanged);
     auto simSupport = [this, t] { m_hub->setTrainerSimulationSupport(t->simulationSupport()); };
     connect(t, &TrainerDevice::simulationSupportChanged, this, simSupport);
     connect(t, &TrainerDevice::capabilitiesChanged, this, simSupport);
@@ -1592,7 +1636,9 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
             emit ergTestChanged();
         }
         emit devicesChanged();
+        emit trainerStatusChanged();
     });
+    emit trainerStatusChanged();
 }
 
 void DeviceManager::attachHeartRate(HeartRateDevice *h)
@@ -1670,6 +1716,9 @@ void DeviceManager::releaseTrainer()
     t->deleteLater();
     m_hub->setTrainerConnected(false);
     m_hub->setTrainerSimulationSupport(-1);
+    QTimer::singleShot(0, this, &DeviceManager::trainerStatusChanged);
+    if (gradientTestRunning())
+        m_gradientTest->stop();
     if (m_ergTest) {
         m_ergTest = false;
         emit ergTestChanged();
@@ -1780,15 +1829,68 @@ void DeviceManager::stopErgTest()
         return;
     m_ergTest = false;
     emit ergTestChanged();
-    if (m_trainer) {
-        if (m_hub->requestedTarget() > 0)
-            m_trainer->setTargetPower(m_hub->requestedTarget());
-        else if (m_hub->simulationActive())
-            m_trainer->setSimulation(m_hub->requestedGrade(), m_simWind, m_hub->simulationCrr(), m_hub->simulationCw());
-        else
-            m_trainer->setFreeRide();
-    }
+    restoreSessionCommand();
     addLog(QStringLiteral("ERG test stopped"), true);
+}
+
+bool DeviceManager::sessionOwnsTrainer() const
+{
+    return !m_ergTest && !gradientTestRunning();
+}
+
+bool DeviceManager::gradientTestRunning() const
+{
+    return m_gradientTest && m_gradientTest->running();
+}
+
+void DeviceManager::restoreSessionCommand()
+{
+    if (!m_trainer || !sessionOwnsTrainer())
+        return;
+    if (m_hub->requestedTarget() > 0)
+        m_trainer->setTargetPower(m_hub->requestedTarget());
+    else if (m_hub->simulationActive())
+        m_trainer->setSimulation(m_hub->requestedGrade(), m_simWind, m_hub->simulationCrr(), m_hub->simulationCw());
+    else
+        m_trainer->setFreeRide();
+}
+
+bool DeviceManager::startGradientTest()
+{
+    if (m_ergTest)
+        stopErgTest();
+    QString error;
+    if (!m_gradientTest->start(m_trainer, m_hub->simulationCrr(), m_hub->simulationCw(), &error)) {
+        addLog(QStringLiteral("Gradient test: %1").arg(error), false);
+        return false;
+    }
+    addLog(QStringLiteral("Gradient test started: +2, 0, −2, −5 % for %1 s each – pedal steadily").arg(GradientTest::kStepSeconds), true);
+    return true;
+}
+
+void DeviceManager::stopGradientTest()
+{
+    m_gradientTest->stop();
+}
+
+QString DeviceManager::trainerMode() const
+{
+    return m_trainer ? m_trainer->trainerMode() : QString();
+}
+
+QString DeviceManager::trainerControlStatus() const
+{
+    return m_trainer ? m_trainer->controlStatus() : QString();
+}
+
+bool DeviceManager::trainerControlProblem() const
+{
+    return m_trainer && m_trainer->controlProblem();
+}
+
+QString DeviceManager::trainerInclinationNote() const
+{
+    return m_trainer ? m_trainer->inclinationNote() : QString();
 }
 
 // --- log + preferences -----------------------------------------------------

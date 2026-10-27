@@ -627,7 +627,9 @@ int main(int argc, char *argv[])
     //                                  added to the screenshot database when no workout matches)
     //   WATT_SCREENSHOT_RLV_MODE       sim (default) | erg (ERG target 200 W) | gears
     //                                  (= sim with virtual gears on)
-    //                                  (WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
+    //                                  (WATT_SIM_TRAINER_REJECT_DESCENTS=1: the virtual trainer
+    //                                  answers negative grades with "Invalid parameter";
+    //                                  WATT_SIM_TRAINER_NO_SIM=1: virtual trainer without
     //                                  gradient simulation -> the fallback note)
     //   WATT_SCREENSHOT_MENU           comma list of menus to capture instead of the
     //                                  pages (menu-<name>.png): calendar, workouts,
@@ -635,6 +637,8 @@ int main(int argc, char *argv[])
     //                                  (music: the music library dialog,
     //                                  gearsetup: the free ride gear setup dialog,
     //                                  settings: the settings dialog,
+    //                                  diagnostics / gradienttest: Devices > Bluetooth
+    //                                  Diagnostics report / Gradient test dialog,
     //                                  calendar-add / calendar-add-freeride / calendar-add-video:
     //                                  the calendar's Add dialog on that tab,
     //                                  calendar-edit: the Edit dialog of today's first

@@ -357,6 +357,12 @@ Item {
                             font.pixelSize: 14
                             elide: Text.ElideRight
                         }
+                        TrainerStatusNotice {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: implicitHeight
+                            gears: true
+                            namePrefix: "freeRide"
+                        }
                     }
                     ShiftButton {
                         id: harderButton
@@ -410,6 +416,12 @@ Item {
                             color: Theme.text
                             font.pixelSize: 15
                             font.weight: Font.DemiBold
+                        }
+                        TrainerStatusNotice {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: implicitHeight
+                            gears: false
+                            namePrefix: "freeRideReal"
                         }
                         AppButton {
                             Layout.alignment: Qt.AlignHCenter

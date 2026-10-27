@@ -31,16 +31,27 @@ public:
     static constexpr double kMaxRatio = 6.0;
     static constexpr double kChangeThreshold = 0.02;   // a new result differs by more
 
+    // A result counts as stable once later steady windows (at most one per
+    // kWindowMs) confirmed it kStableConfirmations times (~18 s of steady
+    // pedaling): only then the app suggests it to the rider.
+    static constexpr int kStableConfirmations = 2;
+
     // true when ratio() changed
     bool addSample(qint64 ms, double cadenceRpm, double speedMps, int circumferenceMm);
     bool valid() const { return m_ratio > 0; }
     double ratio() const { return m_ratio; }
+    int confirmations() const { return m_confirmations; }
+    bool stable() const { return valid() && m_confirmations >= kStableConfirmations; }
+    // ratio of the last steady sample (diagnostics), 0 = none
+    double lastSampleRatio() const { return m_window.isEmpty() ? 0.0 : m_window.constLast().ratio; }
     void clear();
 
 private:
     struct Sample { qint64 ms; double ratio; };
     QVector<Sample> m_window;
     double m_ratio = 0;
+    int m_confirmations = 0;
+    qint64 m_lastResultMs = 0;
 };
 
 // Resistance commands of the riding sessions (Free Ride, Video Ride), rate

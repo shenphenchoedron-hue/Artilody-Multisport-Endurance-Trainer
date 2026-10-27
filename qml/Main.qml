@@ -101,6 +101,8 @@ ApplicationWindow {
         case "profiledialog": showPage("dashboard"); profileDialog.openFor(false); break
         case "videofinish": showPage("video"); videoFinishDialog.open(); break
         case "settings": showPage("dashboard"); settingsDialog.open(); break
+        case "diagnostics": showPage("devices"); devicesPage.openScreenshotDialog("diagnostics"); break
+        case "gradienttest": showPage("devices"); devicesPage.openScreenshotDialog("gradienttest"); break
         default: console.warn("openScreenshotMenu: unknown menu", name)
         }
         // show the keyboard highlight (the destructive entry on the calendar menu)
@@ -118,6 +120,7 @@ ApplicationWindow {
             videoFinishDialog.close()
         if (settingsDialog.visible)
             settingsDialog.close()
+        devicesPage.openScreenshotDialog("")
         calendarPage.closeDialogs()
         if (screenshotMenu)
             screenshotMenu.close()

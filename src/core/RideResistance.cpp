@@ -41,6 +41,8 @@ void GearRatioDetector::clear()
 {
     m_window.clear();
     m_ratio = 0;
+    m_confirmations = 0;
+    m_lastResultMs = 0;
 }
 
 bool GearRatioDetector::addSample(qint64 ms, double cadenceRpm, double speedMps, int circumferenceMm)
@@ -66,9 +68,16 @@ bool GearRatioDetector::addSample(qint64 ms, double cadenceRpm, double speedMps,
     const double mean = sum / m_window.size();
     if (hi > mean * (1 + kMaxSpread) || lo < mean * (1 - kMaxSpread))
         return false;   // speed and cadence do not agree yet (accelerating flywheel)
-    if (m_ratio > 0 && std::abs(mean - m_ratio) <= m_ratio * kChangeThreshold)
+    if (m_ratio > 0 && std::abs(mean - m_ratio) <= m_ratio * kChangeThreshold) {
+        if (ms - m_lastResultMs >= kWindowMs) {
+            ++m_confirmations;   // another full steady window agrees
+            m_lastResultMs = ms;
+        }
         return false;
+    }
     m_ratio = std::round(mean * 1000.0) / 1000.0;
+    m_confirmations = 0;
+    m_lastResultMs = ms;
     return true;
 }
 

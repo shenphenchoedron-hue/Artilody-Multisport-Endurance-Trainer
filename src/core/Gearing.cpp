@@ -115,6 +115,12 @@ GearSetup GearSetup::normalized() const
     s.bikeWeightKg = std::isfinite(bikeWeightKg) ? std::clamp(bikeWeightKg, 0.0, 60.0) : 9.0;
     s.cda = std::isfinite(cda) ? std::clamp(cda, 0.1, 1.0) : road::kReferenceCda;
     s.crr = std::isfinite(crr) ? std::clamp(crr, 0.001, 0.05) : 0.004;
+    const bool customOk = s.referenceCustom && s.referenceFrontTeeth >= kMinReferenceRing
+                          && s.referenceFrontTeeth <= kMaxReferenceRing && s.referenceRearTeeth >= kMinReferenceCog
+                          && s.referenceRearTeeth <= kMaxReferenceCog;
+    if (customOk)
+        return s;   // a gear outside the setup on purpose (Zwift Cog, detected gear)
+    s.referenceCustom = false;
     if (!s.chainrings.contains(s.referenceFrontTeeth))
         s.referenceFrontTeeth = s.chainrings.constLast();
     if (!s.cogs.contains(s.referenceRearTeeth)) {
@@ -167,7 +173,8 @@ QJsonObject GearSetup::toJson() const
                          { QStringLiteral("cda"), cda },
                          { QStringLiteral("crr"), crr },
                          { QStringLiteral("refFront"), referenceFrontTeeth },
-                         { QStringLiteral("refRear"), referenceRearTeeth } };
+                         { QStringLiteral("refRear"), referenceRearTeeth },
+                         { QStringLiteral("refCustom"), referenceCustom } };
 }
 
 GearSetup GearSetup::fromJson(const QJsonObject &o)
@@ -200,6 +207,7 @@ GearSetup GearSetup::fromJson(const QJsonObject &o)
     s.crr = o.value(QStringLiteral("crr")).toDouble(0.004);
     s.referenceFrontTeeth = o.value(QStringLiteral("refFront")).toInt(s.referenceFrontTeeth);
     s.referenceRearTeeth = o.value(QStringLiteral("refRear")).toInt(s.referenceRearTeeth);
+    s.referenceCustom = o.value(QStringLiteral("refCustom")).toBool(false);
     return s.normalized();
 }
 
@@ -225,7 +233,21 @@ bool GearSetup::operator==(const GearSetup &o) const
            && qFuzzyCompare(bikeWeightKg + 1, o.bikeWeightKg + 1) && cdaAuto == o.cdaAuto
            && qFuzzyCompare(cda + 1, o.cda + 1)
            && qFuzzyCompare(crr + 1, o.crr + 1) && referenceFrontTeeth == o.referenceFrontTeeth
-           && referenceRearTeeth == o.referenceRearTeeth;
+           && referenceRearTeeth == o.referenceRearTeeth && referenceCustom == o.referenceCustom;
+}
+
+QVariantList GearSetup::cogPresets()
+{
+    QVariantList out;
+    for (int ring : { 34, 36, 38, 39, 40, 42, 44, 46, 48, 50, 52, 53 }) {
+        QVariantMap m;
+        m.insert(QStringLiteral("label"), QStringLiteral("%1×%2 (Zwift Cog)").arg(ring).arg(kZwiftCogTeeth));
+        m.insert(QStringLiteral("front"), ring);
+        m.insert(QStringLiteral("rear"), kZwiftCogTeeth);
+        m.insert(QStringLiteral("ratio"), double(ring) / kZwiftCogTeeth);
+        out.append(m);
+    }
+    return out;
 }
 
 QVariantList GearSetup::chainringPresets()

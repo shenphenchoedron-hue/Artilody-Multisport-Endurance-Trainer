@@ -99,12 +99,26 @@ class VirtualGears : public QObject
     Q_PROPERTY(QString shiftMethod READ shiftMethod WRITE setShiftMethod NOTIFY shiftMethodChanged)
     // The real gear on the trainer measured from its speed and cadence
     // (GearRatioDetector); 0 / "" until detected. Never changes the saved
-    // reference gear; path a uses it instead while it is known
-    // (effectiveReferenceRatio()).
+    // reference gear and is never used by itself: it only PROMPTS the rider
+    // (referencePrompt, useDetectedGear()) - a trainer may report a simulated
+    // speed instead of its flywheel speed.
     Q_PROPERTY(double detectedRatio READ detectedRatio NOTIFY detectionChanged)
-    Q_PROPERTY(QString detectedLabel READ detectedLabel NOTIFY detectionChanged)   // "50×17" (nearest of the setup) or ""
+    // "44×14" (nearest of the setup and the Zwift Cog presets, preferring the
+    // reference chainring) or ""
+    Q_PROPERTY(QString detectedLabel READ detectedLabel NOTIFY detectionChanged)
     // detected and more than kDetectMismatch away from the saved reference gear
     Q_PROPERTY(bool detectedDiffers READ detectedDiffers NOTIFY detectionChanged)
+    // the detection was confirmed by later steady windows (GearRatioDetector::stable())
+    Q_PROPERTY(bool detectedStable READ detectedStable NOTIFY detectionChanged)
+    // the detected ratio follows the virtual gear: the trainer reports a simulated speed
+    Q_PROPERTY(bool detectedLooksVirtual READ detectedLooksVirtual NOTIFY detectionChanged)
+    // "Your trainer reports 44×14 (3.14) but the setting is 50×17 (2.94) —
+    // use the detected gear?" while a stable detection differs from the
+    // reference (and does not just follow the virtual gear); "" otherwise.
+    Q_PROPERTY(QString referencePrompt READ referencePrompt NOTIFY detectionChanged)
+    // the reference gear is outside the setup (Zwift Cog preset / detected)
+    Q_PROPERTY(bool referenceCustom READ referenceCustom NOTIFY gearSetupChanged)
+    Q_PROPERTY(QVariantList cogPresets READ cogPresets CONSTANT)
     // the real gear is heavier than kHeavyReferenceRatio: suggest a small one
     Q_PROPERTY(bool heavyRealGear READ heavyRealGear NOTIFY detectionChanged)
     Q_PROPERTY(double referenceRatio READ referenceRatio NOTIFY gearSetupChanged)
@@ -184,9 +198,18 @@ public:
     double detectedRatio() const { return m_detector.ratio(); }
     QString detectedLabel() const;
     bool detectedDiffers() const;
+    bool detectedStable() const { return m_detector.stable(); }
+    // the trainer's speed seems to follow the VIRTUAL gear (a simulated
+    // speed, not the flywheel): such a detection is not offered
+    bool detectedLooksVirtual() const { return m_detectLooksVirtual; }
+    QString referencePrompt() const;
+    Q_INVOKABLE void dismissReferencePrompt();
+    bool referenceCustom() const { return setup().referenceCustom; }
+    static QVariantList cogPresets() { return GearSetup::cogPresets(); }
     bool heavyRealGear() const;
-    // The real gear ratio path a works with: detected, else the saved reference.
-    double effectiveReferenceRatio() const { return m_detector.valid() ? m_detector.ratio() : referenceRatio(); }
+    // The real gear ratio path a works with: the saved reference gear (the
+    // detected one only after the rider accepted it, useDetectedGear()).
+    double effectiveReferenceRatio() const { return referenceRatio(); }
     // Feeds the detector (also called from the hub's speed / cadence updates).
     void addTrainerSample(qint64 ms, double cadenceRpm, double speedMps);
     Q_INVOKABLE void clearDetection();
@@ -248,6 +271,9 @@ public:
     Q_INVOKABLE bool setBikePhysics(double bikeWeightKg, double cda, double crr, bool cdaAuto = false);
     // Teeth of the real gear on the trainer; snapped to the setup.
     Q_INVOKABLE bool setReferenceGear(int frontTeeth, int rearTeeth);
+    // Any plausible real gear (GearSetup::kMin/kMaxReference*), also outside
+    // the setup (Zwift Cog presets, detected gear).
+    Q_INVOKABLE bool setReferenceGearAny(int frontTeeth, int rearTeeth);
     Q_INVOKABLE void resetGearSetup();
     Q_INVOKABLE QString validateGearSetup(const QVariantList &chainrings, const QVariantList &cogs,
                                           int circumferenceMm) const;
@@ -313,6 +339,9 @@ private:
     RideResistance::GearMethod m_method = RideResistance::GearMethod::Gradient;
     GearRatioDetector m_detector;
     QElapsedTimer m_detectClock;
+    bool m_detectLooksVirtual = false;
+    double m_promptDismissedRatio = 0;   // dismissReferencePrompt() for this detection
+    qint64 m_lastDetectLogMs = -100000;
 };
 
 } // namespace watt

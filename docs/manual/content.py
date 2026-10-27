@@ -451,9 +451,13 @@ def build(s, env):
         "what the trainer answered and measured.")
     s.p(f"<b>Detected gear and a small real gear.</b> When the trainer reports speed and cadence, the card shows "
         "the gear the bike really sits in, measured while you pedal steadily (real ratio = speed ÷ (cadence × "
-        "wheel circumference)), e.g. <i>Detected on the trainer: 50×17 (2.94)</i>. The gradient calculation "
-        f"uses it instead of {UI('Bike on the trainer')}; the saved gear changes only if you click "
-        f"{UI('Save 34×17')}. Tip: put the bike in a small real gear such as 34 × 17 – the flywheel then spins at "
+        "wheel circumference)), e.g. <i>Detected on the trainer: 50×17 (2.94)</i>. The app never uses it by "
+        "itself: once the detected gear has been stable for about 18 s and differs from "
+        f"{UI('Bike on the trainer')}, the card and the ride page ask <i>“Your trainer reports 44×14 (3.14) but "
+        "the setting is 50×17 (2.94) — use the detected gear?”</i> with "
+        f"{UI('Use detected gear')} and {UI('Keep 50×17')}. Single-cog trainers with the 14T Zwift Cog "
+        f"(Jetblack Victory, Zwift Hub, Kickr Core Zwift One): choose a preset from {UI('Zwift Cog…')} next to "
+        f"{UI('Bike on the trainer')}, e.g. <i>50×14 (Zwift Cog)</i>. Tip: put the bike in a small real gear such as 34 × 17 – the flywheel then spins at "
         "23 km/h instead of 33 km/h at 90 rpm (about 70 W instead of 185 W at 0 %), so the easy virtual gears "
         "and descents get lighter.")
     s.p("<b>The grade you feel.</b> Video Ride uses the grade at your position looking slightly ahead "
@@ -547,11 +551,45 @@ def build(s, env):
     ], [1.9, 4.0])
     s.p("All preferences are saved in the database and kept between sessions.")
 
+    s.section("Trainer status and rejected commands")
+    s.p("The app shows what the trainer <i>actually</i> does, taken from its answers on the FTMS Control Point and "
+        f"its Fitness Machine Status – in {UI('Selected Trainer')}, in the row {UI('Trainer control')} of "
+        "Bluetooth Diagnostics and, when something is wrong, as a yellow note on Video Ride and Free Ride:")
+    s.table(["Text", "Meaning"], [
+        ["Simulation – trainer accepted −2.00 %", "the last gradient command was confirmed"],
+        ["ERG – trainer accepted 200 W", "the trainer holds the watts"],
+        ["Trainer rejected the gradient command (Invalid parameter)",
+         "result code 0x03; also <i>(Operation failed)</i> 0x04, <i>(Control not permitted)</i> 0x05, "
+         "<i>(Op Code not supported)</i> 0x02"],
+        ["Trainer did not answer the gradient command (no response within 2 s)", "no indication within 2 s"],
+        ["Trainer stopped / paused", "the trainer reported stop/pause – the app starts it again and re-sends the command"],
+        ["Trainer control lost – requesting it again", "control permission lost (another app, a reset) – the app asks again and re-sends"],
+        ["Trainer doesn't report its gradient range", "no Supported Inclination Range (0x2AD5), e.g. "
+         "Jetblack Victory – grades are sent unclamped (−10 … 20 %)"],
+    ], [2.6, 3.0])
+    s.p("Rejected and unanswered commands are retried after 1, 2 and 4 s (at most three times); the next "
+        "regular command is sent as usual. The app never shows “simulation” when the last gradient command was "
+        "not accepted. Trainers without the optional Training Status (0x2AD3) or inclination range work "
+        "without waiting for them.")
+
+    s.section("Gradient test")
+    s.p(f"Devices → {UI('Bluetooth Diagnostics')} → {UI('Details…')} → {UI('Gradient test…')} checks whether the "
+        "trainer really simulates descents. Put the bike in any real gear and pedal steadily at about 90 rpm, "
+        f"then press {UI('Start')}. The app sends +2 %, 0 %, −2 % and −5 % as FTMS gradient simulation (never "
+        "ERG), 20 s each, and measures power, speed and cadence after an 8 s settling time. The table shows the "
+        "averages per step and whether the trainer confirmed each command; the verdict reads e.g. "
+        "<i>“Power keeps falling on descents → the trainer simulates descents”</i> or <i>“Power stops falling "
+        "below 0 % → the trainer clamps descents”</i>. "
+        f"{UI('Stop')} ends the test at any time; afterwards the previous trainer command is restored. Every step "
+        "is written to the diagnostic log (lines <i>GTEST</i>). Not available during a workout.")
+
     s.section("Bluetooth diagnostics and connection log")
     s.p(f"{UI('Bluetooth Diagnostics')} shows the adapter name, the connection mode (Bluetooth Low Energy), the "
-        "trainer signal (<i>Stable</i> at −75 dBm or better, otherwise <i>Weak</i>) and the time of the last "
-        f"scan. {UI('Refresh')} re-reads the Bluetooth adapter. {UI('Details…')} opens a full report – adapter, "
-        "Qt version, every device seen with signal, service UUIDs and how the app classified it, scan errors, "
+        "trainer signal (<i>Stable</i> at −75 dBm or better, otherwise <i>Weak</i>), the time of the last "
+        f"scan and the trainer control status. {UI('Refresh')} re-reads the Bluetooth adapter. {UI('Details…')} opens a full report – adapter, "
+        "Qt version, every device seen with signal, service UUIDs and how the app classified it, all GATT services "
+        "of the connected trainer with their characteristics and properties (FTMS, Zwift 0xFC82, vendor "
+        "services), the trainer's actual mode and last rejection, scan errors, "
         "the live rower data (which source is active – Concept2 rowing service, the 0x0080 multiplexed channel or "
         "FTMS Rower Data –, packet counters and the last raw bytes of every subscribed characteristic, the last "
         "decoded stroke rate and whether the stroke rate comes from the monitor or is computed from the stroke "

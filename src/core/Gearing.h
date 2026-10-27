@@ -56,6 +56,16 @@ struct GearSetup
     int referenceFrontTeeth = 50;
     int referenceRearTeeth = 17;
     static constexpr int kDefaultReferenceCog = 17;
+    // The reference gear is not a combination of the setup (e.g. a single
+    // 14T Zwift Cog on the trainer, or a detected gear): then normalized()
+    // keeps it as long as it is within kMin/kMaxReference* teeth.
+    bool referenceCustom = false;
+    static constexpr int kMinReferenceRing = 20, kMaxReferenceRing = 60;
+    static constexpr int kMinReferenceCog = 9, kMaxReferenceCog = 40;
+    static constexpr int kZwiftCogTeeth = 14;
+    // Reference gear presets for a trainer with a single cog (Zwift Cog,
+    // 14T): [{label: "50×14 (Zwift Cog)", front: 50, rear: 14, ratio}]
+    static QVariantList cogPresets();
 
     static GearSetup defaults();
     // Checks the lists/values; on error returns false and sets *error.

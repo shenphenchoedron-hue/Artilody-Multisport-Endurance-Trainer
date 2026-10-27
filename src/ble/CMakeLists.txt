@@ -11,8 +11,10 @@ target_link_libraries(watt_bleprotocol PUBLIC Qt6::Core)
 
 qt_add_library(watt_ble STATIC
     SensorDevices.h SensorDevices.cpp
+    GattLink.h
     BleLink.h BleLink.cpp
     BleTrainer.h BleTrainer.cpp
+    GradientTest.h GradientTest.cpp
     BleHeartRateSensor.h BleHeartRateSensor.cpp
     Pm5Rower.h Pm5Rower.cpp
     ZwiftClick.h ZwiftClick.cpp

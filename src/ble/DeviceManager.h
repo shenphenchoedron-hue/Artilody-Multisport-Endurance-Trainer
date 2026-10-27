@@ -24,6 +24,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcBle)
 namespace watt {
 
 class Database;
+class GradientTest;
 class SensorHub;
 
 // Discovers and manages Bluetooth LE sensors (FTMS trainers, HRS heart-rate
@@ -32,6 +33,7 @@ class SensorHub;
 class DeviceManager : public QObject
 {
     Q_OBJECT
+    Q_MOC_INCLUDE("GradientTest.h")
     Q_PROPERTY(bool bluetoothAvailable READ bluetoothAvailable NOTIFY adapterChanged)
     Q_PROPERTY(QString adapterStatus READ adapterStatus NOTIFY adapterChanged)
     Q_PROPERTY(QString adapterName READ adapterName NOTIFY adapterChanged)
@@ -62,6 +64,17 @@ class DeviceManager : public QObject
     Q_PROPERTY(int trainerRssi READ trainerRssi NOTIFY devicesChanged)
     Q_PROPERTY(QStringList trainerCapabilities READ trainerCapabilities NOTIFY devicesChanged)
     Q_PROPERTY(bool trainerSupportsControl READ trainerSupportsControl NOTIFY devicesChanged)
+    // What the trainer ACTUALLY does, from its answers (TrainerDevice::trainerMode()):
+    // "simulation" / "erg" / "resistance" / "stopped" / "no control" / "unknown", "" = none.
+    Q_PROPERTY(QString trainerMode READ trainerMode NOTIFY trainerStatusChanged)
+    // One line: "Simulation – trainer accepted −2.00 %" or the problem
+    // ("Trainer rejected the gradient command (Invalid parameter)").
+    Q_PROPERTY(QString trainerControlStatus READ trainerControlStatus NOTIFY trainerStatusChanged)
+    Q_PROPERTY(bool trainerControlProblem READ trainerControlProblem NOTIFY trainerStatusChanged)
+    // "This trainer doesn't simulate descents below 0 %" (Supported Inclination Range) or "".
+    Q_PROPERTY(QString trainerInclinationNote READ trainerInclinationNote NOTIFY trainerStatusChanged)
+    // Devices > Bluetooth Diagnostics > Gradient test
+    Q_PROPERTY(watt::GradientTest *gradientTest READ gradientTest CONSTANT)
     Q_PROPERTY(QString heartRateId READ heartRateId NOTIFY devicesChanged)
     Q_PROPERTY(QString heartRateName READ heartRateName NOTIFY devicesChanged)
     Q_PROPERTY(QString heartRateProtocol READ heartRateProtocol NOTIFY devicesChanged)
@@ -144,6 +157,12 @@ public:
     int trainerRssi() const;
     QStringList trainerCapabilities() const;
     bool trainerSupportsControl() const;
+    QString trainerMode() const;
+    QString trainerControlStatus() const;
+    bool trainerControlProblem() const;
+    QString trainerInclinationNote() const;
+    GradientTest *gradientTest() const { return m_gradientTest; }
+    bool gradientTestRunning() const;
     QString heartRateId() const;
     QString heartRateName() const;
     QString heartRateProtocol() const;
@@ -216,6 +235,9 @@ public:
     Q_INVOKABLE void disconnectDevice(const QString &id);
     Q_INVOKABLE void startErgTest(int watts);
     Q_INVOKABLE void stopErgTest();
+    // Gradient test (simulation only): false + a log line when it cannot run.
+    Q_INVOKABLE bool startGradientTest();
+    Q_INVOKABLE void stopGradientTest();
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void refreshAdapter();
     Q_INVOKABLE QString signalText(int rssi) const;   // "Strong Signal (-52 dBm)"
@@ -245,6 +267,7 @@ signals:
     void logChanged();
     void preferencesChanged();
     void ergTestChanged();
+    void trainerStatusChanged();
     void rowerChanged(watt::RowerDevice *rower);   // active rower object replaced (may be null)
     void rowerDataChanged();                        // live rower values updated
     // Controller buttons (Zwift Click): +1 = plus (shift up / harder),
@@ -317,6 +340,11 @@ private:
     void onControllerButtons(const QString &id, bool plus, bool minus);
     void emitControllerButtons();
     void releaseTrainer();
+    // Re-sends the riding sessions' last command (SensorHub) to the trainer
+    // after a test (ERG test, gradient test) used it.
+    void restoreSessionCommand();
+    // a session command may go to the trainer (no test running)
+    bool sessionOwnsTrainer() const;
     void releaseHeartRate();
     void releaseRower();
     void savePreferences();
@@ -369,6 +397,7 @@ private:
     bool m_simulatorEnabled = true;
     double m_simFixedGear = 0;
     bool m_ergTest = false;
+    GradientTest *m_gradientTest = nullptr;
     int m_selectedAdapter = 0;
     int m_restHr = 60, m_maxHr = 185, m_ftp = 250;
     QTimer m_uiTimer;

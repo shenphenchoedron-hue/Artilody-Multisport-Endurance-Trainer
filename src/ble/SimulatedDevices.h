@@ -61,6 +61,9 @@ public:
     int simulationSupport() const override { return m_simSupported ? 1 : 0; }
     QStringList capabilities() const override;
     bool supportsControl() const override { return true; }
+    QString trainerMode() const override;
+    QString controlStatus() const override;
+    bool controlProblem() const override { return state() == LinkState::Connected && !m_problem.isEmpty(); }
 
     static constexpr double kDefaultMassKg = 84.0;          // 75 kg rider + 9 kg bike
     static constexpr double kSimWattsPerPercent = 9.0;
@@ -124,6 +127,8 @@ private:
     bool m_erg = false;
     bool m_sim = false;
     bool m_simSupported = true;
+    bool m_rejectDescents = false;   // WATT_SIM_TRAINER_REJECT_DESCENTS
+    QString m_problem;               // last command rejected (controlStatus)
     bool m_noise = true;
     double m_grade = 0, m_wind = 0, m_crr = 0.004, m_cw = 0.39;
     double m_massKg = kDefaultMassKg;

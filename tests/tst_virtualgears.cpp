@@ -1052,16 +1052,30 @@ private slots:
         QCOMPARE(g.detectedLabel(), QStringLiteral("34×17"));
         QVERIFY(std::abs(g.detectedRatio() - 2.0) < 0.01);
         QVERIFY(g.detectedDiffers());
-        QVERIFY(!g.heavyRealGear());
         QCOMPARE(g.referenceLabel(), QStringLiteral("50×17"));   // the saved reference stays
-        QVERIFY(std::abs(g.effectiveReferenceRatio() - 2.0) < 0.01);   // path a uses the real gear
+        // never used by itself: path a keeps the saved reference gear ...
+        QCOMPARE(g.effectiveReferenceRatio(), g.referenceRatio());
+        QVERIFY(g.heavyRealGear());
         QVERIFY(g.diagnosticsText().contains(QStringLiteral("detected: 34×17 (2.000)")));
+        // ... and the rider is only asked once the detection is stable
+        QVERIFY(!g.detectedStable());
+        QCOMPARE(g.referencePrompt(), QString());
+        for (qint64 ms = 16250; ms <= 30000; ms += 250)
+            g.addTrainerSample(ms, 92, 92 / 60.0 * 34.0 / 17 * circ / 1000.0);
+        QVERIFY(g.detectedStable());
+        QCOMPARE(g.referencePrompt(),
+                 QStringLiteral("Your trainer reports 34×17 (2.00) but the setting is 50×17 (2.94) — use the detected gear?"));
+        // "Keep 50×17": no prompt for this detection any more
+        g.dismissReferencePrompt();
+        QCOMPARE(g.referencePrompt(), QString());
+        QCOMPARE(g.referenceLabel(), QStringLiteral("50×17"));
         g.clearDetection();
         QCOMPARE(g.detectedRatio(), 0.0);
         QCOMPARE(g.effectiveReferenceRatio(), g.referenceRatio());
     }
 
-    // Path a with a detected real gear: v_ref from the detected ratio.
+    // Path a with a detected real gear: v_ref from the detected ratio once the
+    // rider accepted the prompt (useDetectedGear()).
     void detectedGearDrivesPathA()
     {
         Rig r;
@@ -1073,11 +1087,61 @@ private slots:
         // gear needs a steeper grade there
         r.gears->clearDetection();
         r.gears->addTrainerSample(1000000, 88, 88 / 60.0 * 2.0 * r.gears->setup().circumferenceMm / 1000.0);
-        for (qint64 ms = 1000250; ms <= 1007500; ms += 250)
+        for (qint64 ms = 1000250; ms <= 1020000; ms += 250)
             r.gears->addTrainerSample(ms, 88, 88 / 60.0 * 2.0 * r.gears->setup().circumferenceMm / 1000.0);
+        // detected only: nothing changes until the rider accepts it
+        QCOMPARE(r.gears->effectiveReferenceRatio(), r.gears->referenceRatio());
+        QCOMPARE(r.freeRide->gearSimulationGrade(), before);
+        QVERIFY(!r.gears->referencePrompt().isEmpty());
+        QVERIFY(r.gears->useDetectedGear());
+        QCOMPARE(r.gears->referenceLabel(), QStringLiteral("34×17"));
+        QCOMPARE(r.gears->referencePrompt(), QString());
         QVERIFY(std::abs(r.gears->effectiveReferenceRatio() - 2.0) < 0.01);
         QVERIFY2(r.freeRide->gearSimulationGrade() > before + 1.0,
                  qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(r.freeRide->gearSimulationGrade())));
+    }
+
+    // A 14T Zwift Cog trainer: 44×14 detected (not a gear of the setup) is
+    // offered and saved as a custom reference gear; presets exist.
+    void zwiftCogReferenceGear()
+    {
+        Rig r;
+        QVERIFY(r.init(true));
+        const QVariantList presets = r.gears->cogPresets();
+        QVERIFY(!presets.isEmpty());
+        bool has5014 = false;
+        for (const QVariant &v : presets) {
+            const QVariantMap m = v.toMap();
+            QCOMPARE(m.value(QStringLiteral("rear")).toInt(), 14);
+            if (m.value(QStringLiteral("front")).toInt() == 50)
+                has5014 = m.value(QStringLiteral("label")).toString() == QStringLiteral("50×14 (Zwift Cog)");
+        }
+        QVERIFY(has5014);
+        const int circ = r.gears->setup().circumferenceMm;
+        const double ratio = 44.0 / 14;
+        for (qint64 ms = 0; ms <= 22000; ms += 250)
+            r.gears->addTrainerSample(ms, 90, 90 / 60.0 * ratio * circ / 1000.0);
+        QVERIFY(r.gears->detectedStable());
+        QCOMPARE(r.gears->detectedLabel(), QStringLiteral("44×14"));
+        QVERIFY(r.gears->referencePrompt().startsWith(QStringLiteral("Your trainer reports 44×14 (3.14) but the setting is ")));
+        QVERIFY(r.gears->useDetectedGear());
+        QCOMPARE(r.gears->referenceLabel(), QStringLiteral("44×14"));
+        QVERIFY(r.gears->referenceCustom());
+        // a preset directly, and back to a gear of the setup
+        QVERIFY(r.gears->setReferenceGearAny(50, 14));
+        QCOMPARE(r.gears->referenceLabel(), QStringLiteral("50×14"));
+        QVERIFY(!r.gears->setReferenceGearAny(80, 14));
+        QVERIFY(r.gears->setReferenceGear(r.gears->setup().chainrings.constLast(), r.gears->setup().cogs.constFirst()));
+        QVERIFY(!r.gears->referenceCustom());
+        // custom reference survives the JSON round trip
+        GearSetup s = r.gears->setup();
+        s.referenceFrontTeeth = 44;
+        s.referenceRearTeeth = 14;
+        s.referenceCustom = true;
+        const GearSetup back = GearSetup::fromJson(s.toJson());
+        QCOMPARE(back.referenceFrontTeeth, 44);
+        QCOMPARE(back.referenceRearTeeth, 14);
+        QVERIFY(back.referenceCustom);
     }
 
     // -- Click = on-screen buttons, same direction on both pages ----------------
