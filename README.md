@@ -40,11 +40,13 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## Next (test build): virtual shifting = Zwift Click
+## What's new in 1.3.2
+
+Virtual shifting with the Zwift Click reworked, automatic diagnostic log files and more robust FTMS trainer control.
 
 - **Virtual shifting follows the Zwift Click – no switch, no gear setup.** Click connected ⇒ virtual gears; no Click ⇒ you shift your bike's real gears and the trainer gets a plain FTMS gradient (route grade × difficulty), even on a trainer that supports the Zwift protocol. The *Use virtual gears* switch, the shifting-method selector and the Gear Setup (chainrings / cassette / reference gear) are gone from the normal UI. A small status line on the Devices page and the ride pages says what is used: *Virtual shifting: Zwift protocol*, *Virtual shifting: FTMS gradient* or *Shifting: your bike's gears*. On-screen shift buttons appear only while a Click is connected.
 - **Zwift's 24 virtual gears** – the Click always shifts Zwift's fixed gear table (ratio 0.75 … 5.49, start gear 12 = 2.40), shown as *Gear 12/24 (2.40)*. Your old chainring / cassette setup stays in the database but is no longer used.
-- **Zwift trainer protocol, automatically** – if the **connected** trainer exposes the Zwift trainer service (0xFC82 / 00000001-19CA-4651-86E5-FA29DCDD09D1 with characteristics 0002 / 0003 / 0004, e.g. Zwift Hub, Jetblack Victory, Wahoo KICKR Core with Zwift Cog), the app does the Zwift handshake and sends the route's incline, air drag / rolling resistance, your weight and the current gear ratio; the trainer does the physics like in Zwift, so light gears are really light on a single-cog trainer. Other trainers: FTMS gradient virtual gears (gear-adjusted grade). If the handshake fails or times out the app falls back to FTMS gradient – never to ERG. Video Ride and Free Ride always stay in **simulation**.
+- **Zwift trainer protocol, automatically** – if the **connected** trainer exposes the Zwift trainer service (0xFC82 / 00000001-19CA-4651-86E5-FA29DCDD09D1 with characteristics 0002 / 0003 / 0004, e.g. Zwift Hub, Jetblack Victory, Wahoo KICKR Core with Zwift Cog), the app does the Zwift handshake and sends the route's incline, air drag / rolling resistance, your weight and the current gear ratio; the trainer does the physics (the same approach as Zwift, ROUVY and TrainerRoad), so light gears are really light on a single-cog trainer. Other trainers: FTMS gradient virtual gears (gear-adjusted grade). If the handshake fails or times out the app falls back to FTMS gradient – never to ERG. Video Ride and Free Ride always stay in **simulation**.
 - **Advanced overrides** (Devices → Bluetooth Diagnostics → **Advanced…**, for troubleshooting only): Zwift trainer protocol *Automatic / Off*, the experimental FTMS methods *Auto / ERG* (not saved – every start is *Gradient*) and the bike (wheel size, weight, air drag).
 - **Automatic diagnostic log** – the app writes a trace log by itself: every FTMS command and trainer response (hex + decoded), and for the Zwift protocol the detection, every handshake step, every write / notification (hex + decoded: incline, gear ratio, weights, riding data), the trainer's settings echo, timeouts and fallbacks. **Settings → Diagnostic log** shows the folder, an `scp` command for a Raspberry Pi, **Open logs folder** and **Export logs…**. See [Diagnostic log](#diagnostic-log-send-it-with-a-bug-report).
 - **Trainer answers are shown, not hidden** – a rejected or unanswered trainer command is logged, retried (backoff 1 / 2 / 4 s, at most 3 times) and shown on Video Ride, Free Ride, the Selected Trainer card and in Bluetooth Diagnostics, e.g. *Trainer rejected the gradient command (Invalid parameter)*. The app shows what the trainer **actually** does (from its answers and its Fitness Machine Status) and requests control again on *control permission lost*.
@@ -52,7 +54,12 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **Gradient test** (Devices → Bluetooth Diagnostics → Details… → **Gradient test…**) – pedal ~90 rpm; the app sends +2, 0, −2, −5 % (FTMS simulation, 20 s each) and shows power / speed / cadence per step with a verdict such as *the trainer clamps descents*.
 - **Full GATT listing** – the diagnostics report lists every service of the trainer with its characteristics (Zwift 0xFC82, vendor services), not only FTMS.
 
-## What's new in 1.3.1
+- **Without a Zwift Click** nothing changes for you: no virtual gears, the trainer gets the normal FTMS gradient simulation and you shift your bike's own gears.
+- **Known limitation** – the Zwift trainer protocol path has so far only been tested with a simulated trainer. If you ride a Zwift Hub, Jetblack Victory or a Zwift Cog trainer, please send the [diagnostic log](#diagnostic-log-send-it-with-a-bug-report) of a ride – feedback is very welcome.
+- No database change – install over 1.3.1 (or older) and keep all your data. See the [1.3.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.2).
+
+<details>
+<summary><b>What's new in 1.3.1</b> – manual start only, "Watt Training", Start never blocked without a reason</summary>
 
 A bug-fix and safety release.
 
@@ -62,6 +69,8 @@ A bug-fix and safety release.
 - **Video Ride controls stay usable** – a workout paused on another page no longer locks the Video Ride (or Free Ride) page: gears, ERG watts and difficulty react, and the Zwift Click shifts on the open page. Only **Start** is disabled.
 - **The video library scan can't hang** – the scan always finishes (errors in the scanner are caught, 120 s time-out), and a video error or stall no longer leaves the Video Ride page stuck.
 - No database change – install over 1.3.0 (or older) and keep all your data. See the [1.3.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.1).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.3.0</b> – plan Free Rides and Video Rides, ride a workout during a Video Ride</summary>
@@ -103,8 +112,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [Next: virtual shifting = Zwift Click](#next-test-build-virtual-shifting--zwift-click)
-- [What's new in 1.3.1](#whats-new-in-131)
+- [What's new in 1.3.2](#whats-new-in-132)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -301,18 +309,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.3.1**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.3.2**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.1-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/ArtilodyWattsTrainer-1.3.1-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.1-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/ArtilodyWattsTrainer-1.3.1-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.1-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/ArtilodyWattsTrainer-1.3.1-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.1_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/artilody-watts-trainer_1.3.1_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.1_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/artilody-watts-trainer_1.3.1_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.1_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/artilody-watts-trainer_1.3.1_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.1/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.2-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.2-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.2_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -322,7 +330,7 @@ The current version is **1.3.1**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.3.1-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -348,8 +356,8 @@ The current version is **1.3.1**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.3.1_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.3.1_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.3.2_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -365,7 +373,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.3.1_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -409,7 +417,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.1",
+  "app": "Artilody Watts Trainer 1.3.2",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
