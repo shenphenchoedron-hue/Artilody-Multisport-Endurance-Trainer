@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.1.4 source code (incl. calendar and rowing) (qml/, src/core, src/ble, src/media,
+Written against the v1.2.0 source code (incl. calendar, rowing, Free Ride, virtual gears and Real Life Video) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1872,7 +1872,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.1.4",
+  "app": "Artilody Watts Trainer 1.2.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

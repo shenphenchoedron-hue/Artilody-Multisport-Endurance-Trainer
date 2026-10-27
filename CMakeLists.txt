@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(ArtilodyWattTrainer
-    VERSION 1.1.4
+    VERSION 1.2.0
     DESCRIPTION "Indoor cycling power training (Qt 6 / QML)"
     LANGUAGES CXX)
 

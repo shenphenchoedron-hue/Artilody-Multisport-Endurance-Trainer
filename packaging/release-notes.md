@@ -1,6 +1,22 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.1.4
+## What's new in 1.2.0
+
+A feature release: ride without a workout, shift virtual gears with a Zwift Click, and ride filmed routes.
+
+- **Free Ride page** (sidebar → *Free Ride*): ride without a workout. **Ride** is a road with a grade setting (−15 % to +20 %): climbs get harder like outdoors – shift on your bike (the trainer gets the gradient) or with **virtual gears**. **ERG** holds a wattage you set (±5/10/25 W or an exact value). Live power, speed, cadence, heart rate, time and distance, a chart, start on pedaling, pause, and save to History (FIT/CSV export).
+- **Zwift Click support**: connect a Zwift Click v1 / v2 under **Devices → Controllers (Zwift Click)** – battery level, a live button test, **+** shifts harder, **−** easier (in ERG ±10 W).
+- **Virtual gears setup on the Devices page**, shared by Free Ride and Video Ride: the *Virtual gears* card holds the *Use virtual gears* switch, the current gear and **Gear Setup…** – your chainrings and cassette (presets or numbers), wheel size, sequential or front + rear shifting, with a live preview of every gear. Saved per profile. Shifting never changes the trainer difficulty.
+- **Real Life Video** (sidebar → *Video Ride*): ride filmed routes (video + GPS/elevation route). The video plays at the speed you ride, with the elevation profile and your position. Resistance: **gradient simulation** (default; your bike's gears or virtual gears), a fixed **ERG** wattage, and a **difficulty** slider that scales the gradients. A **route library** lists every route with distance, climbing and duration; add folders and rescan from the page. Videos that can't be decoded – typically **AV1** without hardware decoding – are detected, and the page explains how to convert them with **HandBrake** to **720p H.264** (*Fast 720p30*, constant framerate). 720p H.264 is also the recommended format on a **Raspberry Pi**.
+- **Weight-aware road physics and auto CdA**: virtual speed and power follow the road equation with your profile weight + bike weight, rolling resistance, gradient and air drag. The air drag (CdA) is estimated automatically from your weight and the new optional profile **Height** (or set your own value). The same model is used in Free Ride, Video Ride and the virtual trainer.
+- **Smooth power (3 s average)**: displayed cycling watts are a rolling 3-second average by default (off, 1, 3, 5 or 10 s under *Settings → Smooth power*, or click the *3 s avg* badge). Recordings, NP/TSS, ERG and FTP tests still use raw per-second power.
+- **Sidebar reorder**: the training pages are together at the top – Dashboard, Free Ride, Video Ride, Rowing – followed by Workouts, Calendar, Builder, History and Devices.
+- **FTP tests detect their protocol**: a **ramp test** sets FTP to **75 % of your best 1-minute power**, a **20-minute test** to **95 % of your best 20-minute power**; implausible results are not offered.
+- **Database upgrade to schema version 4** happens automatically on first start (gear setup, rider height, ride speed). All rides, workouts, profiles and settings are preserved.
+- **Fixes** from code review: Bluetooth (Zwift Click, FTMS, virtual trainer reports crank power), sessions, Real Life Video, music; packaging – the Debian/Ubuntu/Raspberry Pi packages depend on the GStreamer base/good plugins needed for video, and the Windows installer removes stale files from older versions.
+- Updated user manual (Free Ride, virtual gears and Zwift Click, Real Life Video, road model).
+
+## Includes everything from 1.1.4
 
 A Concept2 PM5 fix release on top of 1.1.3 – the **stroke rate is shown again** when power, pace and distance already worked (reported on a Raspberry Pi with BlueZ):
 
@@ -60,11 +76,16 @@ A small usability release on top of 1.1.1 – reordering and deleting intervals 
 
 ## Upgrade notes
 
-- Install 1.1.4 over 1.1.3, 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
+- Install 1.2.0 over 1.1.4, 1.1.3, 1.1.2, 1.1.1, 1.1.0 or 1.0.0 – no need to uninstall first.
+- On first start of 1.2.0 the database is **upgraded automatically to schema version 4** (gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 
 ## Known limitations
 
+- **Zwift Click and gradient simulation have so far only been tested with virtual devices** (the built-in virtual trainer and a Click simulator), not yet with real hardware. Please report your experience.
+- Zwift Play / Click controllers with **encrypted firmware are not supported**. On a **Click v2** the left pod may need to be unlocked in the Zwift app first.
+- **AV1 videos** need AV1 hardware decoding – otherwise convert them to H.264 (720p recommended) with HandBrake, as the Video Ride page explains.
+- **Real trainers use their own rider-weight setting** for gradient simulation; set your weight in the trainer's app too. The app's weight drives the virtual speed and virtual gears.
 - **Concept2 PM5 support has so far only been tested with a PM5 simulator**, not yet with a real PM5. Please report your experience. The PM5 has **no ERG mode**: watt plans are followed by feel, the app can't set the resistance.
 - Only the **PM5 on a rower** is supported – **BikeErg and SkiErg are not supported**, nor PM3/PM4 monitors.
 - **`.zwo` files have no rowing**: rowing workouts are exported as cycling workouts, and imported `.zwo` files are always cycling. Use `.awt` to share rowing workouts.
@@ -75,6 +96,7 @@ A small usability release on top of 1.1.1 – reordering and deleting intervals 
 ## Highlights
 
 - **Smart trainer control**: connects to Bluetooth LE smart trainers that use the standard Fitness Machine Service (FTMS) and sets the target power for you in ERG mode.
+- **Free Ride, virtual gears and Real Life Video**: ride a road with a grade or a filmed route, shift virtual gears with a Zwift Click, or hold an ERG wattage.
 - **Concept2 rowing**: connects to a Concept2 PM5 for free rows, watt-plan rowing workouts and ghost races against your personal best.
 - **Training calendar**: plan rides and rows by day and start them with a double-click.
 - **Heart-rate sensors**: works with any Bluetooth LE heart-rate strap or armband (standard Heart Rate Service).
