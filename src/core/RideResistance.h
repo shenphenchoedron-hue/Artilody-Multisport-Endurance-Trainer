@@ -79,10 +79,12 @@ private:
 // the gear's watts asks the brake for (almost) nothing instead.
 //
 // Virtual shifting method (VirtualGears::shiftMethod, "Devices > Virtual gears"):
-//   Auto     - GearHybrid (trainer without cadence / gradient simulation:
+//   Gradient - DEFAULT: GearSimulation (simulation, the 1.3.1 behaviour),
+//              GearErg only without gradient simulation
+//   Auto     - optional / experimental, only when the rider picks it:
+//              GearHybrid (trainer without cadence / gradient simulation:
 //              GearSimulation / GearErg as before)
-//   Gradient - GearSimulation (the pre-1.3.2 behaviour), GearErg without simulation
-//   Erg      - always GearErg (trainers whose gradient simulation is quirky)
+//   Erg      - optional / experimental: always GearErg
 class RideResistance
 {
 public:

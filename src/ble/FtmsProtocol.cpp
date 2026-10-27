@@ -364,4 +364,256 @@ QByteArray setIndoorBikeSimulation(double windSpeedMs, double gradePercent, doub
     return b;
 }
 
+// --- readable text --------------------------------------------------------------
+
+namespace {
+QString num(double v, int decimals) { return QString::number(v, 'f', decimals); }
+
+// The simulation parameter block of 0x11 (control point) / 0x12 (status).
+QString simulationParams(Reader &r)
+{
+    const double wind = r.s16() / 1000.0;
+    const double grade = r.s16() / 100.0;
+    const double crr = r.u8() / 10000.0;
+    const double cw = r.u8() / 100.0;
+    if (!r.ok())
+        return QStringLiteral("(truncated)");
+    return QStringLiteral("wind %1 m/s, grade %2 %, Crr %3, Cw %4 kg/m")
+        .arg(num(wind, 3), num(grade, 2), num(crr, 4), num(cw, 2));
+}
+
+QString withOp(quint8 op)
+{
+    return QStringLiteral("0x%1 %2").arg(op, 2, 16, QLatin1Char('0')).arg(opCodeName(op));
+}
+
+QString trailing(const Reader &r, const QByteArray &data, int consumed)
+{
+    Q_UNUSED(r)
+    if (data.size() <= consumed)
+        return QString();
+    return QStringLiteral(" (+%1)").arg(QString::fromLatin1(data.mid(consumed).toHex(' ')));
+}
+} // namespace
+
+QString opCodeName(quint8 opCode)
+{
+    switch (opCode) {
+    case 0x00: return QStringLiteral("Request Control");
+    case 0x01: return QStringLiteral("Reset");
+    case 0x02: return QStringLiteral("Set Target Speed");
+    case 0x03: return QStringLiteral("Set Target Inclination");
+    case 0x04: return QStringLiteral("Set Target Resistance Level");
+    case 0x05: return QStringLiteral("Set Target Power");
+    case 0x06: return QStringLiteral("Set Target Heart Rate");
+    case 0x07: return QStringLiteral("Start or Resume");
+    case 0x08: return QStringLiteral("Stop or Pause");
+    case 0x09: return QStringLiteral("Set Targeted Expended Energy");
+    case 0x0A: return QStringLiteral("Set Targeted Number of Steps");
+    case 0x0B: return QStringLiteral("Set Targeted Number of Strides");
+    case 0x0C: return QStringLiteral("Set Targeted Distance");
+    case 0x0D: return QStringLiteral("Set Targeted Training Time");
+    case 0x0E: return QStringLiteral("Set Targeted Time in Two HR Zones");
+    case 0x0F: return QStringLiteral("Set Targeted Time in Three HR Zones");
+    case 0x10: return QStringLiteral("Set Targeted Time in Five HR Zones");
+    case 0x11: return QStringLiteral("Set Indoor Bike Simulation");
+    case 0x12: return QStringLiteral("Set Wheel Circumference");
+    case 0x13: return QStringLiteral("Spin Down Control");
+    case 0x14: return QStringLiteral("Set Targeted Cadence");
+    case 0x80: return QStringLiteral("Response Code");
+    }
+    return QStringLiteral("Op 0x%1").arg(opCode, 2, 16, QLatin1Char('0'));
+}
+
+QString describeControlPoint(const QByteArray &data)
+{
+    if (data.isEmpty())
+        return QStringLiteral("(empty)");
+    Reader r(data);
+    const quint8 op = r.u8();
+    QString params;
+    int used = 1;
+    switch (op) {
+    case 0x02: params = QStringLiteral("%1 km/h").arg(num(r.u16() / 100.0, 2)); used = 3; break;
+    case 0x03: params = QStringLiteral("%1 %").arg(num(r.s16() / 10.0, 1)); used = 3; break;
+    case 0x04: params = QStringLiteral("level %1").arg(num(r.u8() / 10.0, 1)); used = 2; break;
+    case 0x05: params = QStringLiteral("%1 W").arg(r.s16()); used = 3; break;
+    case 0x06: params = QStringLiteral("%1 bpm").arg(r.u8()); used = 2; break;
+    case 0x08: {
+        const quint8 p = r.u8();
+        params = p == 1 ? QStringLiteral("stop") : p == 2 ? QStringLiteral("pause") : QStringLiteral("param %1").arg(p);
+        used = 2;
+        break;
+    }
+    case 0x11: params = simulationParams(r); used = 7; break;
+    case 0x12: params = QStringLiteral("%1 mm").arg(num(r.u16() / 10.0, 1)); used = 3; break;
+    case 0x13: params = r.u8() == 1 ? QStringLiteral("start") : QStringLiteral("ignore"); used = 2; break;
+    case 0x14: params = QStringLiteral("%1 rpm").arg(num(r.u16() / 2.0, 1)); used = 3; break;
+    default: break;
+    }
+    if (!r.ok())
+        return withOp(op) + QStringLiteral(": (truncated)");
+    QString s = withOp(op);
+    if (!params.isEmpty())
+        s += QStringLiteral(": ") + params;
+    return s + trailing(r, data, used);
+}
+
+QString describeControlPointResponse(const QByteArray &data)
+{
+    const auto resp = parseControlPointResponse(data);
+    if (!resp)
+        return QStringLiteral("(not a response: %1)").arg(QString::fromLatin1(data.toHex(' ')));
+    QString s = QStringLiteral("Response to %1: %2 (0x%3)")
+                    .arg(withOp(resp->requestOpCode), resultCodeText(resp->result))
+                    .arg(resp->result, 2, 16, QLatin1Char('0'));
+    if (data.size() > 3)
+        s += QStringLiteral(" params %1").arg(QString::fromLatin1(data.mid(3).toHex(' ')));
+    return s;
+}
+
+QString describeMachineStatus(const QByteArray &data)
+{
+    if (data.isEmpty())
+        return QStringLiteral("(empty)");
+    Reader r(data);
+    const quint8 op = r.u8();
+    QString s;
+    int used = 1;
+    switch (op) {
+    case 0x01: s = QStringLiteral("Reset"); break;
+    case 0x02: {
+        const quint8 p = r.u8();
+        s = QStringLiteral("Stopped or Paused by the User (%1)")
+                .arg(p == 1 ? QStringLiteral("stop") : p == 2 ? QStringLiteral("pause") : QString::number(p));
+        used = 2;
+        break;
+    }
+    case 0x03: s = QStringLiteral("Stopped by Safety Key"); break;
+    case 0x04: s = QStringLiteral("Started or Resumed by the User"); break;
+    case 0x05: s = QStringLiteral("Target Speed Changed: %1 km/h").arg(num(r.u16() / 100.0, 2)); used = 3; break;
+    case 0x06: s = QStringLiteral("Target Incline Changed: %1 %").arg(num(r.s16() / 10.0, 1)); used = 3; break;
+    case 0x07: s = QStringLiteral("Target Resistance Level Changed: %1").arg(num(r.u8() / 10.0, 1)); used = 2; break;
+    case 0x08: s = QStringLiteral("Target Power Changed: %1 W").arg(r.s16()); used = 3; break;
+    case 0x09: s = QStringLiteral("Target Heart Rate Changed: %1 bpm").arg(r.u8()); used = 2; break;
+    case 0x12: s = QStringLiteral("Indoor Bike Simulation Parameters Changed: ") + simulationParams(r); used = 7; break;
+    case 0x13: s = QStringLiteral("Wheel Circumference Changed: %1 mm").arg(num(r.u16() / 10.0, 1)); used = 3; break;
+    case 0x14: {
+        const quint8 p = r.u8();
+        static const char *names[] = { "?", "Spin Down Requested", "Success", "Error", "Stop Pedaling" };
+        s = QStringLiteral("Spin Down Status: %1").arg(QString::fromLatin1(p <= 4 ? names[p] : "?"));
+        used = 2;
+        break;
+    }
+    case 0x15: s = QStringLiteral("Targeted Cadence Changed: %1 rpm").arg(num(r.u16() / 2.0, 1)); used = 3; break;
+    case 0xFF: s = QStringLiteral("Control Permission Lost"); break;
+    default:
+        s = op >= 0x0A && op <= 0x11 ? QStringLiteral("Training target changed (0x%1)").arg(op, 2, 16, QLatin1Char('0'))
+                                     : QStringLiteral("Status 0x%1").arg(op, 2, 16, QLatin1Char('0'));
+        used = 1;
+        break;
+    }
+    if (!r.ok())
+        return s + QStringLiteral(" (truncated)");
+    return s + trailing(r, data, used);
+}
+
+QString describeTrainingStatus(const QByteArray &data)
+{
+    if (data.size() < 2)
+        return QStringLiteral("(too short: %1)").arg(QString::fromLatin1(data.toHex(' ')));
+    const quint8 flags = quint8(data.at(0));
+    const quint8 st = quint8(data.at(1));
+    static const char *names[] = {
+        "Other", "Idle", "Warming Up", "Low Intensity Interval", "High Intensity Interval", "Recovery Interval",
+        "Isometric", "Heart Rate Control", "Fitness Test", "Speed Outside of Control Region - Low",
+        "Speed Outside of Control Region - High", "Cool Down", "Watt Control", "Manual Mode (Quick Start)",
+        "Pre-Workout", "Post-Workout",
+    };
+    QString s = st < sizeof(names) / sizeof(names[0]) ? QString::fromLatin1(names[st])
+                                                       : QStringLiteral("Status 0x%1").arg(st, 2, 16, QLatin1Char('0'));
+    if ((flags & 0x01) && data.size() > 2)
+        s += QStringLiteral(" \"%1\"").arg(QString::fromUtf8(data.mid(2)));
+    return s;
+}
+
+QString describeFeatures(const QByteArray &data)
+{
+    Reader r(data);
+    const quint32 machine = r.u32();
+    const quint32 target = r.u32();
+    if (!r.ok())
+        return QStringLiteral("(unreadable: %1)").arg(QString::fromLatin1(data.toHex(' ')));
+    static const char *machineNames[] = {
+        "Average Speed", "Cadence", "Total Distance", "Inclination", "Elevation Gain", "Pace", "Step Count",
+        "Resistance Level", "Stride Count", "Expended Energy", "Heart Rate", "Metabolic Equivalent",
+        "Elapsed Time", "Remaining Time", "Power Measurement", "Force on Belt and Power Output", "User Data Retention",
+    };
+    static const char *targetNames[] = {
+        "Speed Target", "Inclination Target", "Resistance Target", "Power Target", "Heart Rate Target",
+        "Targeted Expended Energy", "Targeted Step Number", "Targeted Stride Number", "Targeted Distance",
+        "Targeted Training Time", "Targeted Time in Two HR Zones", "Targeted Time in Three HR Zones",
+        "Targeted Time in Five HR Zones", "Indoor Bike Simulation", "Wheel Circumference", "Spin Down Control",
+        "Targeted Cadence",
+    };
+    auto names = [](quint32 bits, const char *const *table, int count) {
+        QStringList out;
+        for (int i = 0; i < 32; ++i) {
+            if (!(bits & (1u << i)))
+                continue;
+            out << (i < count ? QString::fromLatin1(table[i]) : QStringLiteral("bit %1").arg(i));
+        }
+        return out.isEmpty() ? QStringLiteral("none") : out.join(QStringLiteral(", "));
+    };
+    return QStringLiteral("machine [%1] (0x%2); targets [%3] (0x%4)")
+        .arg(names(machine, machineNames, 17))
+        .arg(machine, 8, 16, QLatin1Char('0'))
+        .arg(names(target, targetNames, 17))
+        .arg(target, 8, 16, QLatin1Char('0'));
+}
+
+QString describeRange(quint16 uuid, const QByteArray &data)
+{
+    Reader r(data);
+    const qint16 lo = r.s16();
+    const qint16 hi = r.s16();
+    const quint16 inc = r.u16();
+    if (!r.ok())
+        return QStringLiteral("(unreadable: %1)").arg(QString::fromLatin1(data.toHex(' ')));
+    switch (uuid) {
+    case kSupportedInclinationRangeUuid:
+        return QStringLiteral("inclination %1..%2 %, step %3 %").arg(num(lo / 10.0, 1), num(hi / 10.0, 1), num(inc / 10.0, 1));
+    case kSupportedResistanceRangeUuid:
+        return QStringLiteral("resistance level %1..%2, step %3").arg(num(lo / 10.0, 1), num(hi / 10.0, 1), num(inc / 10.0, 1));
+    case kSupportedPowerRangeUuid:
+        return QStringLiteral("power %1..%2 W, step %3 W").arg(lo).arg(hi).arg(inc);
+    default:
+        return QStringLiteral("%1..%2 step %3").arg(lo).arg(hi).arg(inc);
+    }
+}
+
+QString describeIndoorBikeData(const IndoorBikeData &d)
+{
+    QStringList p;
+    if (d.speedKmh)
+        p << QStringLiteral("speed %1 km/h").arg(num(*d.speedKmh, 2));
+    if (d.cadenceRpm)
+        p << QStringLiteral("cadence %1 rpm").arg(num(*d.cadenceRpm, 1));
+    if (d.powerW)
+        p << QStringLiteral("power %1 W").arg(*d.powerW);
+    if (d.resistanceLevel)
+        p << QStringLiteral("resistance %1").arg(*d.resistanceLevel);
+    if (d.heartRateBpm)
+        p << QStringLiteral("HR %1").arg(*d.heartRateBpm);
+    if (d.averageSpeedKmh)
+        p << QStringLiteral("avg speed %1").arg(num(*d.averageSpeedKmh, 2));
+    if (d.averagePowerW)
+        p << QStringLiteral("avg power %1").arg(*d.averagePowerW);
+    if (d.totalDistanceM)
+        p << QStringLiteral("distance %1 m").arg(*d.totalDistanceM);
+    if (d.elapsedTimeS)
+        p << QStringLiteral("elapsed %1 s").arg(*d.elapsedTimeS);
+    return p.isEmpty() ? QStringLiteral("(no fields)") : p.join(QStringLiteral(", "));
+}
+
 } // namespace watt::ftms

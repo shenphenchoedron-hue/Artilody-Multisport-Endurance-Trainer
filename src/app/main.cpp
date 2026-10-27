@@ -6,6 +6,7 @@
 #include "CoverImageProvider.h"
 
 #include "Database.h"
+#include "DiagLog.h"
 #include "DeviceManager.h"
 #include "FreeRideSession.h"
 #include "HistoryManager.h"
@@ -166,6 +167,8 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("Watt Trainer"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("Artilody Watts Trainer"));
     QGuiApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
+    // qWarning / qCritical also go to the diagnostic log file (console output stays).
+    DiagLog::installMessageHandler();
 #ifdef Q_OS_LINUX
     // Matches the installed .desktop file (Wayland app_id -> correct icon).
     QGuiApplication::setDesktopFileName(QStringLiteral("artilody-watts-trainer"));
@@ -199,6 +202,19 @@ int main(int argc, char *argv[])
         return 1;
     }
     db.seedDefaults();
+
+    // Automatic diagnostic log (Settings > Diagnostic log, default on;
+    // WATT_LOG=0 / WATT_LOG_DIR): one file per app session in
+    // <app data>/logs, see DiagLog.h.
+    LogManager logs(&db);
+    if (logs.enabled() && !DiagLog::disabledByEnvironment()) {
+        if (DiagLog::instance().start(logs.directory()))
+            qInfo("Diagnostic log: %s", qPrintable(QDir::toNativeSeparators(DiagLog::instance().currentFile())));
+        else
+            qWarning("Diagnostic log: cannot write to %s", qPrintable(QDir::toNativeSeparators(logs.directory())));
+    }
+    DiagLog::write("SYS", QStringLiteral("Database: %1%2").arg(QDir::toNativeSeparators(dbPath),
+                                                              shotDir.isEmpty() ? QString() : QStringLiteral(" (screenshot mode)")));
 
     SensorHub hub;
     // Display smoothing of the cycling power (Settings: "Smooth power").
@@ -313,6 +329,165 @@ int main(int argc, char *argv[])
     QObject::connect(&gears, &VirtualGears::enabledChanged, &devices, syncSimGear);
     QObject::connect(&gears, &VirtualGears::gearSetupChanged, &devices, syncSimGear);
     syncSimGear();
+
+    // --- diagnostic log: what the app decides and sends ----------------------
+    // (BLE writes / indications / status are logged by BleTrainer, the
+    // connection log and Zwift Click by DeviceManager.)
+    QObject::connect(&hub, &SensorHub::targetPowerRequested, &app,
+                     [](int w) { DiagLog::write("CMD", QStringLiteral("trainer <- ERG target %1 W").arg(w)); });
+    QObject::connect(&hub, &SensorHub::freeRideRequested, &app,
+                     [] { DiagLog::write("CMD", QStringLiteral("trainer <- free ride (release)")); });
+    QObject::connect(&hub, &SensorHub::simulationRequested, &app, [](double g, double wind, double crr, double cw) {
+        DiagLog::write("CMD", QStringLiteral("trainer <- simulation grade %1 % wind %2 m/s Crr %3 Cw %4 kg/m")
+                                  .arg(g, 0, 'f', 2).arg(wind, 0, 'f', 2).arg(crr, 0, 'f', 4).arg(cw, 0, 'f', 2));
+    });
+    auto logSettings = [&gears, &rlv](const char *why) {
+        if (!DiagLog::instance().isActive())
+            return;
+        DiagLog::write("CFG", QStringLiteral("(%1) %2 difficulty %3 %")
+                                  .arg(QString::fromLatin1(why), gears.settingsLine())
+                                  .arg(rlv.difficultyPercent()));
+    };
+    logSettings("start");
+    {
+        // one CFG line per burst of changes
+        auto *cfgTimer = new QTimer(&app);
+        cfgTimer->setSingleShot(true);
+        cfgTimer->setInterval(300);
+        QObject::connect(cfgTimer, &QTimer::timeout, &app, [logSettings] { logSettings("changed"); });
+        auto later = [cfgTimer] { cfgTimer->start(); };
+        QObject::connect(&gears, &VirtualGears::enabledChanged, cfgTimer, later);
+        QObject::connect(&gears, &VirtualGears::shiftMethodChanged, cfgTimer, later);
+        QObject::connect(&gears, &VirtualGears::gearSetupChanged, cfgTimer, later);
+        QObject::connect(&gears, &VirtualGears::physicsChanged, cfgTimer, later);
+        QObject::connect(&gears, &VirtualGears::clickConnectedChanged, cfgTimer, later);
+        QObject::connect(&rlv, &RlvSession::difficultyChanged, cfgTimer, later);
+        QObject::connect(&profiles, &ProfileManager::profileChanged, cfgTimer, later);
+    }
+    QObject::connect(&gears, &VirtualGears::detectionChanged, &app, [&gears] {
+        if (gears.detectedRatio() > 0)
+            DiagLog::write("GEAR", QStringLiteral("real gear detected from trainer speed/cadence: %1 (ratio %2), reference %3 (%4)")
+                                       .arg(gears.detectedLabel().isEmpty() ? QStringLiteral("?") : gears.detectedLabel())
+                                       .arg(gears.detectedRatio(), 0, 'f', 3)
+                                       .arg(gears.referenceLabel())
+                                       .arg(gears.referenceRatio(), 0, 'f', 3));
+    });
+    QObject::connect(&gears, &VirtualGears::shifted, &app, [&gears](int dir) {
+        DiagLog::write("GEAR", QStringLiteral("shifted %1 -> %2 (ratio %3, gear %4/%5)")
+                                   .arg(dir > 0 ? QStringLiteral("harder") : QStringLiteral("easier"), gears.gearLabel())
+                                   .arg(gears.gearRatio(), 0, 'f', 3)
+                                   .arg(gears.gearIndex() + 1)
+                                   .arg(gears.gearCount()));
+    });
+    QObject::connect(&gears, &VirtualGears::notice, &app,
+                     [](const QString &t) { DiagLog::write("GEAR", QStringLiteral("notice: %1").arg(t)); });
+    QObject::connect(&gears, &VirtualGears::activePageChanged, &app,
+                     [&gears] { DiagLog::write("UI", QStringLiteral("page %1").arg(gears.activePage())); });
+    // session markers
+    QObject::connect(&training, &TrainingSession::stateChanged, &app, [&training] {
+        static const char *names[] = { "idle", "running", "paused", "finished" };
+        const int st = int(training.state());
+        DiagLog::write("RIDE", QStringLiteral("==== workout %1: \"%2\"")
+                                   .arg(QString::fromLatin1(st >= 0 && st < 4 ? names[st] : "?"), training.workoutName()));
+    });
+    QObject::connect(&freeRide, &FreeRideSession::stateChanged, &app, [&freeRide, &gears] {
+        DiagLog::write("RIDE", QStringLiteral("==== free ride %1 (mode %2, path %3, virtual gears %4, method %5)")
+                                   .arg(freeRide.state(), freeRide.mode(), freeRide.resistancePath(),
+                                        gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod()));
+    });
+    QObject::connect(&rlv, &RlvSession::stateChanged, &app, [&rlv, &gears] {
+        DiagLog::write("RIDE", QStringLiteral("==== video ride %1: route \"%2\" (%3) at %4 m, mode %5, path %6, workout \"%7\", "
+                                              "difficulty %8 %, virtual gears %9, method %10")
+                                   .arg(rlv.state(), rlv.routeName(), rlv.routePath())
+                                   .arg(rlv.distanceMeters(), 0, 'f', 0)
+                                   .arg(rlv.mode(), rlv.resistancePath(), rlv.workoutName())
+                                   .arg(rlv.difficultyPercent())
+                                   .arg(gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod()));
+    });
+    // (modeChanged also fires for unchanged values: log changes only)
+    QObject::connect(&rlv, &RlvSession::modeChanged, &app, [&rlv, last = std::make_shared<QString>()] {
+        const QString t = QStringLiteral("video ride mode %1, path %2").arg(rlv.mode(), rlv.resistancePath());
+        if (t != *last)
+            DiagLog::write("RIDE", *last = t);
+    });
+    QObject::connect(&freeRide, &FreeRideSession::modeChanged, &app, [&freeRide, last = std::make_shared<QString>()] {
+        const QString t = QStringLiteral("free ride mode %1, path %2").arg(freeRide.mode(), freeRide.resistancePath());
+        if (t != *last)
+            DiagLog::write("RIDE", *last = t);
+    });
+    QObject::connect(&rowing, &RowingSession::stateChanged, &app, [&rowing] {
+        DiagLog::write("RIDE", QStringLiteral("==== row %1 \"%2\"").arg(rowing.state(), rowing.workoutName()));
+    });
+    QObject::connect(&training, &TrainingSession::rideSaved, &app,
+                     [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("workout saved (ride %1)").arg(id)); });
+    QObject::connect(&freeRide, &FreeRideSession::rideSaved, &app,
+                     [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("free ride saved (ride %1)").arg(id)); });
+    QObject::connect(&rlv, &RlvSession::rideSaved, &app,
+                     [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("video ride saved (ride %1)").arg(id)); });
+    // 1 Hz: the app's computed values while a ride page / session is active
+    {
+        auto *traceTimer = new QTimer(&app);
+        QObject::connect(traceTimer, &QTimer::timeout, &app, [&] {
+            if (!DiagLog::instance().isActive())
+                return;
+            const QString page = gears.activePage();
+            const bool rlvLive = rlv.active();
+            const bool frLive = freeRide.active();
+            const bool onRlv = rlvLive || (!frLive && page == QLatin1String("video"));
+            const bool onFr = !onRlv && (frLive || page == QLatin1String("freeride"));
+            if (!onRlv && !onFr && !training.running())
+                return;
+            const QString sent = hub.simulationActive()
+                ? QStringLiteral("SIM %1 %").arg(hub.requestedGrade(), 0, 'f', 2)
+                : hub.ergActive() ? QStringLiteral("ERG %1 W").arg(hub.requestedTarget()) : QStringLiteral("FREE");
+            if (!onRlv && !onFr) {   // a workout on the Watt Training page
+                DiagLog::write("TRACE", QStringLiteral("workout \"%1\" sent=%2 P=%3W cad=%4 v=%5km/h")
+                                            .arg(training.workoutName(), sent)
+                                            .arg(hub.power())
+                                            .arg(hub.cadence())
+                                            .arg(hub.speedKmh(), 0, 'f', 1));
+                return;
+            }
+            const RideResistance &res = onRlv ? rlv.resistance() : freeRide.resistance();
+            const RideResistance::GearDebug &dbg = res.gearDebug();
+            const double routeGrade = onRlv ? rlv.gradePercent() : freeRide.gradePercent();
+            const double effGrade = onRlv ? rlv.effectiveGradePercent() : freeRide.gradePercent();
+            // the trainer speed path a assumes: the real (reference / detected)
+            // gear at the cadence; the hybrid's own value when it has one
+            const int sessionCadence = onRlv ? rlv.cadence() : freeRide.cadence();
+            const double vRefKmh = dbg.referenceSpeedMps > 0
+                ? dbg.referenceSpeedMps * 3.6
+                : sessionCadence / 60.0 * gears.effectiveReferenceRatio() * gears.setup().circumferenceMm / 1000.0 * 3.6;
+            DiagLog::write("TRACE",
+                           QStringLiteral("%1 %2/%3 vg=%4 method=%5 path=%6%7 gear=%8 ratio=%9 cad=%10/%11rpm "
+                                          "vVirt=%12km/h grade=%13% eff=%14% diff=%15% sent=%16 wantGrade=%17% "
+                                          "vRef=%18km/h refRatio=%19 det=%20 demand=%21W P=%22W vTrainer=%23km/h coast=%24 d=%25m")
+                               .arg(onRlv ? QStringLiteral("video") : QStringLiteral("freeride"),
+                                    onRlv ? rlv.state() : freeRide.state(), onRlv ? rlv.mode() : freeRide.mode(),
+                                    gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod(),
+                                    onRlv ? rlv.resistancePath() : freeRide.resistancePath(),
+                                    dbg.decision.isEmpty() ? QString() : QStringLiteral("->") + dbg.decision, gears.gearLabel())
+                               .arg(gears.gearRatio(), 0, 'f', 3)
+                               .arg(hub.cadence())
+                               .arg(sessionCadence)
+                               .arg(onRlv ? rlv.speedKmh() : freeRide.speedKmh(), 0, 'f', 1)
+                               .arg(routeGrade, 0, 'f', 2)
+                               .arg(effGrade, 0, 'f', 2)
+                               .arg(onRlv ? rlv.difficultyPercent() : 100)
+                               .arg(sent)
+                               .arg(onRlv ? rlv.gearSimulationGrade() : freeRide.gearSimulationGrade(), 0, 'f', 2)
+                               .arg(vRefKmh, 0, 'f', 1)
+                               .arg(gears.effectiveReferenceRatio(), 0, 'f', 3)
+                               .arg(gears.detectedRatio() > 0 ? QString::number(gears.detectedRatio(), 'f', 3) : QStringLiteral("-"))
+                               .arg(onRlv ? rlv.gearTargetWatts() : freeRide.gearTargetWatts())
+                               .arg(hub.power())
+                               .arg(hub.speedKmh(), 0, 'f', 1)
+                               .arg((onRlv ? rlv.coasting() : freeRide.coasting()) ? 1 : 0)
+                               .arg(onRlv ? rlv.distanceMeters() : freeRide.distanceMeters(), 0, 'f', 0));
+        });
+        traceTimer->start(1000);
+    }
+
     devices.initialize();
 
     MusicPlayer music(&db);
@@ -398,6 +573,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Videos", &videos);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
     qmlRegisterSingletonInstance(uri, 1, 0, "Sessions", &sessions);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -964,6 +1140,8 @@ int main(int argc, char *argv[])
 
     const int rc = app.exec();
     closeSessions();
+    DiagLog::write("LOG", QStringLiteral("application exit (code %1)").arg(rc));
+    DiagLog::instance().stop();
 
     return rc;
 }

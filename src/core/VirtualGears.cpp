@@ -34,6 +34,17 @@ QVector<int> toIntList(const QVariantList &list, bool *ok)
 }
 } // namespace
 
+RideResistance::GearMethod VirtualGears::methodFromSetting(const QVariant &stored)
+{
+    // Only setShiftMethod() (= the rider's choice on the Devices page) writes
+    // "gears/method"; a missing / unreadable value is never an explicit
+    // choice. Default: Gradient (simulation, the 1.3.1 behaviour) - also for
+    // riders who ran the test build that made "auto" the implicit default.
+    if (!stored.isValid() || stored.isNull())
+        return RideResistance::GearMethod::Gradient;
+    return RideResistance::parseMethod(stored.toString()).value_or(RideResistance::GearMethod::Gradient);
+}
+
 VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *parent)
     : QObject(parent)
     , m_db(db)
@@ -56,8 +67,7 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
         load();
     });
     m_enabled = m_db->setting(kSettingEnabled, false).toBool();
-    m_method = RideResistance::parseMethod(m_db->setting(kSettingMethod, QStringLiteral("auto")).toString())
-                   .value_or(RideResistance::GearMethod::Auto);
+    m_method = methodFromSetting(m_db->setting(kSettingMethod));
     m_detectClock.start();
     load();
 }
@@ -266,6 +276,42 @@ QString VirtualGears::debugLine() const
         .arg(m_hub ? m_hub->speedKmh() : 0.0, 0, 'f', 1)
         .arg(m_hub ? m_hub->cadence() : 0)
         .arg(m_hub ? m_hub->power() : 0);
+}
+
+QString VirtualGears::settingsLine() const
+{
+    auto join = [](const QVector<int> &v) {
+        QStringList out;
+        for (int x : v)
+            out << QString::number(x);
+        return out.join(QLatin1Char('-'));
+    };
+    const GearSetup &s = setup();
+    const road::Model rm = roadModel(0);
+    const Profile &who = rider();
+    return QStringLiteral("virtualGears=%1 method=%2 click=%3 gear=%4 (ratio %5) reference=%6 (ratio %7) "
+                          "detected=%8 setup[rings %9 cogs %10 wheel %11 mm %12] rider[%13 %14 kg] "
+                          "bike %15 kg mass %16 kg CdA %17 (%18) Crr %19 rho %20 eta %21")
+        .arg(m_enabled ? QStringLiteral("on") : QStringLiteral("off"), shiftMethod(),
+             m_clickConnected ? QStringLiteral("connected") : QStringLiteral("-"), gearLabel())
+        .arg(gearRatio(), 0, 'f', 3)
+        .arg(referenceLabel())
+        .arg(referenceRatio(), 0, 'f', 3)
+        .arg(m_detector.valid() ? QStringLiteral("%1 (%2)").arg(detectedLabel().isEmpty() ? QStringLiteral("?") : detectedLabel())
+                                      .arg(detectedRatio(), 0, 'f', 3)
+                                : QStringLiteral("-"))
+        .arg(join(s.chainrings), join(s.cogs))
+        .arg(s.circumferenceMm)
+        .arg(s.sequential ? QStringLiteral("sequential") : QStringLiteral("front/rear"))
+        .arg(who.name)
+        .arg(riderWeightKg(), 0, 'f', 1)
+        .arg(s.bikeWeightKg, 0, 'f', 1)
+        .arg(rm.massKg, 0, 'f', 1)
+        .arg(rm.cda, 0, 'f', 3)
+        .arg(s.cdaAuto ? QStringLiteral("auto") : QStringLiteral("manual"))
+        .arg(rm.crr, 0, 'f', 4)
+        .arg(rm.airDensity, 0, 'f', 3)
+        .arg(rm.efficiency, 0, 'f', 2);
 }
 
 void VirtualGears::setShiftMethod(const QString &method)

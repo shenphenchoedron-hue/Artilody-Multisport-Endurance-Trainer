@@ -93,8 +93,9 @@ class VirtualGears : public QObject
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
     // How virtual gears drive a trainer that simulates gradients
-    // ("auto" default / "gradient" / "erg", setting "gears/method", see
-    // RideResistance::GearMethod).
+    // ("gradient" default = simulation / "auto" and "erg" optional,
+    // experimental; setting "gears/method", written only by an explicit
+    // choice, see methodFromSetting() and RideResistance::GearMethod).
     Q_PROPERTY(QString shiftMethod READ shiftMethod WRITE setShiftMethod NOTIFY shiftMethodChanged)
     // The real gear on the trainer measured from its speed and cadence
     // (GearRatioDetector); 0 / "" until detected. Never changes the saved
@@ -176,6 +177,10 @@ public:
     RideResistance::GearMethod method() const { return m_method; }
     QString shiftMethod() const { return RideResistance::methodName(m_method); }
     void setShiftMethod(const QString &method);
+    // The method for a stored "gears/method" value: Gradient when nothing was
+    // chosen (invalid QVariant) or the value is unknown; "auto" / "erg" only
+    // when the rider picked them (setShiftMethod() is the only writer).
+    static RideResistance::GearMethod methodFromSetting(const QVariant &stored);
     double detectedRatio() const { return m_detector.ratio(); }
     QString detectedLabel() const;
     bool detectedDiffers() const;
@@ -194,6 +199,10 @@ public:
     QString diagnosticsText() const;
     // The same on one line (WATT_DEBUG_GEARS=1 log).
     QString debugLine() const;
+    // Everything the gear resistance depends on, on one line (diagnostic log
+    // "CFG"): virtual gears on/off, method, setup, current / reference /
+    // detected gear, rider (profile name and weight only), bike, mass, CdA, Crr.
+    QString settingsLine() const;
 
     // The rider of a running / paused ride (FreeRideSession / RlvSession call
     // this on start and clear it when the ride ends; owner = the session, a
@@ -301,7 +310,7 @@ private:
     QTimer m_saveTimer;
     bool m_savePending = false;
     bool m_manualSave = false;
-    RideResistance::GearMethod m_method = RideResistance::GearMethod::Auto;
+    RideResistance::GearMethod m_method = RideResistance::GearMethod::Gradient;
     GearRatioDetector m_detector;
     QElapsedTimer m_detectClock;
 };

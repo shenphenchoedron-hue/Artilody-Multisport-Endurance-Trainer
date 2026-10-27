@@ -1,5 +1,7 @@
 #include "SimulatedDevices.h"
 
+#include "DiagLog.h"
+#include "FtmsProtocol.h"
 #include "Gearing.h"   // road::kDrivetrainEfficiency (watt_core)
 #include "Pm5Protocol.h"
 
@@ -12,6 +14,15 @@ namespace {
 double noise(double amplitude)
 {
     return (QRandomGenerator::global()->generateDouble() * 2.0 - 1.0) * amplitude;
+}
+
+// The virtual trainer in the diagnostic log: the FTMS command a real trainer
+// would get, encoded and decoded like BleTrainer's "CP write".
+void logVirtualCommand(const QByteArray &cmd, const char *answer = "Success (virtual)")
+{
+    if (DiagLog::instance().isActive())
+        DiagLog::write("FTMS", QStringLiteral("CP write (virtual trainer) [%1] = %2 -> %3")
+                                   .arg(DiagLog::hex(cmd), ftms::describeControlPoint(cmd), QString::fromLatin1(answer)));
 }
 } // namespace
 
@@ -63,6 +74,7 @@ void SimulatedTrainer::disconnectDevice()
 
 void SimulatedTrainer::setTargetPower(int watts)
 {
+    logVirtualCommand(ftms::setTargetPower(watts));
     m_erg = true;
     m_sim = false;
     m_target = watts;
@@ -70,12 +82,17 @@ void SimulatedTrainer::setTargetPower(int watts)
 
 void SimulatedTrainer::setFreeRide()
 {
+    if (DiagLog::instance().isActive())
+        DiagLog::write("FTMS", m_simSupported ? QStringLiteral("free ride (virtual trainer): 0x11 flat road")
+                                              : QStringLiteral("free ride (virtual trainer): released"));
     m_erg = false;
     m_sim = false;
 }
 
 void SimulatedTrainer::setSimulation(double gradePercent, double windSpeedMps, double crr, double cwKgPerM)
 {
+    logVirtualCommand(ftms::setIndoorBikeSimulation(windSpeedMps, gradePercent, crr, cwKgPerM),
+                      m_simSupported ? "Success (virtual)" : "Not supported (virtual, WATT_SIM_TRAINER_NO_SIM)");
     if (!m_simSupported)
         return;   // like a trainer answering "Op Code not supported"
     if (!m_sim) {
@@ -256,9 +273,24 @@ void SimulatedTrainer::step()
         m_reserve = std::clamp(m_reserve, 0.0, 1.0);
     }
     const double shown = std::max(0.0, m_power + (m_noise ? noise(4.0) : 0.0));
+    const double cadence = std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0));
+    const double speed = brake ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2;
     emit powerMeasured(int(std::lround(shown)));
-    emit cadenceMeasured(std::max(0.0, m_cadence + (m_noise ? noise(1.0) : 0.0)));
-    emit speedMeasured(brake ? m_wheelSpeed * 3.6 : std::cbrt(std::max(0.0, shown)) * 5.2);
+    emit cadenceMeasured(cadence);
+    emit speedMeasured(speed);
+    if (DiagLog::instance().isActive()) {   // 1 Hz (the step), like a trainer's Indoor Bike Data
+        ftms::IndoorBikeData d;
+        d.speedKmh = speed;
+        d.cadenceRpm = cadence;
+        d.powerW = int(std::lround(shown));
+        DiagLog::write("IBD", QStringLiteral("(virtual trainer) %1; brake %2 grade %3 % gear %4")
+                                  .arg(ftms::describeIndoorBikeData(d),
+                                       m_erg ? QStringLiteral("ERG %1 W").arg(m_target)
+                                             : m_sim ? QStringLiteral("SIM") : QStringLiteral("FREE"))
+                                  .arg(m_grade, 0, 'f', 2)
+                                  .arg(m_fixedRatio > 0 ? QStringLiteral("fixed %1").arg(m_fixedRatio, 0, 'f', 3)
+                                                        : QString::number(m_gear)));
+    }
 }
 
 // ---------------------------------------------------------------------------

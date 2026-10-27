@@ -12,6 +12,9 @@ constexpr quint16 kServiceUuid = 0x1826;
 constexpr quint16 kFeatureUuid = 0x2ACC;               // read
 constexpr quint16 kRowerDataUuid = 0x2AD1;             // notify
 constexpr quint16 kIndoorBikeDataUuid = 0x2AD2;        // notify
+constexpr quint16 kTrainingStatusUuid = 0x2AD3;        // read / notify (optional)
+constexpr quint16 kSupportedInclinationRangeUuid = 0x2AD5;   // read (optional)
+constexpr quint16 kSupportedResistanceRangeUuid = 0x2AD6;    // read (optional)
 constexpr quint16 kSupportedPowerRangeUuid = 0x2AD8;   // read
 constexpr quint16 kControlPointUuid = 0x2AD9;          // write + indicate
 constexpr quint16 kMachineStatusUuid = 0x2ADA;         // notify
@@ -189,5 +192,29 @@ QByteArray setTargetResistance(double level);          // unit 0.1
 // Non-finite values are replaced (wind/grade 0, Crr 0.004, Cw 0.39 kg/m) and
 // finite ones clamped to the field ranges before rounding.
 QByteArray setIndoorBikeSimulation(double windSpeedMs, double gradePercent, double crr, double cwKgPerM);
+
+// --- Readable text for the diagnostic log (DiagLog) ------------------------
+// "Set Indoor Bike Simulation" / "Op 0x2a"
+QString opCodeName(quint8 opCode);
+// A Control Point write, e.g. "0x11 Set Indoor Bike Simulation: wind 0.000 m/s,
+// grade -2.20 %, Crr 0.0040, Cw 0.39 kg/m" or "0x05 Set Target Power: 150 W".
+QString describeControlPoint(const QByteArray &command);
+// A Control Point indication, e.g. "Response to 0x11 Set Indoor Bike
+// Simulation: Success" (result code name + raw code).
+QString describeControlPointResponse(const QByteArray &data);
+// Fitness Machine Status (0x2ADA), e.g. "Indoor Bike Simulation Parameters
+// Changed: wind 0.000 m/s, grade 1.50 %, Crr 0.0040, Cw 0.39 kg/m" or
+// "Control Permission Lost".
+QString describeMachineStatus(const QByteArray &data);
+// Training Status (0x2AD3), e.g. "Speed Outside of Control Region - Low".
+QString describeTrainingStatus(const QByteArray &data);
+// Fitness Machine Feature (0x2ACC): every set bit by name.
+QString describeFeatures(const QByteArray &data);
+// Supported Inclination (0x2AD5) / Resistance Level (0x2AD6) / Power (0x2AD8)
+// Range, e.g. "power 0..2000 W, step 1 W".
+QString describeRange(quint16 uuid, const QByteArray &data);
+// Indoor Bike Data, the fields present, e.g. "speed 33.20 km/h, cadence 90.0 rpm,
+// power 185 W, resistance 12".
+QString describeIndoorBikeData(const IndoorBikeData &d);
 
 } // namespace watt::ftms

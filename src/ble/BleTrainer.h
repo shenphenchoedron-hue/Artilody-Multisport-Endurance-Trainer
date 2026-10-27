@@ -6,6 +6,7 @@
 #include <QBluetoothAddress>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
+#include <QElapsedTimer>
 #include <QQueue>
 #include <QTimer>
 
@@ -80,6 +81,7 @@ private:
     bool m_busy = false;
     QTimer m_writeTimeout;
     QTimer m_controlRetry;
+    QElapsedTimer m_ibdLogClock;      // Indoor Bike Data in the diagnostic log: <= 1 Hz
 };
 
 } // namespace watt

@@ -920,9 +920,9 @@ Item {
                         fontSize: 14
                         segmentPadding: 12
                         options: [
-                            { value: "auto", label: "Auto (recommended)" },
-                            { value: "gradient", label: "Gradient" },
-                            { value: "erg", label: "ERG" }
+                            { value: "gradient", label: "Gradient (default)" },
+                            { value: "auto", label: "Auto (experimental)" },
+                            { value: "erg", label: "ERG (experimental)" }
                         ]
                         value: Gears.shiftMethod
                         onActivated: (v) => Gears.shiftMethod = v
@@ -931,10 +931,10 @@ Item {
                 Text {
                     width: parent.width
                     text: Gears.shiftMethod === "auto"
-                          ? "Auto: gradient simulation for real effort, ERG at the gear's watts for light gears and descents – the lightest load your trainer can give."
+                          ? "Auto (optional, experimental): gradient simulation for real effort, but ERG at the gear's watts for light gears and descents. Not the standard simulation – switch back to Gradient if in doubt."
                           : Gears.shiftMethod === "gradient"
-                            ? "Gradient: the trainer always gets a gear-adjusted grade. Light gears can feel heavy if your trainer ignores negative grades."
-                            : "ERG: the trainer always holds the watts of your gear. For trainers whose gradient simulation misbehaves."
+                            ? "Gradient (default): the trainer simulates the road with a gear-adjusted grade (real simulation, as in 1.3.1)."
+                            : "ERG (optional, experimental): the trainer always holds the watts of your gear instead of simulating the road."
                     color: Theme.textSecondary
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -1377,7 +1377,7 @@ Item {
         Rectangle {
             x: 28; y: 118
             width: diagDialog.panelWidth - 56
-            height: diagDialog.panelHeight - 118 - 92
+            height: diagDialog.panelHeight - 118 - 92 - 48
             radius: 10
             color: Theme.field
             border.color: Theme.fieldBorder
@@ -1396,6 +1396,48 @@ Item {
                     font.pixelSize: 13
                     background: null
                 }
+            }
+        }
+        // the automatic diagnostic log (Settings > Diagnostic log)
+        Item {
+            objectName: "diagLogRow"
+            x: 28
+            y: diagDialog.panelHeight - 92 - 44
+            width: diagDialog.panelWidth - 56
+            height: 40
+            Text {
+                id: diagLogLabel
+                text: "Log file:"
+                color: Theme.textSecondary
+                font.pixelSize: 14
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            TextEdit {
+                anchors.left: diagLogLabel.right
+                anchors.leftMargin: 8
+                anchors.right: diagLogOpen.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                readOnly: true
+                selectByMouse: true
+                clip: true
+                text: Logs.enabled && Logs.currentFile.length > 0 ? Logs.currentFile
+                                                                  : "off – turn on Settings › Diagnostic log"
+                color: Theme.text
+                selectionColor: Theme.accent
+                font.family: "monospace"
+                font.pixelSize: 13
+            }
+            AppButton {
+                id: diagLogOpen
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                kind: "secondary"
+                iconName: "folder"
+                text: "Open folder"
+                fontSize: 14
+                bold: false
+                onClicked: { Logs.ensureFolder(); Qt.openUrlExternally(Logs.folderUrl) }
             }
         }
         Row {

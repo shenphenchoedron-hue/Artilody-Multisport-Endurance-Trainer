@@ -432,20 +432,23 @@ def build(s, env):
         "resistance before you press Start, too.")
     s.p(f"<b>Virtual shifting method</b> ({UI('Virtual shifting method')} on the card, saved):")
     s.bullets([
-        f"{UI('Auto (recommended)')} – the gear-adjusted grade for real effort; whenever the gear asks for "
-        "little power (the grade to send would be 0 % or less, or below 60 W: easy gears, a light gear on the "
-        "flat, descents) the trainer gets an ERG target of the gear's watts instead (down to 10 W) – the "
-        "lightest load it can give. It returns to the grade above +0.5 % and 75 W and switches at most once "
-        "per second; when you stop pedaling the trainer is released. The Video Ride card then shows "
-        "<i>Light gear – trainer at 17 W</i> instead of the grade sent.",
-        f"{UI('Gradient')} – always the gear-adjusted grade (as in 1.3.1).",
-        f"{UI('ERG')} – always the watts of your gear, for trainers whose gradient simulation misbehaves.",
+        f"{UI('Gradient (default)')} – the trainer always gets the gear-adjusted grade: real gradient "
+        "simulation, as in 1.3.1. Everybody who has not explicitly chosen another method uses it (also after "
+        "the test build that had made Auto the default).",
+        f"{UI('Auto (experimental)')} – optional: the gear-adjusted grade for real effort, but whenever the "
+        "gear asks for little power (the grade to send would be 0 % or less, or below 60 W: easy gears, a light "
+        "gear on the flat, descents) the trainer gets an ERG target of the gear's watts instead (down to 10 W). "
+        "It returns to the grade above +0.5 % and 75 W and switches at most once per second; when you stop "
+        "pedaling the trainer is released.",
+        f"{UI('ERG (experimental)')} – optional: always the watts of your gear instead of a simulated road.",
     ])
-    s.p("<b>Why light gears need this.</b> The flywheel turns at the speed of the real gear: 50 × 17 at "
+    s.p("<b>Light gears on a real trainer.</b> The flywheel turns at the speed of the real gear: 50 × 17 at "
         "90 rpm is 33 km/h. A trainer simulating 0 % at 33 km/h brakes with the rolling and air drag of that "
         "speed – about 185 W – whatever the virtual gear. 44 × 44 at 90 rpm is 11 km/h and needs about 20 W, "
-        "i.e. a grade of about −2.2 % at the flywheel, and many trainers treat negative grades as 0 % or keep a "
-        "high minimum resistance at that speed. ERG at the gear's watts avoids this.")
+        "i.e. a grade of about −2.2 % at the flywheel. Why a JetBlack Victory still asks for almost 200 W in "
+        "the lightest gear is being investigated: ride the section once and send the diagnostic log "
+        "(chapter “Troubleshooting & FAQ”, section “Diagnostic log”) – it shows every grade the app sent and "
+        "what the trainer answered and measured.")
     s.p(f"<b>Detected gear and a small real gear.</b> When the trainer reports speed and cadence, the card shows "
         "the gear the bike really sits in, measured while you pedal steadily (real ratio = speed ÷ (cadence × "
         "wheel circumference)), e.g. <i>Detected on the trainer: 50×17 (2.94)</i>. The gradient calculation "
@@ -455,7 +458,8 @@ def build(s, env):
         "and descents get lighter.")
     s.p("<b>The grade you feel.</b> Video Ride uses the grade at your position looking slightly ahead "
         "(the smoothed elevation from 10 m behind to 20 m ahead), so a descent is felt within about 20 m of its "
-        "start. If gears still feel wrong, copy the Bluetooth diagnostics report during the ride: its "
+        "start. If gears still feel wrong, send the diagnostic log (see “Troubleshooting & FAQ”), or copy "
+        "the Bluetooth diagnostics report during the ride: its "
         "<i>[Virtual gears]</i> section lists method, path, route and effective grade, grade sent, ERG target, "
         "trainer speed, cadence and power, the detected gear and the demanded power (or start the app with "
         "<i>WATT_DEBUG_GEARS=1</i> for a log line per second).")
@@ -1737,6 +1741,10 @@ def build(s, env):
         "Preferences on the Devices page.",
         f"{UI('Smooth power')} – shows cycling watts as a rolling average (on by default, 3 s) and the length "
         "of the average: 1, 3, 5 or 10 s (section 15.2).",
+        f"{UI('Diagnostic log')} (on by default) – writes a trace log file automatically: the logs folder "
+        "(selectable text), an scp command to fetch the logs from a Raspberry Pi, "
+        f"{UI('Open logs folder')} and {UI('Export logs…')} (copies all log files to a folder you choose, "
+        "e.g. a USB stick). See “Diagnostic log” in chapter “Troubleshooting & FAQ”.",
         "The full path of the database file (<i>“All data is stored locally (offline) in SQLite”</i>).",
         f"The app version. {UI('Done')} closes the dialog.",
     ])
@@ -1791,6 +1799,41 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Troubleshooting & FAQ")
+    s.section("Diagnostic log")
+    s.p("The app writes a plain-text trace log by itself – no terminal needed. It is on by default "
+        f"(Settings → {UI('Diagnostic log')}). One file per app start, named "
+        + C("artilody-YYYYMMDD-HHMMSS.log") + "; the newest 20 files (at most 50 MB) are kept. Lines are written "
+        "to disk every half second, so the log survives switching a Raspberry Pi off.")
+    s.table(["System", "Logs folder"], [
+        ["Raspberry Pi / Linux", C("~/.local/share/Artilody/Watt Trainer/logs")],
+        ["macOS", C("~/Library/Application Support/Artilody/Watt Trainer/logs")],
+        ["Windows", C("%APPDATA%\\Artilody\\Watt Trainer\\logs")],
+    ], [1, 2.6])
+    s.p("<b>Fetch the logs from a Raspberry Pi</b> – in Terminal on the Mac, with your Pi's user and host name "
+        "(the Settings dialog shows the exact command):")
+    s.code("scp 'pi@raspberrypi.local:.local/share/Artilody/Watt?Trainer/logs/*.log' .")
+    s.p(f"<b>Without a network:</b> Settings → {UI('Export logs…')} copies all log files to a folder you "
+        f"choose, e.g. a USB stick. {UI('Open logs folder')} opens the folder; the Bluetooth diagnostics dialog "
+        "on the Devices page also shows the current log file with an Open folder button.")
+    s.p("<b>What to send:</b> the log file of the ride (newest file, or the one with the ride's date) and a "
+        "short note with the time and what you felt, e.g. <i>“20:14, start of the descent, lightest gear, "
+        "about 200 W”</i>. The log contains:")
+    s.bullets([
+        "app, Qt and OS version and the Raspberry Pi model;",
+        "the gear settings: virtual gears on/off, shifting method, gear setup, reference and detected real "
+        "gear, difficulty, rider + bike mass, CdA, Crr;",
+        "every command to the trainer (FTMS Control Point, hex and decoded: grade, Crr, Cw, wind, ERG watts) "
+        "and the trainer's answer (result code), its status notifications (Fitness Machine Status, Training "
+        "Status), its features and supported inclination / resistance / power ranges;",
+        "the trainer's speed, cadence and power once per second;",
+        "per second during a ride: mode, resistance path, gear and ratio, cadence, virtual speed, route and "
+        "effective grade, grade or ERG target sent, assumed trainer speed, demanded and measured power, "
+        "coasting;",
+        "Zwift Click presses with the resulting gear, connections, ride start / pause / finish and warnings.",
+    ])
+    s.p("Only your profile name and weight are personal data in the log. Turning the switch off stops "
+        "writing; delete old files in the logs folder at any time.")
+    s.section("Frequently asked questions")
     faq = [
         ("“Start” is greyed out.",
          "Another session is still in progress on another page – usually a workout started or paused on the "

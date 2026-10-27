@@ -16,8 +16,9 @@
 // the on-screen buttons.
 //  * Real trainer (JetBlack Victory, 1.3.1): 44×44 needed ~200 W at the start
 //    of a descent - path a sent a negative grade for the 33 km/h flywheel of
-//    the 50×17 reference gear. The "Auto" shifting method (default) sends a
-//    low ERG target for light loads (hybrid* tests); "Gradient" keeps path a.
+//    the 50×17 reference gear (root cause still being investigated). The
+//    default method is "Gradient" (path a, simulation); the optional,
+//    experimental "Auto" sends a low ERG target for light loads (hybrid* tests).
 #include "Database.h"
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
@@ -784,7 +785,8 @@ private slots:
         profiles.load();
         {
             VirtualGears g(&db, &profiles);
-            QCOMPARE(g.shiftMethod(), QStringLiteral("auto"));   // default
+            QCOMPARE(g.shiftMethod(), QStringLiteral("gradient"));   // default: simulation
+            QVERIFY(!db.setting(QStringLiteral("gears/method")).isValid());   // the default is never written
             QSignalSpy changed(&g, &VirtualGears::shiftMethodChanged);
             g.setShiftMethod(QStringLiteral("erg"));
             QCOMPARE(changed.count(), 1);
@@ -797,6 +799,47 @@ private slots:
         QCOMPARE(again.shiftMethod(), QStringLiteral("erg"));
         again.setProperty("shiftMethod", QStringLiteral("gradient"));   // what the QML selector does
         QCOMPARE(VirtualGears(&db, &profiles).shiftMethod(), QStringLiteral("gradient"));
+    }
+
+    // f997b16 (test build) made "auto" the IMPLICIT default (nothing stored).
+    // Riders without an explicit choice get Gradient (simulation) again; an
+    // explicit choice ("gears/method" is written only by setShiftMethod())
+    // is kept.
+    void defaultMethodIsGradientAndImplicitAutoMigrates()
+    {
+        using M = RideResistance::GearMethod;
+        QCOMPARE(VirtualGears::methodFromSetting(QVariant()), M::Gradient);           // nothing chosen
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("")), M::Gradient);   // unreadable
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("bogus")), M::Gradient);
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("gradient")), M::Gradient);
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("auto")), M::Auto);   // explicit
+        QCOMPARE(VirtualGears::methodFromSetting(QStringLiteral("erg")), M::Erg);     // explicit
+
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        // a rider who ran the test build with the implicit "auto" default: nothing stored
+        db.setSetting(QStringLiteral("gears/enabled"), true);
+        {
+            VirtualGears g(&db, &profiles);
+            QCOMPARE(g.method(), M::Gradient);
+            QVERIFY(g.enabled());
+        }
+        // explicit choices survive a restart
+        db.setSetting(QStringLiteral("gears/method"), QStringLiteral("erg"));
+        QCOMPARE(VirtualGears(&db, &profiles).method(), M::Erg);
+        db.setSetting(QStringLiteral("gears/method"), QStringLiteral("auto"));
+        QCOMPARE(VirtualGears(&db, &profiles).method(), M::Auto);
+        // a fresh rig (sessions on the virtual trainer) uses gear simulation
+        Rig r;
+        QVERIFY(r.init(true));
+        QCOMPARE(r.gears->shiftMethod(), QStringLiteral("gradient"));
+        r.freeRide->setGrade(2.0);
+        QVERIFY(r.freeRide->start());
+        QCOMPARE(r.freeRide->resistancePath(), QStringLiteral("gearSimulation"));
+        r.freeRide->finish(false);
     }
 
     // The reported case in numbers: 44×44 at 90 rpm with the bike in 50×17 on
@@ -909,7 +952,8 @@ private slots:
     {
         Rig r;
         QVERIFY(r.init(true));
-        QCOMPARE(r.gears->shiftMethod(), QStringLiteral("auto"));
+        QCOMPARE(r.gears->shiftMethod(), QStringLiteral("gradient"));   // default
+        r.gears->setShiftMethod(QStringLiteral("auto"));   // optional, experimental
         QVERIFY(r.lightBike());
         QVERIFY(r.addRoute());
         QVERIFY(r.rlv->seekToDistance(2200));

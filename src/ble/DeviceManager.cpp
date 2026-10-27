@@ -3,6 +3,7 @@
 #include "BleHeartRateSensor.h"
 #include "BleTrainer.h"
 #include "Database.h"
+#include "DiagLog.h"
 #include "FtmsProtocol.h"
 #include "HrsProtocol.h"
 #include "Pm5Protocol.h"
@@ -15,6 +16,7 @@
 #include <QBluetoothLocalDevice>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDir>
 #include <QGuiApplication>
 #include <QRegularExpression>
 #include <QSysInfo>
@@ -894,6 +896,11 @@ QString DeviceManager::diagnosticsReport() const
     out << "Generated: " << QDateTime::currentDateTime().toString(Qt::ISODate) << "\n";
     out << "App: " << QCoreApplication::applicationVersion() << "  Qt: " << qVersion() << " (built with " << QT_VERSION_STR << ")\n";
     out << "OS: " << QSysInfo::prettyProductName() << "  kernel " << QSysInfo::kernelVersion() << "  " << QSysInfo::currentCpuArchitecture() << "\n";
+    out << "Device: " << DiagLog::deviceModel() << "\n";
+    out << "Log file: "
+        << (DiagLog::instance().isActive() ? QDir::toNativeSeparators(DiagLog::instance().currentFile())
+                                           : QStringLiteral("off (Settings > Diagnostic log)"))
+        << "\n";
     out << "\n[Adapter]\n";
     if (m_local && m_local->isValid()) {
         out << "Selected: " << m_local->name() << "  " << m_local->address().toString() << "  host mode: " << hostModeText(m_local->hostMode()) << "\n";
@@ -1070,6 +1077,7 @@ void DeviceManager::onTrainerIsRower(const QString &id)
 void DeviceManager::recordGatt(const QString &id, const QString &summary)
 {
     m_gatt[id] = qMakePair(QDateTime::currentDateTime(), summary);
+    DiagLog::write("GATT", QStringLiteral("%1: %2").arg(id, summary));
     addDiag(QStringLiteral("GATT %1: %2").arg(id, summary.section(QLatin1Char('\n'), 0, 1).replace(QLatin1Char('\n'), QStringLiteral(" | "))));
     qCInfo(lcBle).noquote() << "GATT" << id << summary;
 }
@@ -1336,6 +1344,9 @@ void DeviceManager::attachController(ControllerDevice *c)
     connect(c, &ControllerDevice::gattReport, this, [this, id = c->id()](const QString &g) { recordGatt(id, g); });
     connect(c, &ControllerDevice::rssiChanged, this, [this, c](int rssi) { m_controllers.setRssi(c->id(), rssi); });
     connect(c, &ControllerDevice::stateChanged, this, [this, c](LinkState s) {
+        DiagLog::write("CLICK", QStringLiteral("controller %1 [%2] %3").arg(c->name(), c->id(),
+                                     s == LinkState::Connected ? QStringLiteral("connected")
+                                     : s == LinkState::Connecting ? QStringLiteral("connecting") : QStringLiteral("disconnected")));
         m_controllers.setState(c->id(), int(s));
         if (s != LinkState::Connected && m_controllerButtons.remove(c->id()))
             emitControllerButtons();   // a dropped link holds no button
@@ -1379,8 +1390,12 @@ void DeviceManager::onControllerShift(const QString &id, int dir)
         return;
     dir = dir > 0 ? 1 : -1;
     const qint64 now = m_shiftClock.elapsed();
-    if (dir == m_lastShiftDir && id != m_lastShiftFrom && m_lastShiftMs >= 0 && now - m_lastShiftMs < kShiftDedupeMs)
+    if (dir == m_lastShiftDir && id != m_lastShiftFrom && m_lastShiftMs >= 0 && now - m_lastShiftMs < kShiftDedupeMs) {
+        DiagLog::write("CLICK", QStringLiteral("shift %1 from %2 ignored (duplicate of the other pod)")
+                                    .arg(dir > 0 ? QStringLiteral("+1 harder") : QStringLiteral("-1 easier"), id));
         return;   // the other pod reported the same press (see kShiftDedupeMs)
+    }
+    DiagLog::write("CLICK", QStringLiteral("shift %1 from %2").arg(dir > 0 ? QStringLiteral("+1 harder") : QStringLiteral("-1 easier"), id));
     m_lastShiftDir = dir;
     m_lastShiftFrom = id;
     m_lastShiftMs = now;
@@ -1411,6 +1426,7 @@ void DeviceManager::emitControllerButtons()
     }
     if (plus == m_buttonsPlus && minus == m_buttonsMinus)
         return;
+    DiagLog::write("CLICK", QStringLiteral("buttons plus=%1 minus=%2").arg(plus ? 1 : 0).arg(minus ? 1 : 0));
     m_buttonsPlus = plus;
     m_buttonsMinus = minus;
     emit controllerButtonsChanged(plus, minus);
@@ -1560,6 +1576,13 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
         QTimer::singleShot(0, this, [this, id] { onTrainerIsRower(id); });
     });
     connect(t, &TrainerDevice::stateChanged, this, [this, t](LinkState s) {
+        DiagLog::write("TRAIN", QStringLiteral("trainer %1 [%2, %3] %4  capabilities: %5  gradient simulation: %6")
+                                    .arg(t->name(), t->id(), t->protocol(),
+                                         s == LinkState::Connected ? QStringLiteral("connected")
+                                         : s == LinkState::Connecting ? QStringLiteral("connecting") : QStringLiteral("disconnected"),
+                                         t->capabilities().join(QLatin1Char(',')),
+                                         t->simulationSupport() > 0 ? QStringLiteral("yes")
+                                         : t->simulationSupport() == 0 ? QStringLiteral("no") : QStringLiteral("unknown")));
         m_trainers.setState(t->id(), int(s));
         if (s == LinkState::Connected)
             m_hub->setTrainerSimulationSupport(t->simulationSupport());
@@ -1772,6 +1795,7 @@ void DeviceManager::stopErgTest()
 
 void DeviceManager::addLog(const QString &text, bool ok)
 {
+    DiagLog::write("BLE", ok ? text : QStringLiteral("(!) ") + text);
     QVariantMap e;
     e.insert(QStringLiteral("time"), QTime::currentTime().toString(QStringLiteral("HH:mm:ss")));
     e.insert(QStringLiteral("text"), text);

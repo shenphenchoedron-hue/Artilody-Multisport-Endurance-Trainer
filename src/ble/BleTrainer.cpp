@@ -1,6 +1,7 @@
 #include "BleTrainer.h"
 
 #include "BleLink.h"
+#include "DiagLog.h"
 #include "Pm5Protocol.h"
 
 namespace watt {
@@ -17,6 +18,24 @@ QString deviceId(const QBluetoothDeviceInfo &info)
 quint8 opOf(const QByteArray &cmd)
 {
     return cmd.isEmpty() ? 0xFF : quint8(cmd.at(0));
+}
+
+const char *linkStateName(LinkState s)
+{
+    switch (s) {
+    case LinkState::Disconnected: return "disconnected";
+    case LinkState::Connecting: return "connecting";
+    case LinkState::Connected: return "connected";
+    }
+    return "?";
+}
+
+QString uuidHex(const QBluetoothUuid &uuid)
+{
+    bool ok = false;
+    const quint16 v = uuid.toUInt16(&ok);
+    return ok ? QStringLiteral("0x") + QString::number(v, 16).toUpper().rightJustified(4, QLatin1Char('0'))
+              : uuid.toString();
 }
 } // namespace
 
@@ -39,6 +58,7 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     });
 
     connect(m_link, &BleLink::stateChanged, this, [this](LinkState s) {
+        DiagLog::write("FTMS", QStringLiteral("%1 [%2]: link %3").arg(m_name, m_id, QString::fromLatin1(linkStateName(s))));
         if (s != LinkState::Connected) {
             m_ready = false;
             m_hasControl = false;
@@ -57,7 +77,14 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     connect(m_link, &BleLink::serviceReady, this, &BleTrainer::onServiceReady);
     connect(m_link, &BleLink::characteristicChanged, this, &BleTrainer::onNotification);
     connect(m_link, &BleLink::characteristicRead, this, &BleTrainer::onRead);
+    connect(m_link, &BleLink::notificationResult, this, [this](const QBluetoothUuid &c, bool enabled, bool ok) {
+        DiagLog::write("FTMS", QStringLiteral("%1: %2 %3 %4").arg(m_name, uuidHex(c),
+                                                                  enabled ? QStringLiteral("notifications/indications on")
+                                                                          : QStringLiteral("notifications off"),
+                                                                  ok ? QStringLiteral("ok") : QStringLiteral("FAILED")));
+    });
     connect(m_link, &BleLink::writeFailed, this, [this] {
+        DiagLog::write("FTMS", QStringLiteral("CP write REJECTED by the trainer/stack: %1").arg(DiagLog::hex(m_inFlight)));
         if (m_busy)
             onWriteFinished(true);
     });
@@ -135,9 +162,29 @@ void BleTrainer::onServiceReady()
         return;
     }
     emit logMessage(QStringLiteral("FTMS service ready on %1").arg(m_name), true);
+    {
+        QStringList present;
+        for (quint16 c : { ftms::kFeatureUuid, ftms::kIndoorBikeDataUuid, ftms::kTrainingStatusUuid,
+                           ftms::kSupportedInclinationRangeUuid, ftms::kSupportedResistanceRangeUuid,
+                           ftms::kSupportedPowerRangeUuid, ftms::kControlPointUuid, ftms::kMachineStatusUuid })
+            present << QStringLiteral("%1%2").arg(uuidHex(uuid16(c)), m_link->hasCharacteristic(uuid16(c)) ? QString()
+                                                                                                          : QStringLiteral(" (absent)"));
+        DiagLog::write("FTMS", QStringLiteral("%1 [%2]: FTMS service ready, characteristics %3")
+                                   .arg(m_name, m_id, present.join(QStringLiteral(", "))));
+    }
     m_link->read(uuid16(ftms::kFeatureUuid));
+    // Diagnostics only (the diagnostic log): the trainer's ranges and its
+    // status / training status notifications. They change no behaviour.
+    for (quint16 c : { ftms::kSupportedInclinationRangeUuid, ftms::kSupportedResistanceRangeUuid,
+                       ftms::kSupportedPowerRangeUuid })
+        if (m_link->hasCharacteristic(uuid16(c)))
+            m_link->read(uuid16(c));
     if (!m_link->enableNotifications(uuid16(ftms::kIndoorBikeDataUuid)))
         emit logMessage(QStringLiteral("Indoor Bike Data not available"), false);
+    if (m_link->hasCharacteristic(uuid16(ftms::kMachineStatusUuid)))
+        m_link->enableNotifications(uuid16(ftms::kMachineStatusUuid));
+    if (m_link->hasCharacteristic(uuid16(ftms::kTrainingStatusUuid)))
+        m_link->enableNotifications(uuid16(ftms::kTrainingStatusUuid));
     if (m_link->enableNotifications(uuid16(ftms::kControlPointUuid), true)) {
         m_ready = true;
         requestControl();
@@ -147,7 +194,21 @@ void BleTrainer::onServiceReady()
 
 void BleTrainer::onRead(const QBluetoothUuid &uuid, const QByteArray &value)
 {
+    bool ok16 = false;
+    const quint16 short16 = uuid.toUInt16(&ok16);
+    if (ok16 && (short16 == ftms::kSupportedInclinationRangeUuid || short16 == ftms::kSupportedResistanceRangeUuid
+                 || short16 == ftms::kSupportedPowerRangeUuid)) {
+        DiagLog::write("FTMS", QStringLiteral("%1: supported range %2 [%3] = %4")
+                                   .arg(m_name, uuidHex(uuid), DiagLog::hex(value), ftms::describeRange(short16, value)));
+        return;
+    }
+    if (uuid == uuid16(ftms::kTrainingStatusUuid)) {
+        DiagLog::write("FTMS", QStringLiteral("Training Status [%1] = %2").arg(DiagLog::hex(value), ftms::describeTrainingStatus(value)));
+        return;
+    }
     if (uuid == uuid16(ftms::kFeatureUuid)) {
+        DiagLog::write("FTMS", QStringLiteral("%1: Fitness Machine Feature 0x2ACC [%2] = %3")
+                                   .arg(m_name, DiagLog::hex(value), ftms::describeFeatures(value)));
         if (auto f = ftms::parseFeatures(value)) {
             m_features = *f;
             m_featuresKnown = true;
@@ -169,6 +230,7 @@ void BleTrainer::requestControl()
     if (!m_ready || m_controlRequested || m_hasControl || state() != LinkState::Connected)
         return;
     m_controlRequested = true;
+    DiagLog::write("FTMS", QStringLiteral("requesting control"));
     m_queue.prepend(ftms::requestControl());
     sendNext();
 }
@@ -237,6 +299,10 @@ void BleTrainer::onWriteFinished(bool failed)
     const QByteArray cmd = m_inFlight;
     m_inFlight.clear();
     m_busy = false;
+    if (failed)
+        DiagLog::write("FTMS", QStringLiteral("CP write failed / no indication within %1 ms: %2 [%3]")
+                                   .arg(m_writeTimeout.interval())
+                                   .arg(ftms::describeControlPoint(cmd), DiagLog::hex(cmd)));
     if (failed && opOf(cmd) == quint8(ftms::OpCode::RequestControl) && !m_hasControl) {
         emit logMessage(QStringLiteral("No answer to trainer control request – retrying"), false);
         scheduleControlRetry();
@@ -248,8 +314,15 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
 {
     if (uuid == uuid16(ftms::kIndoorBikeDataUuid)) {
         const auto d = ftms::parseIndoorBikeData(value);
-        if (!d)
+        if (!d) {
+            DiagLog::write("IBD", QStringLiteral("malformed Indoor Bike Data [%1]").arg(DiagLog::hex(value)));
             return;
+        }
+        // at most once per second in the log
+        if (DiagLog::instance().isActive() && (!m_ibdLogClock.isValid() || m_ibdLogClock.elapsed() >= 1000)) {
+            m_ibdLogClock.start();
+            DiagLog::write("IBD", QStringLiteral("%1 [%2]").arg(ftms::describeIndoorBikeData(*d), DiagLog::hex(value)));
+        }
         if (d->powerW)
             emit powerMeasured(*d->powerW);
         if (d->cadenceRpm)
@@ -260,9 +333,18 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             emit heartRateMeasured(*d->heartRateBpm);
         return;
     }
+    if (uuid == uuid16(ftms::kMachineStatusUuid)) {
+        DiagLog::write("FTMS", QStringLiteral("Machine Status [%1] = %2").arg(DiagLog::hex(value), ftms::describeMachineStatus(value)));
+        return;
+    }
+    if (uuid == uuid16(ftms::kTrainingStatusUuid)) {
+        DiagLog::write("FTMS", QStringLiteral("Training Status [%1] = %2").arg(DiagLog::hex(value), ftms::describeTrainingStatus(value)));
+        return;
+    }
     if (uuid != uuid16(ftms::kControlPointUuid))
         return;
 
+    DiagLog::write("FTMS", QStringLiteral("CP indication [%1] = %2").arg(DiagLog::hex(value), ftms::describeControlPointResponse(value)));
     const auto r = ftms::parseControlPointResponse(value);
     if (!r)
         return;
@@ -303,7 +385,14 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             m_controlRequested = false;
             m_queue.clear();
             restorePendingCommand();
-            if (m_refusals.onNotPermitted(r->requestOpCode) == ftms::ControlRefusalGuard::Action::RequestNow) {
+            const auto action = m_refusals.onNotPermitted(r->requestOpCode);
+            DiagLog::write("FTMS", QStringLiteral("ControlRefusalGuard: command 0x%1 refused (control not permitted) %2x in a row -> %3")
+                                       .arg(r->requestOpCode, 2, 16, QLatin1Char('0'))
+                                       .arg(m_refusals.count())
+                                       .arg(action == ftms::ControlRefusalGuard::Action::RequestNow
+                                                ? QStringLiteral("request control now")
+                                                : QStringLiteral("retry in %1 s").arg(m_controlRetry.interval() / 1000)));
+            if (action == ftms::ControlRefusalGuard::Action::RequestNow) {
                 requestControl();
             } else {
                 if (m_refusals.count() == ftms::ControlRefusalGuard::kMaxImmediate + 1)
@@ -361,8 +450,11 @@ void BleTrainer::setSimulation(double gradePercent, double windSpeedMps, double 
 {
     m_lastRequest = Request::Simulation;
     m_lastSim = { gradePercent, windSpeedMps, crr, cwKgPerM };
-    if (simulationSupport() == 0)
+    if (simulationSupport() == 0) {
+        DiagLog::write("FTMS", QStringLiteral("0x11 not sent (gradient simulation not supported): grade %1 %")
+                                   .arg(gradePercent, 0, 'f', 2));
         return;   // the session falls back to virtual gears (ERG)
+    }
     if (!m_hasControl) {
         m_pending = true;
         requestControl();
@@ -395,12 +487,15 @@ void BleTrainer::sendNext()
     if (m_busy || m_queue.isEmpty() || !m_ready || state() != LinkState::Connected)
         return;
     const QByteArray cmd = m_queue.dequeue();
+    DiagLog::write("FTMS", QStringLiteral("CP write [%1] = %2").arg(DiagLog::hex(cmd), ftms::describeControlPoint(cmd)));
     if (m_link->write(uuid16(ftms::kControlPointUuid), cmd, true)) {
         m_inFlight = cmd;
         m_busy = true;
         m_writeTimeout.start();
-    } else if (opOf(cmd) == quint8(ftms::OpCode::RequestControl)) {
-        scheduleControlRetry();
+    } else {
+        DiagLog::write("FTMS", QStringLiteral("CP write could not be queued (link / characteristic not ready)"));
+        if (opOf(cmd) == quint8(ftms::OpCode::RequestControl))
+            scheduleControlRetry();
     }
 }
 

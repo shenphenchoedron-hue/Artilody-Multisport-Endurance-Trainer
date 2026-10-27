@@ -416,6 +416,89 @@ private slots:
         QVERIFY(e->overlaps(*e));
         QVERIFY(!empty.overlaps(*e));
     }
+
+    // --- readable text for the diagnostic log ---------------------------------
+    void describeSimulationCommand()
+    {
+        // 0x11: wind 0, grade -2.20 %, Crr 0.0040, Cw 0.39 kg/m
+        const QByteArray cmd = ftms::setIndoorBikeSimulation(0.0, -2.2, 0.004, 0.39);
+        QCOMPARE(cmd, bytes({ 0x11, 0x00, 0x00, 0x24, 0xFF, 0x28, 0x27 }));
+        QCOMPARE(ftms::describeControlPoint(cmd),
+                 QStringLiteral("0x11 Set Indoor Bike Simulation: wind 0.000 m/s, grade -2.20 %, Crr 0.0040, Cw 0.39 kg/m"));
+        // wind 1.5 m/s, grade 6 %, Crr 0.0050, Cw 0.51
+        QCOMPARE(ftms::describeControlPoint(ftms::setIndoorBikeSimulation(1.5, 6.0, 0.005, 0.51)),
+                 QStringLiteral("0x11 Set Indoor Bike Simulation: wind 1.500 m/s, grade 6.00 %, Crr 0.0050, Cw 0.51 kg/m"));
+        QCOMPARE(ftms::describeControlPoint(bytes({ 0x11, 0x00 })),
+                 QStringLiteral("0x11 Set Indoor Bike Simulation: (truncated)"));
+    }
+
+    void describeOtherCommands()
+    {
+        QCOMPARE(ftms::describeControlPoint(ftms::setTargetPower(150)), QStringLiteral("0x05 Set Target Power: 150 W"));
+        QCOMPARE(ftms::describeControlPoint(ftms::requestControl()), QStringLiteral("0x00 Request Control"));
+        QCOMPARE(ftms::describeControlPoint(ftms::startOrResume()), QStringLiteral("0x07 Start or Resume"));
+        QCOMPARE(ftms::describeControlPoint(ftms::stopOrPause(true)), QStringLiteral("0x08 Stop or Pause: pause"));
+        QCOMPARE(ftms::describeControlPoint(ftms::setTargetResistance(10.0)),
+                 QStringLiteral("0x04 Set Target Resistance Level: level 10.0"));
+        QCOMPARE(ftms::describeControlPoint(bytes({ 0x03, 0x2C, 0x01 })),
+                 QStringLiteral("0x03 Set Target Inclination: 30.0 %"));
+        QCOMPARE(ftms::describeControlPoint(bytes({ 0x42, 0x01 })), QStringLiteral("0x42 Op 0x42 (+01)"));
+        QCOMPARE(ftms::describeControlPoint(QByteArray()), QStringLiteral("(empty)"));
+    }
+
+    void describeResponses()
+    {
+        QCOMPARE(ftms::describeControlPointResponse(bytes({ 0x80, 0x11, 0x01 })),
+                 QStringLiteral("Response to 0x11 Set Indoor Bike Simulation: Success (0x01)"));
+        QCOMPARE(ftms::describeControlPointResponse(bytes({ 0x80, 0x05, 0x05 })),
+                 QStringLiteral("Response to 0x05 Set Target Power: Control not permitted (0x05)"));
+        QCOMPARE(ftms::describeControlPointResponse(bytes({ 0x80, 0x11, 0x02 })),
+                 QStringLiteral("Response to 0x11 Set Indoor Bike Simulation: Not supported (0x02)"));
+        QCOMPARE(ftms::describeControlPointResponse(bytes({ 0x80, 0x00, 0x03 })),
+                 QStringLiteral("Response to 0x00 Request Control: Invalid parameter (0x03)"));
+        QCOMPARE(ftms::describeControlPointResponse(bytes({ 0x80, 0x00, 0x04, 0xAA })),
+                 QStringLiteral("Response to 0x00 Request Control: Operation failed (0x04) params aa"));
+        QVERIFY(ftms::describeControlPointResponse(bytes({ 0x11, 0x00 })).startsWith(QStringLiteral("(not a response")));
+    }
+
+    void describeStatusNotifications()
+    {
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x12, 0x00, 0x00, 0x96, 0x00, 0x28, 0x27 })),
+                 QStringLiteral("Indoor Bike Simulation Parameters Changed: wind 0.000 m/s, grade 1.50 %, Crr 0.0040, Cw 0.39 kg/m"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x08, 0x2C, 0x01 })), QStringLiteral("Target Power Changed: 300 W"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0xFF })), QStringLiteral("Control Permission Lost"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x04 })), QStringLiteral("Started or Resumed by the User"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x02, 0x02 })), QStringLiteral("Stopped or Paused by the User (pause)"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x07, 0x64 })), QStringLiteral("Target Resistance Level Changed: 10.0"));
+        QCOMPARE(ftms::describeMachineStatus(bytes({ 0x08 })), QStringLiteral("Target Power Changed: 0 W (truncated)"));
+        // Training Status 0x2AD3
+        QCOMPARE(ftms::describeTrainingStatus(bytes({ 0x00, 0x09 })),
+                 QStringLiteral("Speed Outside of Control Region - Low"));
+        QCOMPARE(ftms::describeTrainingStatus(bytes({ 0x01, 0x0D, 'Q', 'S' })),
+                 QStringLiteral("Manual Mode (Quick Start) \"QS\""));
+    }
+
+    void describeFeaturesAndRanges()
+    {
+        // machine: cadence (1), resistance level (7), power measurement (14);
+        // targets: resistance (2), power (3), indoor bike simulation (13)
+        const QByteArray f = bytes({ 0x82, 0x40, 0x00, 0x00, 0x0C, 0x20, 0x00, 0x00 });
+        QCOMPARE(ftms::describeFeatures(f),
+                 QStringLiteral("machine [Cadence, Resistance Level, Power Measurement] (0x00004082); "
+                                "targets [Resistance Target, Power Target, Indoor Bike Simulation] (0x0000200c)"));
+        QVERIFY(ftms::describeFeatures(bytes({ 0x01 })).startsWith(QStringLiteral("(unreadable")));
+        QCOMPARE(ftms::describeRange(ftms::kSupportedPowerRangeUuid, bytes({ 0x00, 0x00, 0xD0, 0x07, 0x01, 0x00 })),
+                 QStringLiteral("power 0..2000 W, step 1 W"));
+        QCOMPARE(ftms::describeRange(ftms::kSupportedInclinationRangeUuid, bytes({ 0x9C, 0xFF, 0xC8, 0x00, 0x01, 0x00 })),
+                 QStringLiteral("inclination -10.0..20.0 %, step 0.1 %"));
+        QCOMPARE(ftms::describeRange(ftms::kSupportedResistanceRangeUuid, bytes({ 0x00, 0x00, 0xE8, 0x03, 0x0A, 0x00 })),
+                 QStringLiteral("resistance level 0.0..100.0, step 1.0"));
+        // Indoor Bike Data
+        const auto d = ftms::parseIndoorBikeData(bytes({ 0x64, 0x00, 0xB8, 0x0B, 0xAE, 0x00, 0x0C, 0x00, 0xB9, 0x00 }));
+        QVERIFY(d);
+        QCOMPARE(ftms::describeIndoorBikeData(*d), QStringLiteral("speed 30.00 km/h, cadence 87.0 rpm, power 185 W, resistance 12"));
+        QCOMPARE(ftms::opCodeName(0x11), QStringLiteral("Set Indoor Bike Simulation"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestBleProtocol)
