@@ -107,6 +107,8 @@ private:
     void restorePendingCommand();
     void sendLastRequest();
     void sendFreeRideCommand();
+    // after control was granted with no session command pending (latest wins)
+    void sendNeutralState();
     void dropQueuedControlCommands();
     void markSimulationRejected();
     void enqueue(const QByteArray &command);

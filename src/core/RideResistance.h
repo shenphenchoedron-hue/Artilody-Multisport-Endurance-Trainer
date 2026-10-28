@@ -142,7 +142,8 @@ public:
     // (taken from the cadence, not the trainer's speed: a heavier brake slows
     // the flywheel, and a speed-based grade would then drop with it - the
     // gear must decide, not the feedback; trainer speed only without cadence).
-    // Not pedaling: the plain road grade. Clamped to minGrade..maxGrade.
+    // Standing / coasting (v_ref < kMinGearSpeedMps): 0 % (the soft start
+    // takes over, see kSoftStartCadenceRpm). Clamped to minGrade..maxGrade.
     // The trainer is modelled with exactly the parameters sendGrade() sends
     // (trainerModel()): Crr and Cw = ρ·CdA of the rider, mass = rider + bike.
     static double gearGrade(const GearDrive &d, double minGrade = kMinGrade, double maxGrade = kMaxGrade);
@@ -196,15 +197,48 @@ public:
     static bool gearSimulationPossible(const SensorHub *hub);
     static const char *pathName(Path p);
 
+    // --- soft start (gradient simulation only, never ERG) ---------------------
+    // At the start of a ride (reset()) and after the rider stopped, the
+    // trainer does not get the route's grade (or the gear-adjusted grade) at
+    // once: 0 % until the flywheel turns, then a linear ramp to the real grade.
+    //   turning = cadence >= kSoftStartCadenceRpm OR trainer speed >=
+    //             kSoftStartSpeedKmh (a trainer reporting neither: power >=
+    //             kSoftStartPowerWatts), for kSoftStartTurnMs without a break
+    //   ramp    = sent grade = target × t / kSoftStartRampMs
+    //   re-arm  = stopped for more than kSoftStartRearmMs: cadence 0 (a trainer
+    //             without cadence: speed < kSoftStartStopSpeedKmh; neither:
+    //             power 0)
+    // Applies to sendGrade() (Simulation, GearSimulation, the grade side of
+    // GearHybrid) and sendHub()'s incline (Zwift hub path). The rate limits of
+    // sendGrade() stay (a ramp step at most every kMinGradeIntervalMs);
+    // latest-wins is unchanged: the target is taken afresh on every call.
+    static constexpr double kSoftStartCadenceRpm = 40;
+    static constexpr double kSoftStartSpeedKmh = 10;
+    static constexpr int kSoftStartPowerWatts = 50;
+    static constexpr int kSoftStartTurnMs = 2000;
+    static constexpr int kSoftStartRampMs = 4000;
+    static constexpr int kSoftStartRearmMs = 5000;
+    static constexpr double kSoftStartStopSpeedKmh = 3;
+    enum class SoftStart { Waiting, Ramping, Done };
+    SoftStart softStart() const { return m_soft; }
+    // 0 while waiting, 0..1 during the ramp, 1 when done (or disabled)
+    double softStartFactor() const;
+    // the grade that goes out for target (target × softStartFactor())
+    double softStartGrade(double target) const;
+    // Tests of unrelated behaviour may switch it off (process-wide, default on).
+    static void setSoftStartEnabled(bool on);
+    static bool softStartEnabled();
+
     explicit RideResistance(SensorHub *hub) : m_hub(hub) {}
 
-    void reset();          // forget what was sent: the next call sends
+    void reset();          // forget what was sent: the next call sends; arms the soft start
     void release();        // trainer free ride + reset()
     void elapse(int ms)
     {
         m_sinceMs += ms;
         m_sinceToggleMs += ms;
         m_sinceHybridMs += ms;
+        updateSoftStart(ms);
     }
 
     // Each returns true when a new value went out (callers emit their
@@ -253,7 +287,17 @@ public:
     bool lastCommandIsOurs() const;
 
 private:
+    void updateSoftStart(int ms);
+    void armSoftStart();
+    void noteSoftTarget(double target);
+
     SensorHub *m_hub;
+    SoftStart m_soft = SoftStart::Waiting;
+    int m_softTurningMs = 0;      // flywheel turning without a break
+    int m_softStoppedMs = 0;      // stopped without a break
+    int m_softRampMs = 0;         // into the ramp
+    bool m_softUsed = false;      // a grade / incline went out since arming (logging)
+    double m_softTarget = 0;      // last target grade (logging)
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts
     bool m_lastWasHub = false;   // the last command went through the Zwift hub protocol
     double m_lastGrade = std::numeric_limits<double>::quiet_NaN();

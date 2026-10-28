@@ -10,11 +10,13 @@
 #include "SimulatedDevices.h"
 #include "VirtualGears.h"
 
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 using namespace watt;
 
@@ -30,6 +32,35 @@ double ride(SimulatedTrainer &t, int n, QSignalSpy &power)
         sum += args.at(0).toInt();
     return power.isEmpty() ? 0.0 : sum / power.size();
 }
+// DeviceManager with the virtual trainer connected (no Bluetooth)
+struct DevRig
+{
+    QTemporaryDir dir;
+    Database db;
+    SensorHub hub;
+    std::unique_ptr<DeviceManager> mgr;
+    SimulatedTrainer *trainer = nullptr;
+    bool init()
+    {
+        if (!db.open(dir.filePath(QStringLiteral("t.db"))))
+            return false;
+        mgr = std::make_unique<DeviceManager>(&db, &hub);
+        mgr->setSimulatorEnabled(false);
+        mgr->setSimulatorEnabled(true);
+        mgr->connectDevice(QStringLiteral("sim:trainer"));
+        QElapsedTimer t;
+        t.start();
+        while (!hub.trainerConnected() && t.elapsed() < 3000)
+            QTest::qWait(20);
+        trainer = mgr->findChild<SimulatedTrainer *>();
+        return hub.trainerConnected() && trainer;
+    }
+    ~DevRig()
+    {
+        if (mgr)
+            mgr->disconnectDevice(QStringLiteral("sim:trainer"));
+    }
+};
 } // namespace
 
 class TestTrainerSim : public QObject
@@ -338,6 +369,156 @@ private slots:
         ride.finish(false);
         QVERIFY(!trainer->ergActive());
         mgr.disconnectDevice(QStringLiteral("sim:trainer"));
+    }
+
+    // --- trainer tests end by themselves -------------------------------------------
+    void ergTestStopsWhenTheDevicesPageIsLeft()
+    {
+        DevRig r;
+        QVERIFY(r.init());
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        r.hub.requestSimulation(2.0, 0.0, 0.004, 0.39);   // the session's command
+        QSignalSpy changed(r.mgr.get(), &DeviceManager::ergTestChanged);
+        r.mgr->startErgTest(150);
+        QVERIFY(r.mgr->ergTestActive());
+        QCOMPARE(r.mgr->ergTestWatts(), 150);
+        QVERIFY(r.mgr->ergTestStatus().startsWith(QStringLiteral("ERG test running – 150 W")));
+        QCOMPARE(r.mgr->ergTestTimeoutMs(), DeviceManager::kErgTestTimeoutMs);
+        QCOMPARE(DeviceManager::kErgTestTimeoutMs, 300000);
+        QVERIFY(r.trainer->ergActive());
+        QCOMPARE(r.trainer->targetPower(), 150);
+        // same page: nothing happens
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        QVERIFY(r.mgr->ergTestActive());
+        // another page: stopped, the session's simulation is back
+        r.mgr->setActivePage(QStringLiteral("dashboard"));
+        QVERIFY(!r.mgr->ergTestActive());
+        QCOMPARE(r.mgr->ergTestWatts(), 0);
+        QVERIFY(r.mgr->ergTestStatus().isEmpty());
+        QVERIFY(!r.trainer->ergActive());
+        QVERIFY(r.trainer->simulating());
+        QCOMPARE(r.trainer->simulationGrade(), 2.0);
+        QVERIFY(changed.count() >= 2);
+        bool logged = false;
+        for (const QVariant &e : r.mgr->log())
+            logged = logged || e.toMap().value(QStringLiteral("text")).toString().contains(QStringLiteral("left the Devices page"));
+        QVERIFY(logged);
+        // session commands reach the trainer again
+        r.hub.requestTargetPower(175);
+        QVERIFY(r.trainer->ergActive());
+        QCOMPARE(r.trainer->targetPower(), 175);
+    }
+
+    void ergTestStopsOnASessionCommand()
+    {
+        DevRig r;
+        QVERIFY(r.init());
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        r.mgr->startErgTest(150);
+        QVERIFY(r.trainer->ergActive());
+        // a ride page / session asks for a grade: the test ends, the grade goes out
+        r.hub.requestSimulation(4.0, 0.0, 0.004, 0.39);
+        QVERIFY(!r.mgr->ergTestActive());
+        QVERIFY(r.trainer->simulating());
+        QCOMPARE(r.trainer->simulationGrade(), 4.0);
+        // ERG of a workout
+        r.mgr->startErgTest(120);
+        r.hub.requestTargetPower(210);
+        QVERIFY(!r.mgr->ergTestActive());
+        QCOMPARE(r.trainer->targetPower(), 210);
+        // free ride (e.g. a session stops)
+        r.mgr->startErgTest(120);
+        r.hub.requestFreeRide();
+        QVERIFY(!r.mgr->ergTestActive());
+        QVERIFY(!r.trainer->ergActive());
+        // explicit stop (main.cpp: a session started) reports whether one ran
+        QVERIFY(!r.mgr->stopTrainerTests(QStringLiteral("a workout started")));
+        r.mgr->startErgTest(120);
+        QVERIFY(r.mgr->stopTrainerTests(QStringLiteral("a workout started")));
+        QVERIFY(!r.trainer->ergActive());
+    }
+
+    void ergTestStopsWhenAFreeRideStarts()
+    {
+        DevRig r;
+        QVERIFY(r.init());
+        r.db.seedDefaults();
+        ProfileManager profiles(&r.db);
+        profiles.load();
+        VirtualGears gears(&r.db, &profiles);
+        FreeRideSession ride(&r.db, &profiles, &r.hub, &gears);
+        ride.setManualClock(true);
+        gears.setSessions(&ride, nullptr);
+        gears.setActivePage(QStringLiteral("devices"));
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        ride.setTargetWatts(230);
+        ride.setMode(QStringLiteral("erg"));
+        r.mgr->startErgTest(100);
+        QCOMPARE(r.trainer->targetPower(), 100);
+        QVERIFY(ride.start());   // its first command ends the test and reaches the trainer
+        QVERIFY(!r.mgr->ergTestActive());
+        QVERIFY(r.trainer->ergActive());
+        QCOMPARE(r.trainer->targetPower(), 230);
+        ride.advanceClock(1000);
+        QCOMPARE(r.trainer->targetPower(), 230);
+        ride.finish(false);
+    }
+
+    void ergTestSafetyTimeout()
+    {
+        DevRig r;
+        QVERIFY(r.init());
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        r.mgr->setErgTestTimeoutForTesting(150);
+        r.mgr->startErgTest(160);
+        QVERIFY(r.trainer->ergActive());
+        QTRY_VERIFY_WITH_TIMEOUT(!r.mgr->ergTestActive(), 2000);
+        QVERIFY(!r.trainer->ergActive());   // no session command: free ride
+        bool logged = false;
+        for (const QVariant &e : r.mgr->log())
+            logged = logged || e.toMap().value(QStringLiteral("text")).toString().contains(QStringLiteral("safety timeout"));
+        QVERIFY(logged);
+        r.hub.requestTargetPower(180);
+        QCOMPARE(r.trainer->targetPower(), 180);
+        QVERIFY(r.trainer->ergActive());
+        // a new target restarts the timeout
+        r.mgr->setErgTestTimeoutForTesting(400);
+        r.mgr->startErgTest(140);
+        QTest::qWait(250);
+        r.mgr->startErgTest(150);
+        QTest::qWait(250);
+        QVERIFY(r.mgr->ergTestActive());
+        QTRY_VERIFY_WITH_TIMEOUT(!r.mgr->ergTestActive(), 2000);
+        QCOMPARE(r.trainer->targetPower(), 180);   // the session's ERG again
+    }
+
+    void gradientTestStopsOnPageLeaveAndSessionCommand()
+    {
+        DevRig r;
+        QVERIFY(r.init());
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        r.hub.requestTargetPower(190);
+        QVERIFY(r.mgr->startGradientTest());
+        QVERIFY(r.mgr->gradientTestRunning());
+        QVERIFY(r.trainer->simulating());
+        r.mgr->setActivePage(QStringLiteral("freeride"));
+        QVERIFY(!r.mgr->gradientTestRunning());
+        QVERIFY(r.trainer->ergActive());
+        QCOMPARE(r.trainer->targetPower(), 190);
+        // a session command ends it too
+        r.mgr->setActivePage(QStringLiteral("devices"));
+        QVERIFY(r.mgr->startGradientTest());
+        r.hub.requestSimulation(1.5, 0.0, 0.004, 0.39);
+        QVERIFY(!r.mgr->gradientTestRunning());
+        QCOMPARE(r.trainer->simulationGrade(), 1.5);
+        // the ERG test ends a running gradient test (one test at a time)
+        QVERIFY(r.mgr->startGradientTest());
+        r.mgr->startErgTest(130);
+        QVERIFY(!r.mgr->gradientTestRunning());
+        QVERIFY(r.mgr->ergTestActive());
+        QCOMPARE(r.trainer->targetPower(), 130);
+        r.mgr->stopErgTest();
+        QCOMPARE(r.trainer->simulationGrade(), 1.5);
     }
 };
 

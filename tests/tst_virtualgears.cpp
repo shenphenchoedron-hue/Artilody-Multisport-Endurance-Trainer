@@ -245,10 +245,171 @@ bool monotonic(const QVector<Point> &points, int direction, double minStepWatts 
 
 } // namespace
 
+struct SoftStartOn
+{
+    SoftStartOn() { RideResistance::setSoftStartEnabled(true); }
+    ~SoftStartOn() { RideResistance::setSoftStartEnabled(false); }
+};
+
 class TestVirtualGears : public QObject
 {
     Q_OBJECT
 private slots:
+    // These tests are about physics / rate limits / paths: the soft start
+    // (0 % until the flywheel turns, then a ramp) has its own tests below
+    // and in tst_virtualgears (softStart*).
+    void initTestCase() { RideResistance::setSoftStartEnabled(false); }
+
+    // Soft start on the virtual-gears FTMS path (gear-adjusted grade): 0 %
+    // while standing / before the flywheel turns, then the ramp; rate limits
+    // stay (one grade per kMinGradeIntervalMs).
+    void softStartGearSimulation()
+    {
+        SoftStartOn on;
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        hub.setTrainerConnected(true);
+        hub.setTrainerSimulationSupport(1);
+        RideResistance res(&hub);
+        RideResistance::GearDrive d;
+        d.road.massKg = 80;
+        d.road.gradePercent = 4;
+        d.virtualRatio = 50.0 / 15;
+        d.referenceRatio = 50.0 / 17;
+        // standing: gearGrade() is 0 % now (not the road's 4 %)
+        QCOMPARE(RideResistance::gearGrade(d), 0.0);
+        QVERIFY(res.sendGrade(RideResistance::gearGrade(d), true, RideResistance::trainerModel(d)));
+        QCOMPARE(hub.requestedGrade(), 0.0);
+        // pedaling at 90 rpm: the full gear grade is > 4 %, but 0 % for 2 s
+        hub.updateCadence(90);
+        d.cadenceRpm = 90;
+        const double full = RideResistance::gearGrade(d);
+        QVERIFY(full > 4.0);
+        QVector<double> sent;
+        int ms = 0;
+        for (; ms < 2000; ms += 250) {
+            res.elapse(250);
+            res.sendGrade(full, false, RideResistance::trainerModel(d));
+            QCOMPARE(hub.requestedGrade(), 0.0);
+        }
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Ramping);
+        double prev = 0;
+        qint64 lastChange = -1;
+        for (int t = 0; t < RideResistance::kSoftStartRampMs + 2000; t += 250) {
+            res.elapse(250);
+            res.sendGrade(full, false, RideResistance::trainerModel(d));
+            const double g = hub.requestedGrade();
+            QVERIFY(g >= prev);
+            if (g != prev) {
+                QVERIFY2(lastChange < 0 || t - lastChange >= RideResistance::kMinGradeIntervalMs,
+                         qPrintable(QStringLiteral("%1 ms").arg(t - lastChange)));
+                lastChange = t;
+                sent << g;
+            }
+            prev = g;
+        }
+        QCOMPARE(hub.requestedGrade(), std::round(full * 100) / 100);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Done);
+        QVERIFY2(sent.size() >= 3, qPrintable(QString::number(sent.size())));
+        // latest wins: a new target during the ramp is followed (scaled)
+        res.reset();
+        QCOMPARE(res.softStartGrade(8.0), 0.0);
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs / 2; t += 250)
+            res.elapse(250);
+        QVERIFY(std::abs(res.softStartGrade(8.0) - 4.0) < 0.3);
+        QVERIFY(std::abs(res.softStartGrade(-4.0) + 2.0) < 0.2);
+        // re-armed after > 5 s without cadence
+        for (int t = 0; t < RideResistance::kSoftStartRampMs; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Done);
+        hub.updateCadence(0);
+        for (int t = 0; t <= RideResistance::kSoftStartRearmMs; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Waiting);
+        QCOMPARE(res.softStartFactor(), 0.0);
+        // a short coast (< 5 s) does not re-arm
+        hub.updateCadence(90);
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Done);
+        hub.updateCadence(0);
+        for (int t = 0; t < 4000; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Done);
+        // ERG commands are never touched
+        QVERIFY(res.sendErg(200, true));
+        QCOMPARE(hub.requestedTarget(), 200);
+        res.reset();
+        QVERIFY(res.sendGearWatts(150, true));
+        QCOMPARE(hub.requestedTarget(), 150);
+    }
+
+    // The Zwift hub path (trainer-side physics): the incline gets the same
+    // soft start, the gear ratio / weights go out unchanged.
+    void softStartHubIncline()
+    {
+        SoftStartOn on;
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        hub.setTrainerConnected(true);
+        RideResistance res(&hub);
+        RideResistance::GearDrive d;
+        d.road.massKg = 80;
+        d.road.gradePercent = 6;
+        d.virtualRatio = 50.0 / 15;
+        d.referenceRatio = 50.0 / 17;
+        d.riderKg = 72;
+        res.sendHub(d);
+        QCOMPARE(hub.hubSimulation().inclinePercent, 0.0);
+        QCOMPARE(hub.hubSimulation().gearRatio, d.virtualRatio);
+        QCOMPARE(hub.hubSimulation().riderKg, 72.0);
+        hub.updateCadence(85);
+        d.cadenceRpm = 85;
+        QVector<double> inclines;
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + 500; t += 250) {
+            res.elapse(250);
+            res.sendHub(d);
+            inclines << hub.hubSimulation().inclinePercent;
+        }
+        // 0 % for 2 s, then a linear ramp to 6 % over 4 s
+        for (int i = 0; i < 7; ++i)
+            QCOMPARE(inclines.at(i), 0.0);
+        QCOMPARE(inclines.constLast(), 6.0);
+        int between = 0;
+        for (int i = 1; i < inclines.size(); ++i) {
+            QVERIFY(inclines.at(i) >= inclines.at(i - 1));
+            QVERIFY(inclines.at(i) - inclines.at(i - 1) <= 6.0 * 250 / RideResistance::kSoftStartRampMs + 0.011);
+            if (inclines.at(i) > 0 && inclines.at(i) < 6.0)
+                ++between;
+        }
+        QVERIFY(between >= 10);
+        // the trainer gets the ramp too (requestedGrade = incline)
+        QCOMPARE(hub.requestedGrade(), 6.0);
+    }
+
+    // A trainer that reports neither cadence nor speed: power >= 50 W for 2 s.
+    void softStartPowerOnlyTrainer()
+    {
+        SoftStartOn on;
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        hub.setTrainerConnected(true);
+        RideResistance res(&hub);
+        hub.updatePower(30);
+        for (int t = 0; t < 3000; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Waiting);
+        hub.updatePower(150);
+        for (int t = 0; t < RideResistance::kSoftStartTurnMs; t += 250)
+            res.elapse(250);
+        QVERIFY(res.softStart() == RideResistance::SoftStart::Ramping);
+        // and the switch: off = always the full grade
+        RideResistance::setSoftStartEnabled(false);
+        res.reset();
+        QCOMPARE(res.softStartGrade(5.0), 5.0);
+        RideResistance::setSoftStartEnabled(true);
+        QCOMPARE(res.softStartGrade(5.0), 0.0);
+    }
     // -- the shared physics -------------------------------------------------
 
     // -- rider weight -----------------------------------------------------------
@@ -478,9 +639,11 @@ private slots:
         const double bySpeed = RideResistance::gearGrade(d);
         QVERIFY(bySpeed > 3.0);
         QCOMPARE(RideResistance::gearWatts(d), 0);   // path b needs the cadence
-        // coasting (cadence reported, but < 15 rpm): the plain road grade
+        // coasting / standing (cadence reported, but < 15 rpm): 0 %, not the
+        // road grade (soft start behaviour)
         d.cadenceRpm = 5;
-        QCOMPARE(RideResistance::gearGrade(d), 3.0);
+        QCOMPARE(RideResistance::gearGrade(d), 0.0);
+        QCOMPARE(RideResistance::gearGrade(d, 1.0, 10.0), 1.0);   // clamped like any grade
     }
 
     void pagesUseTheSamePhysics()

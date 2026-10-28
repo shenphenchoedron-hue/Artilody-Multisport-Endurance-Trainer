@@ -1,11 +1,17 @@
 #include "RideResistance.h"
 
+#include "DiagLog.h"
 #include "SensorHub.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace watt {
+
+namespace {
+std::atomic<bool> g_softStartEnabled { true };
+} // namespace
 
 bool RideResistance::gearSimulationPossible(const SensorHub *hub)
 {
@@ -112,11 +118,10 @@ double RideResistance::referenceSpeed(const GearDrive &d)
 
 double RideResistance::gearGrade(const GearDrive &d, double minGrade, double maxGrade)
 {
-    const double plain = std::clamp(d.road.gradePercent, minGrade, maxGrade);
     const double vRef = referenceSpeed(d);
     const double vVirt = gearSpeed(d);
     if (!(vRef >= kMinGearSpeedMps) || !(vVirt > 0))
-        return plain;   // coasting / standing: the road as it is
+        return std::clamp(0.0, minGrade, maxGrade);   // coasting / standing: 0 % (soft start), not the road grade
     // crank power -> the wheel power the trainer takes (power convention in
     // Gearing.h): in the reference gear this is exactly the road grade
     const double eff = d.road.efficiency > 0 ? d.road.efficiency : 1.0;
@@ -178,8 +183,113 @@ const char *RideResistance::pathName(Path p)
     return "erg";
 }
 
+// --- soft start --------------------------------------------------------------------------
+
+void RideResistance::setSoftStartEnabled(bool on)
+{
+    g_softStartEnabled.store(on);
+}
+
+bool RideResistance::softStartEnabled()
+{
+    return g_softStartEnabled.load();
+}
+
+double RideResistance::softStartFactor() const
+{
+    if (!softStartEnabled())
+        return 1.0;
+    switch (m_soft) {
+    case SoftStart::Waiting: return 0.0;
+    case SoftStart::Ramping: return std::clamp(double(m_softRampMs) / kSoftStartRampMs, 0.0, 1.0);
+    case SoftStart::Done: return 1.0;
+    }
+    return 1.0;
+}
+
+double RideResistance::softStartGrade(double target) const
+{
+    if (!std::isfinite(target))
+        return 0.0;
+    return std::round(target * softStartFactor() * 100.0) / 100.0 + 0.0;   // + 0.0: no "-0.00"
+}
+
+void RideResistance::armSoftStart()
+{
+    if (m_softUsed && m_soft != SoftStart::Waiting)
+        DiagLog::write("RES", QStringLiteral("soft start re-armed: 0 % until the flywheel turns again"));
+    m_soft = SoftStart::Waiting;
+    m_softTurningMs = 0;
+    m_softStoppedMs = 0;
+    m_softRampMs = 0;
+    m_softUsed = false;
+}
+
+void RideResistance::noteSoftTarget(double target)
+{
+    m_softTarget = target;
+    if (!softStartEnabled())
+        return;
+    if (!m_softUsed && m_soft == SoftStart::Waiting)
+        DiagLog::write("RES", QStringLiteral("soft start begin: sending 0 % instead of %1 % until the flywheel turns "
+                                             "(cadence >= %2 rpm or speed >= %3 km/h for %4 s)")
+                                  .arg(target, 0, 'f', 2)
+                                  .arg(kSoftStartCadenceRpm, 0, 'f', 0)
+                                  .arg(kSoftStartSpeedKmh, 0, 'f', 0)
+                                  .arg(kSoftStartTurnMs / 1000));
+    m_softUsed = true;
+}
+
+void RideResistance::updateSoftStart(int ms)
+{
+    if (!m_hub || ms <= 0 || !softStartEnabled())
+        return;
+    const int cad = m_hub->cadence();
+    const double speed = m_hub->speedKmh();
+    const int power = m_hub->power();
+    const bool cadRep = m_hub->cadenceReported();
+    const bool spdRep = m_hub->trainerReportsSpeed();
+    const bool turning = cad >= kSoftStartCadenceRpm || speed >= kSoftStartSpeedKmh
+                         || (!cadRep && !spdRep && power >= kSoftStartPowerWatts);
+    // stopped: no cadence; without a cadence the flywheel (nearly) still;
+    // a trainer reporting neither: no power either
+    const bool stopped = cad <= 0 && (cadRep || speed < kSoftStartStopSpeedKmh) && (cadRep || spdRep || power <= 0);
+    m_softTurningMs = turning ? m_softTurningMs + ms : 0;
+    m_softStoppedMs = stopped ? m_softStoppedMs + ms : 0;
+    switch (m_soft) {
+    case SoftStart::Waiting:
+        if (m_softTurningMs >= kSoftStartTurnMs) {
+            m_soft = SoftStart::Ramping;
+            m_softRampMs = 0;
+            if (m_softUsed)
+                DiagLog::write("RES", QStringLiteral("soft start: flywheel turning (cadence %1 rpm, speed %2 km/h) - ramping to %3 % over %4 s")
+                                          .arg(cad)
+                                          .arg(speed, 0, 'f', 1)
+                                          .arg(m_softTarget, 0, 'f', 2)
+                                          .arg(kSoftStartRampMs / 1000));
+        }
+        break;
+    case SoftStart::Ramping:
+    case SoftStart::Done:
+        if (m_softStoppedMs > kSoftStartRearmMs) {
+            armSoftStart();
+            break;
+        }
+        if (m_soft == SoftStart::Ramping) {
+            m_softRampMs += ms;
+            if (m_softRampMs >= kSoftStartRampMs) {
+                m_soft = SoftStart::Done;
+                if (m_softUsed)
+                    DiagLog::write("RES", QStringLiteral("soft start end: full grade %1 %").arg(m_softTarget, 0, 'f', 2));
+            }
+        }
+        break;
+    }
+}
+
 void RideResistance::reset()
 {
+    armSoftStart();
     m_lastWasHub = false;
     m_light = -1;
     m_sinceHybridMs = kHybridSwitchMs;
@@ -224,7 +334,9 @@ HubSimulation RideResistance::hubSimulationFor(const GearDrive &d)
 
 bool RideResistance::sendHub(const GearDrive &d)
 {
-    const HubSimulation p = hubSimulationFor(d);
+    HubSimulation p = hubSimulationFor(d);
+    noteSoftTarget(p.inclinePercent);
+    p.inclinePercent = softStartGrade(p.inclinePercent);   // soft start: 0 % / ramp
     m_hub->requestHubSimulation(p);
     m_serial = m_hub->commandSerial();
     const bool newValue = !m_lastWasHub || p.inclinePercent != m_lastGrade;
@@ -356,6 +468,8 @@ bool RideResistance::sendGrade(double grade, bool force, const road::TrainerMode
     if (!std::isfinite(grade))
         grade = 0;
     grade = std::round(std::clamp(grade, kMinGrade, kMaxGrade) * 100.0) / 100.0;
+    noteSoftTarget(grade);
+    grade = softStartGrade(grade);   // soft start: 0 % until the flywheel turns, then the ramp
     // new rider parameters (weight / CdA edited) go out like a new road
     // leaving the Zwift hub path (handshake failed, option off): FTMS again at once
     const bool first = !simulating() || m_lastWasHub || m_lastWatts > 0 || trainer.crr != m_lastCrr

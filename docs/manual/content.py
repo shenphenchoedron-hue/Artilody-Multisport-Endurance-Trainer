@@ -542,6 +542,11 @@ def build(s, env):
         ["Trainer doesn't report its gradient range", "no Supported Inclination Range (0x2AD5), e.g. "
          "Jetblack Victory – grades are sent unclamped (−10 … 20 %)"],
     ], [2.6, 3.0])
+    s.p("<b>Defined start state.</b> When the trainer grants control and no ride has sent a command yet, the "
+        "app sets a neutral state – a flat road (0 %, simulation with your rolling and air resistance), or a "
+        "low resistance level on a trainer without gradient simulation – so an ERG target left over from "
+        "another app does not linger. The first command of a ride replaces it at once. The log shows "
+        "<i>neutral state sent</i>.")
     s.p("Rejected and unanswered commands are retried after 1, 2 and 4 s (at most three times); the next "
         "regular command is sent as usual. The app never shows “simulation” when the last gradient command was "
         "not accepted. Trainers without the optional Training Status (0x2AD3) or inclination range work "
@@ -555,8 +560,10 @@ def build(s, env):
         "averages per step and whether the trainer confirmed each command; the verdict reads e.g. "
         "<i>“Power keeps falling on descents → the trainer simulates descents”</i> or <i>“Power stops falling "
         "below 0 % → the trainer clamps descents”</i>. "
-        f"{UI('Stop')} ends the test at any time; afterwards the previous trainer command is restored. Every step "
-        "is written to the diagnostic log (lines <i>GTEST</i>). Not available during a workout.")
+        f"{UI('Stop')} ends the test at any time; afterwards the previous trainer command is restored. The test "
+        "also ends by itself when you leave the Devices page, a ride starts or a ride page sends a resistance "
+        "command. Every step is written to the diagnostic log (lines <i>GTEST</i>). Not available during a "
+        "workout.")
 
     s.section("Bluetooth diagnostics and connection log")
     s.p(f"{UI('Bluetooth Diagnostics')} shows the adapter name, the connection mode (Bluetooth Low Energy), the "
@@ -583,7 +590,13 @@ def build(s, env):
         f"workout. Set an {UI('ERG Target')} with − / + (steps of 10 W, 25–1500 W, default 150 W) and press "
         f"{UI('Test ERG')}. While pedaling you should feel the resistance change; the button shows the measured "
         f"power. Changing the target during the test sends the new value immediately. {UI('Stop Test')} ends the "
-        "test and returns the trainer to the current workout target, or to free ride if nothing is riding.")
+        "test and returns the trainer to the current workout target, or to free ride if nothing is riding. "
+        "While the test runs the card shows <i>ERG test running – 150 W</i> in yellow.")
+    s.p("<b>The test never sticks.</b> If you forget to press Stop Test, the ERG test ends by itself – and the "
+        "trainer gets the ride's own command back – when you leave the Devices page, when a workout, Free Ride, "
+        "Video Ride or row starts, when a ride page sends a resistance command, and at the latest after "
+        "<b>5 minutes</b> (every new target restarts the 5 minutes). The connection log says why, e.g. "
+        "<i>ERG test stopped automatically: left the Devices page</i>.")
     s.note("The test is only available when a trainer is connected and supports control. If the log shows "
            "<i>Trainer control refused</i>, another app (Zwift, a phone app, a watch) is probably connected "
            "to the trainer – close it and try again.")
@@ -1487,6 +1500,10 @@ def build(s, env):
         f"{UI('Flat')}) simulates a climb or descent: uphill you need more power for the same speed, so you "
         "shift easier – just like outdoors. With virtual gears the app shows the power the current gear needs "
         "at your cadence.")
+    s.p("<b>Soft start:</b> when the ride starts (and after more than 5 s without cadence) the trainer gets "
+        "0 % until the flywheel turns – 40 rpm or 10 km/h for 2 s – and then the grade rises to the set value "
+        "over 4 s. While you stand or coast with virtual gears on the FTMS gradient path the trainer gets 0 %, "
+        "not the road grade. ERG is never affected.")
     s.tip("Ride at your usual cadence and use the gears like outdoors: shift harder to go faster, easier when "
           "the road gets steeper. Shifting never changes the grade or the difficulty.")
 
@@ -1614,6 +1631,13 @@ def build(s, env):
         "wind resistance Cw = ρ·CdA of your rider model (e.g. 0.37 kg/m for 68 kg; section 5.6) A new grade is sent when it changes by "
         "0.1 % or more (at most once a second; otherwise refreshed every 3 seconds). The grade sent is limited "
         "to −10 … +20 %. With virtual gears see section 5.5 for how the gear reaches the trainer.")
+    s.p("<b>Soft start.</b> At the start of a ride the trainer does not get the route's gradient at once: it "
+        "gets 0 % until the flywheel turns (cadence of at least 40 rpm, or a trainer speed of at least 10 km/h, "
+        "for 2 seconds; a trainer that reports neither: 50 W), then the gradient rises in a straight line to "
+        "the real value over 4 seconds. After you stop (no cadence for more than 5 seconds) the soft start "
+        "applies again when you ride on. Pausing and resuming also starts it again. This applies to the "
+        "gradient (Simulation, virtual gears on the FTMS gradient path and the Zwift protocol's incline) – "
+        "never to ERG.")
     s.note("If the trainer cannot simulate a gradient (it does not report the feature, or it rejects the "
            "command), Simulation automatically uses virtual gears and the card shows <i>Your trainer can't "
            "simulate climbs – using virtual gears instead.</i> A trainer without cadence is left in its "

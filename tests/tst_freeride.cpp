@@ -133,10 +133,21 @@ public:
     int target = 0;
 };
 
+// Switches the soft start on for one test (the suite runs with it off).
+struct SoftStartOn
+{
+    SoftStartOn() { RideResistance::setSoftStartEnabled(true); }
+    ~SoftStartOn() { RideResistance::setSoftStartEnabled(false); }
+};
+
 class TestFreeRide : public QObject
 {
     Q_OBJECT
 private slots:
+    // These tests are about physics / rate limits / paths: the soft start
+    // (0 % until the flywheel turns, then a ramp) has its own tests below
+    // and in tst_virtualgears (softStart*).
+    void initTestCase() { RideResistance::setSoftStartEnabled(false); }
     void idleIsSafeWithoutTrainer()
     {
         Database db;
@@ -447,6 +458,112 @@ private slots:
         f.ride->advanceClock(250);
         QVERIFY(f.hub->requestedTarget() > 0);
         f.ride->finish(false);
+    }
+
+    // Soft start, Ride mode with real gears (FTMS 0x11): 0 % until the
+    // flywheel turns (cadence >= 40 rpm for 2 s), a linear ramp to the road
+    // grade over 4 s, re-armed after > 5 s without cadence.
+    void softStartRealGears()
+    {
+        SoftStartOn on;
+        Fixture f;
+        QVERIFY(f.init());
+        f.realGears();
+        f.ride = f.makeRide();
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("simulation"));
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        f.ride->setGrade(5.0);
+        f.pedal(0, 0);
+        QVERIFY(f.ride->start());
+        QCOMPARE(sims.count(), 1);
+        QCOMPARE(sims.last().at(0).toDouble(), 0.0);   // not the road's 5 %
+        QVERIFY(f.ride->resistance().softStart() == RideResistance::SoftStart::Waiting);
+        f.ride_for(6000);   // standing
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        // slow pedaling (< 40 rpm) does not count as a turning flywheel
+        f.pedal(30, 60);
+        f.ride_for(3000);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        // >= 40 rpm: still 0 % for 2 s
+        f.pedal(85, 200);
+        f.ride_for(1750);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        QVERIFY(f.ride->resistance().softStart() == RideResistance::SoftStart::Waiting);
+        f.ride_for(250);
+        QVERIFY(f.ride->resistance().softStart() == RideResistance::SoftStart::Ramping);
+        // the ramp: rising, rate limited (>= 1 s apart), ends at the grade
+        sims.clear();
+        f.ride_for(RideResistance::kSoftStartRampMs + 1500);
+        QVERIFY(f.ride->resistance().softStart() == RideResistance::SoftStart::Done);
+        QCOMPARE(f.hub->requestedGrade(), 5.0);
+        QVERIFY2(sims.count() >= 3 && sims.count() <= 6, qPrintable(QString::number(sims.count())));
+        double prev = 0;
+        int between = 0;
+        for (const auto &a : sims) {
+            const double g = a.at(0).toDouble();
+            QVERIFY2(g >= prev, qPrintable(QStringLiteral("%1 after %2").arg(g).arg(prev)));
+            if (g > 0 && g < 5.0)
+                ++between;
+            prev = g;
+        }
+        QVERIFY(between >= 2);
+        // a new grade during the ride goes out as before (no soft start)
+        f.ride->setGrade(6.0);
+        QCOMPARE(f.hub->requestedGrade(), 6.0);
+        // coasting a little (< 5 s): the grade stays
+        f.pedal(0, 0);
+        f.ride_for(4500);
+        QCOMPARE(f.hub->requestedGrade(), 6.0);
+        // stopped > 5 s: re-armed, 0 % again
+        f.ride_for(1000);
+        QVERIFY(f.ride->resistance().softStart() == RideResistance::SoftStart::Waiting);
+        f.ride_for(1000);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        // pedaling again: 2 s, then the ramp to 6 %
+        f.pedal(80, 180);
+        f.ride_for(2000);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        f.ride_for(1500);
+        QVERIFY(f.hub->requestedGrade() > 0.0 && f.hub->requestedGrade() < 6.0);
+        f.ride_for(5000);
+        QCOMPARE(f.hub->requestedGrade(), 6.0);
+        // pause + resume arms it again
+        f.ride->pause();
+        f.ride->resume();
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        f.ride->finish(false);
+    }
+
+    // ERG (Free Ride ERG mode, virtual gears via ERG) never waits for the flywheel.
+    void softStartNotForErg()
+    {
+        SoftStartOn on;
+        Fixture f;
+        QVERIFY(f.init());
+        f.realGears();
+        f.ride = f.makeRide();
+        f.ride->setTargetWatts(210);
+        f.ride->setMode(QStringLiteral("erg"));
+        QSignalSpy targets(f.hub.get(), &SensorHub::targetPowerRequested);
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        f.pedal(0, 0);
+        QVERIFY(f.ride->start());
+        QCOMPARE(f.hub->requestedTarget(), 210);   // at once
+        f.ride_for(3000);
+        QCOMPARE(f.hub->requestedTarget(), 210);
+        QCOMPARE(sims.count(), 0);
+        f.ride->finish(false);
+        // virtual gears via ERG (trainer without simulation): gear watts as soon as pedaling
+        Fixture g;
+        QVERIFY(g.init());
+        QCOMPARE(g.ride->resistancePath(), QStringLiteral("gearErg"));
+        g.ride->setGrade(5.0);
+        g.pedal(85, 200);
+        QVERIFY(g.ride->start());
+        g.ride_for(250);
+        QVERIFY(g.hub->requestedTarget() > 0);
+        QVERIFY(!g.hub->simulationActive());
+        g.ride->finish(false);
     }
 
     void gearSimulationPath()

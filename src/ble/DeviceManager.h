@@ -120,6 +120,10 @@ class DeviceManager : public QObject
     Q_PROPERTY(bool simulatorEnabled READ simulatorEnabled WRITE setSimulatorEnabled NOTIFY preferencesChanged)
 
     Q_PROPERTY(bool ergTestActive READ ergTestActive NOTIFY ergTestChanged)
+    // watts of the running ERG test (0 = none) and a one-line status for the
+    // Devices page: "ERG test running – 150 W · stops after 5 min, ..."
+    Q_PROPERTY(int ergTestWatts READ ergTestWatts NOTIFY ergTestChanged)
+    Q_PROPERTY(QString ergTestStatus READ ergTestStatus NOTIFY ergTestChanged)
 
 public:
     DeviceManager(Database *db, SensorHub *hub, QObject *parent = nullptr);
@@ -228,6 +232,15 @@ public:
     bool simulatorEnabled() const { return m_simulatorEnabled; }
     void setSimulatorEnabled(bool on);
     bool ergTestActive() const { return m_ergTest; }
+    int ergTestWatts() const { return m_ergTest ? m_ergTestWatts : 0; }
+    QString ergTestStatus() const;
+    // The ERG test stops by itself after this long (restarted by every new target).
+    static constexpr int kErgTestTimeoutMs = 5 * 60 * 1000;
+    int ergTestTimeoutMs() const { return m_ergTestTimeout.interval(); }
+    void setErgTestTimeoutForTesting(int ms) { m_ergTestTimeout.setInterval(ms); }
+    // The open page (VirtualGears::activePage, wired in main.cpp): leaving
+    // "devices" stops a running ERG / gradient test.
+    void setActivePage(const QString &page);
 
     Q_INVOKABLE void startScan();
     Q_INVOKABLE void stopScan();
@@ -238,6 +251,11 @@ public:
     // Gradient test (simulation only): false + a log line when it cannot run.
     Q_INVOKABLE bool startGradientTest();
     Q_INVOKABLE void stopGradientTest();
+    // Stops a running ERG test and gradient test (the trainer gets the
+    // sessions' last command back); reason goes to the log. true when one ran.
+    // Called when the Devices page is left, a session starts or a session
+    // sends a resistance request, and by the ERG test timeout.
+    Q_INVOKABLE bool stopTrainerTests(const QString &reason);
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void refreshAdapter();
     Q_INVOKABLE QString signalText(int rssi) const;   // "Strong Signal (-52 dBm)"
@@ -345,6 +363,9 @@ private:
     void restoreSessionCommand();
     // a session command may go to the trainer (no test running)
     bool sessionOwnsTrainer() const;
+    // a session request arrived: end the tests (the request itself goes out next)
+    void endTestsForSession();
+    bool m_suppressRestore = false;
     void releaseHeartRate();
     void releaseRower();
     void savePreferences();
@@ -397,6 +418,9 @@ private:
     bool m_simulatorEnabled = true;
     double m_simFixedGear = 0;
     bool m_ergTest = false;
+    int m_ergTestWatts = 0;
+    QTimer m_ergTestTimeout;
+    QString m_activePage;
     GradientTest *m_gradientTest = nullptr;
     int m_selectedAdapter = 0;
     int m_restHr = 60, m_maxHr = 185, m_ftp = 250;

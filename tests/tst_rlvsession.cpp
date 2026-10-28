@@ -159,10 +159,20 @@ Workout testWorkout()
 
 } // namespace
 
+struct SoftStartOn
+{
+    SoftStartOn() { RideResistance::setSoftStartEnabled(true); }
+    ~SoftStartOn() { RideResistance::setSoftStartEnabled(false); }
+};
+
 class TestRlvSession : public QObject
 {
     Q_OBJECT
 private slots:
+    // These tests are about physics / rate limits / paths: the soft start
+    // (0 % until the flywheel turns, then a ramp) has its own tests below
+    // and in tst_virtualgears (softStart*).
+    void initTestCase() { RideResistance::setSoftStartEnabled(false); }
     void idleIsSafeWithoutRoute()
     {
         Database db;
@@ -430,6 +440,47 @@ private slots:
         f.ride_for(60000);
         QVERIFY2(f.rlv->speedKmh() > 20, qPrintable(QString::number(f.rlv->speedKmh())));
         QVERIFY(f.rlv->ascentDoneM() < 0.5);
+        f.rlv->finish(false);
+    }
+
+    // Soft start on a climbing route (classic Simulation, FTMS 0x11): 0 %
+    // at the start, the ramp once the flywheel turns (here: a trainer that
+    // reports only its speed, >= 10 km/h for 2 s), re-armed after a stop.
+    void softStartRlvSimulation()
+    {
+        SoftStartOn on;
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.addRoute(QStringLiteral("climb"), 5000, 5, [](double) { return 6.0; }));
+        QVERIFY(f.selectRoute(QStringLiteral("climb")));
+        QCOMPARE(f.rlv->mode(), QStringLiteral("sim"));
+        f.rlv->setDifficulty(100);
+        QSignalSpy sims(f.hub.get(), &SensorHub::simulationRequested);
+        QVERIFY(f.rlv->start());
+        QCOMPARE(sims.count(), 1);
+        QCOMPARE(sims.last().at(0).toDouble(), 0.0);
+        const double target = f.rlv->simulationGradeToSend();
+        QVERIFY(target > 5.0);
+        // the flywheel spins up: speed only, no cadence
+        f.hub->updatePower(220);
+        f.hub->updateSpeed(8.0);    // < 10 km/h
+        f.ride_for(3000);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        f.hub->updateSpeed(25.0);
+        f.ride_for(2000);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
+        QVERIFY(f.rlv->resistance().softStart() == RideResistance::SoftStart::Ramping);
+        f.ride_for(2000);
+        const double mid = f.hub->requestedGrade();
+        QVERIFY2(mid > 0.0 && mid < target, qPrintable(QString::number(mid)));
+        f.ride_for(4000);
+        QVERIFY(std::abs(f.hub->requestedGrade() - f.rlv->simulationGradeToSend()) < 0.11);
+        // stop: speed below 3 km/h for > 5 s (no cadence sensor) -> re-armed
+        f.hub->updatePower(0);
+        f.hub->updateSpeed(0.0);
+        f.ride_for(6500);
+        QVERIFY(f.rlv->resistance().softStart() == RideResistance::SoftStart::Waiting);
+        QCOMPARE(f.hub->requestedGrade(), 0.0);
         f.rlv->finish(false);
     }
 

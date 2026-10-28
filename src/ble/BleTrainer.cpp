@@ -815,6 +815,8 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             m_queue.prepend(ftms::startOrResume());
             if (m_pending)
                 sendLastRequest();
+            else if (m_lastRequest == Request::None)
+                sendNeutralState();   // no session command yet: a defined start state
         } else {
             setProblem(ftms::rejectionText(r->requestOpCode, r->result));
             scheduleControlRetry();
@@ -888,7 +890,8 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             // ERG); a free ride uses a resistance level instead.
             setProblem(ftms::rejectionText(r->requestOpCode, r->result));
             markSimulationRejected();
-            if (m_lastRequest == Request::FreeRide)
+            // free ride / the neutral start state: a resistance level instead
+            if (m_lastRequest == Request::FreeRide || m_lastRequest == Request::None)
                 sendFreeRideCommand();
         } else {
             // Invalid parameter / operation failed (or an unknown code):
@@ -947,6 +950,25 @@ void BleTrainer::setSimulation(double gradePercent, double windSpeedMps, double 
     m_pending = false;
     dropQueuedControlCommands();
     enqueue(ftms::setIndoorBikeSimulation(windSpeedMps, clampGrade(gradePercent), crr, cwKgPerM));
+}
+
+void BleTrainer::sendNeutralState()
+{
+    // Control was granted but no session has asked for anything yet: another
+    // app's ERG target (or grade) must not linger. The same as a free ride
+    // (flat 0 % with our Crr / Cw, or a low resistance level without
+    // simulation); m_lastRequest stays None, so the first session command
+    // replaces it (dropQueuedControlCommands(): latest wins).
+    const bool sim = simulationSupport() != 0;
+    DiagLog::write("FTMS", QStringLiteral("neutral state sent: %1 (control granted, no session command pending)")
+                               .arg(sim ? QStringLiteral("simulation 0 % flat, Crr %1, Cw %2 kg/m")
+                                              .arg(m_lastSim.crr, 0, 'f', 4)
+                                              .arg(m_lastSim.cw, 0, 'f', 2)
+                                        : m_features.resistanceTarget ? QStringLiteral("target resistance 10 (no gradient simulation)")
+                                                                      : QStringLiteral("start only (no simulation, no resistance target)")));
+    emit logMessage(QStringLiteral("%1: neutral state sent (%2)")
+                        .arg(m_name, sim ? QStringLiteral("flat road 0 %") : QStringLiteral("free ride")), true);
+    sendFreeRideCommand();
 }
 
 void BleTrainer::sendFreeRideCommand()

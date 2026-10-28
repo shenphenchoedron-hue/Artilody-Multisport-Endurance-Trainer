@@ -1154,9 +1154,14 @@ Item {
         Text {
             x: 272; y: 122
             width: parent.width - 272 - 18
-            text: "Sends a temporary ERG command to test trainer control. Your trainer will adjust to the selected power."
-            color: Theme.textSecondary
+            // while the test runs: "ERG test running – N W" (it stops by itself
+            // after 5 min, when this page is left or a ride starts)
+            text: Devices.ergTestActive
+                  ? Devices.ergTestStatus
+                  : "Sends a temporary ERG command to test trainer control. Stops by itself after 5 min, when you leave this page or a ride starts."
+            color: Devices.ergTestActive ? Theme.warning : Theme.textSecondary
             font.pixelSize: 14
+            font.weight: Devices.ergTestActive ? Font.Bold : Font.Normal
             wrapMode: Text.WordWrap
         }
     }

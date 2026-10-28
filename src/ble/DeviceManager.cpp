@@ -184,23 +184,35 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
 
     // Route ERG requests from the (cycling) training session to the trainer.
     // The rower only follows RowingSession (RowerDevice::requestTargetPower()).
+    // A session command ends a running ERG / gradient test: the session owns
+    // the trainer again and its (latest) command goes out.
     connect(m_hub, &SensorHub::targetPowerRequested, this, [this](int watts) {
+        endTestsForSession();
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setTargetPower(watts);
     });
     connect(m_hub, &SensorHub::freeRideRequested, this, [this] {
+        endTestsForSession();
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setFreeRide();
     });
     connect(m_hub, &SensorHub::simulationRequested, this, [this](double grade, double wind, double crr, double cw) {
         m_simWind = wind;
+        endTestsForSession();
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setSimulation(grade, wind, crr, cw);
     });
     // virtual shifting through the Zwift hub protocol (Zwift Click + Zwift trainer service)
     connect(m_hub, &SensorHub::hubSimulationRequested, this, [this](const HubSimulation &p) {
+        endTestsForSession();
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setHubSimulation(p);
+    });
+    // safety net: a forgotten ERG test does not hold the trainer forever
+    m_ergTestTimeout.setSingleShot(true);
+    m_ergTestTimeout.setInterval(kErgTestTimeoutMs);
+    connect(&m_ergTestTimeout, &QTimer::timeout, this, [this] {
+        stopTrainerTests(QStringLiteral("safety timeout (%1 min)").arg(m_ergTestTimeout.interval() / 60000.0, 0, 'g', 3));
     });
     connect(m_hub, &SensorHub::zwiftHubChanged, this, [this] {
         if (m_trainer)
@@ -1685,6 +1697,7 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
         m_hub->setTrainerConnected(s == LinkState::Connected);
         if (s != LinkState::Connected && m_ergTest) {
             m_ergTest = false;
+            m_ergTestTimeout.stop();
             emit ergTestChanged();
         }
         emit devicesChanged();
@@ -1774,6 +1787,7 @@ void DeviceManager::releaseTrainer()
         m_gradientTest->stop();
     if (m_ergTest) {
         m_ergTest = false;
+        m_ergTestTimeout.stop();
         emit ergTestChanged();
     }
 }
@@ -1868,12 +1882,21 @@ void DeviceManager::startErgTest(int watts)
         addLog(QStringLiteral("ERG test: no trainer connected"), false);
         return;
     }
-    m_trainer->setTargetPower(watts);
-    addLog(QStringLiteral("ERG test: target %1 W").arg(watts), true);
-    if (!m_ergTest) {
-        m_ergTest = true;
-        emit ergTestChanged();
+    if (gradientTestRunning()) {
+        // one test at a time: the gradient test ends (without restoring the
+        // session's command - the ERG test takes the trainer right away)
+        m_ergTest = true;   // keeps restoreSessionCommand() out of finished()
+        m_gradientTest->stop();
     }
+    m_trainer->setTargetPower(watts);
+    addLog(QStringLiteral("ERG test: target %1 W (stops by itself after %2 min, when you leave the Devices page or a ride starts)")
+               .arg(watts)
+               .arg(m_ergTestTimeout.interval() / 60000.0, 0, 'g', 3), true);
+    DiagLog::write("TRAIN", QStringLiteral("ERG test: target %1 W").arg(watts));
+    m_ergTestTimeout.start();   // restarted by every new target
+    m_ergTestWatts = watts;
+    m_ergTest = true;
+    emit ergTestChanged();
 }
 
 void DeviceManager::stopErgTest()
@@ -1881,9 +1904,57 @@ void DeviceManager::stopErgTest()
     if (!m_ergTest)
         return;
     m_ergTest = false;
+    m_ergTestTimeout.stop();
     emit ergTestChanged();
     restoreSessionCommand();
     addLog(QStringLiteral("ERG test stopped"), true);
+    DiagLog::write("TRAIN", QStringLiteral("ERG test stopped - session command restored"));
+}
+
+QString DeviceManager::ergTestStatus() const
+{
+    if (!m_ergTest)
+        return QString();
+    return QStringLiteral("ERG test running – %1 W · stops after %2 min, on leaving this page or when a ride starts")
+        .arg(m_ergTestWatts)
+        .arg(m_ergTestTimeout.interval() / 60000.0, 0, 'g', 3);
+}
+
+bool DeviceManager::stopTrainerTests(const QString &reason)
+{
+    bool any = false;
+    if (m_ergTest) {
+        any = true;
+        addLog(QStringLiteral("ERG test stopped automatically: %1").arg(reason), true);
+        DiagLog::write("TRAIN", QStringLiteral("ERG test auto-stop: %1").arg(reason));
+        stopErgTest();
+    }
+    if (gradientTestRunning()) {
+        any = true;
+        addLog(QStringLiteral("Gradient test stopped automatically: %1").arg(reason), true);
+        DiagLog::write("TRAIN", QStringLiteral("gradient test auto-stop: %1").arg(reason));
+        m_gradientTest->stop();   // -> finished -> restoreSessionCommand()
+    }
+    return any;
+}
+
+void DeviceManager::endTestsForSession()
+{
+    if (!m_ergTest && !gradientTestRunning())
+        return;
+    m_suppressRestore = true;   // the caller forwards the session's request itself
+    stopTrainerTests(QStringLiteral("a session sent a resistance command"));
+    m_suppressRestore = false;
+}
+
+void DeviceManager::setActivePage(const QString &page)
+{
+    if (page == m_activePage)
+        return;
+    const bool left = m_activePage == QLatin1String("devices");
+    m_activePage = page;
+    if (left && page != QLatin1String("devices"))
+        stopTrainerTests(QStringLiteral("left the Devices page"));
 }
 
 bool DeviceManager::sessionOwnsTrainer() const
@@ -1898,7 +1969,7 @@ bool DeviceManager::gradientTestRunning() const
 
 void DeviceManager::restoreSessionCommand()
 {
-    if (!m_trainer || !sessionOwnsTrainer())
+    if (!m_trainer || !sessionOwnsTrainer() || m_suppressRestore)
         return;
     if (m_hub->requestedTarget() > 0)
         m_trainer->setTargetPower(m_hub->requestedTarget());

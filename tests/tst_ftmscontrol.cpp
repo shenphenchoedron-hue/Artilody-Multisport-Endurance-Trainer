@@ -322,6 +322,7 @@ private slots:
         QVERIFY(test.verdict().startsWith(QStringLiteral("Power stops falling below 0 % → the trainer clamps descents")));
         QCOMPARE(r.link->countOp(kCp, kOpPower), 0);   // never ERG
         QCOMPARE(test.results().size(), 4);
+        delete r.trainer;   // its responder refers to this stack frame
     }
 
     void gradientTestVerdicts()
@@ -368,6 +369,102 @@ private slots:
         QVERIFY(!test.running());
         QCOMPARE(finished.count(), 1);
         QCOMPARE(test.status(), QStringLiteral("Stopped"));
+        delete r.trainer;   // its responder refers to this stack frame
+    }
+
+    // Control granted, no session command pending: a defined neutral state
+    // (flat 0 % with our Crr / Cw) instead of only 00 07 - another app's ERG
+    // target must not linger. The first session command replaces it.
+    void neutralStateAfterControl()
+    {
+        Rig r = makeRig();
+        QHash<int, int> results;
+        installResponder(r, &results);
+        QSignalSpy log(r.trainer, &TrainerDevice::logMessage);
+        r.trainer->connectDevice();
+        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 1);
+        const QVector<QByteArray> w = r.link->writesTo(kCp);
+        QCOMPARE(quint8(w.at(0).at(0)), kOpControl);
+        QCOMPARE(quint8(w.at(1).at(0)), kOpStart);
+        const QByteArray neutral = w.at(2);
+        QCOMPARE(quint8(neutral.at(0)), kOpSim);
+        QCOMPARE(gradeOf(neutral), 0.0);
+        QCOMPARE(int(quint8(neutral.at(1))) | (int(quint8(neutral.at(2))) << 8), 0);   // no wind
+        QCOMPARE(int(quint8(neutral.at(5))), 40);   // Crr 0.0040
+        QCOMPARE(int(quint8(neutral.at(6))), 39);   // Cw 0.39 kg/m
+        QCOMPARE(r.link->countOp(kCp, kOpPower), 0);  // never ERG by itself
+        QTRY_COMPARE(r.trainer->trainerMode(), QStringLiteral("simulation"));
+        bool logged = false;
+        for (const auto &args : log)
+            logged = logged || args.at(0).toString().contains(QStringLiteral("neutral state sent"));
+        QVERIFY(logged);
+        // a session command arrives: it replaces the neutral state (latest wins)
+        r.trainer->setTargetPower(180);
+        QTRY_COMPARE(r.trainer->trainerMode(), QStringLiteral("erg"));
+        QCOMPARE(r.link->countOp(kCp, kOpPower), 1);
+        QCOMPARE(quint8(r.link->writesTo(kCp).constLast().at(0)), kOpPower);
+        // control lost + regained: the session's command is re-sent, not the neutral state
+        const int sims = r.link->countOp(kCp, kOpSim);
+        r.link->notify(kStatus, bytes({ 0xFF }));
+        QTRY_COMPARE(r.link->countOp(kCp, kOpPower), 2);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), sims);
+        delete r.trainer;
+    }
+
+    // The neutral state is still queued (control point busy) when the session
+    // command comes: only the session command goes out.
+    void neutralStateDroppedForALaterSessionCommand()
+    {
+        Rig r = makeRig();
+        QHash<int, int> results;
+        installResponder(r, &results);
+        results.insert(kOpStart, -1);   // start is not answered: the queue waits
+        r.trainer->connectDevice();
+        QTRY_COMPARE(r.link->countOp(kCp, kOpStart), 1);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);   // neutral queued behind the start
+        r.trainer->setSimulation(3.5, 0, 0.004, 0.39);
+        results.insert(kOpStart, 0x01);
+        QTRY_COMPARE(r.trainer->trainerMode(), QStringLiteral("simulation"));
+        QTRY_COMPARE(r.trainer->acceptedGrade(), 3.5);
+        int sims = 0;
+        for (const QByteArray &c : r.link->writesTo(kCp)) {
+            if (quint8(c.at(0)) == kOpSim) {
+                ++sims;
+                QCOMPARE(gradeOf(c), 3.5);   // the neutral 0 % never went out
+            }
+        }
+        QVERIFY(sims >= 1);
+        delete r.trainer;
+    }
+
+    // A session command pending before control: no neutral state at all.
+    void noNeutralStateWhenASessionCommandIsPending()
+    {
+        Rig r = makeRig();
+        QHash<int, int> results;
+        installResponder(r, &results);
+        r.trainer->connectDevice();
+        r.trainer->setTargetPower(150);
+        QTRY_COMPARE(r.trainer->trainerMode(), QStringLiteral("erg"));
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);
+        QCOMPARE(r.link->countOp(kCp, kOpPower), 1);
+        delete r.trainer;
+    }
+
+    // Without gradient simulation the neutral state is the free ride's low
+    // resistance level (FTMS 0x04), never ERG.
+    void neutralStateWithoutSimulation()
+    {
+        Rig r = makeRig();
+        r.link->readValues.insert(u16(ftms::kFeatureUuid), bytes({ 0x02, 0x40, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00 }));
+        QHash<int, int> results;
+        installResponder(r, &results);
+        r.trainer->connectDevice();
+        QTRY_COMPARE(r.link->countOp(kCp, 0x04), 1);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);
+        QCOMPARE(r.link->countOp(kCp, kOpPower), 0);
+        QTRY_COMPARE(r.trainer->trainerMode(), QStringLiteral("resistance"));
+        delete r.trainer;
     }
 
     void rejectionTexts()

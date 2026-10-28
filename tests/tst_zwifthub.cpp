@@ -517,9 +517,12 @@ private slots:
         SensorHub other;
         other.setTrainerZwiftHub(SensorHub::HubActive, QString());
         QCOMPARE(RideResistance::choose(false, false, &other), RideResistance::Path::Simulation);
+        // control was granted with no session command: the neutral state
+        // (0x11 flat 0 %) went out
+        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 1);
         RideResistance res(&r.hub);
         QVERIFY(res.sendGrade(2.5, true, road::TrainerModel()));
-        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 1);
+        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 2);
     }
 
     // Click connected + Zwift service: hub protocol automatically; FTMS

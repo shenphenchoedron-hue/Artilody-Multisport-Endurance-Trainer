@@ -397,6 +397,22 @@ int main(int argc, char *argv[])
                      [](const QString &t) { DiagLog::write("GEAR", QStringLiteral("notice: %1").arg(t)); });
     QObject::connect(&gears, &VirtualGears::activePageChanged, &app,
                      [&gears] { DiagLog::write("UI", QStringLiteral("page %1").arg(gears.activePage())); });
+    // Trainer tests (Devices > Test ERG / Gradient test) end when the Devices
+    // page is left or any session starts - never a forgotten ERG test that
+    // swallows the ride's commands.
+    devices.setActivePage(gears.activePage());
+    QObject::connect(&gears, &VirtualGears::activePageChanged, &devices,
+                     [&gears, &devices] { devices.setActivePage(gears.activePage()); });
+    QObject::connect(&training, &TrainingSession::stateChanged, &devices, [&training, &devices] {
+        if (training.running())
+            devices.stopTrainerTests(QStringLiteral("a workout started"));
+    });
+    QObject::connect(&freeRide, &FreeRideSession::started, &devices,
+                     [&devices] { devices.stopTrainerTests(QStringLiteral("a free ride started")); });
+    QObject::connect(&rlv, &RlvSession::started, &devices,
+                     [&devices] { devices.stopTrainerTests(QStringLiteral("a video ride started")); });
+    QObject::connect(&rowing, &RowingSession::started, &devices,
+                     [&devices] { devices.stopTrainerTests(QStringLiteral("a row started")); });
     // session markers
     QObject::connect(&training, &TrainingSession::stateChanged, &app, [&training] {
         static const char *names[] = { "idle", "running", "paused", "finished" };
