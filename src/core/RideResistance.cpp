@@ -163,7 +163,12 @@ RideResistance::Path RideResistance::choose(bool erg, bool virtualGears, const S
         return Path::Simulation;
     // Zwift hub protocol chosen by the rider and its handshake done: the
     // trainer does the physics (never ERG); otherwise the FTMS paths below.
-    if (hub && hub->trainerZwiftHubActive())
+    // While its handshake runs (Click connected, trainer with the Zwift
+    // service) as well: nothing goes to the trainer until the hub is active
+    // (BleTrainer keeps the request), no FTMS ERG / 0x11 meanwhile - Zwift
+    // never mixes FTMS commands into the hub protocol.
+    if (hub && (hub->trainerZwiftHubActive()
+                || (hub->zwiftHubWanted() && hub->trainerZwiftHubState() == SensorHub::HubStarting)))
         return Path::GearHub;
     if (method == GearMethod::Erg || !gearSimulationPossible(hub))
         return Path::GearErg;
@@ -319,12 +324,14 @@ HubSimulation RideResistance::hubSimulationFor(const GearDrive &d)
     p.inclinePercent = std::isfinite(d.road.gradePercent)
                            ? std::round(std::clamp(d.road.gradePercent, kMinGrade, kMaxGrade) * 100.0) / 100.0
                            : 0.0;
+    // Wind, CWa and Crr exactly as Zwift sends them to these trainers (wind 0,
+    // CWa 5100, Crr 400; Incyclist uses the same defaults): the trainer's
+    // physics are tuned to them (Makinolo: other values make it "behave in very
+    // strange ways"). v1.3.3 sent the rider's own CdA-based value (e.g. 0.37,
+    // later 0.3899), re-sent on every change.
     p.windMps = 0;
-    // CWa = rho * CdA and Crr of the rider in the resolution the protocol
-    // carries (the same road the app's speed model uses)
-    const road::TrainerModel tm = road::trainerModelFor(d.road);
-    p.cw = std::round(tm.cwKgPerM * 10000.0) / 10000.0;
-    p.crr = std::round(d.road.crr * 100000.0) / 100000.0;
+    p.cw = kHubCwa;
+    p.crr = kHubCrr;
     p.gearRatio = d.virtualRatio;
     const double total = d.road.massKg;
     p.riderKg = d.riderKg > 0 && d.riderKg < total ? d.riderKg : std::max(20.0, total - road::kDefaultBikeKg);

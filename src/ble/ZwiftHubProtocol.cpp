@@ -76,10 +76,16 @@ QByteArray startStream()
 
 int inclineX100(double percent)
 {
+    // Zwift sends 0 % as InclineX100 0 (04 22 02 10 00); Incyclist replaces it
+    // by 1 (0.01 %) - the same road, Zwift's bytes are used
     if (!std::isfinite(percent))
-        return 1;
-    const long v = std::lround(percent * 100.0);
-    return v == 0 ? 1 : int(v);
+        return 0;
+    return int(std::lround(percent * 100.0));
+}
+
+int echoedIncline(double sentPercent)
+{
+    return std::isfinite(sentPercent) ? int(std::trunc(sentPercent)) : 0;
 }
 
 QByteArray encodeSimulation(const Simulation &s)
@@ -134,8 +140,10 @@ std::optional<RidingData> decodeRidingData(const QByteArray &payload)
     RidingData d;
     d.power = int(zwift::varintField(*fields, 1).value_or(0));
     d.cadence = int(zwift::varintField(*fields, 2).value_or(0));
-    d.speedKmh = zwift::varintField(*fields, 3).value_or(0) / 100.0;
-    d.heartRate = int(zwift::varintField(*fields, 4).value_or(0));
+    d.speedMps = zwift::varintField(*fields, 3).value_or(0) / 100.0;   // m/s x 100
+    d.field4 = int(zwift::varintField(*fields, 4).value_or(0));
+    d.field5 = zwift::varintField(*fields, 5);
+    d.field6 = zwift::varintField(*fields, 6);
     return d;
 }
 
@@ -162,18 +170,20 @@ std::optional<Settings> decodeDeviceData(const QByteArray &payload)
     const auto c = zwift::decodeFields(sub);
     if (!c)
         return std::nullopt;
-    if (auto v = zwift::varintField(*c, 5))
-        s.windMps = unzigzag(*v) / 100.0;
-    if (auto v = zwift::varintField(*c, 6))
-        s.inclinePercent = unzigzag(*v) / 100.0;
-    if (auto v = zwift::varintField(*c, 8))
-        s.gearRatio = *v / 10000.0;
-    if (auto v = zwift::varintField(*c, 11))
-        s.bikeKg = *v / 100.0;
-    if (auto v = zwift::varintField(*c, 12))
-        s.riderKg = *v / 100.0;
-    if (auto v = zwift::varintField(*c, 13))
-        s.crr = *v / 100000.0;
+    for (const zwift::PbField &f : *c) {
+        if (f.wireType != 0)
+            continue;
+        switch (f.number) {
+        case 5: s.windMps = unzigzag(f.value) / 100.0; break;
+        case 6: s.inclineWholePercent = int(unzigzag(f.value)); break;
+        case 8: s.gearRatio = f.value / 10000.0; break;
+        case 9: s.cwa = f.value / 10000.0; break;
+        case 11: s.weight11Kg = f.value / 100.0; break;
+        case 12: s.weight12Kg = f.value / 100.0; break;
+        case 13: s.crr = f.value / 100000.0; break;
+        default: s.other.append({ f.number, f.value }); break;
+        }
+    }
     return s;
 }
 
@@ -248,8 +258,12 @@ QByteArray encodeRidingData(const RidingData &d)
     QByteArray body;
     appendUInt(body, 1, quint64(std::max(0, d.power)));
     appendUInt(body, 2, quint64(std::max(0, d.cadence)));
-    appendUInt(body, 3, nonNegative(d.speedKmh * 100.0));
-    appendUInt(body, 4, quint64(std::max(0, d.heartRate)));
+    appendUInt(body, 3, nonNegative(d.speedMps * 100.0));
+    appendUInt(body, 4, quint64(std::max(0, d.field4)));
+    if (d.field5)
+        appendUInt(body, 5, *d.field5);
+    if (d.field6)
+        appendUInt(body, 6, *d.field6);
     return withPrefix(InRidingData, body);
 }
 
@@ -258,16 +272,20 @@ QByteArray encodeSettingsEcho(const Settings &s)
     QByteArray c;
     if (s.windMps)
         appendSInt(c, 5, std::llround(*s.windMps * 100.0));
-    if (s.inclinePercent)
-        appendSInt(c, 6, std::llround(*s.inclinePercent * 100.0));
+    if (s.inclineWholePercent)
+        appendSInt(c, 6, *s.inclineWholePercent);
     if (s.gearRatio)
         appendUInt(c, 8, nonNegative(*s.gearRatio * 10000.0));
-    if (s.bikeKg)
-        appendUInt(c, 11, nonNegative(*s.bikeKg * 100.0));
-    if (s.riderKg)
-        appendUInt(c, 12, nonNegative(*s.riderKg * 100.0));
+    if (s.cwa)
+        appendUInt(c, 9, nonNegative(*s.cwa * 10000.0));
+    if (s.weight11Kg)
+        appendUInt(c, 11, nonNegative(*s.weight11Kg * 100.0));
+    if (s.weight12Kg)
+        appendUInt(c, 12, nonNegative(*s.weight12Kg * 100.0));
     if (s.crr)
         appendUInt(c, 13, nonNegative(*s.crr * 100000.0));
+    for (const auto &o : s.other)
+        appendUInt(c, o.first, o.second);
     QByteArray settings;
     appendMessage(settings, 1, c);
     QByteArray env;
@@ -295,7 +313,12 @@ QString describe(const QByteArray &message, bool outbound)
         case OutStartStream: return QStringLiteral("start hub data stream");
         case OutRequest: {
             const auto f = zwift::decodeFields(body);
-            return QStringLiteral("request dataId %1").arg(f ? zwift::varintField(*f, 1).value_or(0) : 0);
+            const quint64 id = f ? zwift::varintField(*f, 1).value_or(0) : 0;
+            const QString what = id == kSettingsDataId    ? QStringLiteral(" (settings)")
+                                 : id == kGearRatioDataId ? QStringLiteral(" (gear ratio)")
+                                 : id == kDeviceInfoDataId ? QStringLiteral(" (device info)")
+                                                           : QString();
+            return QStringLiteral("request dataId %1%2").arg(id).arg(what);
         }
         case OutCommand: {
             const auto f = zwift::decodeFields(body);
@@ -343,20 +366,34 @@ QString describe(const QByteArray &message, bool outbound)
         const auto d = decodeRidingData(body);
         if (!d)
             return QStringLiteral("riding data (truncated)");
-        return QStringLiteral("riding data: %1 W, %2 rpm, %3 km/h, HR %4").arg(d->power).arg(d->cadence)
-            .arg(num(d->speedKmh, 2)).arg(d->heartRate);
+        QString extra = QStringLiteral(", f4 %1 (proto \"HR\")").arg(d->field4);
+        if (d->field5)
+            extra += QStringLiteral(", f5 %1").arg(*d->field5);
+        if (d->field6)
+            extra += QStringLiteral(", f6 %1").arg(*d->field6);
+        return QStringLiteral("riding data: %1 W, %2 rpm, speed %3 m/s (%4 km/h)%5")
+            .arg(d->power)
+            .arg(d->cadence)
+            .arg(num(d->speedMps, 2), num(d->speedKmh(), 1), extra);
     }
     case InDeviceData: {
         const auto s = decodeDeviceData(body);
         if (!s)
             return QStringLiteral("device data (not a settings echo)");
         QStringList p;
-        if (s->inclinePercent) p << QStringLiteral("incline %1 %").arg(num(*s->inclinePercent, 2));
-        if (s->gearRatio) p << QStringLiteral("gear ratio %1").arg(num(*s->gearRatio, 4));
-        if (s->riderKg) p << QStringLiteral("rider %1 kg").arg(num(*s->riderKg, 2));
-        if (s->bikeKg) p << QStringLiteral("bike %1 kg").arg(num(*s->bikeKg, 2));
-        if (s->crr) p << QStringLiteral("Crr %1").arg(num(*s->crr, 5));
-        if (s->windMps) p << QStringLiteral("wind %1 m/s").arg(num(*s->windMps, 2));
+        if (s->inclineWholePercent) p << QStringLiteral("incline %1 % (f6, whole percent)").arg(*s->inclineWholePercent);
+        if (s->gearRatio) p << QStringLiteral("gear ratio %1 (f8)").arg(num(*s->gearRatio, 4));
+        if (s->cwa) p << QStringLiteral("CWa %1 (f9)").arg(num(*s->cwa, 4));
+        if (s->weight11Kg) p << QStringLiteral("weight %1 kg (f11, rider)").arg(num(*s->weight11Kg, 2));
+        if (s->weight12Kg) p << QStringLiteral("weight %1 kg (f12)").arg(num(*s->weight12Kg, 2));
+        if (s->crr) p << QStringLiteral("Crr %1 (f13)").arg(num(*s->crr, 5));
+        if (s->windMps) p << QStringLiteral("wind %1 m/s (f5)").arg(num(*s->windMps, 2));
+        if (!s->other.isEmpty()) {
+            QStringList o;
+            for (const auto &f : s->other)
+                o << QStringLiteral("f%1=%2").arg(f.first).arg(f.second);
+            p << QStringLiteral("unknown ") + o.join(QLatin1Char(' '));
+        }
         return QStringLiteral("settings echo (type %1): %2").arg(s->messageType).arg(p.join(QStringLiteral(", ")));
     }
     case InTrainerResponse: {

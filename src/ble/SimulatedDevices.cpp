@@ -49,7 +49,8 @@ public:
             zhub::RidingData d;
             d.power = int(std::lround(m_trainer->currentPower()));
             d.cadence = int(std::lround(m_trainer->cadenceRpm()));
-            d.speedKmh = m_trainer->wheelSpeedMps() * 3.6;
+            d.speedMps = m_trainer->wheelSpeedMps();
+            d.field4 = d.power;   // as the Victory
             emit characteristicChanged(ZwiftHubLink::asyncUuid(), zhub::encodeRidingData(d));
             if (++m_ticks % 5 == 0)
                 emit characteristicChanged(ZwiftHubLink::asyncUuid(), QByteArray::fromHex("1910"));   // idle / keep-alive
@@ -208,8 +209,10 @@ void SimulatedTrainer::applyHubCommand(const QByteArray &payload)
             m_crr = *sim.crr;
         if (sim.cw)
             m_cw = *sim.cw;
-        m_zgatt->m_settings.inclinePercent = m_grade;
+        // echo like the Jetblack Victory: incline in whole percent (f6), CWa (f9)
+        m_zgatt->m_settings.inclineWholePercent = zhub::echoedIncline(m_grade);
         m_zgatt->m_settings.crr = m_crr;
+        m_zgatt->m_settings.cwa = m_cw;
         if (sim.windMps)
             m_zgatt->m_settings.windMps = *sim.windMps;
     }
@@ -224,8 +227,7 @@ void SimulatedTrainer::applyHubCommand(const QByteArray &payload)
         if (m_hubRiderKg > 0)
             m_massKg = m_hubRiderKg + m_hubBikeKg;
         m_zgatt->m_settings.gearRatio = m_hubRatio;
-        m_zgatt->m_settings.riderKg = m_hubRiderKg;
-        m_zgatt->m_settings.bikeKg = m_hubBikeKg;
+        m_zgatt->m_settings.weight11Kg = m_hubRiderKg;   // the Victory echoes the rider in f11
     }
     if (cmd->powerTarget) {
         m_erg = true;

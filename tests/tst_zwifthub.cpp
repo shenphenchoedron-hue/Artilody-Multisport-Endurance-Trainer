@@ -59,11 +59,42 @@ void hubResponder(FakeGattLink *link, bool answer = true)
             zhub::RidingData r;
             r.power = 180;
             r.cadence = 85;
-            r.speedKmh = 30.5;
+            r.speedMps = 8.47;
             return { { kAsync, zhub::encodeRidingData(r) } };
         }
         return {};
     };
+}
+
+int countRequests(const FakeGattLink *link, quint32 dataId)
+{
+    int n = 0;
+    for (const QByteArray &w : link->writesTo(kRx))
+        if (w == zhub::encodeRequest(dataId))
+            ++n;
+    return n;
+}
+
+// Zwift's rule: every Simulation is followed by Physical{gear} and request 520
+void verifyGearAfterEverySimulation(const FakeGattLink *link)
+{
+    const QVector<QByteArray> w = link->writesTo(kRx);
+    int sims = 0;
+    for (int i = 0; i < w.size(); ++i) {
+        if (w.at(i).isEmpty() || quint8(w.at(i).at(0)) != zhub::OutCommand || zhub::isRideOn(w.at(i)))
+            continue;
+        const auto c = zhub::decodeCommand(w.at(i).mid(1));
+        QVERIFY(c);
+        if (!c->simulation)
+            continue;
+        ++sims;
+        QVERIFY2(i + 2 < w.size(), "Simulation without the gear after it");
+        const auto next = zhub::decodeCommand(w.at(i + 1).mid(1));
+        QVERIFY2(quint8(w.at(i + 1).at(0)) == zhub::OutCommand && next && next->physical && next->physical->gearRatio,
+                 "Simulation not followed by Physical{gear}");
+        QCOMPARE(w.at(i + 2), zhub::encodeRequest(zhub::kGearRatioDataId));
+    }
+    QVERIFY(sims > 0);
 }
 
 int countPrefix(const FakeGattLink *link, quint8 prefix)
@@ -160,10 +191,10 @@ private slots:
         sim.cw = 0.51;
         sim.crr = 0.004;
         QCOMPARE(zhub::encodeSimulation(sim), hex("04220b0800109f0618ec27209003"));
-        // only the set fields; 0 % goes out as 0.01 % (InclineX100 1, like Zwift / Incyclist)
+        // only the set fields; 0 % goes out as 0 (Zwift: 04 22 02 10 00)
         zhub::Simulation flat;
         flat.inclinePercent = 0.0;
-        QCOMPARE(zhub::encodeSimulation(flat), hex("0422021002"));
+        QCOMPARE(zhub::encodeSimulation(flat), hex("0422021000"));
         zhub::Simulation up;
         up.inclinePercent = 1.5;   // 150 -> zigzag 300 = ac 02
         QCOMPARE(zhub::encodeSimulation(up), hex("04220310ac02"));
@@ -174,9 +205,116 @@ private slots:
         QCOMPARE(zhub::handshake(), QByteArray("RideOn") + hex("0201"));
         QCOMPARE(zhub::startStream(), hex("410805"));
         QCOMPARE(zhub::encodePowerTarget(200), hex("0418c801"));
-        QCOMPARE(zhub::inclineX100(0.004), 1);
-        QCOMPARE(zhub::inclineX100(-0.004), 1);
+        QCOMPARE(zhub::inclineX100(0.004), 0);
+        QCOMPARE(zhub::inclineX100(-0.004), 0);
         QCOMPARE(zhub::inclineX100(-4.0), -400);
+    }
+
+    // Zwift's own bytes (capture replayed by qdomyos-zwift zwiftPlayInit) and
+    // Incyclist's encodings: ours must be identical.
+    void referenceBytes()
+    {
+        zhub::Physical zp;
+        zp.gearRatio = 2.40;
+        zp.bikeKg = 8.31;
+        zp.riderKg = 85.0;
+        QCOMPARE(zhub::encodePhysical(zp), hex("042a0a10c0bb0120bf0628b442"));
+        zhub::Simulation zs;
+        zs.windMps = 0;
+        zs.inclinePercent = 1.73;
+        zs.cw = 0.51;
+        zs.crr = 0.004;
+        QCOMPARE(zhub::encodeSimulation(zs), hex("04220b080010da0218ec27209003"));
+        zhub::Simulation down;
+        down.inclinePercent = -0.85;
+        QCOMPARE(zhub::encodeSimulation(down), hex("04220310a901"));
+        zhub::Simulation zero;
+        zero.inclinePercent = 0;
+        QCOMPARE(zhub::encodeSimulation(zero), hex("0422021000"));
+        QCOMPARE(zhub::encodeRequest(zhub::kGearRatioDataId), hex("00088804"));
+        QCOMPARE(zhub::encodeRequest(zhub::kDeviceInfoDataId), hex("000800"));
+        // incline is sint32 (zigzag): +2 % = 200 -> 400, -3 % = -300 -> 599
+        zhub::Simulation plus2, minus3;
+        plus2.inclinePercent = 2.0;
+        minus3.inclinePercent = -3.0;
+        QCOMPARE(zhub::encodeSimulation(plus2), hex("042203109003"));
+        QCOMPARE(zhub::encodeSimulation(minus3), hex("04220310d704"));
+        // the user's log (v1.3.3): these bytes were already correct
+        zhub::Physical user;
+        user.gearRatio = 2.40;
+        user.bikeKg = 9;
+        user.riderKg = 68;
+        QCOMPARE(zhub::encodePhysical(user), hex("042a0a10c0bb01208407289035"));
+        zhub::Simulation s189, s293;
+        s189.inclinePercent = 1.89;
+        s293.inclinePercent = -2.93;
+        QCOMPARE(zhub::encodeSimulation(s189), hex("04220310fa02"));
+        QCOMPARE(zhub::encodeSimulation(s293), hex("04220310c904"));
+        const struct { int gear; const char *bytes; } gears[] = {
+            { 11, "042a0410b8ad01" }, { 10, "042a0410b09f01" }, { 9, "042a0410a89101" }, { 8, "042a0410a08301" },
+            { 1, "042a0310cc3a" }, { 24, "042a0410f4ac03" } };
+        for (const auto &g : gears) {
+            zhub::Physical p;
+            p.gearRatio = zwiftgears::ratio(g.gear);
+            QCOMPARE(zhub::encodePhysical(p), hex(g.bytes));
+        }
+        // CWa x 10000 and Crr x 100000 (not the FTMS resolutions)
+        zhub::Simulation coeff;
+        coeff.cw = RideResistance::kHubCwa;
+        coeff.crr = RideResistance::kHubCrr;
+        QCOMPARE(zhub::encodeSimulation(coeff), hex("04220618ec27209003"));
+    }
+
+    // The user's real notifications (Jetblack Victory, v1.3.3 log).
+    void decodesVictoryEchoAndRidingData()
+    {
+        // echo right after sending -2.93 % (gear 1.86 = gear 9 sent before)
+        const QByteArray echo = hex("3c08800412290a27080310c801180020e00728003003"
+                                    "38b0ea0140a8910148bb1e509c34589035689003708827" "7800");
+        QCOMPARE(quint8(echo.at(0)), quint8(zhub::InDeviceData));
+        const auto s = zhub::decodeDeviceData(echo.mid(1));
+        QVERIFY(s);
+        QCOMPARE(s->messageType, 512);
+        QCOMPARE(*s->windMps, 0.0);
+        QCOMPARE(*s->inclineWholePercent, -2);        // zigzag 3: -2.93 % truncated
+        QCOMPARE(zhub::echoedIncline(-2.93), -2);
+        QCOMPARE(*s->gearRatio, 1.86);
+        QCOMPARE(*s->cwa, 0.3899);
+        QCOMPARE(*s->weight11Kg, 68.0);              // the rider, not the bike
+        QVERIFY(!s->weight12Kg);
+        QCOMPARE(*s->crr, 0.004);
+        QVector<QPair<int, quint64>> other { { 1, 3 }, { 2, 200 }, { 3, 0 }, { 4, 992 }, { 7, 30000 },
+                                             { 10, 6684 }, { 14, 5000 }, { 15, 0 } };
+        QCOMPARE(s->other, other);
+        const QString d = zhub::describe(echo, false);
+        QVERIFY2(d.contains(QStringLiteral("incline -2 % (f6, whole percent)")), qPrintable(d));
+        QVERIFY2(d.contains(QStringLiteral("weight 68.00 kg (f11, rider)")), qPrintable(d));
+        QVERIFY2(d.contains(QStringLiteral("f4=992")), qPrintable(d));
+        // after +1.89 % -> f6 zigzag 2 = +1; after -1.35 % -> zigzag 1 = -1
+        QCOMPARE(zhub::unzigzag(2), qint64(1));
+        QCOMPARE(zhub::echoedIncline(1.89), 1);
+        QCOMPARE(zhub::unzigzag(1), qint64(-1));
+        QCOMPARE(zhub::echoedIncline(-1.35), -1);
+
+        // riding data: 199 W, 78 rpm, speed 1039 = 10.39 m/s (37.4 km/h;
+        // FTMS said 37.2 km/h), f4 199 (= the power, not HR), f5 29701
+        const QByteArray riding = hex("0308c701104e188f0820c7012885e801");
+        const auto r = zhub::decodeRidingData(riding.mid(1));
+        QVERIFY(r);
+        QCOMPARE(r->power, 199);
+        QCOMPARE(r->cadence, 78);
+        QCOMPARE(r->speedMps, 10.39);
+        QVERIFY(std::abs(r->speedKmh() - 37.404) < 0.001);
+        QCOMPARE(r->field4, 199);
+        QCOMPARE(*r->field5, quint64(29701));
+        QVERIFY(!r->field6);
+        QCOMPARE(zhub::describe(riding, false),
+                 QStringLiteral("riding data: 199 W, 78 rpm, speed 10.39 m/s (37.4 km/h), f4 199 (proto \"HR\"), f5 29701"));
+        // Makinolo's example: 190 W, 80 rpm, 8.29 m/s
+        const auto m = zhub::decodeRidingData(hex("08be01105018bd06200028e2ba01308beb01"));
+        QVERIFY(m);
+        QCOMPARE(m->speedMps, 8.29);
+        QCOMPARE(*m->field6, quint64(30091));
     }
 
     void roundTrips()
@@ -203,28 +341,29 @@ private slots:
         zhub::RidingData r;
         r.power = 187;
         r.cadence = 88;
-        r.speedKmh = 36.12;
-        r.heartRate = 141;
+        r.speedMps = 10.03;
+        r.field4 = 141;
         const QByteArray riding = zhub::encodeRidingData(r);
         QCOMPARE(quint8(riding.at(0)), quint8(zhub::InRidingData));
         const auto back = zhub::decodeRidingData(riding.mid(1));
         QVERIFY(back);
         QCOMPARE(back->power, 187);
         QCOMPARE(back->cadence, 88);
-        QCOMPARE(back->speedKmh, 36.12);
-        QCOMPARE(back->heartRate, 141);
-        // hand-made HubRidingData: 08 b4 01 (180 W) 10 55 (85 rpm) 18 ea 17 (30.50 km/h) 20 00
+        QCOMPARE(back->speedMps, 10.03);
+        QCOMPARE(back->field4, 141);
+        // hand-made HubRidingData: 08 b4 01 (180 W) 10 55 (85 rpm) 18 ea 17 (30.50 m/s x 100) 20 00
         const auto hand = zhub::decodeRidingData(hex("08b401105518ea172000"));
         QVERIFY(hand);
         QCOMPARE(hand->power, 180);
-        QCOMPARE(hand->speedKmh, 30.5);
+        QCOMPARE(hand->speedMps, 30.5);
         QVERIFY(!zhub::decodeRidingData(hex("08")));   // truncated
 
         zhub::Settings st;
-        st.inclinePercent = -1.5;
+        st.inclineWholePercent = -1;
         st.gearRatio = 2.4;
-        st.riderKg = 75;
-        st.bikeKg = 10;
+        st.cwa = 0.51;
+        st.weight11Kg = 75;
+        st.weight12Kg = 10;
         st.crr = 0.004;
         st.windMps = 0;
         const QByteArray echo = zhub::encodeSettingsEcho(st);
@@ -232,14 +371,16 @@ private slots:
         const auto s2 = zhub::decodeDeviceData(echo.mid(1));
         QVERIFY(s2);
         QCOMPARE(s2->messageType, 512);
-        QCOMPARE(*s2->inclinePercent, -1.5);
+        QCOMPARE(*s2->inclineWholePercent, -1);
         QCOMPARE(*s2->gearRatio, 2.4);
-        QCOMPARE(*s2->riderKg, 75.0);
-        QCOMPARE(*s2->bikeKg, 10.0);
+        QCOMPARE(*s2->cwa, 0.51);
+        QCOMPARE(*s2->weight11Kg, 75.0);
+        QCOMPARE(*s2->weight12Kg, 10.0);
         QCOMPARE(*s2->crr, 0.004);
         // device info (type < 16) is not a settings echo
         QVERIFY(!zhub::decodeDeviceData(hex("0801120400000000")));
-        QVERIFY(zhub::describe(echo, false).startsWith(QStringLiteral("settings echo (type 512): incline -1.50 %")));
+        QVERIFY(zhub::describe(echo, false).startsWith(QStringLiteral("settings echo (type 512): incline -1 % (f6, whole percent)")));
+        QCOMPARE(zhub::describe(hex("00088804"), true), QStringLiteral("request dataId 520 (gear ratio)"));
         QCOMPARE(zhub::describe(hex("042a0410c0bb01"), true), QStringLiteral("command Physical: gear ratio 2.4000"));
         QCOMPARE(zhub::describe(hex("04220b0800109f0618ec27209003"), true),
                  QStringLiteral("command Simulation: incline -4.00 %, wind 0.00 m/s, CWa 0.5100 kg/m, Crr 0.00400"));
@@ -359,16 +500,19 @@ private slots:
         QTRY_COMPARE(z.state(), ZwiftHubLink::State::Active);
         const QVector<QByteArray> w = link.writesTo(kRx);
         QCOMPARE(w.at(1), zhub::startStream());
-        // then everything at once: Physical, Simulation, settings request
+        // then Zwift's sequence: Physical (all), Simulation (all), the gear
+        // AGAIN after the Simulation, request 520, then the settings request
         QCOMPARE(w.at(2), hex("042a0a10c0bb0120e80728cc3a"));
         QCOMPARE(w.at(3), hex("04220b080010ac0218ec27209003"));
-        QCOMPARE(w.at(4), zhub::encodeRequest(512));
+        QCOMPARE(w.at(4), hex("042a0410c0bb01"));
+        QCOMPARE(w.at(5), hex("00088804"));
+        QCOMPARE(w.at(6), zhub::encodeRequest(512));
         QVERIFY(z.lastRidingData());
         QCOMPARE(z.lastRidingData()->power, 180);
         // the settings echo is decoded and kept
         zhub::Settings st;
         st.gearRatio = 2.4;
-        st.inclinePercent = 1.5;
+        st.inclineWholePercent = 1;
         link.notify(kAsync, zhub::encodeSettingsEcho(st));
         QVERIFY(z.lastSettings());
         QCOMPARE(*z.lastSettings()->gearRatio, 2.4);
@@ -437,9 +581,11 @@ private slots:
         z.start();
         QTRY_COMPARE(z.state(), ZwiftHubLink::State::Active);
         const int base = commands(&link).size();
-        QCOMPARE(base, 2);   // Physical + Simulation (all fields)
+        QCOMPARE(base, 3);   // Physical (all) + Simulation (all) + Physical{gear} again
+        QCOMPARE(countRequests(&link, zhub::kGearRatioDataId), 1);
 
-        // gear change: Physical with only the gear ratio, at once (no rate limit)
+        // gear change: Physical with only the gear ratio, at once (no rate
+        // limit), then request 520 like Zwift
         now = 100;
         z.update(params(1.0, 2.61));
         QVector<zhub::Command> c = commands(&link);
@@ -447,9 +593,12 @@ private slots:
         QVERIFY(c.last().physical && !c.last().simulation);
         QCOMPARE(*c.last().physical->gearRatio, 2.61);
         QVERIFY(!c.last().physical->riderKg && !c.last().physical->bikeKg);
+        QCOMPARE(link.writesTo(kRx).constLast(), zhub::encodeRequest(zhub::kGearRatioDataId));
+        QCOMPARE(countRequests(&link, zhub::kGearRatioDataId), 2);
         now = 150;
         z.update(params(1.0, 2.82));
         QCOMPARE(commands(&link).size(), base + 2);   // every gear change goes out
+        QCOMPARE(countRequests(&link, zhub::kGearRatioDataId), 3);
 
         // incline: < 0.1 % -> nothing; >= 0.1 % but within 1 s of the last -> later
         now = 300;
@@ -461,32 +610,40 @@ private slots:
         now = 1000;
         z.update(params(1.3, 2.82));
         c = commands(&link);
-        QCOMPARE(c.size(), base + 3);
-        QVERIFY(c.last().simulation && !c.last().physical);
-        QCOMPARE(*c.last().simulation->inclinePercent, 1.3);
-        QVERIFY(!c.last().simulation->cw && !c.last().simulation->crr && !c.last().simulation->windMps);
-        // refresh: the incline again after kRefreshMs, nothing else
+        QCOMPARE(c.size(), base + 4);   // Simulation + the gear again
+        const zhub::Command &sim = c.at(c.size() - 2);
+        QVERIFY(sim.simulation && !sim.physical);
+        QCOMPARE(*sim.simulation->inclinePercent, 1.3);
+        QVERIFY(!sim.simulation->cw && !sim.simulation->crr && !sim.simulation->windMps);
+        QVERIFY(c.last().physical && !c.last().simulation);
+        QCOMPARE(*c.last().physical->gearRatio, 2.82);   // unchanged gear, re-sent after the incline
+        QVERIFY(!c.last().physical->riderKg && !c.last().physical->bikeKg);
+        // refresh: the incline again after kRefreshMs (and the gear after it)
         now = 1000 + ZwiftHubLink::kRefreshMs;
         z.tick();
         c = commands(&link);
-        QCOMPARE(c.size(), base + 4);
-        QCOMPARE(*c.last().simulation->inclinePercent, 1.3);
-        QVERIFY(!c.last().simulation->crr);
-        // weights / CWa: only the changed field
+        QCOMPARE(c.size(), base + 6);
+        QCOMPARE(*c.at(c.size() - 2).simulation->inclinePercent, 1.3);
+        QVERIFY(!c.at(c.size() - 2).simulation->crr);
+        QCOMPARE(*c.last().physical->gearRatio, 2.82);
+        // weights / CWa: only the changed field (+ the gear after the Simulation)
         now += 100;
         HubSimulation p = params(1.3, 2.82);
         p.riderKg = 80;
         p.cw = 0.40;
         z.update(p);
         c = commands(&link);
-        QCOMPARE(c.size(), base + 6);
-        QVERIFY(c.at(c.size() - 2).physical);
-        QCOMPARE(*c.at(c.size() - 2).physical->riderKg, 80.0);
-        QVERIFY(!c.at(c.size() - 2).physical->gearRatio);
-        QVERIFY(c.last().simulation && c.last().simulation->cw && !c.last().simulation->inclinePercent);
+        QCOMPARE(c.size(), base + 9);
+        QVERIFY(c.at(c.size() - 3).physical);
+        QCOMPARE(*c.at(c.size() - 3).physical->riderKg, 80.0);
+        QVERIFY(!c.at(c.size() - 3).physical->gearRatio);
+        QVERIFY(c.at(c.size() - 2).simulation && c.at(c.size() - 2).simulation->cw
+                && !c.at(c.size() - 2).simulation->inclinePercent);
+        QCOMPARE(*c.last().physical->gearRatio, 2.82);
         // settings echo requests are rate limited (kEchoIntervalMs)
-        QVERIFY(countPrefix(&link, zhub::OutRequest) >= 2);
-        QVERIFY(countPrefix(&link, zhub::OutRequest) <= 4);
+        QVERIFY(countRequests(&link, zhub::kSettingsDataId) >= 2);
+        QVERIFY(countRequests(&link, zhub::kSettingsDataId) <= 4);
+        verifyGearAfterEverySimulation(&link);
     }
 
     // --- BleTrainer + SensorHub + RideResistance + VirtualGears -------------------
@@ -543,7 +700,10 @@ private slots:
         QSignalSpy shifting(&gears, &VirtualGears::shiftingChanged);
         gears.setClickConnected(true);
         QVERIFY(r.hub.zwiftHubWanted());
-        QCOMPARE(gears.shiftingMode(), QStringLiteral("ftms"));   // handshake running: FTMS gradient meanwhile
+        // handshake running: already the hub path (nothing sent until it is done, no FTMS meanwhile)
+        QCOMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubStarting));
+        QCOMPARE(gears.shiftingMode(), QStringLiteral("zwift"));
+        QCOMPARE(RideResistance::choose(false, gears.enabled(), &r.hub, gears.method()), RideResistance::Path::GearHub);
         QTRY_COMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubActive));
         QCOMPARE(gears.shiftingMode(), QStringLiteral("zwift"));
         QCOMPARE(gears.shiftingStatus(), QStringLiteral("Virtual shifting: Zwift protocol"));
@@ -565,7 +725,11 @@ private slots:
         QCOMPARE(sent.gearRatio, 2.40);
         QCOMPARE(sent.riderKg, gears.riderWeightKg());
         QCOMPARE(sent.bikeKg, gears.setup().bikeWeightKg);
-        QCOMPARE(sent.cw, road::trainerModelFor(d.road).cwKgPerM);
+        // wind, CWa, Crr exactly as Zwift: 0, 0.51, 0.004 (not the rider's CdA)
+        QCOMPARE(sent.windMps, 0.0);
+        QCOMPARE(sent.cw, 0.51);
+        QCOMPARE(sent.crr, 0.004);
+        verifyGearAfterEverySimulation(r.link);
         // shift: a Physical with the new ratio at once
         const int cmds = commands(r.link).size();
         QVERIFY(gears.shiftUp());
@@ -574,6 +738,7 @@ private slots:
         QVector<zhub::Command> c = commands(r.link);
         QCOMPARE(c.size(), cmds + 1);
         QCOMPARE(*c.last().physical->gearRatio, 2.61);
+        QCOMPARE(r.link->writesTo(kRx).constLast(), zhub::encodeRequest(zhub::kGearRatioDataId));
         // a few seconds of riding: refreshes, but never FTMS 0x11 / 0x05
         QTest::qWait(300);
         for (int i = 0; i < 5; ++i)
@@ -599,6 +764,97 @@ private slots:
         QCOMPARE(RideResistance::choose(false, gears.enabled(), &r.hub, gears.method()), RideResistance::Path::GearSimulation);
         gears.setHubOverride(QStringLiteral("auto"));
         QVERIFY(r.hub.zwiftHubWanted());
+    }
+
+    // Regression (v1.3.3, Jetblack Victory "far too hard"): Click connected
+    // before the trainer. No FTMS start / neutral 0x11 / 0x05 at all while the
+    // hub protocol drives the trainer (Zwift sends none, Incyclist only
+    // RequestControl); the start gear goes out AFTER the first Simulation;
+    // a release (pause) is a flat road through the hub. Without the hub
+    // (Click gone) FTMS again, with the held-back start first.
+    void hubPathSendsNoFtmsResistanceAndGearFollowsSimulation()
+    {
+        TrainerRig r;
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        VirtualGears gears(&db, &profiles);
+        gears.setHub(&r.hub);
+        gears.setClickConnected(true);   // the Click first
+        QVERIFY(r.hub.zwiftHubWanted());
+        RideResistance res(&r.hub);
+        RideResistance::GearDrive d;
+        d.road = gears.roadModel(0.0);
+        d.virtualRatio = gears.gearRatio();   // the default gear 12 (2.40)
+        d.riderKg = 68;
+        QCOMPARE(gears.gearRatio(), 2.40);
+        r.connect();
+        QTRY_COMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubActive));
+        QTRY_VERIFY(r.trainer->hasControl());
+        res.sendHub(d);
+        QTRY_VERIFY(!commands(r.link).isEmpty());
+        QTest::qWait(300);   // refreshes
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::RequestControl)), 1);   // control: yes (as Incyclist)
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::StartOrResume)), 0);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);
+        QCOMPARE(r.link->countOp(kCp, kOpPower), 0);
+        // the first Simulation comes before a gear that is then (re-)sent
+        const QVector<zhub::Command> c = commands(r.link);
+        int firstSim = -1;
+        for (int i = 0; i < c.size() && firstSim < 0; ++i)
+            if (c.at(i).simulation)
+                firstSim = i;
+        QVERIFY(firstSim >= 0);
+        QVERIFY(firstSim + 1 < c.size());
+        QCOMPARE(*c.at(firstSim + 1).physical->gearRatio, 2.40);
+        QCOMPARE(*c.at(firstSim).simulation->cw, 0.51);
+        QCOMPARE(*c.at(firstSim).simulation->crr, 0.004);
+        QCOMPARE(*c.at(firstSim).simulation->inclinePercent, 0.0);
+        verifyGearAfterEverySimulation(r.link);
+        // pause / release: flat road via the hub, gear unchanged, still no FTMS
+        res.release();
+        QTest::qWait(50);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::StartOrResume)), 0);
+        QCOMPARE(r.trainer->zwiftHub()->params().inclinePercent, 0.0);
+        QCOMPARE(r.trainer->zwiftHub()->params().gearRatio, 2.40);
+        QCOMPARE(gears.gearRatio(), 2.40);   // never changed automatically
+        // the Click goes away: FTMS again, the held-back start before the 0x11
+        gears.setClickConnected(false);
+        QTRY_COMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubAvailable));
+        QVERIFY(res.sendGrade(1.0, true, road::trainerModelFor(d.road)));
+        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 1);
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::StartOrResume)), 1);
+        const QVector<QByteArray> cp = r.link->writesTo(kCp);
+        int start = -1, sim = -1;
+        for (int i = 0; i < cp.size(); ++i) {
+            if (quint8(cp.at(i).at(0)) == quint8(ftms::OpCode::StartOrResume) && start < 0)
+                start = i;
+            if (quint8(cp.at(i).at(0)) == kOpSim && sim < 0)
+                sim = i;
+        }
+        QVERIFY(start >= 0 && start < sim);
+    }
+
+    // Click connected but the services are not inspected yet when control is
+    // granted: the neutral state waits; the trainer turns out to have no
+    // Zwift service -> the neutral state (start + 0x11 flat) goes out then.
+    void neutralStateWaitsForHubDetection()
+    {
+        TrainerRig r(false);
+        r.hub.setZwiftHubWanted(true);
+        r.trainer->setZwiftHubEnabled(true);
+        r.trainer->connectDevice();
+        r.hub.setTrainerConnected(true);
+        QTRY_VERIFY(r.trainer->hasControl());
+        QTest::qWait(50);
+        QCOMPARE(r.link->countOp(kCp, kOpSim), 0);
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::StartOrResume)), 0);
+        r.link->finishOtherServices();   // no Zwift service
+        QTRY_COMPARE(r.link->countOp(kCp, kOpSim), 1);
+        QCOMPARE(r.link->countOp(kCp, quint8(ftms::OpCode::StartOrResume)), 1);
     }
 
     // Click connected, trainer silent on the Zwift service: FTMS gradient

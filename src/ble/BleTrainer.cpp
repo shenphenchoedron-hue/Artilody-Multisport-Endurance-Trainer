@@ -115,7 +115,9 @@ void BleTrainer::init()
     connect(m_link, &GattLink::otherServicesDiscovered, this, [this] {
         m_zhub->detect();
         maybeStartHub();
+        resolveDeferredNeutral();
     });
+    connect(m_zhub, &ZwiftHubLink::failed, this, [this] { resolveDeferredNeutral(); });
 
     m_writeTimeout.setSingleShot(true);
     m_writeTimeout.setInterval(2000);
@@ -160,6 +162,8 @@ void BleTrainer::init()
             m_retryCommand.clear();
             m_failStreak = 0;
             m_refusals.reset();
+            m_startDeferred = false;
+            m_neutralDeferred = false;
             m_mode = Mode::Unknown;
             m_problem.clear();
             m_zhub->reset();   // detected again after the next discovery
@@ -322,6 +326,28 @@ QString BleTrainer::zwiftHubStatus() const
     return m_zhub->failureReason();
 }
 
+bool BleTrainer::hubOwnsResistance() const
+{
+    return m_zhubEnabled && m_zhub->available() && m_zhub->state() != ZwiftHubLink::State::Failed;
+}
+
+bool BleTrainer::hubMayOwnResistance() const
+{
+    return m_zhubEnabled && m_zhub->state() == ZwiftHubLink::State::Absent && !m_link->otherServicesInspected();
+}
+
+void BleTrainer::resolveDeferredNeutral()
+{
+    // the neutral state was held back for a hub that does not come after all
+    if (!m_neutralDeferred || hubOwnsResistance() || hubMayOwnResistance())
+        return;
+    m_neutralDeferred = false;
+    if (m_hasControl && m_lastRequest == Request::None) {
+        DiagLog::write("FTMS", QStringLiteral("Zwift protocol not in use – sending the held-back FTMS neutral state"));
+        sendNeutralState();
+    }
+}
+
 void BleTrainer::setZwiftHubEnabled(bool on)
 {
     if (m_zhubEnabled == on)
@@ -338,6 +364,7 @@ void BleTrainer::setZwiftHubEnabled(bool on)
         maybeStartHub();
     } else {
         m_zhub->stop();
+        resolveDeferredNeutral();
     }
 }
 
@@ -603,8 +630,13 @@ void BleTrainer::onMachineStatus(const QByteArray &value)
         if (m_hasControl && m_lastRequest != Request::None
             && (!m_modeRepairClock.isValid() || m_modeRepairClock.elapsed() >= kModeRepairMs)) {
             m_modeRepairClock.start();
-            DiagLog::write("FTMS", QStringLiteral("trainer stopped – sending start and the current command again"));
-            enqueue(ftms::startOrResume());
+            if (m_lastRequest == Request::Hub && hubOwnsResistance()) {
+                DiagLog::write("FTMS", QStringLiteral("trainer stopped – Zwift protocol in use: no FTMS start, the hub settings again"));
+                m_startDeferred = true;
+            } else {
+                DiagLog::write("FTMS", QStringLiteral("trainer stopped – sending start and the current command again"));
+                enqueue(ftms::startOrResume());
+            }
             sendLastRequest();
         }
         return;
@@ -812,11 +844,28 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
                 || m_problem.endsWith(QStringLiteral("(%1)").arg(ftms::resultCodeText(quint8(ftms::ResultCode::ControlNotPermitted))))
                 || m_problem.contains(ftms::commandNoun(r->requestOpCode)))
                 setProblem(QString());
-            m_queue.prepend(ftms::startOrResume());
-            if (m_pending)
-                sendLastRequest();
-            else if (m_lastRequest == Request::None)
-                sendNeutralState();   // no session command yet: a defined start state
+            const bool hubPath = (m_lastRequest == Request::None || m_lastRequest == Request::Hub)
+                                 && (hubOwnsResistance() || hubMayOwnResistance());
+            if (hubPath) {
+                // Zwift sends no FTMS command at all to a trainer it drives with
+                // the hub protocol; Incyclist only RequestControl. An FTMS
+                // start / 0x11 (the neutral flat road) here would compete with
+                // the hub's physics: held back, sent only if FTMS is needed.
+                m_startDeferred = true;
+                m_neutralDeferred = m_lastRequest == Request::None;
+                DiagLog::write("FTMS", QStringLiteral("control granted – Zwift protocol in use (or still possible): no FTMS start / "
+                                                      "neutral 0x11, the trainer gets the road through the hub protocol only"));
+                if (m_pending)
+                    sendLastRequest();
+            } else {
+                m_startDeferred = false;
+                m_neutralDeferred = false;
+                m_queue.prepend(ftms::startOrResume());
+                if (m_pending)
+                    sendLastRequest();
+                else if (m_lastRequest == Request::None)
+                    sendNeutralState();   // no session command yet: a defined start state
+            }
         } else {
             setProblem(ftms::rejectionText(r->requestOpCode, r->result));
             scheduleControlRetry();
@@ -922,6 +971,16 @@ void BleTrainer::setTargetPower(int watts)
 
 void BleTrainer::setFreeRide()
 {
+    if (m_zhub->active() && hubOwnsResistance()) {
+        // released / paused while the hub drives the trainer: a flat road
+        // through the hub (the gear stays), no FTMS 0x11
+        HubSimulation p = m_lastHub;
+        p.inclinePercent = 0;
+        DiagLog::write("ZHUB", QStringLiteral("free ride while the Zwift protocol is active: flat road 0 % via the hub, gear %1")
+                                   .arg(p.gearRatio, 0, 'f', 2));
+        setHubSimulation(p);
+        return;
+    }
     m_lastRequest = Request::FreeRide;
     if (!m_hasControl) {
         m_pending = true;
@@ -984,6 +1043,12 @@ void BleTrainer::sendFreeRideCommand()
 
 void BleTrainer::enqueue(const QByteArray &command)
 {
+    if (m_startDeferred && isResistanceOp(opOf(command))) {
+        // FTMS is needed after all (hub failed / not wanted): the start first
+        m_startDeferred = false;
+        m_neutralDeferred = false;
+        m_queue.enqueue(ftms::startOrResume());
+    }
     m_queue.enqueue(command);
     sendNext();
 }

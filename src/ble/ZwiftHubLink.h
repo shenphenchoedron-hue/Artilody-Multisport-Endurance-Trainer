@@ -15,14 +15,17 @@
 // data / 0x19 idle) within kSilenceMs; after a silence the stream is
 // requested again (41 08 05), after a second one the link fails.
 //
-// While Active, update() sends (only the fields that changed, like Zwift /
-// Incyclist):
+// While Active, update() sends (only the fields that changed) in Zwift's
+// order (see ZwiftHubProtocol.h, "Zwift's own sequence"):
 //   Physical{gear ratio, rider kg, bike kg} at once on a gear / weight change;
 //   Simulation{incline} when the incline moved >= 0.1 % (at most every
 //     kMinSimIntervalMs), CWa / Crr / wind when they changed, and the incline
 //     again every kRefreshMs anyway (timer: keeps the trainer fed);
+//   after EVERY Simulation: Physical{gear ratio} again;
+//   after every gear: HubRequest{520} (gear ratio, as Zwift);
 //   HubRequest{512} (settings echo, logged and compared with what was sent)
 //     after a change, at most every kEchoIntervalMs.
+// No FTMS resistance command while the hub path is in use (BleTrainer).
 // Every write and notification goes to the diagnostic log (hex + decoded).
 #include "GattLink.h"
 #include "SensorHub.h"

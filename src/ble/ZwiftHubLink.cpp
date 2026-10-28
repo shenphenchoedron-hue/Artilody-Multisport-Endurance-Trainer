@@ -272,7 +272,7 @@ void ZwiftHubLink::onMessage(const QByteArray &raw, bool fromTx)
     case zhub::InRidingData:
         if (auto d = zhub::decodeRidingData(body)) {
             m_riding = d;
-            emit ridingData(d->power, d->cadence, d->speedKmh);
+            emit ridingData(d->power, d->cadence, d->speedKmh());
         }
         if (m_state == State::Stream || m_state == State::Handshake)
             becomeActive();
@@ -284,11 +284,15 @@ void ZwiftHubLink::onMessage(const QByteArray &raw, bool fromTx)
             if (m_sentPhys && s->gearRatio && std::abs(*s->gearRatio - m_sentPhys->gearRatio) > 0.0001)
                 DiagLog::write("ZHUB", QStringLiteral("settings echo: gear ratio %1 differs from the sent %2")
                                            .arg(*s->gearRatio, 0, 'f', 4).arg(m_sentPhys->gearRatio, 0, 'f', 4));
-            if (m_sentSim && s->inclinePercent
-                && std::abs(zhub::inclineX100(*s->inclinePercent) - zhub::inclineX100(m_sentSim->inclinePercent)) > 1)
-                DiagLog::write("ZHUB", QStringLiteral("settings echo: incline %1 % differs from the sent %2 % "
-                                                      "(the trainer may clamp it)")
-                                           .arg(*s->inclinePercent, 0, 'f', 2).arg(m_sentSim->inclinePercent, 0, 'f', 2));
+            if (m_sentSim && s->inclineWholePercent
+                && std::abs(*s->inclineWholePercent - zhub::echoedIncline(m_sentSim->inclinePercent)) > 1)
+                DiagLog::write("ZHUB", QStringLiteral("settings echo: incline %1 % (whole percent) differs from the sent %2 %")
+                                           .arg(*s->inclineWholePercent)
+                                           .arg(m_sentSim->inclinePercent, 0, 'f', 2));
+            if (m_sentPhys && s->weight11Kg && m_sentPhys->riderKg > 0 && std::abs(*s->weight11Kg - m_sentPhys->riderKg) > 0.01)
+                DiagLog::write("ZHUB", QStringLiteral("settings echo: weight (f11) %1 kg differs from the sent rider %2 kg")
+                                           .arg(*s->weight11Kg, 0, 'f', 2)
+                                           .arg(m_sentPhys->riderKg, 0, 'f', 2));
         }
         break;
     default:
@@ -315,7 +319,8 @@ void ZwiftHubLink::update(const HubSimulation &p, bool force)
     if (m_state != State::Active)
         return;
     const qint64 t = now();
-    // gear / weights: at once, only the fields that changed
+    bool gearSent = false;
+    // 1. gear / weights: at once, only the fields that changed
     {
         zhub::Physical phys;
         if (force || !m_sentPhys || std::abs(m_sentPhys->gearRatio - p.gearRatio) >= 0.00005)
@@ -335,11 +340,13 @@ void ZwiftHubLink::update(const HubSimulation &p, bool force)
                 if (phys.riderKg) sent.riderKg = p.riderKg;
                 m_sentPhys = sent;
                 m_echoWanted = true;
+                gearSent = gearSent || bool(phys.gearRatio);
             }
         }
     }
-    // road: incline step >= 0.1 % (rate limited) or the refresh; CWa / Crr /
+    // 2. road: incline step >= 0.1 % (rate limited) or the refresh; CWa / Crr /
     // wind only when they changed
+    bool simSent = false;
     {
         const qint64 since = m_lastSimMs < 0 ? std::numeric_limits<qint64>::max() : t - m_lastSimMs;
         const bool first = !m_sentSim || force;
@@ -356,6 +363,7 @@ void ZwiftHubLink::update(const HubSimulation &p, bool force)
             sim.windMps = p.windMps;
         if (sim.inclinePercent || sim.cw || sim.crr || sim.windMps) {
             if (writeMessage(zhub::encodeSimulation(sim))) {
+                simSent = true;
                 HubSimulation sent = m_sentSim.value_or(p);
                 if (sim.inclinePercent) {
                     sent.inclinePercent = p.inclinePercent;
@@ -370,7 +378,27 @@ void ZwiftHubLink::update(const HubSimulation &p, bool force)
             }
         }
     }
-    // settings echo (logged): after a change, at most every kEchoIntervalMs
+    // 3. after EVERY Simulation the gear ratio again, as Zwift does (its
+    // sequence: Simulation -> Physical{gear} -> request 520). A gear sent
+    // only before the first incline is not applied by these trainers
+    // (qdomyos-zwift: "gear commands don't work until an inclination command
+    // has been sent first") - v1.3.3 sent the start gear exactly once, BEFORE
+    // the first Simulation, so the trainer rode without the virtual gear
+    // until the first shift.
+    if (simSent && p.gearRatio > 0) {
+        zhub::Physical gear;
+        gear.gearRatio = p.gearRatio;
+        if (writeMessage(zhub::encodePhysical(gear))) {
+            HubSimulation sent = m_sentPhys.value_or(p);
+            sent.gearRatio = p.gearRatio;
+            m_sentPhys = sent;
+            gearSent = true;
+        }
+    }
+    // 4. Zwift asks for the gear ratio (dataId 520) after every gear it sends
+    if (gearSent)
+        writeMessage(zhub::encodeRequest(zhub::kGearRatioDataId));
+    // 5. settings echo (logged): after a change, at most every kEchoIntervalMs
     if (m_echoWanted && (m_lastEchoMs < 0 || t - m_lastEchoMs >= kEchoIntervalMs)) {
         if (writeMessage(zhub::encodeRequest(zhub::kSettingsDataId))) {
             m_lastEchoMs = t;

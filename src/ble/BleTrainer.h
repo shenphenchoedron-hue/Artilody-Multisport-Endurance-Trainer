@@ -78,6 +78,7 @@ public:
     void setZwiftHubEnabled(bool on) override;
     void setHubSimulation(const watt::HubSimulation &p) override;
     ZwiftHubLink *zwiftHub() const { return m_zhub; }
+    bool hasControl() const { return m_hasControl; }   // FTMS control granted
 
     // Rowing machine check after service discovery (public for tests).
     static bool looksLikeRower(const QList<QBluetoothUuid> &services, bool hasRowerData, bool hasIndoorBikeData);
@@ -120,6 +121,13 @@ private:
     static QString modeName(Mode m);
     double clampGrade(double gradePercent);
     void maybeStartHub();
+    // The Zwift hub protocol owns the resistance (Zwift Click connected and
+    // the trainer has the Zwift service, handshake not failed): FTMS control
+    // is still requested (as Incyclist), but no FTMS start / 0x11 / neutral.
+    bool hubOwnsResistance() const;
+    // could still become hub-owned: the other services are not inspected yet
+    bool hubMayOwnResistance() const;
+    void resolveDeferredNeutral();
 
     QString m_id;
     QString m_name;
@@ -169,6 +177,8 @@ private:
     bool m_zhubEnabled = false;
     HubSimulation m_lastHub;
     bool m_hubIgnoredLogged = false;
+    bool m_startDeferred = false;     // FTMS start not sent (hub path); sent before the first FTMS resistance command
+    bool m_neutralDeferred = false;   // neutral state held back while the hub path may own the trainer
 };
 
 } // namespace watt

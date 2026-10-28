@@ -257,10 +257,13 @@ public:
     bool sendGrade(double gradePercent, bool force, const road::TrainerModel &trainer);
     // GearHybrid (see kLightEnterGrade). cadenceReported false: the gear grade
     // (path a, the trainer's speed stands in for the cadence).
-    // Path GearHub: the road (incline = d.road.gradePercent, CdA, Crr) and
-    // the virtual gear ratio + weights to the trainer's own physics (Zwift hub
+    // Path GearHub: the road (incline = the route grade d.road.gradePercent,
+    // never gear-adjusted; wind 0, CWa kHubCwa, Crr kHubCrr as Zwift) and the
+    // virtual gear ratio + weights to the trainer's own physics (Zwift hub
     // protocol). Rate limits are the driver's (ZwiftHubLink): every call is
     // forwarded, a gear change goes out at once.
+    static constexpr double kHubCwa = 0.51;    // Zwift: CWax10000 5100
+    static constexpr double kHubCrr = 0.004;   // Zwift: Crrx100000 400
     bool sendHub(const GearDrive &d);
     static HubSimulation hubSimulationFor(const GearDrive &d);
     bool sendHybrid(const GearDrive &d, bool force, double liveCadenceRpm, bool cadenceReported,

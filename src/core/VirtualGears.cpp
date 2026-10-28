@@ -142,6 +142,11 @@ QString VirtualGears::shiftingMode() const
         return QStringLiteral("bike");
     if (zwiftActive())
         return QStringLiteral("zwift");
+    // handshake running: the session already uses the hub path (nothing is
+    // sent to the trainer until the handshake is done, never FTMS meanwhile)
+    if (m_hubOverride != QLatin1String("off") && m_hub && m_hub->zwiftHubWanted()
+        && m_hub->trainerZwiftHubState() == SensorHub::HubStarting)
+        return QStringLiteral("zwift");
     if (m_method == RideResistance::GearMethod::Erg
         || (m_hub && m_hub->trainerConnected() && !RideResistance::gearSimulationPossible(m_hub)))
         return QStringLiteral("erg");
@@ -178,7 +183,7 @@ QString VirtualGears::shiftingDetail() const
     case SensorHub::HubActive:
         return QStringLiteral("The trainer does the physics (incline + gear ratio).");
     case SensorHub::HubStarting:
-        return QStringLiteral("Zwift protocol handshake… (FTMS gradient meanwhile)");
+        return QStringLiteral("Zwift protocol handshake… (the trainer gets the road and gear once it is done)");
     case SensorHub::HubAvailable:
         return QStringLiteral("Trainer has the Zwift trainer service – starting the Zwift protocol…");
     case SensorHub::HubFailed: {

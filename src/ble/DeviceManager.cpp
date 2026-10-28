@@ -995,14 +995,16 @@ QString DeviceManager::diagnosticsReport() const
         {
             if (z) {
                 if (auto r = z->lastRidingData())
-                    out << "  last hub riding data: " << r->power << " W, " << r->cadence << " rpm, "
-                        << QString::number(r->speedKmh, 'f', 2) << " km/h\n";
+                    out << "  last hub riding data: " << r->power << " W, " << r->cadence << " rpm, speed "
+                        << QString::number(r->speedMps, 'f', 2) << " m/s (" << QString::number(r->speedKmh(), 'f', 1)
+                        << " km/h), f4 " << r->field4 << "\n";
                 if (auto st = z->lastSettings())
-                    out << "  last settings echo: incline "
-                        << (st->inclinePercent ? QString::number(*st->inclinePercent, 'f', 2) : QStringLiteral("-"))
-                        << " %, gear ratio " << (st->gearRatio ? QString::number(*st->gearRatio, 'f', 4) : QStringLiteral("-"))
-                        << ", rider " << (st->riderKg ? QString::number(*st->riderKg, 'f', 1) : QStringLiteral("-"))
-                        << " kg, bike " << (st->bikeKg ? QString::number(*st->bikeKg, 'f', 1) : QStringLiteral("-")) << " kg\n";
+                    out << "  last settings echo (type " << st->messageType << "): incline "
+                        << (st->inclineWholePercent ? QString::number(*st->inclineWholePercent) : QStringLiteral("-"))
+                        << " % (whole percent), gear ratio " << (st->gearRatio ? QString::number(*st->gearRatio, 'f', 4) : QStringLiteral("-"))
+                        << ", CWa " << (st->cwa ? QString::number(*st->cwa, 'f', 4) : QStringLiteral("-"))
+                        << ", weight f11 " << (st->weight11Kg ? QString::number(*st->weight11Kg, 'f', 1) : QStringLiteral("-"))
+                        << " kg, Crr " << (st->crr ? QString::number(*st->crr, 'f', 5) : QStringLiteral("-")) << "\n";
             }
         }
     } else {
