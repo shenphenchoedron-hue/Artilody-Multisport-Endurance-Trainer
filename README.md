@@ -40,7 +40,17 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.3.2
+## What's new in 1.3.3
+
+A trainer-control release: tests that stop by themselves, a defined trainer state when the app takes control, and a soft start so the trainer never begins a ride with a steep grade on a standing flywheel.
+
+- **ERG test and gradient test stop automatically** – the ERG control test and the gradient test on the Devices page end when you leave the Devices page, when a session starts or when a ride page sends a resistance command; the ERG test stops after 5 min at the latest (safety timeout). While it runs the card shows *ERG test running – N W*.
+- **Neutral trainer state after control is granted** – when the trainer grants control and no ride is active, the app sends a neutral flat state (FTMS simulation 0 % with your Crr / Cw, or a low resistance level on trainers without simulation). An ERG target or grade left behind by another app (Zwift, the trainer's own app …) no longer lingers.
+- **Soft start** – at the start of a ride the trainer gets 0 % until the flywheel turns (≥ 40 rpm or ≥ 10 km/h for 2 s); then the grade ramps to the route's value over 4 s. It re-arms after more than 5 s without pedaling or after a pause. Used for gradient simulation, FTMS virtual gears and the Zwift protocol's incline – **never for ERG**.
+- No database change – install over 1.3.2 (or older) and keep all your data. See the [1.3.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.3).
+
+<details>
+<summary><b>What's new in 1.3.2</b> – virtual shifting = Zwift Click, Zwift trainer protocol, automatic diagnostic log, FTMS hardening</summary>
 
 Virtual shifting with the Zwift Click reworked, automatic diagnostic log files and more robust FTMS trainer control.
 
@@ -57,6 +67,8 @@ Virtual shifting with the Zwift Click reworked, automatic diagnostic log files a
 - **Without a Zwift Click** nothing changes for you: no virtual gears, the trainer gets the normal FTMS gradient simulation and you shift your bike's own gears.
 - **Known limitation** – the Zwift trainer protocol path has so far only been tested with a simulated trainer. If you ride a Zwift Hub, Jetblack Victory or a Zwift Cog trainer, please send the [diagnostic log](#diagnostic-log-send-it-with-a-bug-report) of a ride – feedback is very welcome.
 - No database change – install over 1.3.1 (or older) and keep all your data. See the [1.3.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.2).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.3.1</b> – manual start only, "Watt Training", Start never blocked without a reason</summary>
@@ -112,7 +124,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.3.2](#whats-new-in-132)
+- [What's new in 1.3.3](#whats-new-in-133)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -310,18 +322,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.3.2**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.3.3**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.2-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.2-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/ArtilodyWattsTrainer-1.3.2-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.2_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.2/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.3-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/ArtilodyWattsTrainer-1.3.3-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.3-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/ArtilodyWattsTrainer-1.3.3-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.3-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/ArtilodyWattsTrainer-1.3.3-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.3_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/artilody-watts-trainer_1.3.3_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.3_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/artilody-watts-trainer_1.3.3_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.3_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/artilody-watts-trainer_1.3.3_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.3/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -331,7 +343,7 @@ The current version is **1.3.2**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.3.2-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.3.3-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -357,8 +369,8 @@ The current version is **1.3.2**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.3.2_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.3.2_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.3.3_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.3.3_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -374,7 +386,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.3.2_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.3.3_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -418,7 +430,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.2",
+  "app": "Artilody Watts Trainer 1.3.3",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

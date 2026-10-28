@@ -1,24 +1,22 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.2
+## What's new in 1.3.3
 
-Zwift Click virtual shifting reworked, automatic diagnostic log files and more robust FTMS trainer control.
+A trainer-control release: tests that stop by themselves, a defined trainer state when the app takes control, and a soft start.
 
-- **Virtual shifting = Zwift Click, nothing to set up**: with a Zwift Click connected you shift **Zwift's fixed 24 virtual gears** (ratio 0.75 … 5.49, start gear 12 = 2.40, shown as *Gear 12/24 (2.40)*). The *Use virtual gears* switch, the shifting-method selector and the Gear Setup (chainrings / cassette / reference gear) are gone.
-- **Zwift trainer protocol, automatically**: on trainers with the Zwift trainer service (e.g. **Jetblack Victory, Zwift Hub, Wahoo KICKR Core with Zwift Cog**) the app does the Zwift handshake and sends the route's incline, air drag / rolling resistance, your weight and the gear ratio – the trainer does the physics itself, the same approach as Zwift, ROUVY and TrainerRoad, so light gears are really light even on a single-cog trainer.
-- **Other trainers: FTMS gradient virtual gears** (gear-adjusted grade). If the Zwift handshake fails or times out the app falls back to FTMS gradient – **never to ERG**. Video Ride and Free Ride always stay in simulation.
-- **Without a Click**: no virtual gears – the trainer gets the normal FTMS gradient simulation and you shift your bike's own gears.
-- **Status line** on the Devices page and the ride pages shows the active mode: *Virtual shifting: Zwift protocol*, *Virtual shifting: FTMS gradient* or *Shifting: your bike's gears*. On-screen shift buttons only appear while a Click is connected.
-- **Automatic diagnostic log files**: every FTMS command and trainer answer, the Zwift protocol handshake and data (hex + decoded), shifting decisions and per-second ride data. **Settings → Diagnostic log** shows the folder, **Open logs folder** and **Export logs…** (e.g. to a USB stick). On a Raspberry Pi the logs are in `~/.local/share/Artilody/Watt Trainer/logs`; Settings shows the `scp` command to fetch them from another computer.
-- **FTMS hardening**:
-  - Rejected or unanswered trainer commands are retried and **shown** (Video Ride, Free Ride, Selected Trainer card, Bluetooth Diagnostics), e.g. *Trainer rejected the gradient command (Invalid parameter)*.
-  - The app tracks what mode the trainer **actually** is in and requests control again after *control permission lost*.
-  - Bluetooth Diagnostics lists the trainer's **full GATT** (all services, e.g. Zwift 0xFC82 and vendor services) and has a **Gradient test** (+2, 0, −2, −5 %) that shows how the trainer reacts.
-  - FTMS advertisements in the short **2-byte service data** form (Jetblack Victory, Zwift Hub) are accepted; trainers without a gradient range / Training Status are handled without waiting.
-  - **Forward-looking route grade** in Video Ride, so the trainer's resistance doesn't lag behind the road.
-- Updated user manual (virtual shifting, diagnostic log) and README.
+- **ERG test and gradient test stop automatically**: the ERG control test and the gradient test on the Devices page end when you leave the Devices page, when a session starts or when a ride page sends a resistance command. The ERG test also stops after **5 minutes at the latest** (safety timeout). While it runs the card shows *ERG test running – N W*.
+- **Neutral trainer state after control is granted**: when the trainer grants control and no ride is active, the app sends a neutral flat state – FTMS simulation **0 %** with your Crr / Cw, or a **low resistance level** on trainers without simulation. An ERG target or grade left behind by another app (Zwift, the trainer's own app …) no longer lingers.
+- **Soft start**: at the start of a ride the trainer gets 0 % until the flywheel turns (**≥ 40 rpm or ≥ 10 km/h for 2 s**), then the grade ramps to the route's value over **4 s**. It re-arms after more than 5 s without pedaling or after a pause. Used for gradient simulation, FTMS virtual gears and the Zwift protocol's incline – **never for ERG**.
+- Updated user manual (Devices tests, trainer start state, soft start) and README.
 
-## Includes everything from 1.3.1
+## Includes everything from 1.3.2
+
+- **Virtual shifting = Zwift Click, nothing to set up**: with a Click connected you shift **Zwift's fixed 24 virtual gears** (ratio 0.75 … 5.49); without a Click the trainer gets the normal FTMS gradient and you shift your bike's own gears. A status line shows the active mode.
+- **Zwift trainer protocol, automatically** on trainers with the Zwift trainer service (e.g. Jetblack Victory, Zwift Hub, Wahoo KICKR Core with Zwift Cog); other trainers use FTMS gradient virtual gears – **never ERG** as a fallback.
+- **Automatic diagnostic log files** (Settings → Diagnostic log → Open logs folder / Export logs…; on a Raspberry Pi in `~/.local/share/Artilody/Watt Trainer/logs`).
+- **FTMS hardening**: rejected / unanswered commands are retried and shown, control is re-requested after *control permission lost*, full GATT listing and a Gradient test in Bluetooth Diagnostics, 2-byte FTMS advertisements accepted, forward-looking route grade in Video Ride.
+
+## Also included from 1.3.1
 
 - **Manual start only** – sessions never start or resume by pedaling or rowing; press **Start** (or Space).
 - **Dashboard renamed to "Watt Training"**; **Start is never blocked without an explanation** – a yellow card names the session in the way with **Go to …**, **End & Save** and **Discard**.
@@ -41,8 +39,8 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 
 ## Upgrade notes
 
-- Install 1.3.2 over 1.3.1, 1.3.0, 1.2.0, 1.1.x or 1.0.0 – no need to uninstall first.
-- **No database change from 1.3.0 / 1.3.1** (schema version 5). Coming from 1.2.0 or older, the database is **upgraded automatically to schema version 5** on first start (Free Ride / Video Ride plan entries; from older versions also schema 4: gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
+- Install 1.3.3 over 1.3.2, 1.3.1, 1.3.0, 1.2.0, 1.1.x or 1.0.0 – no need to uninstall first.
+- **No database change from 1.3.0 – 1.3.2** (schema version 5). Coming from 1.2.0 or older, the database is **upgraded automatically to schema version 5** on first start (Free Ride / Video Ride plan entries; from older versions also schema 4: gear setup, rider height, ride speed). All data is preserved. If you might want to go back to an older version, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 - Coming from 1.0.0: on first start the database is **migrated automatically to schema version 2** (sport type, rowing FTP, training plan, rowing records). All existing rides, workouts, profiles and settings are preserved; existing rides and workouts become *Cycling*. If you might want to go back to 1.0.0, make a copy of `watt-trainer.sqlite` first (the path is shown under **Settings**).
 - Your chainring / cassette Gear Setup from 1.2.0–1.3.1 stays in the database but is no longer used: the Zwift Click now always shifts Zwift's 24 gears.
 - If you used *Start When Pedaling* or *Start on first stroke* (before 1.3.1): press **Start** (or Space) after you are clipped in / seated.
@@ -51,6 +49,7 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 
 - **The Video Ride workout strip shows no actual-power line yet** – only the target blocks and the elapsed-time cursor; your actual power is shown in the Power tile and saved with the ride.
 - **Changing the route of a planned Video Ride replaces the entry** (it is removed and added again with the new route, keeping date and notes).
+- **The neutral start state and the soft start have so far only been tested with the virtual trainer and in unit tests**, not yet on every real trainer. Some trainers ignore a 0 % grade while standing still; that is harmless. Please send the diagnostic log if a trainer behaves oddly at the start of a ride.
 - **The Zwift trainer protocol path has so far only been tested with a simulated trainer**, not yet with a real Zwift Hub, Jetblack Victory or Zwift Cog trainer. Feedback is very welcome – please attach the diagnostic log file (Settings → Diagnostic log → Export logs…) to your report.
 - Zwift Play / Click controllers with **encrypted firmware are not supported**. On a **Click v2** the left pod may need to be unlocked in the Zwift app first.
 - **AV1 videos** need AV1 hardware decoding – otherwise convert them to H.264 (720p recommended) with HandBrake, as the Video Ride page explains.
