@@ -260,6 +260,9 @@ public:
     // soft start waits (not pedaling) the change is immediate.
     static constexpr double kHubLightGearFactor = 0.5;   // gear 12 (2.40) -> 1.20 ≈ gear 5
     static constexpr int kHubGearRampMs = kSoftStartRampMs;
+    // A virtual shift to a HARDER gear ramps over kHubShiftRampMs (same 10
+    // steps, from the last requested ratio); an easier one acts at once.
+    static constexpr int kHubShiftRampMs = 1500;
     double hubGearScale() const { return m_hubScale; }      // sent / D (1 = settled)
     bool hubGearLight() const { return m_hubBasisLight; }
     // Tests of unrelated behaviour may switch it off (process-wide, default on).
@@ -276,7 +279,7 @@ public:
         m_sinceToggleMs += ms;
         m_sinceHybridMs += ms;
         if (m_hubRampMs >= 0)
-            m_hubRampMs = std::min(kHubGearRampMs, m_hubRampMs + ms);
+            m_hubRampMs = std::min(m_hubRampDurationMs, m_hubRampMs + ms);
         updateSoftStart(ms);
     }
 
@@ -345,6 +348,8 @@ private:
     double m_hubScale = 1.0;      // sent / D
     double m_hubScaleFrom = 1.0;  // at the ramp's start
     int m_hubRampMs = -1;         // into the ramp, -1: none
+    int m_hubRampDurationMs = kHubGearRampMs;
+    double m_hubLastVirtual = 0;  // the previous drive's virtual ratio (shift detection)
     double hubGearRatio(const GearDrive &d);
     bool m_softUsed = false;      // a grade / incline went out since arming (logging)
     double m_softTarget = 0;      // last target grade (logging)

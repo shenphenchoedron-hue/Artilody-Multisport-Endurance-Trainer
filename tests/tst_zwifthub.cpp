@@ -811,15 +811,26 @@ private slots:
         QCOMPARE(sent.cw, 0.51);
         QCOMPARE(sent.crr, 0.004);
         verifyGearAfterEverySimulation(r.link);
-        // shift: a Physical with the new ratio at once
-        const int cmds = commands(r.link).size();
+        // shift harder: the new ratio ramps in over kHubShiftRampMs (a sudden
+        // +9 % made the trainer's inertia emulation spike the power)
         QVERIFY(gears.shiftUp());
         d.virtualRatio = gears.gearRatio();
         res.sendHub(d);
+        for (int t = 0; t <= RideResistance::kHubShiftRampMs; t += 250) {
+            res.elapse(250);
+            res.sendHub(d);
+        }
         QVector<zhub::Command> c = commands(r.link);
-        QCOMPARE(c.size(), cmds + 1);
         QCOMPARE(*c.last().physical->gearRatio, 2.61);
         QCOMPARE(r.link->writesTo(kRx).constLast(), zhub::encodeRequest(zhub::kGearRatioDataId));
+        // shift easier: at once
+        const int cmds = commands(r.link).size();
+        QVERIFY(gears.shiftDown());
+        d.virtualRatio = gears.gearRatio();
+        res.sendHub(d);
+        c = commands(r.link);
+        QCOMPARE(c.size(), cmds + 1);
+        QCOMPARE(*c.last().physical->gearRatio, 2.40);
         // a few seconds of riding: refreshes, but never FTMS 0x11 / 0x05
         QTest::qWait(300);
         for (int i = 0; i < 5; ++i)
@@ -1045,7 +1056,7 @@ private slots:
         QCOMPARE(c.record().realRatio, 0.0);
         QCOMPARE(c.speed(), HubGearCompensation::Speed::Unknown);
         p.changes = 0;
-        p.flywheel(3.9, 2.40 * c.factor(), 4);   // 1.20 -> 1.49: +25 %
+        p.flywheel(3.9, 2.40 * c.factor(), 7);   // 1.20 -> 1.49: +25 % (3 s settling + a window)
         QCOMPARE(c.speed(), HubGearCompensation::Speed::Flywheel);
         QVERIFY(!c.provisional());
         QVERIFY(p.changes & HubGearCompensation::RecordChanged);
@@ -1069,7 +1080,7 @@ private slots:
         QVERIFY(c.provisional());
         const double sent = 2.40 * c.factor();
         p.changes = 0;
-        p.followsGear(sent, 1.6, 4);
+        p.followsGear(sent, 1.6, 7);
         QCOMPARE(c.speed(), HubGearCompensation::Speed::FollowsGear);
         QCOMPARE(c.factor(), 1.0);
         QVERIFY(p.changes & HubGearCompensation::RecordChanged);
@@ -1142,7 +1153,7 @@ private slots:
         QCOMPARE(p.changes, int(HubGearCompensation::NoChange));
         // a provisional value; then the compensation changes the sent ratio and
         // the rider freewheels with the same ratio: that must NOT verify
-        p.flywheel(3.9, 1.20, 4);
+        p.flywheel(3.9, 1.20, 7);
         QVERIFY(c.provisional());
         const double sent = 2.40 * c.factor();
         v = 83 / 60.0 * 3.9 * circ / 1000.0;
@@ -1199,12 +1210,12 @@ private slots:
         QVERIFY(c.lastNote().isEmpty() || c.lastNote().contains(QStringLiteral("not verified")) || true);
         // after expiry: a new unverified value (same sent ratio as the last
         // window - no test) is NOT applied ...
-        p.flywheel(4.2, 1.20, 4);
+        p.flywheel(4.2, 1.20, 7);
         QCOMPARE(c.speed(), HubGearCompensation::Speed::Unknown);
         QCOMPARE(c.realRatio(), 0.0);
         QCOMPARE(c.factor(), 1.0);
         // ... but a verification is (another sent ratio, same real gear)
-        p.flywheel(4.2, 1.53, 4);   // a shift to gear 7 (light fallback × 0.5 = 0.77 … here 1.53): +27 %
+        p.flywheel(4.2, 1.53, 7);   // a shift to gear 7 (light fallback × 0.5 = 0.77 … here 1.53): +27 %
         QCOMPARE(c.speed(), HubGearCompensation::Speed::Flywheel);
         QVERIFY(std::abs(c.realRatio() - 4.2) < 0.01);
 
@@ -1228,6 +1239,74 @@ private slots:
         }
         QVERIFY(e.provisionalExpired());
         QCOMPARE(e.realRatio(), 0.0);
+    }
+
+    // Log of 1.3.5, free ride on the flat: single windows gave 3.42 … 4.36 for
+    // a chain that stayed on 44×11 (the trainer's cadence is coarse and lags).
+    // Each jump used to move the compensation - a second, heavier step a few
+    // seconds after shifting up (1.454 -> 1.729, +19 %). Now the median rules:
+    // the scattered windows of that ride move the gear at most once, a little.
+    void hubGearScatterDoesNotMoveTheGear()
+    {
+        HubGearCompensation::Record saved;
+        saved.realRatio = 3.9;
+        saved.speed = HubGearCompensation::Speed::Flywheel;
+        HubGearCompensation c;
+        c.reset(saved);
+        Pedal p { c };
+        const double sent = 2.40 * c.factor();
+        const QVector<double> windows = { 3.907, 3.664, 3.814, 3.949, 4.136, 4.359, 3.665, 3.519,
+                                          3.649, 3.535, 3.424, 3.669, 3.782, 3.965, 3.714, 3.983, 3.795 };
+        int factorChanges = 0;
+        QVector<double> applied;
+        for (double r : windows) {
+            p.changes = 0;
+            p.flywheel(r, sent, 4);   // one steady window each, same sent ratio (no settling)
+            if (p.changes & HubGearCompensation::FactorChanged)
+                ++factorChanges;
+            applied << c.realRatio();
+        }
+        QVERIFY2(factorChanges <= 1, qPrintable(QString::number(factorChanges)));
+        for (double a : applied)
+            QVERIFY2(a > 3.65 && a < 4.0, qPrintable(QString::number(a)));
+        // a REAL chain shift (44×11 -> 44×13, −15 %) takes over after three windows
+        HubGearCompensation::Record onEleven;
+        onEleven.realRatio = 4.0;
+        onEleven.speed = HubGearCompensation::Speed::Flywheel;
+        HubGearCompensation d;
+        d.reset(onEleven);
+        Pedal q { d };
+        const double sent2 = 2.40 * d.factor();
+        q.flywheel(4.0, sent2, 4);
+        q.flywheel(4.0, sent2, 4);
+        q.flywheel(44.0 / 13, sent2, 4);
+        q.flywheel(44.0 / 13, sent2, 4);
+        QVERIFY(std::abs(d.realRatio() - 4.0) < 0.01);   // two windows: not yet
+        q.flywheel(44.0 / 13, sent2, 4);
+        QVERIFY(std::abs(d.realRatio() - 44.0 / 13) < 0.02);
+        QVERIFY(d.lastNote().contains(QStringLiteral("chain shifted")));
+    }
+
+    // No samples for kSettleMs after the sent gear ratio changed: right after
+    // a shift the trainer's cadence still lags (log of 1.3.5: 76 rpm frozen
+    // while the speed rose) and a window there measured a wrong real gear.
+    void hubGearSettlesAfterAShift()
+    {
+        HubGearCompensation::Record saved;
+        saved.realRatio = 3.9;
+        saved.speed = HubGearCompensation::Speed::Flywheel;
+        HubGearCompensation c;
+        c.reset(saved);
+        Pedal p { c };
+        p.flywheel(3.9, 1.50, 4);
+        QVERIFY(std::abs(c.realRatio() - 3.9) < 0.01);
+        // shift: for 3 s the ratio looks like 3.40 (lagging cadence) - ignored ...
+        p.changes = 0;
+        p.flywheel(3.40, 1.63, 3);
+        QCOMPARE(p.changes, int(HubGearCompensation::NoChange));
+        // ... and the following, settled windows show the real gear again
+        p.flywheel(3.9, 1.63, 4);
+        QVERIFY(std::abs(c.realRatio() - 3.9) < 0.01);
     }
 
     // Reuse rules per trainer (VirtualGears): verified ratio on the same
@@ -1284,7 +1363,7 @@ private slots:
                 clock += 1000;
             }
         };
-        ride(3.9, 16);
+        ride(3.9, 30);
         QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Flywheel);
         QVERIFY(std::abs(gears.hubGearFactor() - 34.0 / 14 / 3.9) < 0.002);
         QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + victory).toString().startsWith(QStringLiteral("3.9")));
@@ -1293,7 +1372,7 @@ private slots:
         connectTo(other);   // another trainer: nothing reused
         QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Unknown);
         QVERIFY(!gears.hubGearKnown());
-        ride(-1, 16);       // ... it reports a gear-derived speed
+        ride(-1, 30);       // ... it reports a gear-derived speed
         QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::FollowsGear);
         QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + other).toString().contains(QStringLiteral(";follows;")));
         connectTo(victory);  // the Victory keeps its own record

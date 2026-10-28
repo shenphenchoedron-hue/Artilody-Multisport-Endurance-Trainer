@@ -98,7 +98,22 @@ public:
     static constexpr double kMaxCadenceSpread = 0.08;
     static constexpr double kVerifyStep = 0.10;
     static constexpr double kVerifyTolerance = 0.05;
-    static constexpr double kUpdateThreshold = 0.03;
+    // The real gear does not change while riding on virtual gears, but the
+    // windows scatter: the Victory's cadence is coarse and lags (76 rpm for
+    // 40 s while the speed rose 35 -> 44 km/h, log of 1.3.5) - single windows
+    // gave 3.42 … 4.36 for a chain that stayed on 44×11. Every such jump moved
+    // the compensation, often right after a shift: a second, heavier step a
+    // few seconds after shifting up. So: the R in use is the MEDIAN of the
+    // connection's last kHistory windows, changed only beyond
+    // kUpdateThreshold; a real chain shift (cogs are >= 8 % apart) shows as
+    // kChainShiftWindows windows in a row beyond kChainShiftStep on one side
+    // and takes over at once. No samples for kSettleMs after the sent gear
+    // ratio changed (shift, ramp): the trainer's cadence still lags then.
+    static constexpr double kUpdateThreshold = 0.06;
+    static constexpr int kHistory = 9;
+    static constexpr int kChainShiftWindows = 3;
+    static constexpr double kChainShiftStep = 0.08;
+    static constexpr int kSettleMs = 3000;
     static constexpr qint64 kUnverifiedMaxMs = 20000; // provisional R without verification
     static constexpr int kPowerVotes = 20;
     static constexpr double kPowerMinFactorGap = 0.1;
@@ -133,7 +148,10 @@ private:
     void addNote(const QString &n);
 
     Record m_record;
-    double m_candidate = 0;              // latest window R of this connection
+    double m_candidate = 0;              // R in use from this connection's windows (median, see kHistory)
+    QVector<double> m_history;           // the connection's last accepted window ratios
+    double m_lastSentSeen = 0;           // sent ratio of the previous sample
+    qint64 m_sentChangeMs = -1;          // when the sent ratio last changed
     qint64 m_provisionalSinceMs = -1;    // when the unverified R was applied
     bool m_expired = false;              // the provisional R timed out: unverified Rs stay unused
     QVector<Sample> m_samples;

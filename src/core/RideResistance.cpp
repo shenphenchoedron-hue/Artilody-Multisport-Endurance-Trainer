@@ -223,8 +223,26 @@ double RideResistance::hubGearRatio(const GearDrive &d)
         return d.virtualRatio;
     const bool basisChanged = !m_hubBasisValid || light != m_hubBasisLight
                               || std::abs(basisFactor - m_hubBasisFactor) > m_hubBasisFactor * 0.005;
+    const double actual = m_hub->hubSimulationActive() ? m_hub->hubSimulation().gearRatio : 0.0;
+    const bool shifted = !basisChanged && m_hubLastVirtual > 0
+                         && std::abs(d.virtualRatio - m_hubLastVirtual) > m_hubLastVirtual * 0.001;
+    m_hubLastVirtual = d.virtualRatio;
+    if (shifted) {
+        // a virtual shift: harder ramps over kHubShiftRampMs from the last
+        // requested ratio (the trainer's inertia emulation turned a sudden
+        // +9 % into a power spike: 68 -> 143 -> ~105 W, log of 1.3.5); easier
+        // acts at once
+        if (waiting || !(actual > 0) || target <= actual) {
+            m_hubScale = 1.0;
+            m_hubRampMs = -1;
+        } else {
+            m_hubScaleFrom = actual / target;
+            m_hubScale = m_hubScaleFrom;
+            m_hubRampMs = 0;
+            m_hubRampDurationMs = kHubShiftRampMs;
+        }
+    }
     if (basisChanged) {
-        const double actual = m_hub->hubSimulationActive() ? m_hub->hubSimulation().gearRatio : 0.0;
         m_hubBasisValid = true;
         m_hubBasisLight = light;
         m_hubBasisFactor = basisFactor;
@@ -235,6 +253,7 @@ double RideResistance::hubGearRatio(const GearDrive &d)
             m_hubScaleFrom = actual / target;   // from the last requested ratio
             m_hubScale = m_hubScaleFrom;
             m_hubRampMs = 0;
+            m_hubRampDurationMs = kHubGearRampMs;
             DiagLog::write("RES", QStringLiteral("hub gear: %1 -> %2 (%3) over %4 s")
                                       .arg(actual, 0, 'f', 3).arg(target, 0, 'f', 3)
                                       .arg(light ? QStringLiteral("light gear: real gear unknown")
@@ -243,9 +262,10 @@ double RideResistance::hubGearRatio(const GearDrive &d)
         }
     }
     if (m_hubRampMs >= 0) {
-        const double progress = std::round(10.0 * m_hubRampMs / kHubGearRampMs) / 10.0;   // 10 steps
+        const int duration = std::max(1, m_hubRampDurationMs);
+        const double progress = std::min(1.0, std::round(10.0 * m_hubRampMs / duration) / 10.0);   // 10 steps
         m_hubScale = m_hubScaleFrom + (1.0 - m_hubScaleFrom) * progress;
-        if (m_hubRampMs >= kHubGearRampMs) {
+        if (m_hubRampMs >= duration) {
             m_hubScale = 1.0;
             m_hubRampMs = -1;
         }
@@ -343,6 +363,7 @@ void RideResistance::reset()
     armSoftStart();
     m_hubBasisValid = false;   // the next hub gear re-anchors on the last requested ratio
     m_hubRampMs = -1;
+    m_hubLastVirtual = 0;
     m_lastWasHub = false;
     m_light = -1;
     m_sinceHybridMs = kHybridSwitchMs;

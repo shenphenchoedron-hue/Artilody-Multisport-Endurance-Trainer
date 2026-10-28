@@ -467,15 +467,33 @@ private slots:
         for (double r : back)
             QVERIFY2(r <= 2.40 * 0.5 + 1e-9, qPrintable(QString::number(r)));   // ... never the full 2.40
         QVERIFY(std::abs(back.constLast() - light) < 1e-9);
-        // a shift during a ramp acts at once (keeps the ramp position)
+        // settled compensated gear; then a shift HARDER ramps over
+        // kHubShiftRampMs from the last requested ratio - no sudden +9 %
         d.hubGearKnown = true;
         d.hubGearFactor = 0.62;
-        tick();
-        tick();
+        for (int t = 0; t <= RideResistance::kHubGearRampMs + 500; t += 250)
+            tick();
         const double before = hub.hubSimulation().gearRatio;
+        QVERIFY(std::abs(before - 2.40 * 0.62) < 1e-9);
         d.virtualRatio = 2.61;
-        const double after = tick();
-        QVERIFY(after > before * 1.05);
+        const double up = 2.61 * 0.62;
+        QVector<double> shift;
+        for (int t = 0; t <= RideResistance::kHubShiftRampMs + 250; t += 250)
+            shift << tick();
+        QVERIFY(std::abs(shift.constFirst() - before) < 1e-9 || shift.constFirst() - before <= (up - before) * 0.2 + 1e-9);
+        for (int i = 1; i < shift.size(); ++i) {
+            QVERIFY(shift.at(i) >= shift.at(i - 1) - 1e-9);
+            QVERIFY(shift.at(i) - shift.at(i - 1) <= (up - before) * 0.25 + 1e-9);   // spread over >= 4 steps
+        }
+        QVERIFY(std::abs(shift.constLast() - up) < 1e-9);
+        // a shift EASIER acts at once
+        d.virtualRatio = 2.40;
+        QVERIFY(std::abs(tick() - 2.40 * 0.62) < 1e-9);
+        // shifting easier in the middle of a harder ramp: at once to the easier gear
+        d.virtualRatio = 2.61;
+        tick();
+        d.virtualRatio = 2.22;
+        QVERIFY(std::abs(tick() - 2.22 * 0.62) < 1e-9);
     }
 
     // Regression: a long coast with the flywheel above 10 km/h, 0 rpm and 0 W

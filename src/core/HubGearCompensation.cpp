@@ -61,6 +61,9 @@ void HubGearCompensation::reset(const Record &saved)
     if (m_record.speed != Speed::Flywheel || !plausible(m_record.realRatio))
         m_record.realRatio = 0;   // a ratio is only reused once the speed was verified
     m_candidate = 0;
+    m_history.clear();
+    m_lastSentSeen = 0;
+    m_sentChangeMs = -1;
     m_provisionalSinceMs = -1;
     m_expired = false;
     m_samples.clear();
@@ -147,6 +150,16 @@ int HubGearCompensation::gearSample(const Input &in)
         return NoChange;
     const TrainerSample &s = in.sample;
     const double sentRatio = in.sent.gearRatio;
+    // the sent ratio changed (shift, ramp): let the trainer's cadence settle
+    if (sentRatio > 0 && std::abs(sentRatio - m_lastSentSeen) > std::max(m_lastSentSeen, sentRatio) * 0.005) {
+        if (m_lastSentSeen > 0)
+            m_sentChangeMs = s.ms;
+        m_lastSentSeen = sentRatio;
+    }
+    if (m_sentChangeMs >= 0 && s.ms >= m_sentChangeMs && s.ms - m_sentChangeMs < kSettleMs) {
+        m_samples.clear();
+        return NoChange;
+    }
     // actively pedaling, on one coherent packet
     const bool active = s.fresh(kMaxFieldAgeMs) && s.powerW >= kMinActiveWatts && s.cadenceRpm >= kMinCadenceRpm
                         && s.cadenceRpm <= kMaxCadenceRpm && s.speedMps >= kMinSpeedMps && sentRatio > 0
@@ -202,21 +215,61 @@ int HubGearCompensation::accept(const Window &w, qint64 ms)
                 m_record = Record();
                 m_record.speed = Speed::FollowsGear;   // saved: the trainer stays off after a reconnect
                 m_candidate = 0;
+                m_history.clear();
                 m_last = w;
                 return finish(factorBefore, recordBefore);
             }
         }
     }
     m_last = w;
-    if (!(m_candidate > 0) || std::abs(w.ratio - m_candidate) > m_candidate * kUpdateThreshold) {
+    m_history.append(w.ratio);
+    while (m_history.size() > kHistory)
+        m_history.removeFirst();
+    // the median; with an even count the middle value nearer the R in use
+    // (conservative: two new windows cannot outvote two old ones)
+    const double current = m_candidate;
+    auto median = [current](QVector<double> v) {
+        std::sort(v.begin(), v.end());
+        if (v.size() % 2)
+            return v.at(v.size() / 2);
+        const double lo = v.at(v.size() / 2 - 1), hi = v.at(v.size() / 2);
+        if (!(current > 0))
+            return (lo + hi) / 2.0;
+        return std::abs(lo - current) <= std::abs(hi - current) ? lo : hi;
+    };
+    double next = 0;
+    bool chainShift = false;
+    if (!(m_candidate > 0)) {
+        next = w.ratio;   // the first window of the connection
+    } else {
+        int up = 0, down = 0;
+        for (int i = std::max(0, int(m_history.size()) - kChainShiftWindows); i < m_history.size(); ++i) {
+            const double dev = m_history.at(i) / m_candidate - 1.0;
+            up += dev > kChainShiftStep;
+            down += dev < -kChainShiftStep;
+        }
+        if (m_history.size() >= kChainShiftWindows && (up == kChainShiftWindows || down == kChainShiftWindows)) {
+            m_history = m_history.mid(m_history.size() - kChainShiftWindows);   // a new real gear: forget the old one
+            next = median(m_history);
+            chainShift = true;
+        } else {
+            const double med = median(m_history);
+            if (std::abs(med - m_candidate) > m_candidate * kUpdateThreshold)
+                next = med;
+        }
+    }
+    if (next > 0) {
         const bool first = !(m_candidate > 0);
-        m_candidate = w.ratio;
+        m_candidate = next;
         // the time limit counts from the FIRST provisional value of the
         // connection - drifting values cannot keep it alive
         if (m_record.speed == Speed::Unknown && !m_expired && m_provisionalSinceMs < 0)
             m_provisionalSinceMs = ms;
         addNote(QStringLiteral("%1 real gear %2 (speed %3%4)")
-                    .arg(first ? QStringLiteral("measured") : QStringLiteral("new"), num(w.ratio),
+                    .arg(first ? QStringLiteral("measured")
+                         : chainShift ? QStringLiteral("chain shifted? new")
+                                      : QStringLiteral("new (median of %1 windows)").arg(m_history.size()),
+                         num(m_candidate),
                          QString::fromLatin1(speedName(m_record.speed)),
                          m_record.speed == Speed::Unknown
                              ? (m_expired ? QStringLiteral(", unverified: not used") : QStringLiteral(", provisional - not saved"))
