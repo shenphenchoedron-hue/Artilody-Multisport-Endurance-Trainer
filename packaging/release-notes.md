@@ -1,6 +1,13 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.5
+## What's new in 1.3.6
+
+A follow-up test release for **virtual shifting with the Zwift trainer protocol** on the **Jetblack Victory**: the start was fine in 1.3.5, but shifting up still gave a heavy jump before the resistance settled.
+
+- **Smoother shifting up**: a virtual shift to a harder gear now ramps in over 1.5 s instead of at once – the trainer's inertia emulation turned a sudden +9 % into a power spike. Shifting easier still acts at once.
+- **No second, delayed step after a shift**: the bike's real gear on the trainer is now taken as the median of the ride's measurements and only changes beyond 6 %. The Victory's coarse, lagging cadence made single measurements scatter (3.4 … 4.4 for a chain on 44×11), which moved the compensation a few seconds after a shift. A real chain shift is still picked up after three measurements, and nothing is measured for 3 s after a gear change.
+
+## Also included from 1.3.5
 
 A test release for the **Zwift trainer protocol with virtual shifting** (Zwift Click), made for the **Jetblack Victory**: with the bike in a hard real gear (e.g. 44×11) every virtual gear rode ~1.6× too hard – 400 W to get going, ~350 W in gear 12 at 80 rpm.
 

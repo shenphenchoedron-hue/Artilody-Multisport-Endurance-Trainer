@@ -41,7 +41,7 @@ MOCKUPS = DOCS / "mockups"
 DEFAULT_OUT = DOCS / "Artilody-Watts-Trainer-Manual.pdf"
 
 APP = "Artilody Watts Trainer"
-VERSION = "1.3.5"
+VERSION = "1.3.6"
 DATE = "October 2026"
 REPO = "https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer"
 
