@@ -1,6 +1,16 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.4
+## What's new in 1.3.5
+
+A test release for the **Zwift trainer protocol with virtual shifting** (Zwift Click), made for the **Jetblack Victory**: with the bike in a hard real gear (e.g. 44×11) every virtual gear rode ~1.6× too hard – 400 W to get going, ~350 W in gear 12 at 80 rpm.
+
+- **Virtual gears adapted to the real gear on the trainer**: the app measures the bike's real gear from the trainer's speed and cadence and sends each virtual gear × 2.43 / real gear (gear 12 in 44×11 ≈ 1.46). The 2.43 (34×14 on a 14T Zwift Cog) is a **model assumption** fitted to the Victory's logs, not a published Zwift spec.
+- **Safeguards**: measured only while actively pedaling (≥ 20 W, never while freewheeling), from one coherent update per trainer packet; whether the trainer reports its flywheel speed is tested on gear changes; a first value is provisional (never saved, dropped after 20 s without verification); the result is saved **per trainer** (*Bluetooth diagnostics → Real gear on the trainer → Measure again* resets it); a power check switches the compensation off if the trainer calibrates the real gear itself.
+- **Light start on the flat**: on the Zwift protocol path the soft start now softens the **gear** (× 0.5, gear 12 ≈ gear 5) until the flywheel turns and while the real gear is unknown; every gear change of this kind ramps over 4 s.
+- **Soft start fix**: 0 rpm and 0 W count as freewheeling – a flywheel still spinning above 10 km/h no longer ends the waiting (it used to cycle every ~5 s during a coast).
+- **Diagnostic log**: `GEAR` and `RES` lines show the measured real gear, its verification and the gear ratios sent.
+
+## Also included from 1.3.4
 
 A fix release for the **Zwift trainer protocol** (trainers with the Zwift trainer service, e.g. **Jetblack Victory, Zwift Hub, Wahoo KICKR Core with Zwift Cog**).
 
@@ -10,7 +20,7 @@ A fix release for the **Zwift trainer protocol** (trainers with the Zwift traine
 - **Corrected diagnostics decoding** in the diagnostic log: riding-data speed (m/s × 100), the 4th field is **power** (not heart rate), the trainer's incline echo in whole percent, rider-weight label.
 - Updated user manual and README.
 
-## Includes everything from 1.3.3
+## Also included from 1.3.3
 
 - **ERG test and gradient test stop automatically** (leaving the Devices page, session start, ride resistance command, 5-minute safety timeout).
 - **Neutral trainer state after control is granted** – FTMS simulation 0 % (or a low resistance level), so an ERG target or grade left behind by another app no longer lingers.
