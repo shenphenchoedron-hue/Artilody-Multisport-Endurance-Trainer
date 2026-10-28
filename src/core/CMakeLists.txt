@@ -28,6 +28,7 @@ qt_add_library(watt_core STATIC
     Gearing.h Gearing.cpp
     RideResistance.h RideResistance.cpp
     VirtualGears.h VirtualGears.cpp
+    HubGearCompensation.h HubGearCompensation.cpp
     DiagLog.h DiagLog.cpp
     FreeRideSession.h FreeRideSession.cpp
     RlvRoute.h RlvRoute.cpp

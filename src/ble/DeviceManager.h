@@ -238,6 +238,9 @@ public:
     static constexpr int kErgTestTimeoutMs = 5 * 60 * 1000;
     int ergTestTimeoutMs() const { return m_ergTestTimeout.interval(); }
     void setErgTestTimeoutForTesting(int ms) { m_ergTestTimeout.setInterval(ms); }
+    // the trainer's measurements into the hub (attachTrainer(); tests use the
+    // same wiring for the path packet -> SensorHub -> estimators)
+    static void connectMeasurements(TrainerDevice *t, SensorHub *hub);
     // The open page (VirtualGears::activePage, wired in main.cpp): leaving
     // "devices" stops a running ERG / gradient test.
     void setActivePage(const QString &page);

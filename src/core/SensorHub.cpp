@@ -126,11 +126,49 @@ void SensorHub::updateSpeed(double kmh)
     }
 }
 
+void SensorHub::setTrainerId(const QString &id)
+{
+    if (m_trainerId == id)
+        return;
+    m_trainerId = id;
+    emit trainerIdChanged();
+}
+
+void SensorHub::updateTrainerPacket(const TrainerPacket &packet)
+{
+    const qint64 t = now();
+    TrainerSample &s = m_lastSample;
+    s.ms = t;
+    s.hasPower = packet.powerW.has_value();
+    s.hasCadence = packet.cadenceRpm.has_value();
+    s.hasSpeed = packet.speedKmh.has_value();
+    if (s.hasPower) {
+        s.powerW = std::max(0, *packet.powerW);
+        m_pktPowerMs = t;
+    }
+    if (s.hasCadence) {
+        s.cadenceRpm = std::max(0.0, *packet.cadenceRpm);
+        m_pktCadenceMs = t;
+    }
+    if (s.hasSpeed) {
+        const double kmh = *packet.speedKmh;
+        s.speedMps = std::isfinite(kmh) && kmh > 0 ? kmh / 3.6 : 0.0;
+        m_pktSpeedMs = t;
+    }
+    s.powerAgeMs = m_pktPowerMs < 0 ? -1 : t - m_pktPowerMs;
+    s.cadenceAgeMs = m_pktCadenceMs < 0 ? -1 : t - m_pktCadenceMs;
+    s.speedAgeMs = m_pktSpeedMs < 0 ? -1 : t - m_pktSpeedMs;
+    emit trainerSampleReceived(s);
+}
+
 void SensorHub::setTrainerConnected(bool connected)
 {
     if (m_trainerConnected == connected)
         return;
     m_trainerConnected = connected;
+    // a new connection starts without old packet fields
+    m_lastSample = TrainerSample();
+    m_pktPowerMs = m_pktCadenceMs = m_pktSpeedMs = -1;
     emit trainerConnectedChanged();
     if (!connected) {
         updatePower(0);

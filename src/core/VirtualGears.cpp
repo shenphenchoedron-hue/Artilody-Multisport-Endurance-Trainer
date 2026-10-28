@@ -19,6 +19,9 @@ namespace {
 // "gears/backend" of earlier versions are ignored: virtual gears follow the
 // Zwift Click, the method is always Gradient unless chosen in the diagnostics.
 const QString kSettingHubOverride = QStringLiteral("gears/zwiftProtocol");
+// the real-gear record of one trainer (HubGearCompensation::Record):
+// "<ratio>;<speedVerified 0/1>;<calibrates 0/1>", key + the trainer's id
+const QString kSettingHubGearPrefix = QStringLiteral("gears/hubGear/");
 
 QVector<int> toIntList(const QVariantList &list, bool *ok)
 {
@@ -73,6 +76,10 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
     connect(this, &VirtualGears::enabledChanged, this, &VirtualGears::updateShifting);
     connect(this, &VirtualGears::shiftMethodChanged, this, &VirtualGears::updateShifting);
     m_detectClock.start();
+    // the real gear's provisional time limit also runs when packets stop
+    m_hubGearTick.setInterval(1000);
+    connect(&m_hubGearTick, &QTimer::timeout, this, &VirtualGears::tickHubGear);
+    m_hubGearTick.start();
     load();
 }
 
@@ -87,18 +94,23 @@ void VirtualGears::setHub(SensorHub *hub)
         disconnect(m_hub, nullptr, this, nullptr);
     m_hub = hub;
     if (m_hub) {
-        connect(m_hub, &SensorHub::speedChanged, this, &VirtualGears::sampleHub);
-        connect(m_hub, &SensorHub::cadenceChanged, this, &VirtualGears::sampleHub);
+        // one coherent update per trainer packet (not the split, change-only
+        // speed / cadence signals): the detector, the real-gear estimator and
+        // its power check
+        connect(m_hub, &SensorHub::trainerSampleReceived, this, &VirtualGears::onTrainerSample);
         connect(m_hub, &SensorHub::trainerConnectedChanged, this, [this] {
             if (!m_hub->trainerConnected())
                 clearDetection();   // another trainer / bike may come
+            resetHubGear();         // the record of the trainer that is connected now
         });
+        connect(m_hub, &SensorHub::trainerIdChanged, this, &VirtualGears::resetHubGear);
         connect(m_hub, &SensorHub::zwiftHubChanged, this, &VirtualGears::updateShifting);
         connect(m_hub, &SensorHub::trainerConnectedChanged, this, &VirtualGears::updateShifting);
         connect(m_hub, &SensorHub::trainerSimulationSupportChanged, this, &VirtualGears::updateShifting);
     }
     syncHub();
     syncHubBackend();
+    resetHubGear();
     updateShifting();
 }
 
@@ -211,11 +223,15 @@ void VirtualGears::updateShifting()
     emit shiftingChanged();
 }
 
-void VirtualGears::sampleHub()
+void VirtualGears::onTrainerSample(const TrainerSample &sample)
 {
-    if (!m_hub || !m_hub->trainerConnected() || !m_hub->trainerReportsSpeed() || !m_hub->cadenceReported())
+    if (!m_hub || !m_hub->trainerConnected())
         return;
-    addTrainerSample(m_detectClock.elapsed(), m_hub->cadence(), m_hub->speedMps());
+    // the reference-gear detector: packets with cadence and speed
+    if (sample.cadenceAgeMs >= 0 && sample.speedAgeMs >= 0 && sample.cadenceAgeMs <= HubGearCompensation::kMaxFieldAgeMs
+        && sample.speedAgeMs <= HubGearCompensation::kMaxFieldAgeMs)
+        addTrainerSample(sample.ms, sample.cadenceRpm, sample.speedMps);
+    addHubGearSample(sample);
 }
 
 void VirtualGears::addTrainerSample(qint64 ms, double cadenceRpm, double speedMps)
@@ -258,6 +274,123 @@ void VirtualGears::addTrainerSample(qint64 ms, double cadenceRpm, double speedMp
     }
     if (changed || wasStable != m_detector.stable())
         emit detectionChanged();
+}
+
+QString VirtualGears::hubGearKey() const
+{
+    const QString id = m_hub ? m_hub->trainerId() : QString();
+    return id.isEmpty() ? QString() : kSettingHubGearPrefix + id;
+}
+
+HubGearCompensation::Record VirtualGears::loadHubGearRecord() const
+{
+    const QString key = hubGearKey();
+    if (key.isEmpty())
+        return HubGearCompensation::Record();   // unknown trainer: nothing is reused
+    return HubGearCompensation::Record::fromString(m_db->setting(key, QString()).toString());
+}
+
+void VirtualGears::saveHubGearRecord()
+{
+    const QString key = hubGearKey();
+    if (key.isEmpty())
+        return;
+    m_db->setSetting(key, m_hubComp.record().toString());
+}
+
+void VirtualGears::resetHubGearAssessment()
+{
+    const QString key = hubGearKey();
+    if (!key.isEmpty())
+        m_db->setSetting(key, HubGearCompensation::Record().toString());
+    const double before = m_hubComp.factor();
+    const bool knownBefore = hubGearKnown();
+    m_hubComp.reset();
+    DiagLog::write("GEAR", QStringLiteral("Zwift protocol real gear: assessment of trainer %1 reset - measured again")
+                               .arg(m_hubTrainerId.isEmpty() ? QStringLiteral("-") : m_hubTrainerId));
+    if (std::abs(m_hubComp.factor() - before) >= 0.005 || knownBefore != hubGearKnown())
+        emit detectionChanged();
+}
+
+void VirtualGears::resetHubGear()
+{
+    const QString id = m_hub && m_hub->trainerConnected() ? m_hub->trainerId() : QString();
+    if (id == m_hubTrainerId && m_hubResetDone)
+        return;   // same connection
+    m_hubTrainerId = id;
+    m_hubResetDone = true;
+    const double before = m_hubComp.factor();
+    const bool knownBefore = hubGearKnown();
+    const HubGearCompensation::Record rec = id.isEmpty() ? HubGearCompensation::Record() : loadHubGearRecord();
+    m_hubComp.reset(rec);
+    if (!id.isEmpty())
+        DiagLog::write("GEAR", QStringLiteral("Zwift protocol real gear for trainer %1: speed %2%3%4").arg(id)
+                                   .arg(QString::fromLatin1(HubGearCompensation::speedName(rec.speed)))
+                                   .arg(m_hubComp.realRatio() > 0
+                                            ? QStringLiteral(", saved real gear %1 - used until this ride measures it")
+                                                  .arg(m_hubComp.realRatio(), 0, 'f', 3)
+                                        : rec.speed == HubGearCompensation::Speed::FollowsGear
+                                            ? QStringLiteral(" - no real-gear compensation (reset in Bluetooth diagnostics)")
+                                            : QStringLiteral(" - measured from the first pedal strokes"))
+                                   .arg(rec.calibrates ? QStringLiteral(", trainer calibrates itself: no compensation") : QString()));
+    if (std::abs(m_hubComp.factor() - before) >= 0.005 || knownBefore != hubGearKnown())
+        emit detectionChanged();
+}
+
+double VirtualGears::hubRealRatio() const
+{
+    return m_hubComp.realRatio();
+}
+
+double VirtualGears::hubGearFactor() const
+{
+    return m_hubComp.factor();
+}
+
+void VirtualGears::addHubGearSample(const TrainerSample &sample)
+{
+    if (!m_hub || !m_hub->hubSimulationActive())
+        return;   // only the Zwift hub path sends a gear ratio
+    resetHubGear();
+    HubGearCompensation::Input in;
+    in.sample = sample;
+    in.sent = m_hub->hubSimulation();
+    in.virtualRatio = gearRatio();
+    in.circumferenceMm = setup().circumferenceMm;
+    in.fallbackMassKg = systemMassKg();
+    noteHubGearChanges(m_hubComp.update(in));
+}
+
+void VirtualGears::tickHubGear()
+{
+    if (!m_hub || !m_hub->hubSimulationActive())
+        return;
+    noteHubGearChanges(m_hubComp.tick(m_hub->now()));
+}
+
+void VirtualGears::noteHubGearChanges(int changes)
+{
+    const QString note = m_hubComp.lastNote();
+    if (!note.isEmpty() || (changes & HubGearCompensation::FactorChanged))
+        DiagLog::write("GEAR", QStringLiteral("Zwift protocol: %1 - gear ratios sent × %2 (gear %3 -> %4)%5")
+                                   .arg(note.isEmpty() ? QStringLiteral("real gear %1").arg(hubRealRatio(), 0, 'f', 3) : note)
+                                   .arg(hubGearFactor(), 0, 'f', 3)
+                                   .arg(gearRatio(), 0, 'f', 2)
+                                   .arg(gearRatio() * hubGearFactor(), 0, 'f', 3)
+                                   .arg(hubGearKnown() ? QString() : QStringLiteral(", real gear unknown: light fallback gear")));
+    if (changes & HubGearCompensation::RecordChanged)
+        saveHubGearRecord();
+    if (changes & HubGearCompensation::FactorChanged)
+        emit detectionChanged();   // the sessions resend the gear
+}
+
+bool VirtualGears::hubGearKnown() const
+{
+    if (m_hubComp.realRatio() > 0 || m_hubComp.calibrates() || m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear)
+        return true;
+    // a trainer that reports neither cadence nor speed can never be measured:
+    // the plain gear, not a light fallback forever
+    return m_hub && m_hub->trainerReportsNoFeedback();
 }
 
 void VirtualGears::clearDetection()
@@ -439,6 +572,22 @@ QString VirtualGears::diagnosticsText() const
                                      .arg(detectedRatio(), 0, 'f', 3)
                                : QStringLiteral("not yet"))
         << QStringLiteral("  in use: %1").arg(effectiveReferenceRatio(), 0, 'f', 3) << "\n";
+    out << QStringLiteral("Zwift protocol real gear: %1 (%2)  trainer speed: %3  assumed trainer gear %4 (34×14, "
+                          "unverified model)  gear ratios sent × %5%6\n")
+               .arg(hubRealRatio() > 0 ? QString::number(hubRealRatio(), 'f', 3) : QStringLiteral("unknown"))
+               .arg(m_hubComp.provisional() ? QStringLiteral("provisional, not verified")
+                    : m_hubComp.provisionalExpired() && hubRealRatio() <= 0 ? QStringLiteral("unverified, timed out: light fallback")
+                    : m_hubComp.candidateRatio() > 0 ? QStringLiteral("measured this ride")
+                    : hubRealRatio() > 0       ? QStringLiteral("saved for this trainer")
+                                               : QStringLiteral("not measured"))
+               .arg(QString::fromLatin1(HubGearCompensation::speedName(m_hubComp.speed())))
+               .arg(HubGearCompensation::kTrainerRatio, 0, 'f', 3)
+               .arg(hubGearFactor(), 0, 'f', 3)
+               .arg(m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear
+                        ? QStringLiteral(" (off: the trainer's speed follows the sent gear)")
+                    : m_hubComp.calibrates() ? QStringLiteral(" (off: the trainer calibrates the real gear itself)")
+                    : m_hubComp.powerConfirmed() ? QStringLiteral(" (confirmed by the measured power)")
+                                                 : QString());
     if (st.hasGrade)
         out << QStringLiteral("Route grade: %1 %  effective grade: %2 %\n")
                    .arg(st.routeGrade, 0, 'f', 2)
@@ -495,7 +644,10 @@ QString VirtualGears::settingsLine() const
     const GearSetup &s = setup();
     const road::Model rm = roadModel(0);
     const Profile &who = rider();
-    return QStringLiteral("shifting=%1 zwiftOverride=%2 ").arg(shiftingMode(), m_hubOverride)
+    return QStringLiteral("shifting=%1 zwiftOverride=%2 hubRealGear=%3 hubGearFactor=%4 ")
+               .arg(shiftingMode(), m_hubOverride,
+                    hubRealRatio() > 0 ? QString::number(hubRealRatio(), 'f', 3) : QStringLiteral("-"),
+                    QString::number(hubGearFactor(), 'f', 3))
            + QStringLiteral("virtualGears=%1 method=%2 click=%3 gear=%4 (ratio %5) reference=%6 (ratio %7) "
                           "detected=%8 old-setup(ignored)[rings %9 cogs %10] wheel %11 mm %12 rider[%13 %14 kg] "
                           "bike %15 kg mass %16 kg CdA %17 (%18) Crr %19 rho %20 eta %21")

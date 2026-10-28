@@ -7,8 +7,42 @@
 #include <QTimer>
 
 #include <functional>
+#include <optional>
 
 namespace watt {
+
+// One measurement packet of the trainer (an FTMS Indoor Bike Data
+// notification, a simulator step): exactly the fields it carried.
+struct TrainerPacket
+{
+    std::optional<int> powerW;
+    std::optional<double> cadenceRpm;
+    std::optional<double> speedKmh;
+};
+
+// A trainer packet merged with the last value of every field: one coherent
+// update per packet (SensorHub::trainerSampleReceived) - unlike the change
+// signals, which split a packet (power, cadence, speed one after the other)
+// and stay silent while the values repeat (steady riding).
+struct TrainerSample
+{
+    qint64 ms = 0;              // SensorHub clock, when the packet arrived
+    int powerW = 0;
+    double cadenceRpm = 0;
+    double speedMps = 0;
+    bool hasPower = false;      // carried by THIS packet
+    bool hasCadence = false;
+    bool hasSpeed = false;
+    qint64 powerAgeMs = -1;     // since the field was last carried (-1: never)
+    qint64 cadenceAgeMs = -1;
+    qint64 speedAgeMs = -1;
+    // every field carried within maxAgeMs
+    bool fresh(qint64 maxAgeMs) const
+    {
+        return powerAgeMs >= 0 && powerAgeMs <= maxAgeMs && cadenceAgeMs >= 0 && cadenceAgeMs <= maxAgeMs
+               && speedAgeMs >= 0 && speedAgeMs <= maxAgeMs;
+    }
+};
 
 // Virtual shifting through the Zwift hub protocol (trainer-side physics): the
 // road and the virtual gear as the trainer gets them (ZwiftHubProtocol).
@@ -95,12 +129,23 @@ public:
     // has not been pedaled for kFeedbackProbeMs (power > 0) without them:
     // it may still report them (RideResistance::gearSimulationPossible()).
     // Changes are announced with cadenceReportedChanged().
+    // pedaled kFeedbackProbeMs with power but neither cadence nor speed
+    bool trainerReportsNoFeedback() const { return m_trainerConnected && m_noFeedback; }
     bool trainerFeedbackUnknown() const
     {
         return m_trainerConnected && !m_cadenceReported && !m_speedReported && !m_noFeedback;
     }
     static constexpr int kFeedbackProbeMs = 5000;
     bool trainerConnected() const { return m_trainerConnected; }
+    // Id of the connected trainer (Bluetooth address / sim id; "" = none),
+    // set by the device layer: per-trainer records (VirtualGears' real gear).
+    QString trainerId() const { return m_trainerId; }
+    void setTrainerId(const QString &id);
+    // One packet of the trainer (after its fields went through updatePower /
+    // updateCadence / updateSpeed): emits trainerSampleReceived.
+    void updateTrainerPacket(const TrainerPacket &packet);
+    TrainerSample lastTrainerSample() const { return m_lastSample; }
+    qint64 now() const;   // the hub's clock (TrainerSample::ms; test clock injectable)
     bool heartRateConnected() const { return m_hrConnected; }
     int requestedTarget() const { return m_requestedTarget; }
     // Counts the resistance requests (target power, free ride, simulation):
@@ -183,6 +228,8 @@ signals:
     void heartRateChanged();
     void speedChanged();
     void trainerConnectedChanged();
+    void trainerIdChanged();
+    void trainerSampleReceived(const watt::TrainerSample &sample);
     void heartRateConnectedChanged();
     void requestedTargetChanged();
     void trainerSimulationSupportChanged();
@@ -202,6 +249,9 @@ private:
     int m_heartRate = 0;
     double m_speed = 0;
     bool m_trainerConnected = false;
+    QString m_trainerId;
+    TrainerSample m_lastSample;
+    qint64 m_pktPowerMs = -1, m_pktCadenceMs = -1, m_pktSpeedMs = -1;   // when each field was last carried
     bool m_hrConnected = false;
     int m_requestedTarget = 0;
     quint64 m_commandSerial = 0;
@@ -221,7 +271,6 @@ private:
     int m_staleMs = 3000;
     QElapsedTimer m_powerAge, m_cadenceAge, m_hrAge, m_speedAge;
 
-    qint64 now() const;
     PowerSmoother m_smoother { 3000 };
     bool m_smoothing = true;
     int m_displayPower = 0;
@@ -232,3 +281,6 @@ private:
 };
 
 } // namespace watt
+
+Q_DECLARE_METATYPE(watt::TrainerSample)
+Q_DECLARE_METATYPE(watt::TrainerPacket)

@@ -212,6 +212,47 @@ double RideResistance::softStartFactor() const
     return 1.0;
 }
 
+double RideResistance::hubGearRatio(const GearDrive &d)
+{
+    const double factor = std::isfinite(d.hubGearFactor) && d.hubGearFactor > 0 ? d.hubGearFactor : 1.0;
+    const bool waiting = softStartEnabled() && m_soft == SoftStart::Waiting;
+    const bool light = waiting || !d.hubGearKnown;
+    const double basisFactor = light ? kHubLightGearFactor : factor;
+    const double target = d.virtualRatio * basisFactor;
+    if (!(target > 0))
+        return d.virtualRatio;
+    const bool basisChanged = !m_hubBasisValid || light != m_hubBasisLight
+                              || std::abs(basisFactor - m_hubBasisFactor) > m_hubBasisFactor * 0.005;
+    if (basisChanged) {
+        const double actual = m_hub->hubSimulationActive() ? m_hub->hubSimulation().gearRatio : 0.0;
+        m_hubBasisValid = true;
+        m_hubBasisLight = light;
+        m_hubBasisFactor = basisFactor;
+        if (waiting || !(actual > 0)) {
+            m_hubScale = 1.0;   // not pedaling (or nothing sent yet): at once
+            m_hubRampMs = -1;
+        } else {
+            m_hubScaleFrom = actual / target;   // from the last requested ratio
+            m_hubScale = m_hubScaleFrom;
+            m_hubRampMs = 0;
+            DiagLog::write("RES", QStringLiteral("hub gear: %1 -> %2 (%3) over %4 s")
+                                      .arg(actual, 0, 'f', 3).arg(target, 0, 'f', 3)
+                                      .arg(light ? QStringLiteral("light gear: real gear unknown")
+                                                 : QStringLiteral("× %1 for the real gear").arg(basisFactor, 0, 'f', 3))
+                                      .arg(kHubGearRampMs / 1000.0, 0, 'f', 0));
+        }
+    }
+    if (m_hubRampMs >= 0) {
+        const double progress = std::round(10.0 * m_hubRampMs / kHubGearRampMs) / 10.0;   // 10 steps
+        m_hubScale = m_hubScaleFrom + (1.0 - m_hubScaleFrom) * progress;
+        if (m_hubRampMs >= kHubGearRampMs) {
+            m_hubScale = 1.0;
+            m_hubRampMs = -1;
+        }
+    }
+    return target * m_hubScale;
+}
+
 double RideResistance::softStartGrade(double target) const
 {
     if (!std::isfinite(target))
@@ -254,11 +295,16 @@ void RideResistance::updateSoftStart(int ms)
     const int power = m_hub->power();
     const bool cadRep = m_hub->cadenceReported();
     const bool spdRep = m_hub->trainerReportsSpeed();
-    const bool turning = cad >= kSoftStartCadenceRpm || speed >= kSoftStartSpeedKmh
-                         || (!cadRep && !spdRep && power >= kSoftStartPowerWatts);
+    // freewheeling: 0 rpm and 0 W from a trainer that reports cadence - the
+    // flywheel's speed alone does not mean anybody pedals
+    const bool freewheel = cadRep && cad <= 0 && power <= 0;
+    const bool turning = !freewheel
+                         && (cad >= kSoftStartCadenceRpm || speed >= kSoftStartSpeedKmh
+                             || (!cadRep && !spdRep && power >= kSoftStartPowerWatts));
     // stopped: no cadence; without a cadence the flywheel (nearly) still;
-    // a trainer reporting neither: no power either
-    const bool stopped = cad <= 0 && (cadRep || speed < kSoftStartStopSpeedKmh) && (cadRep || spdRep || power <= 0);
+    // a trainer reporting neither: no power either - never while turning
+    const bool stopped = !turning && cad <= 0 && (cadRep || speed < kSoftStartStopSpeedKmh)
+                         && (cadRep || spdRep || power <= 0);
     m_softTurningMs = turning ? m_softTurningMs + ms : 0;
     m_softStoppedMs = stopped ? m_softStoppedMs + ms : 0;
     switch (m_soft) {
@@ -295,6 +341,8 @@ void RideResistance::updateSoftStart(int ms)
 void RideResistance::reset()
 {
     armSoftStart();
+    m_hubBasisValid = false;   // the next hub gear re-anchors on the last requested ratio
+    m_hubRampMs = -1;
     m_lastWasHub = false;
     m_light = -1;
     m_sinceHybridMs = kHybridSwitchMs;
@@ -332,7 +380,11 @@ HubSimulation RideResistance::hubSimulationFor(const GearDrive &d)
     p.windMps = 0;
     p.cw = kHubCwa;
     p.crr = kHubCrr;
-    p.gearRatio = d.virtualRatio;
+    // the virtual gear adapted to the real gear the bike sits in (the trainer
+    // takes its flywheel speed as the speed of a ~2.4 gear, see
+    // VirtualGears::kHubTrainerRatio)
+    const double factor = std::isfinite(d.hubGearFactor) && d.hubGearFactor > 0 ? d.hubGearFactor : 1.0;
+    p.gearRatio = factor == 1.0 ? d.virtualRatio : d.virtualRatio * factor;
     const double total = d.road.massKg;
     p.riderKg = d.riderKg > 0 && d.riderKg < total ? d.riderKg : std::max(20.0, total - road::kDefaultBikeKg);
     p.bikeKg = std::max(0.0, total - p.riderKg);
@@ -344,6 +396,7 @@ bool RideResistance::sendHub(const GearDrive &d)
     HubSimulation p = hubSimulationFor(d);
     noteSoftTarget(p.inclinePercent);
     p.inclinePercent = softStartGrade(p.inclinePercent);   // soft start: 0 % / ramp
+    p.gearRatio = hubGearRatio(d);                         // ... and the gear (light / compensated, ramped)
     m_hub->requestHubSimulation(p);
     m_serial = m_hub->commandSerial();
     const bool newValue = !m_lastWasHub || p.inclinePercent != m_lastGrade;

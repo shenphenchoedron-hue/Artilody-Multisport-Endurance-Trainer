@@ -2,9 +2,12 @@
 
 #include "Gearing.h"
 #include "Profile.h"
+#include "HubGearCompensation.h"
 #include "RideResistance.h"
 
 #include <QObject>
+#include <QPair>
+#include <QVector>
 #include <QPointer>
 #include <QElapsedTimer>
 #include <QTimer>
@@ -256,6 +259,26 @@ public:
     // The real gear ratio path a works with: the saved reference gear (the
     // detected one only after the rider accepted it, useDetectedGear()).
     double effectiveReferenceRatio() const { return referenceRatio(); }
+    // --- Zwift hub path: the real gear on the trainer ---------------------------
+    // The virtual gear goes out adapted to the bike's real gear on the trainer:
+    // sent ratio = virtual ratio × hubGearFactor(). The logic, its model (an
+    // unverified assumption: the trainer brakes as if the bike were in 34×14)
+    // and the safeguards are in HubGearCompensation. Here: one record per
+    // trainer id ("gears/hubGear/<id>"), loaded when that trainer connects;
+    // saved only once its flywheel speed was verified.
+    double hubRealRatio() const;        // 0 = unknown
+    double hubGearFactor() const;       // 1.0 = no compensation
+    // true: send virtual × hubGearFactor(); false: the real gear is unknown
+    // (not measured yet, or a provisional value timed out) - RideResistance
+    // sends the light fallback gear (soft start factor), ramped
+    bool hubGearKnown() const;
+    // forget this trainer's assessment (speed type, real gear, calibrates):
+    // measured again from the next pedal strokes (Bluetooth diagnostics)
+    Q_INVOKABLE void resetHubGearAssessment();
+    const HubGearCompensation &hubGear() const { return m_hubComp; }
+    // one trainer packet on the hub path (onTrainerSample(); tests)
+    void addHubGearSample(const TrainerSample &sample);
+    void tickHubGear();   // timeouts without packets (1 s timer)
     // Feeds the detector (also called from the hub's speed / cadence updates).
     void addTrainerSample(qint64 ms, double cadenceRpm, double speedMps);
     Q_INVOKABLE void clearDetection();
@@ -365,7 +388,6 @@ private:
     void saveNow();
     void setError(const QString &e);
     void syncHub();
-    void sampleHub();
     bool detectedTeeth(int *front, int *rear) const;   // nearest combination of the setup within 3 %
     static QVariantMap setupToMap(const GearSetup &s);
 
@@ -394,6 +416,16 @@ private:
     GearRatioDetector m_detector;
     QElapsedTimer m_detectClock;
     bool m_detectLooksVirtual = false;
+    HubGearCompensation m_hubComp;
+    QString m_hubTrainerId;              // the trainer m_hubComp belongs to ("" = none / unknown)
+    bool m_hubResetDone = false;
+    QString hubGearKey() const;
+    HubGearCompensation::Record loadHubGearRecord() const;
+    void saveHubGearRecord();
+    void resetHubGear();                 // (re)load the record when the trainer changes
+    void noteHubGearChanges(int changes);
+    void onTrainerSample(const TrainerSample &sample);
+    QTimer m_hubGearTick;
     double m_promptDismissedRatio = 0;   // dismissReferencePrompt() for this detection
     qint64 m_lastDetectLogMs = -100000;
 };

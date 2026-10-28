@@ -381,6 +381,8 @@ RideResistance::GearDrive FreeRideSession::gearDrive(double cadenceRpm) const
     d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
     d.circumferenceMm = gearing().setup().circumferenceMm;
     d.riderKg = m_gears->riderWeightKg();
+    d.hubGearFactor = m_gears->hubGearFactor();   // Zwift hub path: virtual gear for the real gear on the trainer
+    d.hubGearKnown = m_gears->hubGearKnown();     // unknown: the soft start keeps a light gear
     // without a cadence the trainer's speed stands in for the reference gear
     d.trainerSpeedMps = m_hub->cadenceReported() ? 0.0 : m_hub->speedMps();
     d.bikeSpeedMps = running() ? m_speed : -1.0;

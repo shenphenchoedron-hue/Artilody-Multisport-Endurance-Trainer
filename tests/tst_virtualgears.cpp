@@ -361,16 +361,28 @@ private slots:
         d.riderKg = 72;
         res.sendHub(d);
         QCOMPARE(hub.hubSimulation().inclinePercent, 0.0);
-        QCOMPARE(hub.hubSimulation().gearRatio, d.virtualRatio);
+        // the flat-road part of the soft start: a light gear (half the ratio)
+        QCOMPARE(hub.hubSimulation().gearRatio, d.virtualRatio * RideResistance::kHubLightGearFactor);
         QCOMPARE(hub.hubSimulation().riderKg, 72.0);
         hub.updateCadence(85);
         d.cadenceRpm = 85;
-        QVector<double> inclines;
+        QVector<double> inclines, gears;
         for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + 500; t += 250) {
             res.elapse(250);
             res.sendHub(d);
             inclines << hub.hubSimulation().inclinePercent;
+            gears << hub.hubSimulation().gearRatio;
         }
+        // the gear ramps with the incline, never down, in a few steps
+        QCOMPARE(gears.constFirst(), d.virtualRatio * RideResistance::kHubLightGearFactor);
+        QCOMPARE(gears.constLast(), d.virtualRatio);
+        int gearSteps = 0;
+        for (int i = 1; i < gears.size(); ++i) {
+            QVERIFY(gears.at(i) >= gears.at(i - 1) - 1e-9);
+            if (gears.at(i) > gears.at(i - 1) + 1e-9)
+                ++gearSteps;
+        }
+        QVERIFY(gearSteps >= 5 && gearSteps <= 10);   // 10 ramp steps, ticks may merge some
         // 0 % for 2 s, then a linear ramp to 6 % over 4 s
         for (int i = 0; i < 7; ++i)
             QCOMPARE(inclines.at(i), 0.0);
@@ -385,6 +397,173 @@ private slots:
         QVERIFY(between >= 10);
         // the trainer gets the ramp too (requestedGrade = incline)
         QCOMPARE(hub.requestedGrade(), 6.0);
+    }
+
+    // Zwift hub path, real gear unknown: the light gear stays (no timeout to
+    // the full ratio); every change of the basis ramps FROM THE RATIO THE
+    // TRAINER HAS - also long after the soft start's own ramp ended.
+    void hubGearTransitionsRamp()
+    {
+        SoftStartOn on;
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        hub.setTrainerConnected(true);
+        RideResistance res(&hub);
+        RideResistance::GearDrive d;
+        d.road.massKg = 77;
+        d.virtualRatio = 2.40;
+        d.riderKg = 68;
+        d.hubGearKnown = false;
+        hub.updateCadence(80);
+        d.cadenceRpm = 80;
+        const double light = 2.40 * RideResistance::kHubLightGearFactor;
+        auto tick = [&](int ms = 250) {
+            res.elapse(ms);
+            res.sendHub(d);
+            return hub.hubSimulation().gearRatio;
+        };
+        // unknown, long after the soft start ramp: still light - no jump to 2.40
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + 30000; t += 250)
+            QCOMPARE(tick(), light);
+        QCOMPARE(res.softStart(), RideResistance::SoftStart::Done);
+        // first accepted measurement: 1.20 -> 1.49 ramped, monotone, no jump
+        d.hubGearKnown = true;
+        d.hubGearFactor = 0.62;
+        const double target = 2.40 * 0.62;
+        QVector<double> sent;
+        for (int t = 0; t <= RideResistance::kHubGearRampMs + 500; t += 250)
+            sent << tick();
+        QVERIFY(std::abs(sent.constFirst() - light) < 1e-9);   // starts at the last requested ratio
+        QVERIFY(std::abs(sent.constLast() - target) < 1e-9);
+        for (int i = 1; i < sent.size(); ++i) {
+            QVERIFY(sent.at(i) >= sent.at(i - 1) - 1e-9);
+            QVERIFY(sent.at(i) - sent.at(i - 1) <= (target - light) * 0.1 + 1e-9);   // steps of 1/10
+        }
+        // the factor changes while ramping: re-anchored on the actual ratio
+        d.hubGearFactor = 0.62;
+        d.hubGearKnown = true;
+        res.reset();   // (Waiting: at once)
+        tick();
+        // ... settle first while pedaling
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + RideResistance::kHubGearRampMs + 1000; t += 250)
+            tick();
+        QVERIFY(std::abs(hub.hubSimulation().gearRatio - target) < 1e-9);
+        d.hubGearFactor = 0.8;
+        tick();
+        tick();   // a step or two into the ramp towards 1.92
+        const double mid = hub.hubSimulation().gearRatio;
+        QVERIFY(mid > target && mid < 2.40 * 0.8);
+        d.hubGearFactor = 0.5;   // changes again mid-ramp
+        const double next = tick();
+        QVERIFY(std::abs(next - mid) <= std::abs(2.40 * 0.5 - mid) * 0.1 + 1e-9);   // from mid, not from 1.92
+        // the provisional value times out (known -> unknown): down to light, ramped
+        for (int t = 0; t < RideResistance::kHubGearRampMs + 500; t += 250)
+            tick();
+        d.hubGearKnown = false;
+        d.hubGearFactor = 1.0;   // compensation removed ...
+        QVector<double> back;
+        for (int t = 0; t <= RideResistance::kHubGearRampMs + 500; t += 250)
+            back << tick();
+        for (double r : back)
+            QVERIFY2(r <= 2.40 * 0.5 + 1e-9, qPrintable(QString::number(r)));   // ... never the full 2.40
+        QVERIFY(std::abs(back.constLast() - light) < 1e-9);
+        // a shift during a ramp acts at once (keeps the ramp position)
+        d.hubGearKnown = true;
+        d.hubGearFactor = 0.62;
+        tick();
+        tick();
+        const double before = hub.hubSimulation().gearRatio;
+        d.virtualRatio = 2.61;
+        const double after = tick();
+        QVERIFY(after > before * 1.05);
+    }
+
+    // Regression: a long coast with the flywheel above 10 km/h, 0 rpm and 0 W
+    // (the trainer still reports cadence). "Turning" (speed >= 10 km/h) and
+    // "stopped" (0 rpm) used to be true together: Waiting after 5.25 s,
+    // Ramping after 7.25 s, Waiting after 10.5 s … - and the hub path's gear
+    // with it. Now: re-armed once, stays Waiting, one gear change; pedaling
+    // again ramps up once.
+    void softStartLongCoastDoesNotCycle()
+    {
+        SoftStartOn on;
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        hub.setTrainerConnected(true);
+        RideResistance res(&hub);
+        RideResistance::GearDrive d;
+        d.road.massKg = 77;
+        d.virtualRatio = 2.40;
+        d.riderKg = 68;
+        d.hubGearKnown = true;
+        d.hubGearFactor = 0.62;
+        const double compensated = 2.40 * 0.62;
+        const double light = 2.40 * RideResistance::kHubLightGearFactor;
+        auto tick = [&] {
+            res.elapse(250);
+            res.sendHub(d);
+            return hub.hubSimulation().gearRatio;
+        };
+        // pedaling until settled
+        hub.updateCadence(80);
+        hub.updatePower(120);
+        hub.updateSpeed(30);
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + RideResistance::kHubGearRampMs + 1000; t += 250)
+            tick();
+        QCOMPARE(res.softStart(), RideResistance::SoftStart::Done);
+        QVERIFY(std::abs(hub.hubSimulation().gearRatio - compensated) < 1e-9);
+        // coast for 30 s: 0 rpm, 0 W, the flywheel slowly from 30 to 12 km/h
+        hub.updateCadence(0);
+        hub.updatePower(0);
+        QVector<RideResistance::SoftStart> states;
+        QVector<double> gears;
+        for (int t = 0; t < 30000; t += 250) {
+            hub.updateSpeed(30.0 - 18.0 * t / 30000.0);
+            gears << tick();
+            states << res.softStart();
+        }
+        int stateChanges = 0, gearChanges = 0;
+        for (int i = 1; i < states.size(); ++i) {
+            if (states.at(i) != states.at(i - 1))
+                ++stateChanges;
+            if (std::abs(gears.at(i) - gears.at(i - 1)) > 1e-9)
+                ++gearChanges;
+        }
+        QCOMPARE(stateChanges, 1);   // Done -> Waiting (re-armed after > 5 s), no cycling
+        QCOMPARE(states.constLast(), RideResistance::SoftStart::Waiting);
+        QVERIFY(!states.contains(RideResistance::SoftStart::Ramping));
+        QCOMPARE(gearChanges, 1);    // compensated -> light, once (not pedaling: at once)
+        QVERIFY(std::abs(gears.constFirst() - compensated) < 1e-9);
+        QVERIFY(std::abs(gears.constLast() - light) < 1e-9);
+        // pedaling again: Waiting for kSoftStartTurnMs, then one ramp up
+        hub.updateCadence(80);
+        hub.updatePower(120);
+        hub.updateSpeed(25);
+        QVector<double> up;
+        QVector<RideResistance::SoftStart> upStates;
+        for (int t = 0; t < 2000 + RideResistance::kSoftStartRampMs + RideResistance::kHubGearRampMs + 1000; t += 250) {
+            up << tick();
+            upStates << res.softStart();
+        }
+        QCOMPARE(upStates.constLast(), RideResistance::SoftStart::Done);
+        QVERIFY(std::abs(up.constFirst() - light) < 1e-9);
+        QVERIFY(std::abs(up.constLast() - compensated) < 1e-9);
+        for (int i = 1; i < up.size(); ++i)
+            QVERIFY(up.at(i) >= up.at(i - 1) - 1e-9);   // monotone: one ramp, no back and forth
+        int waitingAgain = 0;
+        for (int i = 1; i < upStates.size(); ++i)
+            if (upStates.at(i) == RideResistance::SoftStart::Waiting && upStates.at(i - 1) != RideResistance::SoftStart::Waiting)
+                ++waitingAgain;
+        QCOMPARE(waitingAgain, 0);
+        // the start's lagging cadence (0 rpm, power > 0, speed rising) still
+        // counts as turning
+        res.reset();
+        hub.updateCadence(0);
+        hub.updatePower(180);
+        hub.updateSpeed(15);
+        for (int t = 0; t < 2500; t += 250)
+            tick();
+        QVERIFY(res.softStart() != RideResistance::SoftStart::Waiting);
     }
 
     // A trainer that reports neither cadence nor speed: power >= 50 W for 2 s.

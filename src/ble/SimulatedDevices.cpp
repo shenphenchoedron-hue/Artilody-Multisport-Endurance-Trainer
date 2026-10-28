@@ -549,6 +549,7 @@ void SimulatedTrainer::step()
     emit powerMeasured(int(std::lround(shown)));
     emit cadenceMeasured(cadence);
     emit speedMeasured(speed);
+    emit packetMeasured(TrainerPacket { int(std::lround(shown)), cadence, speed });
     if (DiagLog::instance().isActive()) {   // 1 Hz (the step), like a trainer's Indoor Bike Data
         ftms::IndoorBikeData d;
         d.speedKmh = speed;

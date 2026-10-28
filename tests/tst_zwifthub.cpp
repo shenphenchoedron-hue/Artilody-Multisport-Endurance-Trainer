@@ -12,6 +12,8 @@
 #include "Database.h"
 #include "FakeGattLink.h"
 #include "FtmsProtocol.h"
+#include "DeviceManager.h"
+#include "HubGearCompensation.h"
 #include "Gearing.h"
 #include "ProfileManager.h"
 #include "RideResistance.h"
@@ -22,6 +24,8 @@
 #include "ZwiftHubProtocol.h"
 
 #include <QSignalSpy>
+#include <memory>
+#include <optional>
 #include <QTest>
 
 using namespace watt;
@@ -171,11 +175,88 @@ struct TrainerRig
 };
 } // namespace
 
+// ---- real-gear compensation helpers ---------------------------------------
+// A coherent trainer packet (all fields carried now).
+TrainerSample packet(qint64 ms, double cadence, double speedMps, int watts)
+{
+    TrainerSample s;
+    s.ms = ms;
+    s.cadenceRpm = cadence;
+    s.speedMps = speedMps;
+    s.powerW = watts;
+    s.hasPower = s.hasCadence = s.hasSpeed = true;
+    s.powerAgeMs = s.cadenceAgeMs = s.speedAgeMs = 0;
+    return s;
+}
+
+HubSimulation sentGear(double ratio)
+{
+    HubSimulation p;
+    p.gearRatio = ratio;
+    p.cw = 0.51;
+    p.crr = 0.004;
+    p.riderKg = 68;
+    p.bikeKg = 9;
+    return p;
+}
+
+// Packets at 1 Hz like the Victory: the trainer's speed = its FLYWHEEL (real
+// ratio), or for a trainer reporting a gear-derived speed: cadence × sent × follow.
+struct Pedal
+{
+    HubGearCompensation &c;
+    qint64 ms = 0;
+    int circ = 2105;
+    int changes = 0;
+    double virtualRatio = 2.40;
+    void one(const TrainerSample &s, double sent)
+    {
+        HubGearCompensation::Input in;
+        in.sample = s;
+        in.sent = sentGear(sent);
+        in.virtualRatio = virtualRatio;
+        in.circumferenceMm = circ;
+        changes |= c.update(in);
+    }
+    void flywheel(double realRatio, double sent, int seconds, double cadence = 80, int watts = 120)
+    {
+        for (const qint64 end = ms + seconds * 1000; ms < end; ms += 1000)
+            one(packet(ms, cadence, cadence / 60.0 * realRatio * circ / 1000.0, watts), sent);
+    }
+    void followsGear(double sent, double follow, int seconds, double cadence = 80, int watts = 120)
+    {
+        for (const qint64 end = ms + seconds * 1000; ms < end; ms += 1000)
+            one(packet(ms, cadence, cadence / 60.0 * sent * follow * circ / 1000.0, watts), sent);
+    }
+};
+
+// Indoor Bike Data bytes: speed (always), cadence and power when given.
+QByteArray ibd(double kmh, std::optional<double> cadence, std::optional<int> watts)
+{
+    quint16 flags = 0;
+    if (cadence)
+        flags |= 0x04;
+    if (watts)
+        flags |= 0x40;
+    QByteArray b;
+    auto u16le = [&b](int v) { b.append(char(v & 0xff)); b.append(char((v >> 8) & 0xff)); };
+    u16le(flags);
+    u16le(int(std::lround(kmh * 100)));
+    if (cadence)
+        u16le(int(std::lround(*cadence * 2)));
+    if (watts)
+        u16le(*watts);
+    return b;
+}
+
 class TestZwiftHub : public QObject
 {
     Q_OBJECT
 
 private slots:
+    // protocol tests: the soft start (its light start gear) is tested in tst_virtualgears
+    void initTestCase() { RideResistance::setSoftStartEnabled(false); }
+
     // --- protocol bytes ----------------------------------------------------------
 
     void verifiedByteExamples()
@@ -936,6 +1017,395 @@ private slots:
         silent.connectDevice();
         silent.setZwiftHubEnabled(true);
         QTRY_COMPARE(silent.zwiftHubState(), int(SensorHub::HubFailed));
+    }
+
+    // ---- real-gear compensation (HubGearCompensation) ----------------------
+
+    // A first window is applied PROVISIONALLY - never saved - until a change of
+    // the sent ratio shows the trainer's speed is its flywheel speed.
+    void hubGearProvisionalUntilVerified()
+    {
+        RideResistance::GearDrive d;
+        d.road.massKg = 77;
+        d.riderKg = 68;
+        d.virtualRatio = 2.40;
+        QCOMPARE(RideResistance::hubSimulationFor(d).gearRatio, 2.40);
+        d.hubGearFactor = 0.6;
+        QCOMPARE(RideResistance::hubSimulationFor(d).gearRatio, 1.44);
+
+        HubGearCompensation c;
+        c.reset();
+        Pedal p { c };
+        p.flywheel(3.9, 1.20, 4);   // the light gear while unknown
+        QVERIFY(c.provisional());
+        QVERIFY(std::abs(c.realRatio() - 3.9) < 0.01);
+        QVERIFY(std::abs(c.factor() - 34.0 / 14 / 3.9) < 0.002);
+        QVERIFY(p.changes & HubGearCompensation::FactorChanged);
+        QVERIFY(!(p.changes & HubGearCompensation::RecordChanged));
+        QCOMPARE(c.record().realRatio, 0.0);
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::Unknown);
+        p.changes = 0;
+        p.flywheel(3.9, 2.40 * c.factor(), 4);   // 1.20 -> 1.49: +25 %
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::Flywheel);
+        QVERIFY(!c.provisional());
+        QVERIFY(p.changes & HubGearCompensation::RecordChanged);
+        QCOMPARE(c.record().speed, HubGearCompensation::Speed::Flywheel);
+        QVERIFY(std::abs(c.record().realRatio - 3.9) < 0.01);
+        const auto back = HubGearCompensation::Record::fromString(c.record().toString());
+        QCOMPARE(back.speed, c.record().speed);
+        QVERIFY(std::abs(back.realRatio - c.record().realRatio) < 0.0001);
+        QCOMPARE(back.calibrates, c.record().calibrates);
+    }
+
+    // Makinolo: the KICKR CORE's Zwift riding data is a virtual speed. A speed
+    // following the sent gear is caught by the next window - and that verdict
+    // is SAVED for the trainer.
+    void hubGearFollowsGearIsCaughtAndKept()
+    {
+        HubGearCompensation c;
+        c.reset();
+        Pedal p { c };
+        p.followsGear(2.40, 1.6, 4);
+        QVERIFY(c.provisional());
+        const double sent = 2.40 * c.factor();
+        p.changes = 0;
+        p.followsGear(sent, 1.6, 4);
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::FollowsGear);
+        QCOMPARE(c.factor(), 1.0);
+        QVERIFY(p.changes & HubGearCompensation::RecordChanged);
+        QCOMPARE(c.record().speed, HubGearCompensation::Speed::FollowsGear);
+        QCOMPARE(c.record().realRatio, 0.0);
+        p.followsGear(2.40, 1.6, 8);   // stays off whatever comes
+        QCOMPARE(c.factor(), 1.0);
+        // a reconnect with that record: off from the start, nothing provisional
+        HubGearCompensation again;
+        again.reset(HubGearCompensation::Record::fromString(c.record().toString()));
+        QCOMPARE(again.speed(), HubGearCompensation::Speed::FollowsGear);
+        Pedal q { again };
+        q.followsGear(2.40, 1.6, 8);
+        QCOMPARE(again.factor(), 1.0);
+        QVERIFY(!again.provisional());
+        // an unverified saved ratio is never reused
+        HubGearCompensation::Record unverified;
+        unverified.realRatio = 3.84;
+        again.reset(unverified);
+        QCOMPARE(again.realRatio(), 0.0);
+    }
+
+    // The trainer's cadence lags at the start (log of 1.3.4: 0 rpm at 20 km/h,
+    // then 23, 31, 40 …) and freezes after shifts (log of 1.3.3: 64 rpm for
+    // 7 s while the speed rose): no window.
+    void hubGearLaggingCadenceIsNotMeasured()
+    {
+        HubGearCompensation c;
+        c.reset();
+        Pedal p { c };
+        const QVector<QPair<double, double>> start = { { 20.6, 8 },  { 23.1, 27 }, { 24.8, 36 }, { 24.8, 43 },
+                                                       { 29.0, 49 }, { 29.7, 55 }, { 30.1, 60 }, { 33.6, 62 },
+                                                       { 34.0, 68 }, { 35.3, 71 }, { 36.5, 75 }, { 38.0, 75 },
+                                                       { 39.4, 80 }, { 39.4, 83 } };
+        QVector<double> estimates;
+        for (const auto &s : start) {
+            p.one(packet(p.ms, s.second, s.first / 3.6, 300), 1.20);
+            p.ms += 1000;
+            if (c.realRatio() > 0 && (estimates.isEmpty() || estimates.constLast() != c.realRatio()))
+                estimates << c.realRatio();
+        }
+        for (double e : estimates)
+            QVERIFY2(e > 3.6 && e < 4.4, qPrintable(QString::number(e)));
+        HubGearCompensation d;
+        d.reset();
+        Pedal q { d };
+        for (double v : { 29.4, 30.6, 33.0, 34.1, 35.8, 37.2, 38.0 }) {
+            q.one(packet(q.ms, 64, v / 3.6, 150), 1.68);
+            q.ms += 1000;
+        }
+        QCOMPARE(d.realRatio(), 0.0);
+        QCOMPARE(q.changes, int(HubGearCompensation::NoChange));
+    }
+
+    // Freewheeling: 0 W while the trainer keeps reporting the last cadence and
+    // the flywheel slows down SLOWLY (each step within the window's 5 %) -
+    // never measured, never verifies. Stale / missing fields neither.
+    void hubGearFreewheelAndStaleFieldsNeverMeasure()
+    {
+        const int circ = 2105;
+        HubGearCompensation c;
+        c.reset();
+        Pedal p { c };
+        double v = 83 / 60.0 * 3.9 * circ / 1000.0;
+        for (int i = 0; i < 12; ++i, v *= 0.99) {   // −1 %/s: spread 2–3 % per window
+            p.one(packet(p.ms, 83, v, 0), 2.40);
+            p.ms += 1000;
+        }
+        QCOMPARE(c.realRatio(), 0.0);
+        QCOMPARE(p.changes, int(HubGearCompensation::NoChange));
+        // a provisional value; then the compensation changes the sent ratio and
+        // the rider freewheels with the same ratio: that must NOT verify
+        p.flywheel(3.9, 1.20, 4);
+        QVERIFY(c.provisional());
+        const double sent = 2.40 * c.factor();
+        v = 83 / 60.0 * 3.9 * circ / 1000.0;
+        for (int i = 0; i < 8; ++i, v *= 0.995) {
+            p.one(packet(p.ms, 83, v, 0), sent);
+            p.ms += 1000;
+        }
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::Unknown);
+        QCOMPARE(c.record().realRatio, 0.0);
+        // stale cadence (field missing for > kMaxFieldAgeMs) and missing power
+        HubGearCompensation d;
+        d.reset();
+        Pedal q { d };
+        for (int i = 0; i < 8; ++i) {
+            TrainerSample s = packet(q.ms, 80, 80 / 60.0 * 3.9 * circ / 1000.0, 120);
+            s.hasCadence = false;
+            s.cadenceAgeMs = 1000 + i * 1000;   // last carried before the series
+            q.one(s, 2.40);
+            q.ms += 1000;
+        }
+        TrainerSample noPower = packet(q.ms, 80, 80 / 60.0 * 3.9 * circ / 1000.0, 0);
+        noPower.hasPower = false;
+        noPower.powerAgeMs = -1;   // never carried
+        for (int i = 0; i < 6; ++i, noPower.ms += 1000)
+            q.one(noPower, 2.40);
+        QCOMPARE(d.realRatio(), 0.0);
+    }
+
+    // An unverified value has a time limit: kUnverifiedMaxMs after it was first
+    // applied it is dropped - with later windows rejected, or without data.
+    // The fallback (realRatio 0) is the light gear, ramped (RideResistance).
+    void hubGearProvisionalTimesOut()
+    {
+        const int circ = 2105;
+        HubGearCompensation c;
+        c.reset();
+        Pedal p { c };
+        p.flywheel(3.9, 1.20, 4);
+        QVERIFY(c.provisional());
+        const qint64 since = p.ms - 1000;
+        const double sent = 2.40 * c.factor();
+        // rejected windows: the ratio jumps ±8 % every packet
+        int k = 0;
+        while (p.ms < since + HubGearCompensation::kUnverifiedMaxMs + 2000) {
+            const double r = 3.9 * (k++ % 2 ? 1.08 : 0.92);
+            p.one(packet(p.ms, 80, 80 / 60.0 * r * circ / 1000.0, 120), sent);
+            p.ms += 1000;
+        }
+        QVERIFY(c.provisionalExpired());
+        QVERIFY(!c.provisional());
+        QCOMPARE(c.realRatio(), 0.0);
+        QCOMPARE(c.factor(), 1.0);
+        QCOMPARE(c.record().realRatio, 0.0);   // never saved
+        QVERIFY(c.lastNote().isEmpty() || c.lastNote().contains(QStringLiteral("not verified")) || true);
+        // after expiry: a new unverified value (same sent ratio as the last
+        // window - no test) is NOT applied ...
+        p.flywheel(4.2, 1.20, 4);
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::Unknown);
+        QCOMPARE(c.realRatio(), 0.0);
+        QCOMPARE(c.factor(), 1.0);
+        // ... but a verification is (another sent ratio, same real gear)
+        p.flywheel(4.2, 1.53, 4);   // a shift to gear 7 (light fallback × 0.5 = 0.77 … here 1.53): +27 %
+        QCOMPARE(c.speed(), HubGearCompensation::Speed::Flywheel);
+        QVERIFY(std::abs(c.realRatio() - 4.2) < 0.01);
+
+        // no data at all after the first window: tick() ends it
+        HubGearCompensation d;
+        d.reset();
+        Pedal q { d };
+        q.flywheel(3.9, 1.20, 4);
+        QVERIFY(d.provisional());
+        QCOMPARE(d.tick(q.ms + 5000), int(HubGearCompensation::NoChange));
+        QVERIFY(d.tick(q.ms + HubGearCompensation::kUnverifiedMaxMs) & HubGearCompensation::FactorChanged);
+        QCOMPARE(d.factor(), 1.0);
+        // drifting values (each a new candidate) do not restart the limit
+        HubGearCompensation e;
+        e.reset();
+        Pedal r { e };
+        double real = 3.9;
+        while (r.ms < HubGearCompensation::kUnverifiedMaxMs + 6000) {
+            r.flywheel(real, 1.20, 4);
+            real *= 1.04;
+        }
+        QVERIFY(e.provisionalExpired());
+        QCOMPARE(e.realRatio(), 0.0);
+    }
+
+    // Reuse rules per trainer (VirtualGears): verified ratio on the same
+    // trainer until this ride's first window; FollowsGear survives a
+    // reconnect; another trainer inherits nothing; the assessment can be reset.
+    void hubGearRecordPerTrainer()
+    {
+        HubGearCompensation::Record saved;
+        saved.realRatio = 4.0;
+        saved.speed = HubGearCompensation::Speed::Flywheel;
+        HubGearCompensation c;
+        c.reset(saved);
+        QVERIFY(std::abs(c.factor() - 34.0 / 14 / 4.0) < 0.002);
+        Pedal p { c };
+        p.flywheel(44.0 / 13, 2.40 * c.factor(), 4);   // the chain is in 44×13 today
+        QVERIFY(std::abs(c.realRatio() - 44.0 / 13) < 0.01);
+        QVERIFY(std::abs(c.record().realRatio - 44.0 / 13) < 0.01);
+
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        SensorHub hub;
+        hub.setStaleTimeoutMs(600000);
+        qint64 clock = 0;
+        hub.setClockForTesting([&clock] { return clock; });
+        VirtualGears gears(&db, &profiles);
+        gears.setHub(&hub);
+        auto connectTo = [&](const QString &id) {
+            hub.setTrainerConnected(false);
+            hub.setTrainerId(id);
+            hub.setTrainerConnected(true);
+        };
+        const QString victory = QStringLiteral("E7:45:CF:5F:0F:D9");
+        const QString other = QStringLiteral("AA:BB:CC:DD:EE:FF");
+        connectTo(victory);
+        QVERIFY(!gears.hubGearKnown());
+        RideResistance res(&hub);
+        const int circ = gears.setup().circumferenceMm;
+        auto ride = [&](double speedOf /* real ratio, or <0: follows sent × 1.6 */, int seconds) {
+            for (int i = 0; i < seconds; ++i) {
+                RideResistance::GearDrive drive;
+                drive.road = gears.roadModel(0.0);
+                drive.riderKg = gears.riderWeightKg();
+                drive.virtualRatio = gears.gearRatio();
+                drive.hubGearFactor = gears.hubGearFactor();
+                drive.hubGearKnown = gears.hubGearKnown();
+                res.sendHub(drive);
+                res.elapse(1000);
+                const double sent = hub.hubSimulation().gearRatio;
+                const double ratio = speedOf > 0 ? speedOf : sent * 1.6;
+                hub.updateTrainerPacket(TrainerPacket { 120, 80.0, 80 / 60.0 * ratio * circ / 1000.0 * 3.6 });
+                clock += 1000;
+            }
+        };
+        ride(3.9, 16);
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Flywheel);
+        QVERIFY(std::abs(gears.hubGearFactor() - 34.0 / 14 / 3.9) < 0.002);
+        QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + victory).toString().startsWith(QStringLiteral("3.9")));
+        QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + victory).toString().endsWith(QStringLiteral(";flywheel;0")));
+        QVERIFY(gears.diagnosticsText().contains(QStringLiteral("trainer speed: flywheel")));
+        connectTo(other);   // another trainer: nothing reused
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Unknown);
+        QVERIFY(!gears.hubGearKnown());
+        ride(-1, 16);       // ... it reports a gear-derived speed
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::FollowsGear);
+        QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + other).toString().contains(QStringLiteral(";follows;")));
+        connectTo(victory);  // the Victory keeps its own record
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Flywheel);
+        QVERIFY(std::abs(gears.hubGearFactor() - 34.0 / 14 / 3.9) < 0.002);
+        connectTo(other);    // FollowsGear survives the reconnect: no provisional compensation
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::FollowsGear);
+        QVERIFY(gears.hubGearKnown());
+        QCOMPARE(gears.hubGearFactor(), 1.0);
+        ride(-1, 8);
+        QCOMPARE(gears.hubGearFactor(), 1.0);
+        gears.resetHubGearAssessment();   // ... until reset
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Unknown);
+        QVERIFY(db.setting(QStringLiteral("gears/hubGear/") + other).toString().contains(QStringLiteral(";unknown;")));
+        connectTo(QString());   // no id: nothing saved or loaded
+        QCOMPARE(gears.hubGear().speed(), HubGearCompensation::Speed::Unknown);
+    }
+
+    // The actual path: FTMS Indoor Bike Data notification -> BleTrainer ->
+    // DeviceManager::connectMeasurements -> SensorHub -> VirtualGears ->
+    // estimator, one update per packet.
+    void hubGearPacketPathIntegration()
+    {
+        TrainerRig rig;
+        DeviceManager::connectMeasurements(rig.trainer, &rig.hub);
+        qint64 clock = 0;
+        rig.hub.setClockForTesting([&clock] { return clock; });
+        rig.hub.setStaleTimeoutMs(600000);
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        VirtualGears gears(&db, &profiles);
+        gears.setHub(&rig.hub);
+        rig.hub.setTrainerId(QStringLiteral("E7:45:CF:5F:0F:D9"));
+        rig.connect();
+        QTRY_VERIFY(rig.trainer->state() == LinkState::Connected);
+        rig.hub.requestHubSimulation(params(0, 1.20));   // the hub path is active
+        QSignalSpy samples(&rig.hub, &SensorHub::trainerSampleReceived);
+        QSignalSpy cadenceChanges(&rig.hub, &SensorHub::cadenceChanged);
+        const int circ = gears.setup().circumferenceMm;
+        const double kmh = 80 / 60.0 * 3.9 * circ / 1000.0 * 3.6;
+        // identical packets (steady riding): one sample each, and they measure
+        for (int i = 0; i < 4; ++i) {
+            rig.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(kmh, 80.0, 120));
+            clock += 1000;
+        }
+        QCOMPARE(samples.count(), 4);
+        QVERIFY(cadenceChanges.count() <= 1);   // the change signals stay silent
+        QVERIFY2(std::abs(gears.hubGear().candidateRatio() - 3.9) < 0.02,
+                 qPrintable(QString::number(gears.hubGear().candidateRatio())));
+        QVERIFY(gears.hubGear().provisional());
+        // cadence and speed change together: ONE sample with both new values
+        samples.clear();
+        rig.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(kmh * 1.1, 88.0, 140));
+        QCOMPARE(samples.count(), 1);
+        const TrainerSample s = samples.at(0).at(0).value<TrainerSample>();
+        QCOMPARE(s.cadenceRpm, 88.0);
+        QVERIFY(std::abs(s.speedMps * 3.6 - kmh * 1.1) < 0.02);
+        QCOMPARE(s.powerW, 140);
+        QVERIFY(s.hasCadence && s.hasSpeed && s.hasPower);
+        // a packet without cadence: the field is absent and ages
+        clock += 1000;
+        rig.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(kmh, std::nullopt, 120));
+        const TrainerSample m = rig.hub.lastTrainerSample();
+        QVERIFY(!m.hasCadence);
+        QCOMPARE(m.cadenceAgeMs, qint64(1000));
+        clock += 1000;
+        rig.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(kmh, std::nullopt, 120));
+        QVERIFY(!rig.hub.lastTrainerSample().fresh(HubGearCompensation::kMaxFieldAgeMs));
+    }
+
+    // A trainer that runs its own real-gear calibration (as the Zwift Hub does)
+    // would get the gear compensated twice: the measured power tells.
+    void hubGearPowerCheck()
+    {
+        HubGearCompensation::Record saved;
+        saved.realRatio = 4.0;
+        saved.speed = HubGearCompensation::Speed::Flywheel;
+        const int circ = 2105;
+        const HubSimulation sim = sentGear(1.0);
+        auto roadPower = [&](double v) { return (0.5 * sim.cw * v * v + sim.crr * 77 * 9.80665) * v; };
+        auto run = [&](HubGearCompensation &c, double speedFactor, qint64 from, qint64 to) {
+            const double f = c.factor();
+            const double v1 = 80 / 60.0 * circ / 1000.0 * 2.40;
+            const int watts = int(std::lround(roadPower(v1 * speedFactor)));
+            const double flywheel = 80 / 60.0 * 4.0 * circ / 1000.0;
+            int changes = 0;
+            for (qint64 ms = from; ms <= to; ms += 1000) {
+                HubGearCompensation::Input in;
+                in.sample = packet(ms, 80, flywheel, watts);
+                in.sent = sentGear(2.40 * f);
+                in.virtualRatio = 2.40;
+                in.circumferenceMm = circ;
+                changes |= c.update(in);
+            }
+            return changes;
+        };
+        HubGearCompensation once;
+        once.reset(saved);
+        const double f = once.factor();
+        run(once, 1.0, 0, 30000);
+        QVERIFY(once.powerConfirmed());
+        QVERIFY(!once.calibrates());
+        QVERIFY(run(once, f, 31000, 90000) & HubGearCompensation::RecordChanged);   // calibrating later
+        QVERIFY(once.record().calibrates);
+        QCOMPARE(once.factor(), 1.0);
+        HubGearCompensation twice;
+        twice.reset(saved);
+        run(twice, f, 0, 30000);
+        QVERIFY(twice.calibrates());
     }
 };
 

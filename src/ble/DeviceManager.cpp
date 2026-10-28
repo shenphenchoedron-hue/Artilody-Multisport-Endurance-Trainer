@@ -1641,9 +1641,7 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
     }
     t->setAutoReconnect(m_autoReconnect);
     m_trainers.setState(t->id(), int(LinkState::Connecting));
-    connect(t, &TrainerDevice::powerMeasured, m_hub, &SensorHub::updatePower);
-    connect(t, &TrainerDevice::cadenceMeasured, m_hub, &SensorHub::updateCadence);
-    connect(t, &TrainerDevice::speedMeasured, m_hub, &SensorHub::updateSpeed);
+    connectMeasurements(t, m_hub);
     connect(t, &TrainerDevice::heartRateMeasured, this, [this](int bpm) {
         // Use the trainer's HR only when no dedicated HR sensor is connected.
         if (!m_hr || m_hr->state() != LinkState::Connected)
@@ -1696,6 +1694,7 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
         m_trainers.setState(t->id(), int(s));
         if (s == LinkState::Connected)
             m_hub->setTrainerSimulationSupport(t->simulationSupport());
+        m_hub->setTrainerId(s == LinkState::Connected ? t->id() : QString());
         m_hub->setTrainerConnected(s == LinkState::Connected);
         if (s != LinkState::Connected && m_ergTest) {
             m_ergTest = false;
@@ -1781,6 +1780,7 @@ void DeviceManager::releaseTrainer()
     t->disconnect(this);
     t->disconnectDevice();
     t->deleteLater();
+    m_hub->setTrainerId(QString());
     m_hub->setTrainerConnected(false);
     m_hub->setTrainerSimulationSupport(-1);
     m_hub->setTrainerZwiftHub(SensorHub::HubNone, QString());
@@ -1839,6 +1839,16 @@ QString DeviceManager::connectedSummary() const
     if (parts.isEmpty())
         return QStringLiteral("No sensors connected");
     return parts.join(QStringLiteral(" + "));
+}
+
+void DeviceManager::connectMeasurements(TrainerDevice *t, SensorHub *hub)
+{
+    // per field (displays, smoothing), then the whole packet (estimators):
+    // same thread, direct connections - the packet follows its fields
+    connect(t, &TrainerDevice::powerMeasured, hub, &SensorHub::updatePower);
+    connect(t, &TrainerDevice::cadenceMeasured, hub, &SensorHub::updateCadence);
+    connect(t, &TrainerDevice::speedMeasured, hub, &SensorHub::updateSpeed);
+    connect(t, &TrainerDevice::packetMeasured, hub, &SensorHub::updateTrainerPacket);
 }
 
 QString DeviceManager::trainerId() const { return m_trainer ? m_trainer->id() : QString(); }

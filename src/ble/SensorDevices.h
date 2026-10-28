@@ -116,6 +116,9 @@ signals:
     void powerMeasured(int watts);
     void cadenceMeasured(double rpm);
     void speedMeasured(double kmh);
+    // after the per-field signals of one packet: the whole packet
+    // (DeviceManager::connectMeasurements -> SensorHub::updateTrainerPacket)
+    void packetMeasured(const watt::TrainerPacket &packet);
     void heartRateMeasured(int bpm);         // some trainers forward HR
     void capabilitiesChanged();
     void simulationSupportChanged();

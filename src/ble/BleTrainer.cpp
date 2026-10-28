@@ -805,6 +805,7 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
             emit cadenceMeasured(*d->cadenceRpm);
         if (d->speedKmh)
             emit speedMeasured(*d->speedKmh);
+        emit packetMeasured(TrainerPacket { d->powerW, d->cadenceRpm, d->speedKmh });
         if (d->heartRateBpm && *d->heartRateBpm > 0)
             emit heartRateMeasured(*d->heartRateBpm);
         return;

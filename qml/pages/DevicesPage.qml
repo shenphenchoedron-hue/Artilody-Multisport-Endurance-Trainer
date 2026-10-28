@@ -1477,6 +1477,29 @@ Item {
                     onActivated: (v) => Gears.hubOverride = v
                 }
             }
+            // the real-gear assessment of the connected trainer (speed type,
+            // real gear, self-calibration) is saved per trainer: start over
+            Item {
+                width: parent.width
+                height: 44
+                Text {
+                    text: "Real gear on the trainer"
+                    color: Theme.text
+                    font.pixelSize: 15
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                AppButton {
+                    objectName: "resetHubGearButton"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 40
+                    fontSize: 14
+                    bold: false
+                    kind: "secondary"
+                    text: "Measure again"
+                    onClicked: Gears.resetHubGearAssessment()
+                }
+            }
             Item {
                 width: parent.width
                 height: 44

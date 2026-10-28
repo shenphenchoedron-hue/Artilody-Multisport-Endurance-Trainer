@@ -122,6 +122,13 @@ public:
         double trainerMassKg = 0;    // the trainer's own rider weight setting, 0 = unknown
                                      // (assumed to be road.massKg)
         double riderKg = 0;          // rider alone (road.massKg - riderKg = bike), 0 = unknown
+        // Zwift hub path only: the gear ratio sent = virtualRatio × this
+        // (VirtualGears::hubGearFactor(): the trainer's assumed real gear /
+        // the bike's real gear on the trainer; 1 = unknown)
+        double hubGearFactor = 1.0;
+        // Zwift hub path: the real gear is known (or the compensation is off
+        // for good); false: the light gear (kHubLightGearFactor), ramped
+        bool hubGearKnown = true;
     };
     static constexpr int kCoastCadenceRpm = 15;
     static constexpr int kMinGearWatts = 20;     // lowest gear power while pedaling
@@ -201,13 +208,23 @@ public:
     // At the start of a ride (reset()) and after the rider stopped, the
     // trainer does not get the route's grade (or the gear-adjusted grade) at
     // once: 0 % until the flywheel turns, then a linear ramp to the real grade.
-    //   turning = cadence >= kSoftStartCadenceRpm OR trainer speed >=
-    //             kSoftStartSpeedKmh (a trainer reporting neither: power >=
-    //             kSoftStartPowerWatts), for kSoftStartTurnMs without a break
+    //   freewheel = the trainer reports cadence and its current values are
+    //             0 rpm AND 0 W (SensorHub's latest values - reset to 0 when
+    //             stale): the flywheel may still spin fast, nobody pedals
+    //   turning = NOT freewheel AND (cadence >= kSoftStartCadenceRpm OR trainer
+    //             speed >= kSoftStartSpeedKmh; a trainer reporting neither:
+    //             power >= kSoftStartPowerWatts), for kSoftStartTurnMs without
+    //             a break. (A spinning flywheel alone never ends the waiting:
+    //             during a coast above 10 km/h "turning" and "stopped" were both
+    //             true - the state cycled Waiting/Ramping every ~5 s, and with
+    //             it the hub path's light gear.) The start's lagging cadence
+    //             (0 rpm while the speed rises, log of 1.3.4) is not a
+    //             freewheel: the power is > 0 then.
     //   ramp    = sent grade = target × t / kSoftStartRampMs
-    //   re-arm  = stopped for more than kSoftStartRearmMs: cadence 0 (a trainer
-    //             without cadence: speed < kSoftStartStopSpeedKmh; neither:
-    //             power 0)
+    //   re-arm  = stopped for more than kSoftStartRearmMs: NOT turning and
+    //             cadence 0 (a trainer without cadence: speed <
+    //             kSoftStartStopSpeedKmh; neither: power 0) - a coast of more
+    //             than 5 s re-arms; pedaling again needs kSoftStartTurnMs
     // Applies to sendGrade() (Simulation, GearSimulation, the grade side of
     // GearHybrid) and sendHub()'s incline (Zwift hub path). The rate limits of
     // sendGrade() stay (a ramp step at most every kMinGradeIntervalMs);
@@ -225,6 +242,26 @@ public:
     double softStartFactor() const;
     // the grade that goes out for target (target × softStartFactor())
     double softStartGrade(double target) const;
+    // --- Zwift hub path: the gear that goes out --------------------------------
+    // On a flat road a 0 % incline softens nothing (the trainer brakes for the
+    // gear's speed), so the hub path softens the GEAR (log of 1.3.4: 400–520 W
+    // to get a 77 kg rider going, FTP 110 W). Target ratio D per drive:
+    //   light  D = virtual × kHubLightGearFactor   while the soft start waits
+    //          for the flywheel, and whenever the real gear is unknown
+    //          (GearDrive::hubGearKnown false: not measured yet, or a
+    //          provisional value timed out) - no timeout to the full ratio
+    //   else   D = virtual × GearDrive::hubGearFactor
+    // Transitions: whenever that basis changes (light <-> compensated, or the
+    // compensation factor changes) the gear ramps over kHubGearRampMs in 10
+    // steps from the LAST REQUESTED ratio (SensorHub::hubSimulation(): the
+    // latest command, not a setting the trainer confirmed - with normal
+    // delivery it is what the trainer has) to the new D - never a jump, even
+    // if the soft start's own ramp ended long ago. Shifts keep the ramp position (they act at once). While the
+    // soft start waits (not pedaling) the change is immediate.
+    static constexpr double kHubLightGearFactor = 0.5;   // gear 12 (2.40) -> 1.20 ≈ gear 5
+    static constexpr int kHubGearRampMs = kSoftStartRampMs;
+    double hubGearScale() const { return m_hubScale; }      // sent / D (1 = settled)
+    bool hubGearLight() const { return m_hubBasisLight; }
     // Tests of unrelated behaviour may switch it off (process-wide, default on).
     static void setSoftStartEnabled(bool on);
     static bool softStartEnabled();
@@ -238,6 +275,8 @@ public:
         m_sinceMs += ms;
         m_sinceToggleMs += ms;
         m_sinceHybridMs += ms;
+        if (m_hubRampMs >= 0)
+            m_hubRampMs = std::min(kHubGearRampMs, m_hubRampMs + ms);
         updateSoftStart(ms);
     }
 
@@ -299,6 +338,14 @@ private:
     int m_softTurningMs = 0;      // flywheel turning without a break
     int m_softStoppedMs = 0;      // stopped without a break
     int m_softRampMs = 0;         // into the ramp
+    // hub gear transition (see kHubLightGearFactor)
+    bool m_hubBasisValid = false;
+    bool m_hubBasisLight = true;
+    double m_hubBasisFactor = 1.0;
+    double m_hubScale = 1.0;      // sent / D
+    double m_hubScaleFrom = 1.0;  // at the ramp's start
+    int m_hubRampMs = -1;         // into the ramp, -1: none
+    double hubGearRatio(const GearDrive &d);
     bool m_softUsed = false;      // a grade / incline went out since arming (logging)
     double m_softTarget = 0;      // last target grade (logging)
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts
