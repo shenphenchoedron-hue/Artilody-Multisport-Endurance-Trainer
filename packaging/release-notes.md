@@ -1,6 +1,15 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.9
+## What's new in 1.3.10
+
+Safer switching between **ERG** and **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetblack Victory).
+
+- **ERG ends the Zwift protocol cleanly**: choosing ERG (Free Ride ERG, a video ride's ERG, a workout, the ERG test) or the FTMS gradient while the Zwift protocol starts or runs now ends the hub session first. The trainer no longer keeps getting the old road and gear every few seconds after the ERG target, and a Zwift Hub that had taken over FTMS control is asked for it again so the ERG target is applied.
+- **A Zwift Click alone never takes the trainer out of ERG**: the Zwift protocol starts again only when a ride in Ride / Simulation asks for the hub – not because a Click connects or reconnects. A restarted hub only gets the values of the ride that asked for it.
+- **No resistance hop from ERG to the hub**: the first hub gear is the one at which the trainer's own physics – with exactly the values sent to it (incline, CWa 0.51, Crr 0.004, rider + bike, no wind) – brake with the power you push now; it stays there during the handshake and then ramps over 4 s in 10 steps to your gear. This match is used only with fresh data (power and speed within 2 s) from a trainer whose speed is verified as its flywheel's, at ≥ 30 W, ≥ 7 km/h, not on descents and only when the result is well determined. Otherwise – unknown speed type, old data, 0 W, standstill, descents – the hub starts from the light gear and ramps up the same way.
+- **Zwift Hub gets road and gear at once**: when it answers the start of the data stream without riding data (flywheel standing), the app makes it active immediately instead of waiting 4 s with the trainer on its own default resistance.
+
+## Also included from 1.3.9
 
 Fixes for **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetblack Victory) and the **Zwift Click**, plus a **start gear for your FTP**.
 
