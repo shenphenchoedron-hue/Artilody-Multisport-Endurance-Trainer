@@ -229,9 +229,9 @@ double RideResistance::hubGearRatio(const GearDrive &d)
     m_hubLastVirtual = d.virtualRatio;
     if (shifted) {
         // a virtual shift: harder ramps over kHubShiftRampMs from the last
-        // requested ratio (the trainer's inertia emulation turned a sudden
-        // +9 % into a power spike: 68 -> 143 -> ~105 W, log of 1.3.5); easier
-        // acts at once
+        // requested ratio (the trainer accelerates the virtual bike + rider to
+        // the higher speed - a power spike if that happens quickly, see
+        // kHubShiftRampMs); easier acts at once
         if (waiting || !(actual > 0) || target <= actual) {
             m_hubScale = 1.0;
             m_hubRampMs = -1;

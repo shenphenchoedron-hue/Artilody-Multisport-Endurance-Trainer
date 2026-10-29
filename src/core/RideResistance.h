@@ -262,7 +262,13 @@ public:
     static constexpr int kHubGearRampMs = kSoftStartRampMs;
     // A virtual shift to a HARDER gear ramps over kHubShiftRampMs (same 10
     // steps, from the last requested ratio); an easier one acts at once.
-    static constexpr int kHubShiftRampMs = 1500;
+    // Shifting up at the same cadence means the trainer accelerates the
+    // virtual bike + rider (77 kg) to the higher speed: +9 % at 23–25 km/h is
+    // ~290 J. Over 1.25 s (1.3.6) that was a spike of +80 … 110 W about 2 s
+    // after the shift (75 -> 187 -> ~105 W, log of 1.3.6, flat free ride);
+    // the extra power is roughly that energy / ramp time, so 3 s about halves
+    // it while the shift still lands within one or two pedal strokes' time.
+    static constexpr int kHubShiftRampMs = 3000;
     double hubGearScale() const { return m_hubScale; }      // sent / D (1 = settled)
     bool hubGearLight() const { return m_hubBasisLight; }
     // Tests of unrelated behaviour may switch it off (process-wide, default on).
