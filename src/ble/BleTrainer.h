@@ -133,6 +133,13 @@ private:
     // FTMS control was handed to the Zwift protocol and is not requested again
     // until the hub session ends (failed / stopped).
     void returnControlFromHub(const QString &why);
+    // An intended FTMS resistance command (ERG target, FTMS gradient) while
+    // the Zwift protocol starts / runs: the hub session is ended (no refresh
+    // of the old road / gear after the command; FTMS control is given back
+    // and requested again if the trainer had taken it). The hub restarts
+    // with the next setHubSimulation() (RideResistance::choose() keeps the
+    // hub path while it is wanted and available).
+    void leaveHubForFtms(const QString &what);
 
     QString m_id;
     QString m_name;

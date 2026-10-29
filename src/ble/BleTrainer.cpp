@@ -314,6 +314,15 @@ void BleTrainer::maybeStartHub()
 {
     if (!m_zhubEnabled || !m_ready || state() != LinkState::Connected)
         return;
+    if (m_zhub->state() == ZwiftHubLink::State::Available && m_lastRequest != Request::None
+        && m_lastRequest != Request::Hub) {
+        // an FTMS command is current (ERG target, FTMS gradient, free ride):
+        // a connected Click alone must not take the trainer from it - the
+        // session's next hub simulation (Ride wants the hub) starts it
+        DiagLog::write("ZHUB", QStringLiteral("%1: Zwift protocol wanted, but an FTMS command is current – not started "
+                                              "until a ride asks for the hub").arg(m_name));
+        return;
+    }
     if (m_zhub->state() == ZwiftHubLink::State::Available) {
         emit logMessage(QStringLiteral("Zwift Click connected and %1 has the Zwift trainer service – starting the Zwift protocol").arg(m_name), true);
         m_zhub->start();
@@ -347,6 +356,16 @@ void BleTrainer::returnControlFromHub(const QString &why)
     DiagLog::write("FTMS", QStringLiteral("%1 – requesting FTMS control again").arg(why));
     restorePendingCommand();
     requestControl();
+}
+
+void BleTrainer::leaveHubForFtms(const QString &what)
+{
+    if (!hubSessionRunning())
+        return;
+    DiagLog::write("ZHUB", QStringLiteral("%1 requested while the Zwift protocol is %2 – ending the hub session "
+                                          "(restarted with the next hub simulation)")
+                               .arg(what, m_zhub->stateText()));
+    m_zhub->stop();   // stateChanged: FTMS control requested again if it was yielded
 }
 
 bool BleTrainer::hubMayOwnResistance() const
@@ -388,23 +407,31 @@ void BleTrainer::setZwiftHubEnabled(bool on)
 
 void BleTrainer::setHubSimulation(const HubSimulation &p)
 {
-    m_lastRequest = Request::Hub;
+    m_lastRequest = Request::Hub;   // current before the hub (re)starts
     m_lastHub = p;
     // no FTMS resistance command while the hub path is active
     dropQueuedControlCommands();
+    // Ride asks for the hub: start it if it is not running (never started
+    // because an FTMS command was current, or ended for an ERG target / FTMS
+    // gradient)
+    if (m_zhub->state() == ZwiftHubLink::State::Available && m_zhubEnabled)
+        maybeStartHub();
     if (!m_hasControl) {
         m_pending = true;
         requestControl();   // FTMS control is still held (start / data)
     } else {
         m_pending = false;
     }
+    // stored by the link also before it is active: the first values sent
+    // after the handshake are this ride's, never older ones
+    m_zhub->update(p);
     if (m_zhub->active()) {
         m_hubIgnoredLogged = false;
-        m_zhub->update(p);
     } else if (!m_hubIgnoredLogged) {
         m_hubIgnoredLogged = true;
-        DiagLog::write("ZHUB", QStringLiteral("hub simulation requested but the Zwift protocol is %1 – nothing sent "
-                                              "(the session switches to FTMS gradient)").arg(m_zhub->stateText()));
+        DiagLog::write("ZHUB", QStringLiteral("hub simulation requested but the Zwift protocol is %1 – sent once it is active "
+                                              "(after a failure the session switches to FTMS gradient)")
+                                   .arg(m_zhub->stateText()));
     }
 }
 
@@ -997,6 +1024,7 @@ void BleTrainer::setTargetPower(int watts)
 {
     m_lastRequest = Request::Target;
     m_lastTarget = watts;
+    leaveHubForFtms(QStringLiteral("ERG target %1 W").arg(watts));
     if (!m_hasControl) {
         m_pending = true;
         requestControl();   // no-op until the control point is ready
@@ -1039,6 +1067,7 @@ void BleTrainer::setSimulation(double gradePercent, double windSpeedMps, double 
                                    .arg(gradePercent, 0, 'f', 2));
         return;   // the session falls back to virtual gears (ERG)
     }
+    leaveHubForFtms(QStringLiteral("FTMS gradient %1 %").arg(gradePercent, 0, 'f', 2));
     if (!m_hasControl) {
         m_pending = true;
         requestControl();

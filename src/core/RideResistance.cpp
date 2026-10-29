@@ -166,9 +166,12 @@ RideResistance::Path RideResistance::choose(bool erg, bool virtualGears, const S
     // While its handshake runs (Click connected, trainer with the Zwift
     // service) as well: nothing goes to the trainer until the hub is active
     // (BleTrainer keeps the request), no FTMS ERG / 0x11 meanwhile - Zwift
-    // never mixes FTMS commands into the hub protocol.
+    // never mixes FTMS commands into the hub protocol. Wanted and available
+    // (not started yet, or ended for an ERG target / FTMS gradient): the hub
+    // path too - its first command starts the handshake (BleTrainer).
     if (hub && (hub->trainerZwiftHubActive()
-                || (hub->zwiftHubWanted() && hub->trainerZwiftHubState() == SensorHub::HubStarting)))
+                || (hub->zwiftHubWanted() && (hub->trainerZwiftHubState() == SensorHub::HubStarting
+                                              || hub->trainerZwiftHubState() == SensorHub::HubAvailable))))
         return Path::GearHub;
     if (method == GearMethod::Erg || !gearSimulationPossible(hub))
         return Path::GearErg;
@@ -212,7 +215,74 @@ double RideResistance::softStartFactor() const
     return 1.0;
 }
 
-double RideResistance::hubGearRatio(const GearDrive &d)
+RideResistance::HandoverMatch RideResistance::matchedHubRatio(const HubSimulation &p, const TrainerSample &s, qint64 nowMs,
+                                                             bool trainerReportsSpeed, bool speedVerifiedFlywheel,
+                                                             double target)
+{
+    HandoverMatch out;
+    const auto ageOf = [&](qint64 fieldAgeMs) { return fieldAgeMs < 0 ? -1 : nowMs - s.ms + fieldAgeMs; };
+    const auto fresh = [&](qint64 fieldAgeMs) {
+        const qint64 a = ageOf(fieldAgeMs);
+        return a >= 0 && a <= kHandoverMaxAgeMs;
+    };
+    if (!fresh(s.powerAgeMs)) {
+        out.why = QStringLiteral("no fresh power");
+        return out;
+    }
+    if (s.powerW < kHandoverMinWatts) {
+        out.why = QStringLiteral("%1 W: nothing to match").arg(s.powerW);
+        return out;
+    }
+    if (std::abs(p.windMps) > 1e-9) {
+        out.why = QStringLiteral("wind in the hub road");
+        return out;
+    }
+    if (!(p.inclinePercent >= kHandoverMinIncline)) {
+        out.why = QStringLiteral("descent %1 %: the power does not decide the gear").arg(p.inclinePercent, 0, 'f', 2);
+        return out;
+    }
+    // the trainer's own physics with exactly the values the hub gets
+    road::Model m;
+    m.massKg = p.riderKg + p.bikeKg;
+    m.cda = p.cw / road::kAirDensity;   // ½·CWa·v² = ½·ρ·CdA·v²
+    m.crr = p.crr;
+    m.gradePercent = p.inclinePercent;
+    m.efficiency = 1.0;                 // the brake power: F(v)·v
+    const double v = road::speedForPower(m, s.powerW);
+    if (!(v >= kHandoverMinSpeedMps && v < road::kMaxSpeedMps * 0.95)) {
+        out.why = QStringLiteral("simulated speed %1 m/s out of range").arg(v, 0, 'f', 2);
+        return out;
+    }
+    const double slope = (road::powerForSpeed(m, v * 1.05) - road::powerForSpeed(m, v * 0.95)) / (0.1 * v);
+    if (!(slope >= kHandoverMinSlope)) {
+        out.why = QStringLiteral("dP/dv %1 W per m/s: too uncertain").arg(slope, 0, 'f', 1);
+        return out;
+    }
+    // only a speed VERIFIED to be the flywheel's (an unknown speed type, a
+    // speed following the sent gear or a trainer without a speed: no guess)
+    if (!trainerReportsSpeed) {
+        out.why = QStringLiteral("the trainer reports no speed");
+        return out;
+    }
+    if (!speedVerifiedFlywheel) {
+        out.why = QStringLiteral("the trainer's speed type is not verified as its flywheel's");
+        return out;
+    }
+    if (!fresh(s.speedAgeMs) || s.speedMps < kHandoverMinSpeedMps) {
+        out.why = fresh(s.speedAgeMs) ? QStringLiteral("flywheel %1 m/s: standing / spinning down").arg(s.speedMps, 0, 'f', 2)
+                                      : QStringLiteral("no fresh speed");
+        return out;
+    }
+    const double ratio = v * kHubTrainerRatio / s.speedMps;   // flywheel × ratio / 2.43 = v
+    if (!(target > 0) || ratio < target * kHandoverMinScale || ratio > target * kHandoverMaxScale) {
+        out.why = QStringLiteral("ratio %1 too far from the gear's %2").arg(ratio, 0, 'f', 3).arg(target, 0, 'f', 3);
+        return out;
+    }
+    out.ratio = ratio;
+    return out;
+}
+
+double RideResistance::hubGearRatio(const GearDrive &d, const HubSimulation *hubRoad)
 {
     const double factor = std::isfinite(d.hubGearFactor) && d.hubGearFactor > 0 ? d.hubGearFactor : 1.0;
     const bool waiting = softStartEnabled() && m_soft == SoftStart::Waiting;
@@ -259,6 +329,26 @@ double RideResistance::hubGearRatio(const GearDrive &d)
                                       .arg(light ? QStringLiteral("light gear: real gear unknown")
                                                  : QStringLiteral("× %1 for the real gear").arg(basisFactor, 0, 'f', 3))
                                       .arg(kHubGearRampMs / 1000.0, 0, 'f', 0));
+        }
+    }
+    if (m_hubHandover && hubRoad) {
+        // start at the matched ratio (no match: the light gear); the ramp
+        // waits for the active hub
+        const HandoverMatch match = matchedHubRatio(*hubRoad, m_hub->lastTrainerSample(), m_hub->now(),
+                                                    m_hub->trainerReportsSpeed(), d.hubSpeedVerifiedFlywheel,
+                                                    target);
+        m_hubScaleFrom = match.ratio > 0 ? match.ratio / target : std::min(1.0, kHubLightGearFactor);
+        m_hubScale = m_hubScaleFrom;
+        m_hubRampMs = 0;
+        m_hubRampDurationMs = kHubGearRampMs;
+        if (m_hub->trainerZwiftHubActive()) {
+            m_hubHandover = false;
+            DiagLog::write("RES", QStringLiteral("hub gear handover from FTMS: %1 -> %2 over %3 s (%4)")
+                                      .arg(target * m_hubScale, 0, 'f', 3)
+                                      .arg(target, 0, 'f', 3)
+                                      .arg(kHubGearRampMs / 1000.0, 0, 'f', 0)
+                                      .arg(match.ratio > 0 ? QStringLiteral("matched to the trainer's %1 W").arg(m_hub->lastTrainerSample().powerW)
+                                                           : QStringLiteral("no match: %1 – from the light gear").arg(match.why)));
         }
     }
     if (m_hubRampMs >= 0) {
@@ -363,6 +453,7 @@ void RideResistance::reset()
     armSoftStart();
     m_hubBasisValid = false;   // the next hub gear re-anchors on the last requested ratio
     m_hubRampMs = -1;
+    m_hubHandover = false;
     m_hubLastVirtual = 0;
     m_lastWasHub = false;
     m_light = -1;
@@ -443,7 +534,13 @@ bool RideResistance::sendHub(const GearDrive &d)
     HubSimulation p = hubSimulationFor(d);
     noteSoftTarget(p.inclinePercent);
     p.inclinePercent = softStartGrade(p.inclinePercent);   // soft start: 0 % / ramp
-    p.gearRatio = hubGearRatio(d);                         // ... and the gear (light / compensated, ramped)
+    // mid-ride from an FTMS command (ERG target / FTMS gradient) to the hub:
+    // start at the gear that matches the power the trainer brakes with now
+    if (!m_lastWasHub && sentAnything()) {
+        m_hubHandover = true;
+        m_hubBasisValid = false;
+    }
+    p.gearRatio = hubGearRatio(d, &p);                     // ... and the gear (light / compensated, ramped)
     m_hub->requestHubSimulation(p);
     m_serial = m_hub->commandSerial();
     const bool newValue = !m_lastWasHub || p.inclinePercent != m_lastGrade;

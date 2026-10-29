@@ -735,6 +735,80 @@ private slots:
         }
     }
 
+    // An intended ERG target while the Zwift protocol runs ends the hub
+    // session: no refresh of the old road / gear after the ERG command, and a
+    // trainer that had taken FTMS control (Zwift Hub) gets the control request
+    // and the ERG target. The next hub simulation starts the hub again.
+    void ergEndsTheHubSession()
+    {
+        for (const bool hubTakesControl : { false, true }) {
+            TrainerRig r(true, true, false);
+            bool lostSent = false;
+            r.link->responder = [&](const QBluetoothUuid &c, const QByteArray &d) -> QVector<FakeGattLink::Notification> {
+                if (c == kCp && !d.isEmpty())
+                    return { { kCp, hex("80") + d.left(1) + hex("01") } };
+                if (c != kRx)
+                    return {};
+                if (zhub::isRideOn(d))
+                    return { { kTx, QByteArray("RideOn") } };
+                if (d == zhub::startStream()) {
+                    QVector<FakeGattLink::Notification> out;
+                    if (hubTakesControl && !lostSent) {
+                        lostSent = true;
+                        out.append({ u16(ftms::kMachineStatusUuid), hex("ff") });
+                    }
+                    zhub::RidingData rd;
+                    rd.power = 90;
+                    rd.cadence = 70;
+                    rd.speedMps = 6.0;
+                    out.append({ kAsync, zhub::encodeRidingData(rd) });
+                    return out;
+                }
+                return {};
+            };
+            r.connect();
+            QTRY_COMPARE(r.link->countOp(kCp, 0x00), 1);
+            r.hub.setZwiftHubWanted(true);
+            QTRY_COMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+            r.trainer->setHubSimulation(params(2.0, 2.4));
+            QTRY_VERIFY(!commands(r.link).isEmpty());
+            QCOMPARE(lostSent, hubTakesControl);
+
+            // the rider switches to ERG
+            r.trainer->setTargetPower(150);
+            QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Available);
+            QCOMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubAvailable));
+            QTRY_COMPARE(r.link->countOp(kCp, kOpPower), 1);   // the ERG target goes out
+            QCOMPARE(r.link->countOp(kCp, 0x00), hubTakesControl ? 2 : 1);
+            const int hubWrites = r.link->writesTo(kRx).size();
+            QTest::qWait(400);   // refresh 100 ms: nothing more on the hub
+            QCOMPARE(r.link->writesTo(kRx).size(), hubWrites);
+            // the Click alone (e.g. it reconnects) does not take the trainer from ERG
+            r.hub.setZwiftHubWanted(false);
+            r.hub.setZwiftHubWanted(true);
+            QTest::qWait(300);
+            QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Available);
+            QCOMPARE(r.link->writesTo(kRx).size(), hubWrites);
+            QCOMPARE(r.link->countOp(kCp, 0x00), hubTakesControl ? 2 : 1);
+            // ERG keeps its path; Ride with the hub wanted and available: the hub path ...
+            QCOMPARE(RideResistance::choose(true, true, &r.hub), RideResistance::Path::Erg);
+            QCOMPARE(RideResistance::choose(false, true, &r.hub), RideResistance::Path::GearHub);
+            // ... whose next command starts the hub again, with this ride's values only
+            r.trainer->setHubSimulation(params(1.0, 2.4));
+            QTRY_COMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+            QTRY_VERIFY(r.link->writesTo(kRx).size() > hubWrites + 2);
+            const QVector<QByteArray> after = r.link->writesTo(kRx).mid(hubWrites);
+            for (const QByteArray &w : after) {
+                if (w.isEmpty() || quint8(w.at(0)) != zhub::OutCommand || zhub::isRideOn(w))
+                    continue;
+                const auto c = zhub::decodeCommand(w.mid(1));
+                QVERIFY(c);
+                if (c->simulation && c->simulation->inclinePercent)
+                    QCOMPARE(*c->simulation->inclinePercent, 1.0);   // never the old 2 %
+            }
+        }
+    }
+
     void onlyChangedFieldsAndRateLimits()
     {
         FakeGattLink link(victoryFtms() + hubChars(), { u16(0x1826), u16(0xFC82) });

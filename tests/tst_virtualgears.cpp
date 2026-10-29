@@ -260,6 +260,101 @@ private slots:
     // and in tst_virtualgears (softStart*).
     void initTestCase() { RideResistance::setSoftStartEnabled(false); }
 
+    // ERG -> Zwift hub mid-ride: no resistance hop. The first hub gear is the
+    // one at which the trainer's physics give the power of the ERG target the
+    // rider pushes now; it stays there during the handshake and then ramps
+    // over kHubGearRampMs in 10 steps to the virtual gear's ratio.
+    // Only fresh packets of a trainer whose speed is VERIFIED as its
+    // flywheel's are matched; unknown / old / uncertain data (0 W,
+    // standstill, descent) start from the light gear - always ramped.
+    void ergToHubHandoverHasNoHop()
+    {
+        const double target = 2.40 * 0.62;
+        struct Case
+        {
+            const char *name;
+            bool verified;
+            int watts;
+            double flywheelKmh;
+            double grade;
+            qint64 packetAgeMs;
+            bool matched;
+        };
+        const Case cases[] = {
+            { "verified, fresh", true, 150, 36.0, 0.0, 200, true },
+            { "speed type unknown", false, 150, 36.0, 0.0, 200, false },
+            { "old packet", true, 150, 36.0, 0.0, RideResistance::kHandoverMaxAgeMs + 500, false },
+            { "0 W", true, 0, 36.0, 0.0, 200, false },
+            { "standstill", true, 150, 1.0, 0.0, 200, false },
+            { "descent", true, 150, 36.0, -4.0, 200, false },
+        };
+        for (const Case &c : cases) {
+            qint64 clock = 1000;
+            SensorHub hub;
+            hub.setClockForTesting([&clock] { return clock; });
+            hub.setStaleTimeoutMs(600000);
+            hub.setTrainerConnected(true);
+            hub.setZwiftHubWanted(true);
+            hub.setTrainerZwiftHub(SensorHub::HubAvailable, QString());
+            RideResistance res(&hub);
+            res.reset();
+            QVERIFY(res.sendErg(c.watts > 0 ? c.watts : 100, true));
+            hub.updateSpeed(c.flywheelKmh);   // trainerReportsSpeed
+            hub.updateTrainerPacket(TrainerPacket { c.watts, 85.0, c.flywheelKmh });
+            clock += c.packetAgeMs;
+            RideResistance::GearDrive d;
+            d.road.massKg = 77;
+            d.road.gradePercent = c.grade;
+            d.riderKg = 68;
+            d.cadenceRpm = 85;
+            d.virtualRatio = 2.40;
+            d.hubGearFactor = 0.62;
+            d.hubGearKnown = true;
+            d.hubSpeedVerifiedFlywheel = c.verified;
+            res.sendHub(d);
+            QVERIFY2(res.hubHandoverPending(), c.name);
+            const double start = hub.hubSimulation().gearRatio;
+            if (c.matched) {
+                // the trainer's own physics with the values sent to the hub:
+                // its brake power at that ratio = the ERG power
+                const HubSimulation p = hub.hubSimulation();
+                road::Model m;
+                m.massKg = p.riderKg + p.bikeKg;
+                m.cda = p.cw / road::kAirDensity;
+                m.crr = p.crr;
+                m.gradePercent = p.inclinePercent;
+                m.efficiency = 1.0;
+                const double vSim = c.flywheelKmh / 3.6 * start / RideResistance::kHubTrainerRatio;
+                QVERIFY2(std::abs(road::powerForSpeed(m, vSim) - c.watts) < 2,
+                         qPrintable(QStringLiteral("%1: start %2 = %3 W").arg(c.name).arg(start).arg(road::powerForSpeed(m, vSim))));
+                QVERIFY2(std::abs(start - target) > 0.1, c.name);   // a real difference to bridge
+            } else {
+                QVERIFY2(std::abs(start - target * RideResistance::kHubLightGearFactor) < 1e-6,
+                         qPrintable(QStringLiteral("%1: %2").arg(c.name).arg(start)));
+            }
+            // handshake: the ramp waits
+            res.elapse(2000);
+            res.sendHub(d);
+            QVERIFY2(std::abs(hub.hubSimulation().gearRatio - start) < 0.02, c.name);
+            // active: ramps in 10 steps over 4 s to the virtual gear's ratio
+            hub.setTrainerZwiftHub(SensorHub::HubActive, QString());
+            res.sendHub(d);
+            QVERIFY2(!res.hubHandoverPending(), c.name);
+            double prev = hub.hubSimulation().gearRatio;
+            for (int t = 0; t < RideResistance::kHubGearRampMs; t += 250) {
+                res.elapse(250);
+                res.sendHub(d);
+                const double now = hub.hubSimulation().gearRatio;
+                QVERIFY2(std::abs(now - prev) <= std::abs(target - start) * 0.1 + 0.02,
+                         qPrintable(QStringLiteral("%1: %2 -> %3").arg(c.name).arg(prev).arg(now)));
+                prev = now;
+            }
+            QVERIFY2(std::abs(prev - target) < 1e-6, c.name);
+            res.sendHub(d);   // hub -> hub: no new handover
+            QVERIFY2(!res.hubHandoverPending(), c.name);
+        }
+    }
+
     // Start gear from the FTP: the hardest gear up to 12 whose flat-road
     // power at 85 rpm is at most 60 % FTP.
     void startGearFromFtp()

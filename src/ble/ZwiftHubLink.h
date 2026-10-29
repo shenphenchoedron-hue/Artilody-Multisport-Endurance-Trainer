@@ -149,7 +149,6 @@ private:
     QByteArray m_pending;         // fragment of a split notification
     int m_ridingLogCount = 0;
     int m_streamRetries = 0;
-    bool m_trainerAnswered = false;   // any 0002 message after the stream start
     bool m_ridingSeen = false;        // riding data (0x03) in this session
     qint64 m_movingSinceMs = -1;      // FTMS motion while awaiting riding data
     int m_awaitRequests = 0;          // stream re-requests while awaiting riding data

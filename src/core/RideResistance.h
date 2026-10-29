@@ -129,6 +129,11 @@ public:
         // Zwift hub path: the real gear is known (or the compensation is off
         // for good); false: the light gear (kHubLightGearFactor), ramped
         bool hubGearKnown = true;
+        // Zwift hub path: the trainer's reported speed is VERIFIED to be its
+        // flywheel's (HubGearCompensation::Speed::Flywheel). Unknown or
+        // following the sent gear: false - the FTMS -> hub handover then
+        // does not compute a gear from a guess (light start instead)
+        bool hubSpeedVerifiedFlywheel = false;
     };
     static constexpr int kCoastCadenceRpm = 15;
     static constexpr int kMinGearWatts = 20;     // lowest gear power while pedaling
@@ -269,6 +274,52 @@ public:
     // the extra power is roughly that energy / ramp time, so 3 s about halves
     // it while the shift still lands within one or two pedal strokes' time.
     static constexpr int kHubShiftRampMs = 3000;
+    // Handover from an FTMS command (ERG target, FTMS gradient) to the hub
+    // path mid-ride (Free Ride ERG -> Ride, a Video Ride's ERG -> Simulation,
+    // a Click connecting while riding): the trainer brakes with the ERG power
+    // until the hub takes over. The first hub gear is the one at which the
+    // trainer's physics give the power it brakes with now (matchedHubRatio),
+    // then the gear ramps over kHubGearRampMs (10 steps, both ways) to the
+    // virtual gear's. While the handshake runs the start ratio follows the
+    // latest packet and the ramp waits; it starts once the hub is active.
+    // The match uses exactly what goes to the hub (the HubSimulation about to
+    // be sent: incline after the soft start, CWa, Crr, rider + bike, no wind)
+    // and the trainer's own model: brake power = F(v)·v (no drivetrain
+    // loss), simulated speed v = flywheel × ratio / kHubTrainerRatio (the
+    // compensation's model) - only when the trainer's speed is VERIFIED to be
+    // its flywheel's (GearDrive::hubSpeedVerifiedFlywheel; an unknown speed
+    // type, a speed following the gear or no speed at all: no guess). Only
+    // with a fresh packet (power and speed carried within kHandoverMaxAgeMs)
+    // and only where the power decides the gear well:
+    //   power >= kHandoverMinWatts (0 W: nothing to match),
+    //   flywheel >= kHandoverMinSpeedMps (standstill / spinning down: no),
+    //   incline >= kHandoverMinIncline (descents: gravity carries the bike,
+    //     the brake power hardly depends on the gear),
+    //   dP/dv at the solution >= kHandoverMinSlope W per m/s and the ratio
+    //     within kHandoverMinScale..kHandoverMaxScale of the target (else the
+    //     answer is too uncertain),
+    // No match (unknown, old or uncertain data): the start is the light gear
+    // (× kHubLightGearFactor), ramped the same way - never the full gear at
+    // once, never a gear computed from a guess.
+    static constexpr double kHubTrainerRatio = 34.0 / 14.0;   // = HubGearCompensation::kTrainerRatio
+    static constexpr double kHandoverMinScale = 0.25;
+    static constexpr double kHandoverMaxScale = 4.0;
+    static constexpr int kHandoverMaxAgeMs = 2000;
+    static constexpr int kHandoverMinWatts = 30;
+    static constexpr double kHandoverMinSpeedMps = 2.0;        // 7.2 km/h
+    static constexpr double kHandoverMinIncline = -1.0;        // %
+    static constexpr double kHandoverMinSlope = 5.0;           // W per m/s
+    struct HandoverMatch
+    {
+        double ratio = 0;   // 0: no match
+        QString why;        // the reason when there is none (log)
+    };
+    // The ratio at which the hub trainer brakes with the packet's power on
+    // the road `p`; target: the virtual gear's ratio (range check).
+    static HandoverMatch matchedHubRatio(const HubSimulation &p, const TrainerSample &packet, qint64 nowMs,
+                                         bool trainerReportsSpeed, bool speedVerifiedFlywheel,
+                                         double target);
+    bool hubHandoverPending() const { return m_hubHandover; }
     // --- Zwift hub path: the bike's speed where the power says nothing -------
     // Both sessions (free ride, video ride) after their power integration:
     //   light pedaling (pedaling, power below the pedal threshold - the
@@ -383,7 +434,8 @@ private:
     int m_hubRampMs = -1;         // into the ramp, -1: none
     int m_hubRampDurationMs = kHubGearRampMs;
     double m_hubLastVirtual = 0;  // the previous drive's virtual ratio (shift detection)
-    double hubGearRatio(const GearDrive &d);
+    double hubGearRatio(const GearDrive &d, const HubSimulation *hubRoad = nullptr);   // hubRoad: what goes to the hub (handover)
+    bool m_hubHandover = false;   // FTMS -> hub handover: the matched start, ramp after the handshake
     bool m_softUsed = false;      // a grade / incline went out since arming (logging)
     double m_softTarget = 0;      // last target grade (logging)
     int m_lastWatts = -1;    // -1 nothing, 0 released, > 0 watts

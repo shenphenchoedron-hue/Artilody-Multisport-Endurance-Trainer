@@ -157,7 +157,8 @@ QString VirtualGears::shiftingMode() const
     // handshake running: the session already uses the hub path (nothing is
     // sent to the trainer until the handshake is done, never FTMS meanwhile)
     if (m_hubOverride != QLatin1String("off") && m_hub && m_hub->zwiftHubWanted()
-        && m_hub->trainerZwiftHubState() == SensorHub::HubStarting)
+        && (m_hub->trainerZwiftHubState() == SensorHub::HubStarting
+            || m_hub->trainerZwiftHubState() == SensorHub::HubAvailable))
         return QStringLiteral("zwift");
     if (m_method == RideResistance::GearMethod::Erg
         || (m_hub && m_hub->trainerConnected() && !RideResistance::gearSimulationPossible(m_hub)))

@@ -46,13 +46,6 @@ ZwiftHubLink::ZwiftHubLink(GattLink *link, QObject *parent)
             writeMessage(zhub::startStream());
             m_timeout.start(m_streamMs);
         } else if (m_state == State::Stream) {
-            if (m_trainerAnswered) {
-                DiagLog::write("ZHUB", QStringLiteral("no riding data within %1 ms, but the trainer answered the stream start – "
-                                                      "active, waiting for riding data (sent once the flywheel turns)")
-                                           .arg(m_streamMs));
-                becomeActive();
-                return;
-            }
             fail(m_rideOnSeen ? QStringLiteral("no riding data from the trainer after the handshake")
                               : QStringLiteral("no answer to the handshake"));
         }
@@ -133,7 +126,6 @@ void ZwiftHubLink::start()
     m_lastSimMs = -1;
     m_lastEchoMs = -1;
     m_rideOnSeen = false;
-    m_trainerAnswered = false;
     m_ridingSeen = false;
     m_movingSinceMs = -1;
     m_awaitRequests = 0;
@@ -167,6 +159,9 @@ void ZwiftHubLink::stop()
     m_timeout.stop();
     m_silence.stop();
     m_refresh.stop();
+    // the road / gear belonged to the session that used the hub: a restart
+    // sends only what the next hub simulation asks for
+    m_haveParams = false;
     if (m_state != State::Absent && m_state != State::Available) {
         DiagLog::write("ZHUB", QStringLiteral("Zwift protocol stopped (FTMS only from here)"));
         setState(State::Available);
@@ -179,6 +174,7 @@ void ZwiftHubLink::reset()
     m_silence.stop();
     m_refresh.stop();
     m_failure.clear();
+    m_haveParams = false;
     m_sentSim.reset();
     m_sentPhys.reset();
     m_riding.reset();
@@ -289,8 +285,15 @@ void ZwiftHubLink::onMessage(const QByteArray &raw, bool fromTx)
                                                                         DiagLog::hex(value), zhub::describe(value, false)));
     if (riding)
         ++m_ridingLogCount;
-    if (!fromTx && m_state == State::Stream && m_rideOnSeen)
-        m_trainerAnswered = true;
+    if (!fromTx && m_state == State::Stream && m_rideOnSeen && !riding) {
+        // the trainer answered the stream start without riding data (Zwift
+        // Hub: 2A / FE while its flywheel stands still) - it runs the Zwift
+        // protocol already: active at once, so it gets the road and the gear
+        // now (not after kStreamTimeoutMs with its own default resistance)
+        DiagLog::write("ZHUB", QStringLiteral("the trainer answered the stream start without riding data – active, "
+                                              "waiting for riding data (sent once the flywheel turns)"));
+        becomeActive();
+    }
     if (riding && !m_ridingSeen) {
         m_ridingSeen = true;
         m_movingSinceMs = -1;
