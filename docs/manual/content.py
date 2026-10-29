@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.3.8 source code (incl. Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.3.9 source code (incl. Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -419,8 +419,12 @@ def build(s, env):
     ], [1.0, 2.4, 1.2, 1.2])
     s.p("<b>Zwift's 24 gears.</b> The Click always shifts Zwift's fixed gear table – the same ratios Zwift uses "
         "(also used by Incyclist and qdomyos-zwift): 0.75, 0.87, 0.99, 1.11, 1.23, 1.38, 1.53, 1.68, 1.86, 2.04, "
-        "2.22, <b>2.40</b> (gear 12, the start gear), 2.61, 2.82, 3.03, 3.24, 3.49, 3.74, 3.99, 4.24, 4.54, 4.84, "
+        "2.22, <b>2.40</b> (gear 12, Zwift's start gear), 2.61, 2.82, 3.03, 3.24, 3.49, 3.74, 3.99, 4.24, 4.54, 4.84, "
         "5.14, 5.49. A gear setup of earlier versions (chainrings, cassette) stays stored but is no longer used.")
+    s.p("<b>Start gear from your FTP.</b> When the app starts and when you switch rider, the virtual gear is set "
+        "to the hardest gear whose flat-road power at 85 rpm is at most 60 % of the profile's FTP – between gear 6 "
+        "and gear 12, never harder than 12 (e.g. FTP 75 → gear 9, FTP 110 → gear 10, FTP of about 155 or more, or "
+        "no FTP → gear 12). Once you shift, your gear carries over from ride to ride.")
     s.p("<b>Zwift protocol (automatic).</b> When the <i>connected</i> trainer exposes the Zwift trainer service "
         "(0xFC82 or 00000001-19CA-4651-86E5-FA29DCDD09D1 with the characteristics 0002, 0003 and 0004 – e.g. "
         "Zwift Hub, Jetblack Victory, Wahoo KICKR Core with Zwift Cog) and a Click is connected, the app performs "
@@ -2071,7 +2075,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.8",
+  "app": "Artilody Watts Trainer 1.3.9",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

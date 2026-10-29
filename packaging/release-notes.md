@@ -1,6 +1,17 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.8
+## What's new in 1.3.9
+
+Fixes for **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetblack Victory) and the **Zwift Click**, plus a **start gear for your FTP**.
+
+- **Zwift Hub: the Zwift protocol now starts**: the Hub switches to the Zwift protocol and reports *control permission lost* on FTMS. The app asked for FTMS control again, which switched the Hub back – no riding data, and after 4 s the app fell back to the FTMS gradient, which felt heavy. Now FTMS control is left to the Zwift protocol while it starts or runs. A trainer that answers the handshake but sends no riding data while its flywheel stands still is waited for (gear and road are sent); the app falls back to FTMS only if the trainer moves for 8 s without sending riding data.
+- **Start gear from your FTP**: the hardest of Zwift's gears whose flat-road power at 85 rpm is at most 60 % of the profile's FTP, between gear 6 and 12 – never harder than Zwift's start gear 12 (FTP 75 → gear 9, FTP 110 → gear 10, FTP ≥ ~155 or unknown → 12). Set when the app starts and when you switch rider; once you shift, your gear carries over from ride to ride.
+- **Light pedaling counts as pedaling**: cadence ≥ 15 rpm or ≥ 30 W – the Victory reads 0 W when you spin lightly (36–107 rpm). The speed then follows the trainer's flywheel for your gear instead of sinking as if you were coasting; downhill it never brakes the bike.
+- **No speed drop at the soft start**: the coasting speed is now based on your virtual gear, not on the light gear the soft start sends (it dropped from 18 to 13.5 km/h in one step).
+- **Gentle stop**: when the flywheel stops, the speed brakes to 0 within about 2 s instead of jumping to 0 (also downhill in a video ride).
+- **Zwift Click**: after a rider switch and at the start of a free ride or video ride the app looks for a known Click that is not connected (about 5 minutes) and tells you to press a button on it to wake it. The diagnostic log says why a found Click does not connect by itself, and the "not known to the Bluetooth stack" hint now fits the device (no longer "PM5: Connect screen" for a Click).
+
+## Also included from 1.3.8
 
 A fix for the **speed shown while coasting** with the **Zwift trainer protocol** (Jetblack Victory, virtual shifting with a Zwift Click).
 
