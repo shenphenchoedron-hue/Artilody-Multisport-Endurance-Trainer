@@ -40,12 +40,24 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.3.7
+## What's new in 1.3.8
+
+A fix for the **speed shown while coasting** with the **Zwift trainer protocol** (Jetblack Victory, virtual shifting with a Zwift Click).
+
+- **The speed no longer rolls on after the flywheel has stopped** – before, the app's road model let a 77 kg bike roll on for 10–15 s after the trainer's flywheel had stopped. While coasting (not pedaling while the flywheel turns) the shown speed on the flat and uphill now follows the trainer's own simulated speed down, smoothly; downhill the bike and the video still roll on.
+- **Flywheel stopped = stopped** – speed 0 on any grade, no longer shown as coasting.
+- "Pedaling" means at least 30 W: the trainer's cadence lags both ways (0 rpm at 180 W at the start, still 83 rpm at 0 W when you stop pedaling), the power does not.
+- No database change – install over 1.3.7 (or older) and keep all your data. See the [1.3.8 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.8).
+
+<details>
+<summary><b>What's new in 1.3.7</b> – gentler shifting up (3 s ramp)</summary>
 
 A small follow-up for **virtual shifting with the Zwift trainer protocol** (Jetblack Victory).
 
 - **Gentler shifting up** – a virtual shift to a harder gear ramps in over **3 s** (was 1.5 s). Shifting up at the same cadence makes the trainer accelerate the virtual bike and rider to the higher speed; over about a second that gave a power spike of +80 … 110 W right after the shift – spread over 3 s it is about halved. Shifting easier still acts at once.
 - No database change – install over 1.3.6 (or older) and keep all your data. See the [1.3.7 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.7).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.3.6</b> – smoother shifting up, stable real-gear estimate</summary>
@@ -168,7 +180,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.3.7](#whats-new-in-137)
+- [What's new in 1.3.8](#whats-new-in-138)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -366,18 +378,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.3.7**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.3.8**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.7-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/ArtilodyWattsTrainer-1.3.7-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.7-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/ArtilodyWattsTrainer-1.3.7-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.7-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/ArtilodyWattsTrainer-1.3.7-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.7_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/artilody-watts-trainer_1.3.7_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.7_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/artilody-watts-trainer_1.3.7_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.7_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/artilody-watts-trainer_1.3.7_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.7/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.8-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/ArtilodyWattsTrainer-1.3.8-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.8-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/ArtilodyWattsTrainer-1.3.8-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.8-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/ArtilodyWattsTrainer-1.3.8-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.8_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/artilody-watts-trainer_1.3.8_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.8_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/artilody-watts-trainer_1.3.8_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.8_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/artilody-watts-trainer_1.3.8_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.8/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -387,7 +399,7 @@ The current version is **1.3.7**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.3.7-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.3.8-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -413,8 +425,8 @@ The current version is **1.3.7**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.3.7_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.3.7_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.3.8_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.3.8_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -430,7 +442,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.3.7_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.3.8_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -474,7 +486,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.7",
+  "app": "Artilody Watts Trainer 1.3.8",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

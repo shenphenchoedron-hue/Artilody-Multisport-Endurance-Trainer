@@ -1,6 +1,14 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.7
+## What's new in 1.3.8
+
+A fix for the **speed shown while coasting** with the **Zwift trainer protocol** (Jetblack Victory, virtual shifting with a Zwift Click).
+
+- **The speed no longer rolls on after the flywheel has stopped**: before, the app's road model let a 77 kg bike roll on for 10–15 s after the trainer's flywheel had stopped. Now, while coasting (not pedaling while the flywheel still turns), the shown speed on the flat and uphill follows the trainer's own simulated speed down – smoothly, without a jump. Downhill the bike and the video still roll on.
+- **Flywheel stopped = stopped**: as soon as the flywheel stands still, the speed is 0 on any grade and the ride is no longer shown as coasting.
+- "Pedaling" means at least 30 W – the trainer's cadence lags both ways (0 rpm while you already push 180 W at the start, still 83 rpm at 0 W when you stop pedaling), the power does not.
+
+## Also included from 1.3.7
 
 A small follow-up for **virtual shifting with the Zwift trainer protocol** (Jetblack Victory).
 
