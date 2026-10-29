@@ -130,6 +130,10 @@ public:
     enum class State { Idle, Running, Paused, Finished };
 
     static constexpr int kPedalPowerWatts = 30;     // below (and no cadence): not pedaling
+    // Zwift protocol, coasting on the flat / uphill: the speed follows the
+    // trainer's simulated speed (VirtualGears::hubTrainerSpeedMps) down,
+    // braking at most this much harder than the road model (no jump)
+    static constexpr double kHubCoastCatchUpMps2 = 3.0;
     static constexpr int kCoastCadenceRpm = RideResistance::kCoastCadenceRpm;   // below: not pedaling (coasting)
     static constexpr int kMinGearWatts = RideResistance::kMinGearWatts;         // lowest gears-mode target while pedaling
     static constexpr int kMinErgWatts = 25;
@@ -214,6 +218,10 @@ public:
     int cadence() const;
     int heartRate() const;
     bool coasting() const;
+    // Zwift protocol: pedaling = power >= kPedalPowerWatts (the trainer's
+    // cadence lags both ways: 0 rpm at 180 W at the start, 83 rpm at 0 W while
+    // coasting); coasting = not pedaling while the flywheel turns
+    bool pedaling() const;
 
     bool virtualGears() const;
     bool simulationFallback() const;

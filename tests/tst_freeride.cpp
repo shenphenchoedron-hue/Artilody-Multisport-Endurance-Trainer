@@ -148,6 +148,82 @@ private slots:
     // (0 % until the flywheel turns, then a ramp) has its own tests below
     // and in tst_virtualgears (softStart*).
     void initTestCase() { RideResistance::setSoftStartEnabled(false); }
+
+    // Zwift protocol: when the rider stops pedaling on the flat, the speed
+    // must not roll on after the trainer's flywheel stopped (it took 10–15 s,
+    // the road model coasted a 77 kg bike). Capped at the trainer's own
+    // simulated speed (flywheel × sent ratio / 34/14); downhill it rolls on.
+    void hubCoastStopsWithTheFlywheel()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setHub(f.hub.get());
+        f.hub->setTrainerZwiftHub(SensorHub::HubActive, QStringLiteral("active"));
+        QCOMPARE(f.ride->resistancePath(), QStringLiteral("gearZwiftHub"));
+        QVERIFY(f.ride->start());
+        // pedaling: 80 rpm, 110 W, the flywheel at 38 km/h (44×11)
+        f.pedal(80, 110);
+        f.hub->updateSpeed(38.0);
+        f.ride_for(30000);
+        const double riding = f.ride->speedKmh();
+        QVERIFY2(riding > 20.0, qPrintable(QString::number(riding)));
+        // coasting: 0 rpm, 0 W, the flywheel runs down 38 -> 0 km/h in 15 s
+        f.pedal(0, 0);
+        QVector<double> app, trainer;
+        for (int t = 0; t <= 15000; t += 250) {
+            const double fly = std::max(0.0, 38.0 * (1.0 - t / 15000.0));
+            f.hub->updateSpeed(fly);
+            f.ride->advanceClock(250);
+            app << f.ride->speedKmh();
+            trainer << f.gears->hubTrainerSpeedMps() * 3.6;
+        }
+        // no jump: at most kHubCoastCatchUpMps2 (+ the road's own drag) per step
+        double prev = riding;
+        for (double v : app) {
+            QVERIFY2(prev - v <= (FreeRideSession::kHubCoastCatchUpMps2 + 1.0) * 0.25 * 3.6 + 1e-6,
+                     qPrintable(QStringLiteral("%1 -> %2").arg(prev).arg(v)));
+            prev = v;
+        }
+        // caught up within a few seconds, then never faster than the trainer
+        for (int i = 16; i < app.size(); ++i)
+            QVERIFY2(app.at(i) <= trainer.at(i) + 1e-6,
+                     qPrintable(QStringLiteral("%1: app %2 > trainer %3").arg(i).arg(app.at(i)).arg(trainer.at(i))));
+        QCOMPARE(app.constLast(), 0.0);   // the flywheel stopped: so does the bike
+        QVERIFY(!f.ride->coasting());      // ... and it is no longer coasting
+
+        // coasting = not pedaling while the flywheel turns - also with the
+        // trainer's lagging cadence (83 rpm reported at 0 W)
+        f.pedal(80, 110);
+        f.hub->updateSpeed(38.0);
+        f.ride_for(20000);
+        QVERIFY(!f.ride->coasting());
+        f.pedal(83, 0);
+        f.ride->advanceClock(250);
+        QVERIFY(f.ride->coasting());
+        f.pedal(0, 0);
+        f.ride->advanceClock(250);
+        QVERIFY(f.ride->coasting());
+        // the start's lagging cadence (0 rpm at 180 W) is pedaling, not coasting
+        f.pedal(0, 180);
+        f.ride->advanceClock(250);
+        QVERIFY(!f.ride->coasting());
+        f.pedal(0, 0);
+        f.ride->advanceClock(250);
+
+        // downhill: the bike rolls on while the flywheel turns ...
+        f.ride->setGrade(-4.0);
+        f.hub->updateSpeed(20.0);
+        f.ride_for(3000);
+        QVERIFY2(f.ride->speedKmh() > 15.0, qPrintable(QString::number(f.ride->speedKmh())));
+        QVERIFY(f.ride->coasting());
+        // ... and stops when the flywheel stops: no longer coasting
+        f.hub->updateSpeed(0.0);
+        f.ride->advanceClock(250);
+        QCOMPARE(f.ride->speedKmh(), 0.0);
+        QVERIFY(!f.ride->coasting());
+        f.ride_for(3000);   // stays stopped downhill
+        QCOMPARE(f.ride->speedKmh(), 0.0);
+    }
     void idleIsSafeWithoutTrainer()
     {
         Database db;

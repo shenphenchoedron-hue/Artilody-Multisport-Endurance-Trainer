@@ -337,6 +337,25 @@ void VirtualGears::resetHubGear()
         emit detectionChanged();
 }
 
+double VirtualGears::hubTrainerSpeedMps() const
+{
+    if (!m_hub || !m_hub->hubSimulationActive() || !m_hub->trainerConnected() || !m_hub->trainerReportsSpeed())
+        return -1.0;
+    const double speed = std::max(0.0, m_hub->speedMps());
+    if (m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear)
+        return speed;   // already the trainer's simulated speed
+    const double sent = m_hub->hubSimulation().gearRatio;
+    if (!(sent > 0))
+        return -1.0;
+    return speed * sent / HubGearCompensation::kTrainerRatio;
+}
+
+bool VirtualGears::hubFlywheelStopped() const
+{
+    return m_hub && m_hub->hubSimulationActive() && m_hub->trainerConnected() && m_hub->trainerReportsSpeed()
+           && m_hub->speedMps() < kFlywheelStoppedMps;
+}
+
 double VirtualGears::hubRealRatio() const
 {
     return m_hubComp.realRatio();

@@ -285,8 +285,19 @@ int FreeRideSession::cadence() const { return m_hub->cadence(); }
 int FreeRideSession::heartRate() const { return m_hub->heartRate(); }
 bool FreeRideSession::trainerConnected() const { return m_hub->trainerConnected(); }
 
+bool FreeRideSession::pedaling() const
+{
+    // the power, not the cadence: the trainer's cadence lags both ways (0 rpm
+    // at 180 W at the start, 83 rpm at 0 W while coasting - Victory logs)
+    return m_hub->power() >= kPedalPowerWatts;
+}
+
 bool FreeRideSession::coasting() const
 {
+    // Zwift protocol: coasting = not pedaling while the flywheel turns; with
+    // the flywheel standing still the bike has stopped
+    if (path() == RideResistance::Path::GearHub && m_hub->trainerReportsSpeed())
+        return !pedaling() && !m_gears->hubFlywheelStopped();
     return m_hub->cadence() < kCoastCadenceRpm && m_hub->power() < kPedalPowerWatts;
 }
 
@@ -658,6 +669,20 @@ void FreeRideSession::updateModel(double dt)
         // incline and the virtual gear, the bike's speed follows the power
         const road::Model model = roadModel(m_mode == Mode::Ride ? m_grade : 0.0);
         m_speed = road::integrateSpeed(model, m_speed, power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
+        if (path() == RideResistance::Path::GearHub && !pedaling()) {
+            if (m_gears->hubFlywheelStopped()) {
+                m_speed = 0;   // stopped (not coasting): the flywheel stands still, on any grade
+            } else if (model.gradePercent >= 0) {
+                // coasting on the flat / uphill: no faster than the trainer's
+                // own simulation - the road model rolled on for 10–15 s after
+                // the flywheel had stopped; downhill the bike rolls on while
+                // the flywheel turns (approached at <= kHubCoastCatchUpMps2:
+                // no jump in the display)
+                const double trainer = m_gears->hubTrainerSpeedMps();
+                if (trainer >= 0 && m_speed > trainer)
+                    m_speed = std::max(trainer, m_speed - kHubCoastCatchUpMps2 * dt);
+            }
+        }
         if (m_speed < 0.3 && power < kPedalPowerWatts && model.gradePercent >= 0)
             m_speed = 0;
         return;

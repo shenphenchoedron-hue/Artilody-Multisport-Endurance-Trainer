@@ -503,8 +503,19 @@ int RlvSession::cadence() const { return m_hub->cadence(); }
 int RlvSession::heartRate() const { return m_hub->heartRate(); }
 bool RlvSession::trainerConnected() const { return m_hub->trainerConnected(); }
 
+bool RlvSession::pedaling() const
+{
+    // the power, not the cadence: the trainer's cadence lags both ways (0 rpm
+    // at 180 W at the start, 83 rpm at 0 W while coasting - Victory logs)
+    return m_hub->power() >= kPedalPowerWatts;
+}
+
 bool RlvSession::coasting() const
 {
+    // Zwift protocol: coasting = not pedaling while the flywheel turns; with
+    // the flywheel standing still the bike has stopped
+    if (path() == RideResistance::Path::GearHub && m_hub->trainerReportsSpeed())
+        return !pedaling() && !m_gears->hubFlywheelStopped();
     return m_hub->cadence() < kCoastCadenceRpm && m_hub->power() < kPedalPowerWatts;
 }
 
@@ -929,6 +940,23 @@ void RlvSession::updateModel(double dt)
     // own physics (incline + virtual gear), the video follows the power
     if (!virtualGears() || path() == RideResistance::Path::GearHub) {
         integratePower(power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
+        if (path() == RideResistance::Path::GearHub && !pedaling()) {
+            if (m_gears->hubFlywheelStopped()) {
+                m_speed = 0;   // stopped (not coasting): the flywheel stands still, on any grade
+            } else if (effectiveGradePercent() >= 0) {
+                // coasting on the flat / uphill: no faster than the trainer's
+                // own simulation (the road model rolled on after the flywheel
+                // stopped); downhill the video rolls on while the flywheel
+                // turns (approached at <= kHubCoastCatchUpMps2: no jump)
+                const double trainer = m_gears->hubTrainerSpeedMps();
+                if (trainer >= 0) {
+                    if (m_speed > trainer)
+                        m_speed = std::max(trainer, m_speed - kHubCoastCatchUpMps2 * dt);
+                    if (m_speed < 0.3)
+                        m_speed = 0;
+                }
+            }
+        }
         return;
     }
     const road::Model model = roadModel(effectiveGradePercent());

@@ -276,6 +276,20 @@ public:
     // measured again from the next pedal strokes (Bluetooth diagnostics)
     Q_INVOKABLE void resetHubGearAssessment();
     const HubGearCompensation &hubGear() const { return m_hubComp; }
+    // Zwift hub path: the speed the TRAINER simulates right now (m/s), -1 if
+    // unknown (no hub simulation, no trainer speed). Its speed is the
+    // flywheel's (the Victory's logs); the trainer brakes for flywheel × sent
+    // ratio / HubGearCompensation::kTrainerRatio - the same model as the
+    // compensation. A trainer whose speed follows the sent gear reports it
+    // directly. The sessions cap a coasting bike on the flat / uphill at this
+    // (their road model rolled a 77 kg bike on for 10–15 s after the flywheel
+    // had stopped) and stop it with the flywheel (hubFlywheelStopped).
+    double hubTrainerSpeedMps() const;
+    // Zwift hub path: the trainer's flywheel stands still (its speed below
+    // kFlywheelStoppedMps). Not pedaling + flywheel turning = coasting; once
+    // the flywheel stopped the bike has stopped too - on any grade.
+    static constexpr double kFlywheelStoppedMps = 1.0 / 3.6;   // 1 km/h
+    bool hubFlywheelStopped() const;
     // one trainer packet on the hub path (onTrainerSample(); tests)
     void addHubGearSample(const TrainerSample &sample);
     void tickHubGear();   // timeouts without packets (1 s timer)
