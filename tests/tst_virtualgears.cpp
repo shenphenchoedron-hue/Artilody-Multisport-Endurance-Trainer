@@ -260,6 +260,64 @@ private slots:
     // and in tst_virtualgears (softStart*).
     void initTestCase() { RideResistance::setSoftStartEnabled(false); }
 
+    // Start gear from the FTP: the hardest gear up to 12 whose flat-road
+    // power at 85 rpm is at most 60 % FTP.
+    void startGearFromFtp()
+    {
+        road::Model anne;
+        anne.massKg = 53 + 9;
+        anne.cda = 0.26;
+        QCOMPARE(VirtualGears::startGearFor(75, anne, 2105), 9);    // 42 W (gear 12: 78 W)
+        QCOMPARE(VirtualGears::startGearFor(0, anne, 2105), 12);    // FTP unknown: Zwift's 12
+        QCOMPARE(VirtualGears::startGearFor(400, anne, 2105), 12);  // never harder than 12
+        QCOMPARE(VirtualGears::startGearFor(20, anne, 2105), VirtualGears::kMinStartGear);
+        road::Model lone;
+        lone.massKg = 68 + 9;
+        lone.cda = 0.30;
+        QCOMPARE(VirtualGears::startGearFor(110, lone, 2105), 10);  // 61 W at 85 rpm
+        // monotonic in the FTP
+        int prev = 0;
+        for (int ftp = 20; ftp <= 300; ftp += 5) {
+            const int g = VirtualGears::startGearFor(ftp, lone, 2105);
+            QVERIFY(g >= prev);
+            prev = g;
+        }
+
+        // the profile's start gear when a rider is loaded and at the start of a
+        // ride (FTP edited) - unless the rider has shifted: that gear is kept
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        QVERIFY(profiles.saveProfile({ { QStringLiteral("ftp"), 75 }, { QStringLiteral("weight"), 53.0 } }));
+        SensorHub hub;
+        VirtualGears gears(&db, &profiles);
+        gears.setManualSave(true);
+        const int start = gears.startGear();
+        QVERIFY2(start < 12, qPrintable(QString::number(start)));
+        QCOMPARE(gears.gearLabel(), QString::number(start));   // loaded in the start gear
+        FreeRideSession ride(&db, &profiles, &hub, &gears);
+        ride.setManualClock(true);
+        QVERIFY(profiles.saveProfile({ { QStringLiteral("ftp"), 60 } }));   // FTP edited
+        QVERIFY(ride.start());
+        QCOMPARE(gears.gearLabel(), QString::number(gears.startGear()));
+        ride.finish(false);
+        gears.shiftUp();
+        gears.shiftUp();
+        const QString chosen = gears.gearLabel();
+        QVERIFY(ride.start());
+        QCOMPARE(gears.gearLabel(), chosen);   // the rider's gear is kept
+        ride.finish(false);
+        // another rider: their start gear
+        const qint64 first = profiles.profileId();
+        const qint64 guest = profiles.createProfile(QStringLiteral("Guest"));
+        QVERIFY(guest > 0 && profiles.selectProfile(guest));
+        QCOMPARE(gears.gearLabel(), QString::number(gears.startGear()));
+        QVERIFY(profiles.selectProfile(first));
+        QCOMPARE(gears.gearLabel(), QString::number(gears.startGear()));
+    }
+
     // Soft start on the virtual-gears FTMS path (gear-adjusted grade): 0 %
     // while standing / before the flywheel turns, then the ramp; rate limits
     // stay (one grade per kMinGradeIntervalMs).

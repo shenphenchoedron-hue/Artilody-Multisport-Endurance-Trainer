@@ -133,7 +133,10 @@ public:
     // Zwift protocol, coasting on the flat / uphill: the speed follows the
     // trainer's simulated speed (VirtualGears::hubTrainerSpeedMps) down,
     // braking at most this much harder than the road model (no jump)
-    static constexpr double kHubCoastCatchUpMps2 = 3.0;
+    static constexpr double kHubCoastCatchUpMps2 = RideResistance::kHubCoastCatchUpMps2;
+    // Zwift protocol: the flywheel stopped - the bike brakes to 0 at this rate
+    // instead of jumping to 0 (RideResistance::hubSpeedStep)
+    static constexpr double kHubStopDecelMps2 = RideResistance::kHubStopDecelMps2;
     static constexpr int kCoastCadenceRpm = RideResistance::kCoastCadenceRpm;   // below: not pedaling (coasting)
     static constexpr int kMinGearWatts = RideResistance::kMinGearWatts;         // lowest gears-mode target while pedaling
     static constexpr int kMinErgWatts = 25;
@@ -218,9 +221,11 @@ public:
     int cadence() const;
     int heartRate() const;
     bool coasting() const;
-    // Zwift protocol: pedaling = power >= kPedalPowerWatts (the trainer's
-    // cadence lags both ways: 0 rpm at 180 W at the start, 83 rpm at 0 W while
-    // coasting); coasting = not pedaling while the flywheel turns
+    // Zwift protocol: pedaling = power >= kPedalPowerWatts OR cadence >=
+    // kCoastCadenceRpm (the cadence lags at the start: 0 rpm at 180 W; light
+    // pedaling reads 0 W on the Victory); coasting = not pedaling while the
+    // flywheel turns. Light pedaling (cadence, power below kPedalPowerWatts):
+    // the speed follows the trainer's flywheel for the gear.
     bool pedaling() const;
 
     bool virtualGears() const;

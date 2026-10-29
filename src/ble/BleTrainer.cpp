@@ -80,6 +80,7 @@ BleTrainer::BleTrainer(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     // diagnostics: list every service of the trainer (Zwift 0xFC82, vendor
     // services), not only FTMS
     static_cast<BleLink *>(m_link)->setInspectOtherServices(true);
+    static_cast<BleLink *>(m_link)->setAdvertiseHint(QStringLiteral("switch the trainer on or pedal a few strokes"));
     init();
 }
 
@@ -104,6 +105,8 @@ void BleTrainer::init()
 {
     m_zhub = new ZwiftHubLink(m_link, this);
     connect(m_zhub, &ZwiftHubLink::stateChanged, this, [this] {
+        if (m_controlYieldedToHub && !hubSessionRunning())
+            returnControlFromHub(QStringLiteral("Zwift protocol %1").arg(m_zhub->stateText()));
         emit zwiftHubChanged();
         emit controlStatusChanged();
         if (m_zhub->active() && m_lastRequest == Request::Hub)
@@ -164,6 +167,7 @@ void BleTrainer::init()
             m_refusals.reset();
             m_startDeferred = false;
             m_neutralDeferred = false;
+            m_controlYieldedToHub = false;
             m_mode = Mode::Unknown;
             m_problem.clear();
             m_zhub->reset();   // detected again after the next discovery
@@ -329,6 +333,20 @@ QString BleTrainer::zwiftHubStatus() const
 bool BleTrainer::hubOwnsResistance() const
 {
     return m_zhubEnabled && m_zhub->available() && m_zhub->state() != ZwiftHubLink::State::Failed;
+}
+
+bool BleTrainer::hubSessionRunning() const
+{
+    const auto s = m_zhub->state();
+    return s == ZwiftHubLink::State::Handshake || s == ZwiftHubLink::State::Stream || s == ZwiftHubLink::State::Active;
+}
+
+void BleTrainer::returnControlFromHub(const QString &why)
+{
+    m_controlYieldedToHub = false;
+    DiagLog::write("FTMS", QStringLiteral("%1 – requesting FTMS control again").arg(why));
+    restorePendingCommand();
+    requestControl();
 }
 
 bool BleTrainer::hubMayOwnResistance() const
@@ -527,6 +545,8 @@ QString BleTrainer::controlStatus() const
         return QStringLiteral("Zwift protocol – trainer simulates %1 %, gear ratio %2")
             .arg(m_lastHub.inclinePercent, 0, 'f', 1)
             .arg(m_lastHub.gearRatio, 0, 'f', 2);
+    if (m_controlYieldedToHub && hubSessionRunning())
+        return QStringLiteral("Zwift protocol starting – the trainer switched to it");
     if (!m_hasControl)
         return m_mode == Mode::NoControl ? QStringLiteral("Trainer control lost – requesting it again")
                                          : QStringLiteral("Waiting for trainer control…");
@@ -616,6 +636,19 @@ void BleTrainer::onMachineStatus(const QByteArray &value)
     const auto op = ftms::MachineStatus(quint8(value.at(0)));
     switch (op) {
     case ftms::MachineStatus::ControlPermissionLost:
+        if (hubSessionRunning()) {
+            // the trainer switched to the Zwift protocol (Zwift Hub): asking for
+            // FTMS control again would switch it back
+            m_hasControl = false;
+            m_controlRequested = false;
+            m_controlRetry.stop();
+            m_controlYieldedToHub = true;
+            DiagLog::write("FTMS", QStringLiteral("control permission lost while the Zwift protocol starts / runs (%1) – the trainer "
+                                                  "switched to the Zwift protocol: FTMS control is NOT requested again")
+                                       .arg(m_zhub->stateText()));
+            emit controlStatusChanged();
+            return;
+        }
         emit logMessage(QStringLiteral("%1 reported: control permission lost – requesting control again").arg(m_name), false);
         reacquireControl(QStringLiteral("status: control permission lost"));
         return;
@@ -678,6 +711,8 @@ void BleTrainer::requestControl()
 {
     if (!m_ready || m_controlRequested || m_hasControl || state() != LinkState::Connected)
         return;
+    if (m_controlYieldedToHub && hubSessionRunning())
+        return;   // the trainer runs the Zwift protocol (see onMachineStatus)
     m_controlRequested = true;
     DiagLog::write("FTMS", QStringLiteral("requesting control"));
     m_queue.prepend(ftms::requestControl());
@@ -806,6 +841,8 @@ void BleTrainer::onNotification(const QBluetoothUuid &uuid, const QByteArray &va
         if (d->speedKmh)
             emit speedMeasured(*d->speedKmh);
         emit packetMeasured(TrainerPacket { d->powerW, d->cadenceRpm, d->speedKmh });
+        m_zhub->noteFtmsMotion((d->speedKmh && *d->speedKmh >= ZwiftHubLink::kMovingKmh)
+                               || (d->cadenceRpm && *d->cadenceRpm > 0));
         if (d->heartRateBpm && *d->heartRateBpm > 0)
             emit heartRateMeasured(*d->heartRateBpm);
         return;

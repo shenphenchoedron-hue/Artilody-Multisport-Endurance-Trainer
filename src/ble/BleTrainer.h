@@ -128,6 +128,11 @@ private:
     // could still become hub-owned: the other services are not inspected yet
     bool hubMayOwnResistance() const;
     void resolveDeferredNeutral();
+    // The Zwift protocol is being started or runs (handshake / stream / active).
+    bool hubSessionRunning() const;
+    // FTMS control was handed to the Zwift protocol and is not requested again
+    // until the hub session ends (failed / stopped).
+    void returnControlFromHub(const QString &why);
 
     QString m_id;
     QString m_name;
@@ -177,6 +182,10 @@ private:
     bool m_zhubEnabled = false;
     HubSimulation m_lastHub;
     bool m_hubIgnoredLogged = false;
+    // The Zwift Hub reports "Control Permission Lost" on FTMS when it switches
+    // to the Zwift protocol; requesting FTMS control again takes it back to
+    // FTMS (no riding data: Anne's Hub, v1.3.7). Set while the hub session runs.
+    bool m_controlYieldedToHub = false;
     bool m_startDeferred = false;     // FTMS start not sent (hub path); sent before the first FTMS resistance command
     bool m_neutralDeferred = false;   // neutral state held back while the hub path may own the trainer
 };

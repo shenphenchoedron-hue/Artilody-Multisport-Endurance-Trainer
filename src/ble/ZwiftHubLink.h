@@ -9,11 +9,16 @@
 // Available (detect()) -> start(): Handshake (subscribe 0002 + 0004, "RideOn"
 // 02 01, wait kHandshakeTimeoutMs for "RideOn" on 0004, one retry; without an
 // answer the stream is tried anyway) -> Stream (41 08 05, wait
-// kStreamTimeoutMs for riding data 0x03) -> Active. Failed on a timeout:
-// the owner falls back to FTMS gradient simulation (never ERG).
-// Keep-alive: while Active the trainer must send something on 0002 (riding
-// data / 0x19 idle) within kSilenceMs; after a silence the stream is
-// requested again (41 08 05), after a second one the link fails.
+// kStreamTimeoutMs for riding data 0x03) -> Active. A trainer that answers
+// the stream start with other messages (Zwift Hub: 2A / FE) but no riding
+// data becomes Active "waiting for riding data" (gear and road are sent); it
+// fails only when FTMS shows it moving for kNoRidingWhileMovingMs without
+// riding data. Failed on a timeout without any answer: the owner falls back
+// to FTMS gradient simulation (never ERG).
+// Keep-alive: while Active (with riding data seen) the trainer must send
+// something on 0002 (riding data / 0x19 idle) within kSilenceMs; after a
+// silence the stream is requested again (41 08 05), after a second one the
+// link fails. While waiting for riding data, a silence only re-requests.
 //
 // While Active, update() sends (only the fields that changed) in Zwift's
 // order (see ZwiftHubProtocol.h, "Zwift's own sequence"):
@@ -56,6 +61,12 @@ public:
     static constexpr int kMinSimIntervalMs = 1000;
     static constexpr int kEchoIntervalMs = 2000;
     static constexpr double kMinInclineChange = 0.1;   // percent
+    // A trainer that answered the handshake but sends no riding data yet (the
+    // Zwift Hub answers 41 08 05 with 2A / FE messages while the flywheel
+    // stands still): Active "waiting for riding data". It fails only when FTMS
+    // shows the trainer moving for kNoRidingWhileMovingMs without riding data.
+    static constexpr double kMovingKmh = 3.0;
+    static constexpr int kNoRidingWhileMovingMs = 8000;
 
     explicit ZwiftHubLink(GattLink *link, QObject *parent = nullptr);
 
@@ -75,6 +86,10 @@ public:
     bool handleNotification(const QBluetoothUuid &uuid, const QByteArray &value);
     void update(const HubSimulation &p, bool force = false);
     void tick();                  // refresh timer (public for tests)
+    // FTMS Indoor Bike Data: the trainer moves (speed / cadence)
+    void noteFtmsMotion(bool moving);
+    // Active, but no riding data (0x03) received yet
+    bool awaitingRidingData() const { return m_state == State::Active && !m_ridingSeen; }
 
     State state() const { return m_state; }
     bool active() const { return m_state == State::Active; }
@@ -101,7 +116,10 @@ private:
     void setState(State s);
     void fail(const QString &reason);
     void sendHandshake();
-    bool writeMessage(const QByteArray &message);
+    bool writeMessage(const QByteArray &message, bool log = true);
+    // waiting for riding data: log the re-requests (and the answers) only
+    // for the first few and then every 10th (they repeat every kSilenceMs)
+    bool awaitLogDue() const { return m_awaitRequests <= 3 || m_awaitRequests % 10 == 0; }
     void onMessage(const QByteArray &value, bool fromTx);
     void becomeActive();
     qint64 now() const { return m_clock ? m_clock() : m_since.elapsed(); }
@@ -131,6 +149,10 @@ private:
     QByteArray m_pending;         // fragment of a split notification
     int m_ridingLogCount = 0;
     int m_streamRetries = 0;
+    bool m_trainerAnswered = false;   // any 0002 message after the stream start
+    bool m_ridingSeen = false;        // riding data (0x03) in this session
+    qint64 m_movingSinceMs = -1;      // FTMS motion while awaiting riding data
+    int m_awaitRequests = 0;          // stream re-requests while awaiting riding data
 };
 
 } // namespace watt

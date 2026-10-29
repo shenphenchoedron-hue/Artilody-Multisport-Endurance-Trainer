@@ -647,6 +647,94 @@ private slots:
         QCOMPARE(z.failureReason(), QStringLiteral("the trainer stopped sending Zwift data"));
     }
 
+    // Zwift Hub (log of 1.3.7): RideOn answered, the stream start answered
+    // with 2A / FE messages and FTMS "Control Permission Lost" (the Hub
+    // switched to the Zwift protocol) - no riding data while its flywheel
+    // stands still. FTMS control must NOT be requested again (that switched it
+    // back: no riding data, FTMS fallback after 4 s). The link becomes active
+    // waiting for riding data; it fails only when FTMS shows the trainer
+    // moving without riding data, and then FTMS control is requested again.
+    void zwiftHubWithoutRidingDataWhileStanding()
+    {
+        for (const bool ridingComes : { true, false }) {
+            TrainerRig r(true, true, false);
+            bool lostSent = false, riding = false;
+            r.link->responder = [&](const QBluetoothUuid &c, const QByteArray &d) -> QVector<FakeGattLink::Notification> {
+                if (c == kCp && !d.isEmpty())
+                    return { { kCp, hex("80") + d.left(1) + hex("01") } };
+                if (c != kRx)
+                    return {};
+                if (zhub::isRideOn(d))
+                    return { { kTx, QByteArray("RideOn") } };
+                if (d == zhub::startStream()) {
+                    if (riding) {
+                        zhub::RidingData rd;
+                        rd.power = 90;
+                        rd.cadence = 70;
+                        rd.speedMps = 6.0;
+                        return { { kAsync, zhub::encodeRidingData(rd) } };
+                    }
+                    QVector<FakeGattLink::Notification> out;
+                    if (!lostSent) {
+                        lostSent = true;
+                        out.append({ u16(ftms::kMachineStatusUuid), hex("ff") });
+                    }
+                    out.append({ kAsync, hex("2a120e0830100a1890032205ffffefff1f") });
+                    out.append({ kAsync, hex("fe") });
+                    return out;
+                }
+                return {};
+            };
+            qint64 clock = 0;
+            r.trainer->zwiftHub()->setClockForTesting([&clock] { return clock; });
+            r.connect();
+            QTRY_COMPARE(r.link->countOp(kCp, 0x00), 1);
+            r.hub.setZwiftHubWanted(true);
+            QTRY_COMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+            QVERIFY(lostSent);
+            QVERIFY(r.trainer->zwiftHub()->awaitingRidingData());
+            QCOMPARE(r.hub.trainerZwiftHubState(), int(SensorHub::HubActive));
+            // the hub path sends the road and the gear; no FTMS control request
+            r.hub.requestHubSimulation(params(0.0, 1.2));
+            QTest::qWait(300);
+            QCOMPARE(r.link->countOp(kCp, 0x00), 1);
+            QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+            QVERIFY(!commands(r.link).isEmpty());
+            if (ridingComes) {
+                // the rider pedals: riding data arrives, the stream runs
+                riding = true;
+                zhub::RidingData rd;
+                rd.power = 90;
+                rd.cadence = 70;
+                rd.speedMps = 6.0;
+                r.link->notify(kAsync, zhub::encodeRidingData(rd));
+                QVERIFY(!r.trainer->zwiftHub()->awaitingRidingData());
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(20, 70.0, 90));
+                clock = 20000;
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(20, 70.0, 90));
+                QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+                QCOMPARE(r.link->countOp(kCp, 0x00), 1);
+            } else {
+                // standing still: no failure however long it takes
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(0, 0.0, 0));
+                clock = 60000;
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(0, 0.0, 0));
+                QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+                // moving for kNoRidingWhileMovingMs without riding data: FTMS
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(20, 70.0, 90));
+                clock += ZwiftHubLink::kNoRidingWhileMovingMs - 1000;
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(20, 70.0, 90));
+                QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Active);
+                clock += 1000;
+                r.link->notify(u16(ftms::kIndoorBikeDataUuid), ibd(20, 70.0, 90));
+                QCOMPARE(r.trainer->zwiftHub()->state(), ZwiftHubLink::State::Failed);
+                QCOMPARE(r.trainer->zwiftHub()->failureReason(),
+                         QStringLiteral("the trainer moves (FTMS) but sends no Zwift riding data"));
+                QTRY_COMPARE(r.link->countOp(kCp, 0x00), 2);   // FTMS control again
+            }
+        }
+    }
+
     void onlyChangedFieldsAndRateLimits()
     {
         FakeGattLink link(victoryFtms() + hubChars(), { u16(0x1826), u16(0xFC82) });

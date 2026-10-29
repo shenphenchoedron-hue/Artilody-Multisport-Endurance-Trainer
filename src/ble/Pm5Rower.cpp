@@ -32,6 +32,7 @@ Pm5Rower::Pm5Rower(const QBluetoothDeviceInfo &info, const QBluetoothAddress &lo
     // its rowing data is used when the Concept2 rowing service is missing.
     // Any other FTMS rowing machine works the same way.
     m_link->setFallbackServices({ kFtmsService });
+    m_link->setAdvertiseHint(QStringLiteral("PM5: Connect screen"));
     // Like Concept2's own Web Bluetooth sample: give the PM5 ~1 s after
     // discovery before enabling notifications (BlueZ drops early CCCD writes).
     m_link->setSettleDelayMs(1000);

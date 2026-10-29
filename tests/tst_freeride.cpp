@@ -191,15 +191,16 @@ private slots:
         QCOMPARE(app.constLast(), 0.0);   // the flywheel stopped: so does the bike
         QVERIFY(!f.ride->coasting());      // ... and it is no longer coasting
 
-        // coasting = not pedaling while the flywheel turns - also with the
-        // trainer's lagging cadence (83 rpm reported at 0 W)
+        // coasting = not pedaling while the flywheel turns; a cadence at 0 W
+        // is light pedaling (the Victory reads 0 W at 36–107 rpm, 1.3.8)
         f.pedal(80, 110);
         f.hub->updateSpeed(38.0);
         f.ride_for(20000);
         QVERIFY(!f.ride->coasting());
         f.pedal(83, 0);
         f.ride->advanceClock(250);
-        QVERIFY(f.ride->coasting());
+        QVERIFY(!f.ride->coasting());
+        QVERIFY(f.ride->pedaling());
         f.pedal(0, 0);
         f.ride->advanceClock(250);
         QVERIFY(f.ride->coasting());
@@ -216,14 +217,99 @@ private slots:
         f.ride_for(3000);
         QVERIFY2(f.ride->speedKmh() > 15.0, qPrintable(QString::number(f.ride->speedKmh())));
         QVERIFY(f.ride->coasting());
-        // ... and stops when the flywheel stops: no longer coasting
+        // ... and stops when the flywheel stops: no longer coasting, braked to
+        // 0 at kHubStopDecelMps2 (no jump from ~20 km/h to 0)
+        const double rolling = f.ride->speedKmh();
         f.hub->updateSpeed(0.0);
         f.ride->advanceClock(250);
-        QCOMPARE(f.ride->speedKmh(), 0.0);
         QVERIFY(!f.ride->coasting());
-        f.ride_for(3000);   // stays stopped downhill
+        QVERIFY2(f.ride->speedKmh() > 0.0, qPrintable(QString::number(f.ride->speedKmh())));
+        QVERIFY(rolling - f.ride->speedKmh() <= FreeRideSession::kHubStopDecelMps2 * 0.25 * 3.6 + 1e-6);
+        f.ride_for(3000);   // stopped within ~1.5 s and stays stopped downhill
+        QCOMPARE(f.ride->speedKmh(), 0.0);
+        f.ride_for(3000);
         QCOMPARE(f.ride->speedKmh(), 0.0);
     }
+
+    // Zwift protocol, light pedaling: cadence but 0 W (the Victory, log of
+    // 1.3.8: 36 rpm at 0 W counted as coasting, the speed sank to 7 km/h with
+    // the flywheel at 18 km/h). The speed follows the trainer's flywheel for
+    // the NOMINAL gear - not the soft start's light gear that is sent.
+    void hubLightPedalingFollowsTheFlywheel()
+    {
+        SoftStartOn soft;
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setHub(f.hub.get());
+        f.hub->setTrainerZwiftHub(SensorHub::HubActive, QStringLiteral("active"));
+        QVERIFY(f.ride->start());
+        f.pedal(36, 0);
+        f.hub->updateSpeed(18.0);
+        f.ride_for(10000);
+        QVERIFY(f.ride->pedaling());
+        QVERIFY(!f.ride->coasting());
+        const double trainer = f.gears->hubTrainerSpeedMps() * 3.6;
+        QVERIFY2(trainer > 0, qPrintable(QString::number(trainer)));
+        QVERIFY2(std::abs(f.ride->speedKmh() - trainer) < 0.5,
+                 qPrintable(QStringLiteral("app %1 trainer %2").arg(f.ride->speedKmh()).arg(trainer)));
+        // the nominal gear: virtual × compensation (unknown real gear: × 1),
+        // independent of the light gear the soft start sends
+        const double nominal = f.gears->gearRatio() * (f.gears->hubGearKnown() ? f.gears->hubGearFactor() : 1.0);
+        QVERIFY2(std::abs(trainer - 18.0 * nominal / HubGearCompensation::kTrainerRatio) < 0.05,
+                 qPrintable(QStringLiteral("trainer %1 nominal %2 sent %3")
+                                .arg(trainer)
+                                .arg(nominal)
+                                .arg(f.hub->hubSimulation().gearRatio)));
+    }
+    // The shared hub speed step: downhill a light pedal / lagging cadence
+    // never brakes the bike to the flywheel (it rolls on), on the flat it
+    // follows the flywheel both ways; coasting caps only on the flat.
+    void hubSpeedStepRules()
+    {
+        RideResistance::HubSpeedInput in;
+        in.trainerMps = 4.0;
+        in.pedaling = true;
+        in.lowPower = true;
+        in.dt = 0.25;
+        in.gradePercent = -4.0;
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0);                  // downhill: not braked
+        QCOMPARE(RideResistance::hubSpeedStep(2.0, in), 2.0 + 3.0 * 0.25);     // but pulled up
+        in.gradePercent = 0.0;
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0 - 3.0 * 0.25);     // flat: follows down
+        QCOMPARE(RideResistance::hubSpeedStep(2.0, in), 2.0 + 3.0 * 0.25);     // ... and up
+        in.lowPower = false;
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0);                  // real power: untouched
+        in.pedaling = false;
+        QCOMPARE(RideResistance::hubSpeedStep(2.0, in), 2.0);                  // coasting: never raised
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0 - 3.0 * 0.25);     // capped on the flat
+        in.gradePercent = -4.0;
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0);                  // rolls on downhill
+        in.flywheelStopped = true;
+        QCOMPARE(RideResistance::hubSpeedStep(8.0, in), 8.0 - 4.0 * 0.25);     // braked to 0, any grade
+        QCOMPARE(RideResistance::hubSpeedStep(0.5, in), 0.0);
+    }
+
+    // Free ride, downhill: the rider stops, the Victory's cadence still reads
+    // 80 rpm at 0 W - the speed must not drop to the flywheel's.
+    void hubLaggingCadenceDownhillDoesNotBrake()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        f.gears->setHub(f.hub.get());
+        f.hub->setTrainerZwiftHub(SensorHub::HubActive, QStringLiteral("active"));
+        QVERIFY(f.ride->start());
+        f.ride->setGrade(-4.0);
+        f.pedal(85, 150);
+        f.hub->updateSpeed(30.0);
+        f.ride_for(20000);
+        const double before = f.ride->speedKmh();
+        f.pedal(80, 0);            // lagging cadence at 0 W
+        f.hub->updateSpeed(8.0);   // the flywheel slows down
+        f.ride_for(2000);
+        QVERIFY2(f.ride->speedKmh() >= before - 0.5,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(f.ride->speedKmh())));
+    }
+
     void idleIsSafeWithoutTrainer()
     {
         Database db;
@@ -965,10 +1051,11 @@ private slots:
         QVERIFY(second > 0);
         QVERIFY(f.profiles->selectProfile(second));
         QCOMPARE(again->gearSetup().value(QStringLiteral("chainrings")).toList().size(), 2);   // defaults
-        again->shiftUp();   // the Zwift gear is the rider's current gear, whichever profile
+        again->shiftUp();
         again->flushSettings();
+        // another rider starts in their own start gear (from their FTP)
         QVERIFY(f.profiles->selectProfile(first));
-        QCOMPARE(again->gearLabel(), QStringLiteral("13"));
+        QCOMPARE(again->gearLabel(), QString::number(again->startGear()));
         QCOMPARE(again->gearSetup().value(QStringLiteral("circumferenceMm")).toInt(), 2136);
         // a running ride keeps its bike until it is finished
         QVERIFY(againRide->start());

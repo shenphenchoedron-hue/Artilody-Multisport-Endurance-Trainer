@@ -292,6 +292,20 @@ int main(int argc, char *argv[])
     // pedaling or rowing never starts one. The pages show why their Start is
     // disabled, with the fix (QML "Sessions").
     SessionGuard sessions(&training, &freeRide, &rlv, &rowing, &gears);
+    // A known Zwift Click that is not connected (asleep, or never reconnected
+    // after a profile switch, log of v1.3.8): look for it again.
+    // (profileChanged also fires on every profile save: only a real switch)
+    auto lastProfileId = std::make_shared<qint64>(profiles.profileId());
+    QObject::connect(&profiles, &ProfileManager::profileChanged, &devices, [&, lastProfileId] {
+        if (profiles.profileId() == *lastProfileId)
+            return;
+        *lastProfileId = profiles.profileId();
+        devices.lookForKnownControllers(QStringLiteral("profile switched"));
+    });
+    QObject::connect(&freeRide, &FreeRideSession::started, &devices,
+                     [&] { devices.lookForKnownControllers(QStringLiteral("free ride started")); });
+    QObject::connect(&rlv, &RlvSession::started, &devices,
+                     [&] { devices.lookForKnownControllers(QStringLiteral("video ride started")); });
     // The rider of a ride must still exist when it is saved.
     profiles.setBusyCheck([&] {
         return training.active() || rowing.active() || freeRide.active() || rlv.active();

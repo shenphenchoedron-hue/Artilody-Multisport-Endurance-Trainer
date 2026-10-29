@@ -269,6 +269,33 @@ public:
     // the extra power is roughly that energy / ramp time, so 3 s about halves
     // it while the shift still lands within one or two pedal strokes' time.
     static constexpr int kHubShiftRampMs = 3000;
+    // --- Zwift hub path: the bike's speed where the power says nothing -------
+    // Both sessions (free ride, video ride) after their power integration:
+    //   light pedaling (pedaling, power below the pedal threshold - the
+    //     Victory reads 0 W at 36–107 rpm): approaches the trainer's flywheel
+    //     speed for the gear (VirtualGears::hubTrainerSpeedMps) at
+    //     kHubCoastCatchUpMps2 - downhill only upwards (the bike may roll
+    //     faster than the flywheel; a lagging cadence after the rider stopped
+    //     must not brake it);
+    //   coasting, flywheel stopped: braked to 0 at kHubStopDecelMps2 on any
+    //     grade (no jump to 0);
+    //   coasting on the flat / uphill: no faster than the flywheel (approached
+    //     at kHubCoastCatchUpMps2); downhill it rolls on.
+    // trainerMps < 0: unknown (no cap / no follow). Below kHubStopSpeedMps on
+    // the flat / uphill while not driving: 0.
+    static constexpr double kHubCoastCatchUpMps2 = 3.0;
+    static constexpr double kHubStopDecelMps2 = 4.0;   // ≈ 14 km/h per second
+    static constexpr double kHubStopSpeedMps = 0.3;
+    struct HubSpeedInput
+    {
+        double trainerMps = -1;      // VirtualGears::hubTrainerSpeedMps()
+        bool pedaling = false;       // the session's pedaling()
+        bool lowPower = false;       // power below the pedal threshold
+        bool flywheelStopped = false;
+        double gradePercent = 0;
+        double dt = 0;
+    };
+    static double hubSpeedStep(double speedMps, const HubSpeedInput &in);
     double hubGearScale() const { return m_hubScale; }      // sent / D (1 = settled)
     bool hubGearLight() const { return m_hubBasisLight; }
     // Tests of unrelated behaviour may switch it off (process-wide, default on).

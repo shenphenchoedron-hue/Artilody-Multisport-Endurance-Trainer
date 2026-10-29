@@ -40,6 +40,9 @@ public:
     // and some peripherals (Concept2 PM5) drop CCCD writes issued right after
     // service discovery.
     void setSettleDelayMs(int ms) { m_settleMs = ms; }
+    // How to make this device advertise, for the "not known to the Bluetooth
+    // stack any more" message (e.g. "PM5: Connect screen").
+    void setAdvertiseHint(const QString &hint) { m_advertiseHint = hint; }
     // Diagnostics (trainer): after serviceReady() also discover the details
     // of every OTHER service of the peripheral (one after the other, values
     // not read) - Zwift 0xFC82 / 00000001-19CA-..., vendor services, ... -
@@ -87,6 +90,7 @@ private:
     QBluetoothDeviceInfo m_info;
     QBluetoothUuid m_serviceUuid;
     QList<QBluetoothUuid> m_fallbacks;
+    QString m_advertiseHint = QStringLiteral("switch it on / wake it");
     QBluetoothUuid m_activeUuid;
     QList<QBluetoothUuid> m_discovered;
     int m_settleMs = 0;

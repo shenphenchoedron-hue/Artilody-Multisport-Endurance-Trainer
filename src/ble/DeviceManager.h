@@ -274,6 +274,10 @@ public:
     void setExtraDiagnostics(std::function<QString()> provider) { m_extraDiagnostics = std::move(provider); }
     Q_INVOKABLE void copyToClipboard(const QString &text) const;
     Q_INVOKABLE void clearScanError();
+    // A known Zwift Click is not connected (e.g. after a profile switch or at
+    // the start of a free / video ride): scan again for a while so it
+    // reconnects as soon as it advertises, and say how to wake it.
+    void lookForKnownControllers(const QString &why);
 
 public slots:
     // Entry point for every scan result (deviceDiscovered and deviceUpdated).

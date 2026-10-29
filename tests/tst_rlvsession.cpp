@@ -1089,12 +1089,14 @@ private slots:
         // a running video ride gets the buttons wherever the user is
         f.gears->setActivePage(QStringLiteral("history"));
         f.pedal(85, 200);
-        QVERIFY(f.rlv->start());
+        QVERIFY(f.rlv->start());   // keeps the gear the rider shifted to
+        QCOMPARE(f.gears->gearIndex(), gear);
         f.gears->controllerShift(1);
         QCOMPARE(f.gears->gearIndex(), ++gear);
         f.rlv->finish(false);
         // a running free ride too
         QVERIFY(f.freeRide->start());
+        QCOMPARE(f.gears->gearIndex(), gear);
         f.gears->controllerShift(1);
         QCOMPARE(f.gears->gearIndex(), ++gear);
         f.freeRide->finish(false);

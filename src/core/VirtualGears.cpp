@@ -342,12 +342,19 @@ double VirtualGears::hubTrainerSpeedMps() const
     if (!m_hub || !m_hub->hubSimulationActive() || !m_hub->trainerConnected() || !m_hub->trainerReportsSpeed())
         return -1.0;
     const double speed = std::max(0.0, m_hub->speedMps());
-    if (m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear)
-        return speed;   // already the trainer's simulated speed
     const double sent = m_hub->hubSimulation().gearRatio;
     if (!(sent > 0))
         return -1.0;
-    return speed * sent / HubGearCompensation::kTrainerRatio;
+    // The NOMINAL gear (virtual × compensation), not the one sent: the soft
+    // start's light gear (× 0.5) and the ramps are a resistance aid only - with
+    // the sent ratio a re-armed soft start dropped the coasting speed from 18
+    // to 13.5 km/h in one step (log of 1.3.8).
+    const double nominal = gearRatio() * (hubGearKnown() ? hubGearFactor() : 1.0);
+    if (!(nominal > 0))
+        return -1.0;
+    if (m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear)
+        return speed * nominal / sent;   // the trainer's simulated speed, for the sent gear
+    return speed * nominal / HubGearCompensation::kTrainerRatio;
 }
 
 bool VirtualGears::hubFlywheelStopped() const
@@ -721,14 +728,64 @@ void VirtualGears::load()
 {
     saveNow();   // a pending change belongs to the previous profile
     m_reloadPending = false;
+    const bool otherRider = !m_loaded || m_profiles->profileId() != m_profileId;
     m_profileId = m_profiles->profileId();
     const QString json = m_profileId >= 0 ? m_db->gearSetupJson(m_profileId) : QString();
     // Zwift's fixed 24 gears: the stored chainrings / cogs (and their gear)
     // are kept in the database but not used; the current virtual gear stays
+    // for the same rider, another rider starts in their start gear
     const int gear = m_gearing.isZwift() ? m_gearing.zwiftGear() : zwiftgears::kStartGear;
     m_gearing = Gearing::zwift(GearSetup::fromJsonText(json), gear);
+    m_loaded = true;
+    if (otherRider)
+        applyStartGear(QStringLiteral("rider %1 loaded").arg(m_profiles->name()));
     emit gearSetupChanged();
     emit gearChanged();
+}
+
+int VirtualGears::startGearFor(int ftp, const road::Model &flat, int circumferenceMm)
+{
+    if (ftp <= 0)
+        return zwiftgears::kStartGear;
+    const double target = ftp * kStartGearFtpShare;
+    int best = kMinStartGear;
+    for (int g = kMinStartGear; g <= zwiftgears::kStartGear; ++g) {
+        const double v = Gearing::speedFor(kStartGearCadenceRpm, zwiftgears::ratio(g), circumferenceMm);
+        if (road::powerForSpeed(flat, v) <= target)
+            best = g;
+    }
+    return best;
+}
+
+int VirtualGears::startGear() const
+{
+    return startGearFor(m_profiles->ftp(), roadModel(0.0), m_gearing.setup().circumferenceMm);
+}
+
+void VirtualGears::applyStartGear(const QString &why)
+{
+    const int gear = startGear();
+    DiagLog::write("VSHIFT", QStringLiteral("start gear %1 (%2) for FTP %3 W (%4)")
+                               .arg(gear)
+                               .arg(zwiftgears::ratio(gear), 0, 'f', 2)
+                               .arg(m_profiles->ftp())
+                               .arg(why));
+    m_gearChosen = false;
+    if (m_gearing.isZwift() && m_gearing.zwiftGear() == gear)
+        return;
+    m_gearing = Gearing::zwift(m_gearing.setup(), gear);
+    emit gearChanged();
+}
+
+void VirtualGears::rideStarting(const QString &why)
+{
+    if (m_gearChosen) {
+        DiagLog::write("VSHIFT", QStringLiteral("%1: keeps the rider's gear %2 (start gear would be %3)")
+                                   .arg(why, gearLabel())
+                                   .arg(startGear()));
+        return;
+    }
+    applyStartGear(why);
 }
 
 void VirtualGears::reload()
@@ -983,7 +1040,9 @@ void VirtualGears::afterShift(bool didShift, int direction)
 {
     if (!didShift)
         return;
-    // the virtual gear is not saved (Zwift's table, start gear 12)
+    // the virtual gear is not saved (Zwift's table, start gear: startGear());
+    // a gear chosen before a ride is kept at its start (rideStarting())
+    m_gearChosen = true;
     emit gearChanged();
     emit shifted(direction);
 }

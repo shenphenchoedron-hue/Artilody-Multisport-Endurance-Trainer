@@ -18,6 +18,7 @@ ZwiftClick::ZwiftClick(const QBluetoothDeviceInfo &info, const QBluetoothAddress
     m_clock.start();
     m_link->setFallbackServices({ QBluetoothUuid(quint16(zwift::kServiceUuid16)) });
     m_link->setSettleDelayMs(200);
+    m_link->setAdvertiseHint(QStringLiteral("press a button on the Click to wake it"));
 
     m_repeatTimer.setInterval(50);
     connect(&m_repeatTimer, &QTimer::timeout, this, [this] {

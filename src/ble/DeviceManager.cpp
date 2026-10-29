@@ -527,6 +527,26 @@ void DeviceManager::doStartScan(bool clearLists)
     emit scanningChanged();
 }
 
+void DeviceManager::lookForKnownControllers(const QString &why)
+{
+    if (!m_autoConnect || m_knownControllers.isEmpty() || !bluetoothAvailable())
+        return;
+    for (const auto &c : std::as_const(m_controllerDevs)) {
+        if (c && c->state() != LinkState::Disconnected)
+            return;   // a Click is connected / connecting already
+    }
+    // a known controller that is held but dropped: try it now
+    for (const QString &id : std::as_const(m_knownControllers)) {
+        if (ControllerDevice *c = controllerFor(id); c && c->state() == LinkState::Disconnected)
+            c->reconnectNow();
+    }
+    addDiag(QStringLiteral("Looking for known Zwift controllers (%1)").arg(why));
+    addLog(QStringLiteral("Zwift Click not connected – press a button on the Click to wake it"), false);
+    m_autoRescans = std::max(m_autoRescans, 4);   // keep looking for ~5 min
+    if (!scanning())
+        doStartScan(false);
+}
+
 void DeviceManager::ensureScanning()
 {
     // BlueZ forgets unpaired devices ~30 s after it last saw them; Qt then
@@ -842,8 +862,19 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         e.known = id == m_knownHr;
         m_hrSensors.upsert(e);
     }
-    if (isNew || prev != kind)
+    if (isNew || prev != kind) {
         addLog(QStringLiteral("Found %1").arg(e.name), true);
+        // why a found Click does not connect by itself (diagnostic log)
+        if (kind == Kind::Controller && !activeController)
+            DiagLog::write("BLE", QStringLiteral("controller %1 [%2] found: %3").arg(e.name, id,
+                                  !m_autoConnect ? QStringLiteral("auto-connect is off")
+                                  : !e.known     ? QStringLiteral("not a known controller (known: %1) – connect it on the Devices page once")
+                                                       .arg(m_knownControllers.isEmpty() ? QStringLiteral("-")
+                                                                                         : m_knownControllers.join(QLatin1Char(',')))
+                                  : m_controllerDevs.size() >= kMaxControllers
+                                      ? QStringLiteral("known, but %1 controllers are held already").arg(m_controllerDevs.size())
+                                      : QStringLiteral("known – connecting")));
+    }
 
     if (m_autoConnect && e.known) {
         // A known device we hold but whose link dropped (a Click that slept,

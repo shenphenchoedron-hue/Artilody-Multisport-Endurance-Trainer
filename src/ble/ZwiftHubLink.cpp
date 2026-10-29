@@ -46,6 +46,13 @@ ZwiftHubLink::ZwiftHubLink(GattLink *link, QObject *parent)
             writeMessage(zhub::startStream());
             m_timeout.start(m_streamMs);
         } else if (m_state == State::Stream) {
+            if (m_trainerAnswered) {
+                DiagLog::write("ZHUB", QStringLiteral("no riding data within %1 ms, but the trainer answered the stream start – "
+                                                      "active, waiting for riding data (sent once the flywheel turns)")
+                                           .arg(m_streamMs));
+                becomeActive();
+                return;
+            }
             fail(m_rideOnSeen ? QStringLiteral("no riding data from the trainer after the handshake")
                               : QStringLiteral("no answer to the handshake"));
         }
@@ -55,6 +62,16 @@ ZwiftHubLink::ZwiftHubLink(GattLink *link, QObject *parent)
     connect(&m_silence, &QTimer::timeout, this, [this] {
         if (m_state != State::Active)
             return;
+        if (!m_ridingSeen) {
+            // still waiting for the first riding data: ask again, never fail here
+            ++m_awaitRequests;
+            if (awaitLogDue())
+                DiagLog::write("ZHUB", QStringLiteral("still no riding data (%1. request) – requesting the data stream again")
+                                           .arg(m_awaitRequests));
+            writeMessage(zhub::startStream(), awaitLogDue());
+            m_silence.start();
+            return;
+        }
         if (m_streamRetries < kStreamRetries) {
             ++m_streamRetries;
             DiagLog::write("ZHUB", QStringLiteral("keep-alive: nothing on 0002 for %1 ms – requesting the data stream again")
@@ -116,6 +133,10 @@ void ZwiftHubLink::start()
     m_lastSimMs = -1;
     m_lastEchoMs = -1;
     m_rideOnSeen = false;
+    m_trainerAnswered = false;
+    m_ridingSeen = false;
+    m_movingSinceMs = -1;
+    m_awaitRequests = 0;
     m_sentSim.reset();
     m_sentPhys.reset();
     m_pending.clear();
@@ -206,10 +227,11 @@ QString ZwiftHubLink::stateText() const
     return stateName(m_state);
 }
 
-bool ZwiftHubLink::writeMessage(const QByteArray &message)
+bool ZwiftHubLink::writeMessage(const QByteArray &message, bool log)
 {
     const bool ok = m_link->write(syncRxUuid(), message, false);
-    DiagLog::write("ZHUB", QStringLiteral("write 0003 [%1] = %2%3").arg(DiagLog::hex(message), zhub::describe(message, true),
+    if (log || !ok)
+        DiagLog::write("ZHUB", QStringLiteral("write 0003 [%1] = %2%3").arg(DiagLog::hex(message), zhub::describe(message, true),
                                                                       ok ? QString() : QStringLiteral(" (NOT queued)")));
     return ok;
 }
@@ -258,12 +280,23 @@ void ZwiftHubLink::onMessage(const QByteArray &raw, bool fromTx)
     }
     m_pending.clear();
     const bool riding = type == zhub::InRidingData;
-    // riding data comes about once per second: log the first ones, then every 10th
-    if (!riding || m_ridingLogCount < 5 || m_ridingLogCount % 10 == 0)
+    // riding data comes about once per second: log the first ones, then every
+    // 10th; the answers to the re-requests while waiting for riding data too
+    const bool logIt = riding ? (m_ridingLogCount < 5 || m_ridingLogCount % 10 == 0)
+                              : (!awaitingRidingData() || awaitLogDue());
+    if (logIt)
         DiagLog::write("ZHUB", QStringLiteral("notify %1 [%2] = %3").arg(fromTx ? QStringLiteral("0004") : QStringLiteral("0002"),
                                                                         DiagLog::hex(value), zhub::describe(value, false)));
     if (riding)
         ++m_ridingLogCount;
+    if (!fromTx && m_state == State::Stream && m_rideOnSeen)
+        m_trainerAnswered = true;
+    if (riding && !m_ridingSeen) {
+        m_ridingSeen = true;
+        m_movingSinceMs = -1;
+        if (m_state == State::Active)
+            DiagLog::write("ZHUB", QStringLiteral("first riding data – the Zwift data stream runs"));
+    }
     if (!fromTx && (m_state == State::Active)) {
         m_silence.start();
         m_streamRetries = 0;
@@ -308,8 +341,32 @@ void ZwiftHubLink::becomeActive()
     setState(State::Active);
     m_silence.start();
     m_refresh.start();
+    if (!m_ridingSeen) {
+        // Zwift's own start: device info request and the stream once more
+        writeMessage(zhub::encodeRequest(zhub::kDeviceInfoDataId));
+        writeMessage(zhub::startStream());
+    }
     if (m_haveParams)
         update(m_params, true);
+}
+
+void ZwiftHubLink::noteFtmsMotion(bool moving)
+{
+    if (!awaitingRidingData()) {
+        m_movingSinceMs = -1;
+        return;
+    }
+    if (!moving) {
+        m_movingSinceMs = -1;
+        return;
+    }
+    const qint64 t = now();
+    if (m_movingSinceMs < 0) {
+        m_movingSinceMs = t;
+        return;
+    }
+    if (t - m_movingSinceMs >= kNoRidingWhileMovingMs)
+        fail(QStringLiteral("the trainer moves (FTMS) but sends no Zwift riding data"));
 }
 
 void ZwiftHubLink::update(const HubSimulation &p, bool force)

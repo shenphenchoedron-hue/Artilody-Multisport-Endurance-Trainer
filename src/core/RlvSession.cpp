@@ -505,9 +505,10 @@ bool RlvSession::trainerConnected() const { return m_hub->trainerConnected(); }
 
 bool RlvSession::pedaling() const
 {
-    // the power, not the cadence: the trainer's cadence lags both ways (0 rpm
-    // at 180 W at the start, 83 rpm at 0 W while coasting - Victory logs)
-    return m_hub->power() >= kPedalPowerWatts;
+    // the power OR the cadence: the trainer's cadence lags (0 rpm at 180 W at
+    // the start), and light pedaling reads 0 W on the Victory (36–107 rpm at
+    // 0–24 W, log of 1.3.8) - that is pedaling too, not coasting
+    return m_hub->power() >= kPedalPowerWatts || m_hub->cadence() >= kCoastCadenceRpm;
 }
 
 bool RlvSession::coasting() const
@@ -752,6 +753,7 @@ bool RlvSession::start()
     }
     abandonOthers();
     m_gears->reloadIfPending();
+    m_gears->rideStarting(QStringLiteral("video ride started"));
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
@@ -940,22 +942,16 @@ void RlvSession::updateModel(double dt)
     // own physics (incline + virtual gear), the video follows the power
     if (!virtualGears() || path() == RideResistance::Path::GearHub) {
         integratePower(power >= kPedalPowerWatts || m_speed > 0 ? power : 0, dt);
-        if (path() == RideResistance::Path::GearHub && !pedaling()) {
-            if (m_gears->hubFlywheelStopped()) {
-                m_speed = 0;   // stopped (not coasting): the flywheel stands still, on any grade
-            } else if (effectiveGradePercent() >= 0) {
-                // coasting on the flat / uphill: no faster than the trainer's
-                // own simulation (the road model rolled on after the flywheel
-                // stopped); downhill the video rolls on while the flywheel
-                // turns (approached at <= kHubCoastCatchUpMps2: no jump)
-                const double trainer = m_gears->hubTrainerSpeedMps();
-                if (trainer >= 0) {
-                    if (m_speed > trainer)
-                        m_speed = std::max(trainer, m_speed - kHubCoastCatchUpMps2 * dt);
-                    if (m_speed < 0.3)
-                        m_speed = 0;
-                }
-            }
+        if (path() == RideResistance::Path::GearHub) {
+            // light pedaling / coasting / stopped: RideResistance::hubSpeedStep
+            RideResistance::HubSpeedInput in;
+            in.trainerMps = m_gears->hubTrainerSpeedMps();
+            in.pedaling = pedaling();
+            in.lowPower = power < kPedalPowerWatts;
+            in.flywheelStopped = m_gears->hubFlywheelStopped();
+            in.gradePercent = effectiveGradePercent();
+            in.dt = dt;
+            m_speed = RideResistance::hubSpeedStep(m_speed, in);
         }
         return;
     }

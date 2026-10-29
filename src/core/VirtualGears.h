@@ -59,7 +59,9 @@ class SensorHub;
 // profiles.gear_setup (GearSetup JSON), written 1.5 s after the last change
 // (flushSettings() writes at once). A different profile loads its own bike;
 // while a ride runs (setBusyCheck()) the switch waits until reloadIfPending().
-// The virtual gear itself starts at 12 when the app starts.
+// The virtual gear itself starts at the rider's start gear (startGear(): 12
+// or lighter for a low FTP) when a profile is loaded (app start, another
+// rider); after a shift it carries over from ride to ride.
 //
 // Zwift Click routing (controllerShift(), the single place):
 //   1. a video ride is running             -> RlvSession::controllerShift()
@@ -278,10 +280,11 @@ public:
     const HubGearCompensation &hubGear() const { return m_hubComp; }
     // Zwift hub path: the speed the TRAINER simulates right now (m/s), -1 if
     // unknown (no hub simulation, no trainer speed). Its speed is the
-    // flywheel's (the Victory's logs); the trainer brakes for flywheel × sent
-    // ratio / HubGearCompensation::kTrainerRatio - the same model as the
-    // compensation. A trainer whose speed follows the sent gear reports it
-    // directly. The sessions cap a coasting bike on the flat / uphill at this
+    // flywheel's (the Victory's logs); the bike's speed is flywheel × NOMINAL
+    // ratio / HubGearCompensation::kTrainerRatio (nominal = virtual ×
+    // hubGearFactor(), not the soft start's light gear that is sent) - the
+    // same model as the compensation. A trainer whose speed follows the sent
+    // gear reports it for the sent gear (scaled to the nominal). The sessions cap a coasting bike on the flat / uphill at this
     // (their road model rolled a 77 kg bike on for 10–15 s after the flywheel
     // had stopped) and stop it with the flywheel (hubFlywheelStopped).
     double hubTrainerSpeedMps() const;
@@ -345,6 +348,25 @@ public:
     Q_INVOKABLE bool shiftFrontDown();
     Q_INVOKABLE bool setGear(int front, int rear);
     Q_INVOKABLE bool setGearIndex(int index);
+    // --- start gear from the rider's FTP ------------------------------------------
+    // The virtual gear a ride starts in: the hardest of Zwift's gears whose
+    // flat-road power at kStartGearCadenceRpm is at most kStartGearFtpShare of
+    // the FTP (rider + bike, CdA, Crr of the profile's road model), clamped to
+    // kMinStartGear..zwiftgears::kStartGear (12: never harder than Zwift's
+    // start). Anne (FTP 75, 53 kg): gear 9 (42 W) instead of 12 (78 W ≈ her
+    // FTP). FTP <= 0 (unknown): 12.
+    static constexpr double kStartGearCadenceRpm = 85;
+    static constexpr double kStartGearFtpShare = 0.6;
+    static constexpr int kMinStartGear = 6;
+    static int startGearFor(int ftp, const road::Model &flat, int circumferenceMm);
+    int startGear() const;
+    // Sets the start gear (another rider loaded).
+    void applyStartGear(const QString &why);
+    // A free / video ride starts: the start gear (e.g. the FTP was edited) -
+    // unless the rider has shifted since the profile was loaded; the gear
+    // then stays where the rider left it (as before: within one app run the
+    // gear carries over from ride to ride).
+    void rideStarting(const QString &why);
     // Validates and stores the setup of the current profile; applies at once
     // to both rides. chainrings/cogs: numbers in any order. false + lastError.
     Q_INVOKABLE bool setGearSetup(const QVariantList &chainrings, const QVariantList &cogs, int circumferenceMm,
@@ -417,6 +439,8 @@ private:
     Gearing m_gearing;
     qint64 m_profileId = -1;
     bool m_reloadPending = false;
+    bool m_loaded = false;            // load() ran once (the first rider gets the start gear)
+    bool m_gearChosen = false;        // shifted since the start gear was set
     bool m_forced = false;
     bool m_clickConnected = false;
     QString m_hubOverride = QStringLiteral("auto");

@@ -387,6 +387,32 @@ bool RideResistance::lastCommandIsOurs() const
     return m_serial != 0 && m_hub->commandSerial() == m_serial;
 }
 
+double RideResistance::hubSpeedStep(double speed, const HubSpeedInput &in)
+{
+    const double step = kHubCoastCatchUpMps2 * in.dt;
+    const bool flatOrUp = in.gradePercent >= 0;
+    if (in.pedaling) {
+        if (in.lowPower && in.trainerMps >= 0) {
+            if (speed < in.trainerMps)
+                speed = std::min(in.trainerMps, speed + step);
+            else if (flatOrUp)
+                speed = std::max(in.trainerMps, speed - step);
+        }
+        return speed;
+    }
+    if (in.flywheelStopped) {
+        speed = std::max(0.0, speed - kHubStopDecelMps2 * in.dt);
+        return speed < kHubStopSpeedMps ? 0.0 : speed;
+    }
+    if (flatOrUp && in.trainerMps >= 0) {
+        if (speed > in.trainerMps)
+            speed = std::max(in.trainerMps, speed - step);
+        if (speed < kHubStopSpeedMps)
+            speed = 0;
+    }
+    return speed;
+}
+
 HubSimulation RideResistance::hubSimulationFor(const GearDrive &d)
 {
     HubSimulation p;

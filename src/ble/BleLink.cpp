@@ -150,7 +150,7 @@ void BleLink::connectToDevice()
         emit logMessage(QStringLiteral("Bluetooth error (%1): %2").arg(int(e)).arg(m_controller ? m_controller->errorString() : QString()), false);
         if (e == QLowEnergyController::UnknownRemoteDeviceError)
             emit logMessage(QStringLiteral("%1 is not known to the Bluetooth stack any more – it must be advertising "
-                                           "(PM5: Connect screen) while scanning").arg(displayName()), false);
+                                           "(%2) while scanning").arg(displayName(), m_advertiseHint), false);
         // Kernel ATT backend only: an unanswered connection may mean the
         // peripheral uses the other address type, so alternate it.
         if (e == QLowEnergyController::ConnectionError && !m_everConnected)
