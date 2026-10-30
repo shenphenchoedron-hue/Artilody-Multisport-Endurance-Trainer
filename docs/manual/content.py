@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.4.0 source code (incl. GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.4.1 source code (incl. GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1762,6 +1762,13 @@ def build(s, env):
         "Finish / Reset as described in this chapter. The 3D view follows your position and speed, so the "
         "gradient you feel, the elevation profile and the picture agree. GPX Ride remembers its own mode, "
         "difficulty and last route, separately from Video Ride.",
+        "<b>START and FINISH</b>: a green inflatable START arch stands just ahead of where you start (also "
+        "when you start part-way along the route) and a red FINISH arch at the end. The START arch is shown "
+        "until you have ridden through it, then the FINISH arch – on a loop, where both stand at the same "
+        "place, you start under green and finish under red.",
+        "<b>The rider is you</b>: the rider's legs turn at your real cadence (the value in the Cadence tile); "
+        "they stand still when you stop pedaling, have no cadence or pause, while the wheels roll on with "
+        "your speed.",
         "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
         "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
         "the page says why the 3D view is not available – the route can still be ridden with the profile.",
@@ -2105,7 +2112,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.4.0",
+  "app": "Artilody Watts Trainer 1.4.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

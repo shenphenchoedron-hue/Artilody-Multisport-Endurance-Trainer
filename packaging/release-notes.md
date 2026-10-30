@@ -1,6 +1,14 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.4.0
+## What's new in 1.4.1
+
+**GPX Ride**: start and finish arches, and a rider who pedals like you.
+
+- **START and FINISH arches**: a green inflatable START arch stands 25 m ahead of where you start – also when you start part-way along the route – and a red FINISH arch at the end of the route, so you finish under it. The START arch is shown until you have ridden through it, then the FINISH arch: on a loop, where both stand at the same place, you start under green and finish under red.
+- **The rider follows your real cadence**: the rider's legs turn at the cadence shown in the Cadence tile (smoothed over about half a second, so they don't jerk at each new value). They stand still when you stop pedaling, pause or have no cadence, while the wheels roll on with your speed – coasting downhill looks like coasting.
+- No database change – install over 1.4.0 (or older) and keep all your data.
+
+## Also included from 1.4.0
 
 **GPX Ride** – ride any GPX route in a 3D world (sidebar → **GPX Ride**, under Video Ride).
 
