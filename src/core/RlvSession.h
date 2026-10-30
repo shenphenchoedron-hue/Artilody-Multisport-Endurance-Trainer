@@ -129,9 +129,17 @@ class VirtualGears;
 //     otherwise as without a workout (gears in sim, ±10 W in RLV ERG).
 // With a workout the ride is stored as "RLV: <route> + <workout>" with
 // workout_id, blocks = intervals and the workout target per second.
+//
+// Kind (constructor): Kind::Video is the Video Ride above ("Rlv", page
+// "video", settings "rlv/…", rides "RLV: …"). Kind::Gpx is the GPX Ride
+// ("Gpx", page "gpx", settings "gpx/…", rides "GPX: …"): the same session,
+// physics and trainer control on a plain .gpx track without a video (the
+// page shows the route in 3D instead, Route3DItem). Only the names, the
+// settings keys and the route files accepted differ - never the physics.
 class RlvSession : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString kind READ kindName CONSTANT)            // "video" | "gpx"
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
     Q_PROPERTY(bool running READ running NOTIFY stateChanged)
@@ -299,9 +307,21 @@ public:
     static constexpr int kSeekCooldownMs = 1500;
     static constexpr int kReportMaxAgeMs = 3000;
 
+    enum class Kind { Video, Gpx };
+
     RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears,
                RlvLibrary *library = nullptr, QObject *parent = nullptr);
+    RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears, RlvLibrary *library,
+               Kind kind, QObject *parent = nullptr);
     ~RlvSession() override;
+
+    Kind kindValue() const { return m_kind; }
+    bool isGpx() const { return m_kind == Kind::Gpx; }
+    QString kindName() const { return isGpx() ? QStringLiteral("gpx") : QStringLiteral("video"); }
+    // Main.qml page of this session ("video" / "gpx", VirtualGears::activePage())
+    QString pageName() const { return kindName(); }
+    // Key of this session in the other sessions' start blockers ("rlv" / "gpx")
+    QString blockerKey() const { return isGpx() ? QStringLiteral("gpx") : QStringLiteral("rlv"); }
 
     // An empty paused free ride is given up when the video ride starts.
     void setFreeRideSession(FreeRideSession *freeRide) { m_freeRide = freeRide; }
@@ -351,7 +371,7 @@ public:
     QString routeTitle() const { return m_route.title(); }
     QString routeCountry() const { return m_route.country(); }
     QUrl videoUrl() const;
-    bool videoAvailable() const { return m_route.hasVideo(); }
+    bool videoAvailable() const { return !isGpx() && m_route.hasVideo(); }   // never for a GPX ride
     double totalDistanceM() const { return m_route.totalDistance(); }
     double totalAscentM() const { return m_route.ascent(); }
     int routeDurationSec() const;
@@ -556,7 +576,11 @@ private:
     void advanceWorkout(int ms);
     void workoutResistanceChanged();   // workout ERG on/off: path, grade, target
     void emitWorkoutAll();
+    QString settingKey(const char *name) const;   // "rlv/<name>" / "gpx/<name>"
+    QString rideWhat() const;                     // "video ride" / "GPX ride"
+    QString routeWhat() const;                    // "video" / "route"
 
+    const Kind m_kind = Kind::Video;
     Database *m_db;
     ProfileManager *m_profiles;
     SensorHub *m_hub;

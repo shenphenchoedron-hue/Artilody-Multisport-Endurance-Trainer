@@ -30,12 +30,13 @@ class SessionGuard : public QObject
 {
     Q_OBJECT
     // What blocks starting a session of this page; empty map = nothing.
-    // Keys: kind ("workout" | "freeride" | "video" | "rowing"), page (Main.qml
+    // Keys: kind ("workout" | "freeride" | "video" | "gpx" | "rowing"), page (Main.qml
     // page name), pageTitle, paused (bool), elapsedSec, text (e.g. "A workout
     // is paused on Watt Training."), what ("workout", "free ride", ...).
     Q_PROPERTY(QVariantMap workoutBlocker READ workoutBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap freeRideBlocker READ freeRideBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap videoBlocker READ videoBlocker NOTIFY changed)
+    Q_PROPERTY(QVariantMap gpxBlocker READ gpxBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap rowingBlocker READ rowingBlocker NOTIFY changed)
     // WATT_DEBUG_RLVUI=1: the sessions / blockers (and the Video Ride page's
     // enabling conditions) are logged to stderr on every change.
@@ -46,10 +47,14 @@ public:
     SessionGuard(TrainingSession *training, FreeRideSession *freeRide, RlvSession *rlv, RowingSession *rowing,
                  VirtualGears *gears, QObject *parent = nullptr);
     ~SessionGuard() override;
+    // The GPX Ride (a second RlvSession, Kind::Gpx): wired like the video ride
+    // against the free ride, the row and the video ride. Null removes it.
+    void setGpxSession(RlvSession *gpx);
 
     QVariantMap workoutBlocker() const { return blockerFor(QStringLiteral("workout")); }
     QVariantMap freeRideBlocker() const { return blockerFor(QStringLiteral("freeride")); }
     QVariantMap videoBlocker() const { return blockerFor(QStringLiteral("video")); }
+    QVariantMap gpxBlocker() const { return blockerFor(QStringLiteral("gpx")); }
     QVariantMap rowingBlocker() const { return blockerFor(QStringLiteral("rowing")); }
     // The first other session in progress (workout, free ride, video, row).
     Q_INVOKABLE QVariantMap blockerFor(const QString &kind) const;
@@ -71,12 +76,15 @@ signals:
 private:
     void wire();
     void unwire();
+    void wireGpx();
+    void unwireGpx();
     void onPageChanged();
     void onSessionChanged();
 
     TrainingSession *m_training;
     FreeRideSession *m_freeRide;
     RlvSession *m_rlv;
+    RlvSession *m_gpx = nullptr;
     RowingSession *m_rowing;
     VirtualGears *m_gears;
     bool m_debug = false;

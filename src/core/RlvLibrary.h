@@ -37,6 +37,10 @@ class Database;
 //
 // Temporary folders (addTemporaryFolder(), env WATT_RLV_DIR in main.cpp) are
 // scanned but never saved - neither the folder nor its routes in the cache.
+//
+// Kind::Gpx is the GPX Ride library ("GpxRoutes"): every .gpx file below the
+// folders is a route, no video needed (default folder "~/Documents/Artilody
+// GPX Routes", settings "gpx/libraryFolder", "gpx/extraFolders", "gpx/cache").
 class RlvLibrary : public QAbstractListModel
 {
     Q_OBJECT
@@ -45,7 +49,7 @@ class RlvLibrary : public QAbstractListModel
     // QUrl::fromLocalFile(libraryFolder) - for FolderDialog / Qt.openUrlExternally
     Q_PROPERTY(QUrl libraryFolderUrl READ libraryFolderUrl NOTIFY foldersChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
-    Q_PROPERTY(QString defaultLibraryFolder READ defaultLibraryFolder CONSTANT)
+    Q_PROPERTY(QString defaultLibraryFolder READ defaultFolder CONSTANT)
     Q_PROPERTY(QStringList extraFolders READ extraFolders NOTIFY foldersChanged)
     Q_PROPERTY(QStringList folders READ folders NOTIFY foldersChanged)     // all scanned folders
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -83,7 +87,10 @@ public:
         qint64 size = 0;
     };
 
+    enum class Kind { Video, Gpx };
+
     explicit RlvLibrary(Database *db, QObject *parent = nullptr);
+    RlvLibrary(Database *db, Kind kind, QObject *parent = nullptr);
     ~RlvLibrary() override;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -96,7 +103,9 @@ public:
     QUrl libraryFolderUrl() const { return QUrl::fromLocalFile(m_libraryFolder); }
     bool scanning() const { return m_scanThread != nullptr; }
     void setLibraryFolder(const QString &folder);
-    static QString defaultLibraryFolder();
+    static QString defaultLibraryFolder(Kind kind = Kind::Video);
+    QString defaultFolder() const { return defaultLibraryFolder(m_kind); }
+    Kind kind() const { return m_kind; }
     QStringList extraFolders() const { return m_extraFolders; }
     QStringList folders() const;
     QString lastError() const { return m_lastError; }
@@ -128,7 +137,8 @@ public:
     static QString toLocalPath(const QString &folderOrUrl);
     static QString labelFor(const Entry &e);
     // Route files under folder (recursive): xml routes first, gpx(+video) not referenced by them.
-    static QStringList findRoutes(const QString &folder);
+    // Kind::Gpx: every .gpx file.
+    static QStringList findRoutes(const QString &folder, Kind kind = Kind::Video);
 
     // The result of scanning folders (thread-safe, no member access).
     struct ScanResult
@@ -138,7 +148,7 @@ public:
         bool cacheChanged = false;
         bool failed = false;            // the worker threw: keep the old list
     };
-    static ScanResult scanFolders(const QStringList &folders, QHash<QString, Entry> cache);
+    static ScanResult scanFolders(const QStringList &folders, QHash<QString, Entry> cache, Kind kind = Kind::Video);
 
 signals:
     void countChanged();
@@ -148,7 +158,9 @@ signals:
     void scanningChanged();
 
 private:
-    static Entry entryFor(const QString &path, QHash<QString, Entry> &cache, bool *changed);
+    static Entry entryFor(const QString &path, QHash<QString, Entry> &cache, bool *changed, Kind kind);
+    QString settingKey(const char *name) const;   // "rlv/<name>" / "gpx/<name>"
+    QString libraryWhat() const;                  // "video library" / "GPX library"
     void applyScan(ScanResult result);
     bool isTemporaryPath(const QString &path) const;
     void saveFolders();
@@ -157,6 +169,7 @@ private:
     void setError(const QString &e);
     void abandonScan();
 
+    const Kind m_kind = Kind::Video;
     Database *m_db;
     QString m_libraryFolder;
     QStringList m_extraFolders;

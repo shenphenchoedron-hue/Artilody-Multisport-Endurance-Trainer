@@ -19,16 +19,38 @@
 namespace watt {
 
 namespace {
-const QString kSettingMode = QStringLiteral("rlv/mode");
-const QString kSettingDifficulty = QStringLiteral("rlv/difficulty");
-const QString kSettingErgWatts = QStringLiteral("rlv/ergWatts");
-const QString kSettingLastRoute = QStringLiteral("rlv/lastRoute");
-const QString kRefused = QStringLiteral("Another session is running. Stop it before starting a video ride.");
+// setting names below "rlv/" (Video Ride) or "gpx/" (GPX Ride), see settingKey()
+const char *const kSettingMode = "mode";
+const char *const kSettingDifficulty = "difficulty";
+const char *const kSettingErgWatts = "ergWatts";
+const char *const kSettingLastRoute = "lastRoute";
 } // namespace
+
+QString RlvSession::settingKey(const char *name) const
+{
+    return (isGpx() ? QStringLiteral("gpx/") : QStringLiteral("rlv/")) + QLatin1String(name);
+}
+
+QString RlvSession::rideWhat() const
+{
+    return isGpx() ? QStringLiteral("GPX ride") : QStringLiteral("video ride");
+}
+
+QString RlvSession::routeWhat() const
+{
+    return isGpx() ? QStringLiteral("route") : QStringLiteral("video");
+}
 
 RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears, RlvLibrary *library,
                        QObject *parent)
+    : RlvSession(db, profiles, hub, gears, library, Kind::Video, parent)
+{
+}
+
+RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, VirtualGears *gears, RlvLibrary *library,
+                       Kind kind, QObject *parent)
     : QObject(parent)
+    , m_kind(kind)
     , m_db(db)
     , m_profiles(profiles)
     , m_hub(hub)
@@ -85,15 +107,15 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
             applyTarget(true);
     });
 
-    const QString storedMode = m_db->setting(kSettingMode, QStringLiteral("sim")).toString();
+    const QString storedMode = m_db->setting(settingKey(kSettingMode), QStringLiteral("sim")).toString();
     m_mode = parseMode(storedMode).value_or(Mode::Sim);
     if (storedMode != mode())
-        m_db->setSetting(kSettingMode, mode());   // "power" / "gears" (old) -> "sim"
-    const int storedErg = m_db->setting(kSettingErgWatts, 0).toInt();
+        m_db->setSetting(settingKey(kSettingMode), mode());   // "power" / "gears" (old) -> "sim"
+    const int storedErg = m_db->setting(settingKey(kSettingErgWatts), 0).toInt();
     m_ergTarget = storedErg > 0 ? std::clamp(storedErg, int(kMinErgWatts), int(kMaxWatts)) : defaultErgTarget();
-    m_difficulty = std::clamp(m_db->setting(kSettingDifficulty, kDefaultDifficulty).toInt(), 0, 100);
+    m_difficulty = std::clamp(m_db->setting(settingKey(kSettingDifficulty), kDefaultDifficulty).toInt(), 0, 100);
 
-    const QString last = m_db->setting(kSettingLastRoute).toString();
+    const QString last = m_db->setting(settingKey(kSettingLastRoute)).toString();
     if (!last.isEmpty() && QFileInfo::exists(last)) {
         selectPath(last);
         setError(QString());
@@ -103,8 +125,8 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
 RlvSession::~RlvSession()
 {
     if (m_training) {
-        m_training->setStartBlocker(QStringLiteral("rlv"), {});
-        m_training->setAbandonCanceller(QStringLiteral("rlv"), {});
+        m_training->setStartBlocker(blockerKey(), {});
+        m_training->setAbandonCanceller(blockerKey(), {});
     }
     if (active() || m_ergHold)
         m_res.release();
@@ -116,15 +138,15 @@ RlvSession::~RlvSession()
 void RlvSession::setTrainingSession(TrainingSession *training)
 {
     if (m_training) {
-        m_training->setStartBlocker(QStringLiteral("rlv"), {});
-        m_training->setAbandonCanceller(QStringLiteral("rlv"), {});
+        m_training->setStartBlocker(blockerKey(), {});
+        m_training->setAbandonCanceller(blockerKey(), {});
     }
     m_training = training;
     if (training) {
         // a ride in progress blocks the workout; an empty paused one is
         // given up by its start
-        training->setStartBlocker(QStringLiteral("rlv"), [this] { return inProgress(); });
-        training->setAbandonCanceller(QStringLiteral("rlv"), [this] { abandon(); });
+        training->setStartBlocker(blockerKey(), [this] { return inProgress(); });
+        training->setAbandonCanceller(blockerKey(), [this] { abandon(); });
         connect(training, &TrainingSession::stateChanged, this, [this] { updateHold(); });
     }
 }
@@ -261,14 +283,14 @@ void RlvSession::setMode(const QString &modeText)
     if (!parsed || *parsed == m_mode)
         return;
     m_mode = *parsed;
-    m_db->setSetting(kSettingMode, mode());
+    m_db->setSetting(settingKey(kSettingMode), mode());
     if (m_mode == Mode::Erg) {
         // start from what the rider is pushing right now
         const int now = m_hub->displayPower();
         if (now >= kPedalPowerWatts) {
             // stored here, sent once by applyTarget() below
             m_ergTarget = std::clamp(int(std::lround(now / 5.0)) * 5, int(kMinErgWatts), int(kMaxWatts));
-            m_db->setSetting(kSettingErgWatts, m_ergTarget);
+            m_db->setSetting(settingKey(kSettingErgWatts), m_ergTarget);
         }
     }
     emit modeChanged();
@@ -298,7 +320,7 @@ void RlvSession::setTargetWatts(int watts)
     if (watts == m_ergTarget)
         return;
     m_ergTarget = watts;
-    m_db->setSetting(kSettingErgWatts, watts);
+    m_db->setSetting(settingKey(kSettingErgWatts), watts);
     emit targetChanged();
     if (m_mode == Mode::Erg)
         applyTarget(true);
@@ -343,7 +365,7 @@ void RlvSession::setDifficulty(int percent)
     if (percent == m_difficulty)
         return;
     m_difficulty = percent;
-    m_db->setSetting(kSettingDifficulty, percent);
+    m_db->setSetting(settingKey(kSettingDifficulty), percent);
     emit difficultyChanged();
     emit positionChanged();   // effectiveGradePercent
     emit targetChanged();
@@ -365,7 +387,7 @@ int RlvSession::routeIndex() const
 bool RlvSession::select(int row)
 {
     if (!m_library || row < 0 || row >= m_library->count()) {
-        setError(QStringLiteral("No such video"));
+        setError(QStringLiteral("No such %1").arg(routeWhat()));
         return false;
     }
     return selectPath(m_library->pathAt(row));
@@ -374,10 +396,15 @@ bool RlvSession::select(int row)
 bool RlvSession::selectPath(const QString &pathIn)
 {
     if (!canSelect()) {
-        setError(QStringLiteral("Stop the current ride before choosing another video"));
+        setError(QStringLiteral("Stop the current ride before choosing another %1").arg(routeWhat()));
         return false;
     }
     const QString path = RlvLibrary::toLocalPath(pathIn);
+    // a GPX ride rides a plain .gpx track (a video next to it is ignored)
+    if (isGpx() && QFileInfo(path).suffix().compare(QLatin1String("gpx"), Qt::CaseInsensitive) != 0) {
+        setError(QStringLiteral("Choose a .gpx file"));
+        return false;
+    }
     QString error;
     RlvRoute route;
     if (!route.load(path, &error)) {
@@ -385,8 +412,8 @@ bool RlvSession::selectPath(const QString &pathIn)
         return false;
     }
     m_route = std::move(route);
-    setError(m_route.hasVideo() ? QString() : error);
-    m_db->setSetting(kSettingLastRoute, m_route.sourcePath());
+    setError(isGpx() || m_route.hasVideo() ? QString() : error);
+    m_db->setSetting(settingKey(kSettingLastRoute), m_route.sourcePath());
     m_profile.clear();
     for (const QPointF &p : m_route.profile(kProfileSamples))
         m_profile.append(QVariantMap { { QStringLiteral("d"), std::round(p.x() * 10.0) / 10.0 },
@@ -425,12 +452,13 @@ void RlvSession::clearRoute()
 
 QUrl RlvSession::videoUrl() const
 {
-    return m_route.hasVideo() ? QUrl::fromLocalFile(m_route.videoPath()) : QUrl();
+    return videoAvailable() ? QUrl::fromLocalFile(m_route.videoPath()) : QUrl();
 }
 
 int RlvSession::routeDurationSec() const
 {
-    return hasRoute() ? int(std::lround(m_route.videoDuration() - m_route.videoOffset())) : 0;
+    // (the film's length; a GPX track has no film)
+    return hasRoute() && !isGpx() ? int(std::lround(m_route.videoDuration() - m_route.videoOffset())) : 0;
 }
 
 QVariantList RlvSession::informations() const
@@ -664,7 +692,7 @@ bool RlvSession::holdBlocked() const
 bool RlvSession::holdWanted() const
 {
     return (ergNow() || virtualGears()) && m_state == State::Idle
-           && m_gears->activePage() == QLatin1String("video") && trainerConnected() && !holdBlocked();
+           && m_gears->activePage() == pageName() && trainerConnected() && !holdBlocked();
 }
 
 void RlvSession::updateHold(bool force)
@@ -745,16 +773,16 @@ bool RlvSession::start()
     if (active())
         return false;
     if (!hasRoute()) {
-        emit startRefused(QStringLiteral("Choose a video first."));
+        emit startRefused(QStringLiteral("Choose a %1 first.").arg(routeWhat()));
         return false;
     }
     if (startBlocked()) {
-        emit startRefused(kRefused);
+        emit startRefused(QStringLiteral("Another session is running. Stop it before starting a %1.").arg(rideWhat()));
         return false;
     }
     abandonOthers();
     m_gears->reloadIfPending();
-    m_gears->rideStarting(QStringLiteral("video ride started"));
+    m_gears->rideStarting(QStringLiteral("%1 started").arg(rideWhat()));
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
@@ -1107,8 +1135,9 @@ qint64 RlvSession::saveRide()
     RideRecord r;
     r.profileId = p.id;
     r.workoutId = m_hasWorkout ? m_workout.workout().id : -1;
-    r.workoutName = m_hasWorkout ? QStringLiteral("RLV: %1 + %2").arg(m_route.name(), m_workout.workout().name)
-                                 : QStringLiteral("RLV: %1").arg(m_route.name());
+    const QString prefix = isGpx() ? QStringLiteral("GPX") : QStringLiteral("RLV");
+    r.workoutName = m_hasWorkout ? QStringLiteral("%1: %2 + %3").arg(prefix, m_route.name(), m_workout.workout().name)
+                                 : QStringLiteral("%1: %2").arg(prefix, m_route.name());
     r.startedAt = m_startedAt;
     r.blocks = m_hasWorkout ? int(m_workout.workout().intervals.size()) : 0;
     r.ergMode = m_mode == Mode::Erg || (m_hasWorkout && m_workoutErg);
@@ -1147,8 +1176,8 @@ bool RlvSession::attachWorkout(const Workout &w)
         return false;
     }
     if (w.isRowing() || w.intervals.isEmpty() || w.totalDurationSec() <= 0) {
-        setError(QStringLiteral("\"%1\" cannot be ridden in a video ride (cycling workouts with intervals only)")
-                     .arg(w.name));
+        setError(QStringLiteral("\"%1\" cannot be ridden in a %2 (cycling workouts with intervals only)")
+                     .arg(w.name, rideWhat()));
         return false;
     }
     m_workout.load(w, m_profiles->current().ftpFor(sport::cycling()));   // intensity 0, from 0:00

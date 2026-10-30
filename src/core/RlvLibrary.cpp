@@ -22,9 +22,10 @@
 namespace watt {
 
 namespace {
-const QString kSettingFolder = QStringLiteral("rlv/libraryFolder");
-const QString kSettingExtra = QStringLiteral("rlv/extraFolders");
-const QString kSettingCache = QStringLiteral("rlv/cache");
+// below "rlv/" (videos) or "gpx/" (GPX routes), see settingKey()
+const char *const kSettingFolder = "libraryFolder";
+const char *const kSettingExtra = "extraFolders";
+const char *const kSettingCache = "cache";
 
 // Modification time (max) and size (sum) of the route file and its track:
 // for an xml route the gpx it resolved to (gpx-file-path), else the
@@ -50,15 +51,21 @@ qint64 fileStamp(const QString &path, const QString &gpxPath, qint64 *size)
 } // namespace
 
 RlvLibrary::RlvLibrary(Database *db, QObject *parent)
+    : RlvLibrary(db, Kind::Video, parent)
+{
+}
+
+RlvLibrary::RlvLibrary(Database *db, Kind kind, QObject *parent)
     : QAbstractListModel(parent)
+    , m_kind(kind)
     , m_db(db)
 {
     m_scanWatchdog.setSingleShot(true);
     connect(&m_scanWatchdog, &QTimer::timeout, this, &RlvLibrary::abandonScan);
-    m_libraryFolder = toLocalPath(m_db->setting(kSettingFolder, defaultLibraryFolder()).toString());
+    m_libraryFolder = toLocalPath(m_db->setting(settingKey(kSettingFolder), defaultFolder()).toString());
     if (m_libraryFolder.isEmpty())
-        m_libraryFolder = defaultLibraryFolder();
-    for (const QString &f : m_db->setting(kSettingExtra).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+        m_libraryFolder = defaultFolder();
+    for (const QString &f : m_db->setting(settingKey(kSettingExtra)).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts))
         m_extraFolders << toLocalPath(f);
     m_extraFolders.removeDuplicates();
     loadCache();
@@ -87,12 +94,22 @@ void RlvLibrary::setScanDelayForTesting(int ms)
     s_scanDelayMs = std::max(0, ms);
 }
 
-QString RlvLibrary::defaultLibraryFolder()
+QString RlvLibrary::defaultLibraryFolder(Kind kind)
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     if (docs.isEmpty())
         docs = QDir::homePath();
-    return QDir(docs).filePath(QStringLiteral("Artilody Videos"));
+    return QDir(docs).filePath(kind == Kind::Gpx ? QStringLiteral("Artilody GPX Routes") : QStringLiteral("Artilody Videos"));
+}
+
+QString RlvLibrary::settingKey(const char *name) const
+{
+    return (m_kind == Kind::Gpx ? QStringLiteral("gpx/") : QStringLiteral("rlv/")) + QLatin1String(name);
+}
+
+QString RlvLibrary::libraryWhat() const
+{
+    return m_kind == Kind::Gpx ? QStringLiteral("GPX library") : QStringLiteral("video library");
 }
 
 QString RlvLibrary::toLocalPath(const QString &in)
@@ -213,7 +230,7 @@ int RlvLibrary::indexOfPath(const QString &pathIn) const
 
 void RlvLibrary::setLibraryFolder(const QString &folderIn)
 {
-    const QString folder = folderIn.trimmed().isEmpty() ? defaultLibraryFolder() : toLocalPath(folderIn);
+    const QString folder = folderIn.trimmed().isEmpty() ? defaultFolder() : toLocalPath(folderIn);
     if (folder == m_libraryFolder)
         return;
     m_libraryFolder = folder;
@@ -230,8 +247,8 @@ QString RlvLibrary::ensureLibraryFolder()
 
 void RlvLibrary::saveFolders()
 {
-    m_db->setSetting(kSettingFolder, m_libraryFolder);
-    m_db->setSetting(kSettingExtra, m_extraFolders.join(QLatin1Char('\n')));
+    m_db->setSetting(settingKey(kSettingFolder), m_libraryFolder);
+    m_db->setSetting(settingKey(kSettingExtra), m_extraFolders.join(QLatin1Char('\n')));
 }
 
 bool RlvLibrary::addFolder(const QString &folderOrUrl)
@@ -277,13 +294,17 @@ void RlvLibrary::addTemporaryFolder(const QString &folderIn)
 int RlvLibrary::importRoute(const QString &folderOrUrl)
 {
     const QString path = toLocalPath(folderOrUrl);
+    if (m_kind == Kind::Gpx && QFileInfo(path).suffix().compare(QLatin1String("gpx"), Qt::CaseInsensitive) != 0) {
+        setError(QStringLiteral("Choose a .gpx file"));
+        return -1;
+    }
     QString error;
     const RlvRoute route = RlvRoute::fromPath(path, &error);
     if (!route.isValid()) {
         setError(error.isEmpty() ? QStringLiteral("No route found in %1").arg(path) : error);
         return -1;
     }
-    if (!route.hasVideo()) {
+    if (m_kind == Kind::Video && !route.hasVideo()) {
         setError(QStringLiteral("No video found for %1").arg(route.sourcePath()));
         return -1;
     }
@@ -307,11 +328,19 @@ int RlvLibrary::importRoute(const QString &folderOrUrl)
 
 // --- scanning -----------------------------------------------------------------------
 
-QStringList RlvLibrary::findRoutes(const QString &folder)
+QStringList RlvLibrary::findRoutes(const QString &folder, Kind kind)
 {
     QStringList out;
     if (folder.isEmpty() || !QFileInfo(folder).isDir())
         return out;
+    if (kind == Kind::Gpx) {   // GPX routes: every track, no video needed
+        QDirIterator git(folder, { QStringLiteral("*.gpx"), QStringLiteral("*.GPX") }, QDir::Files,
+                         QDirIterator::Subdirectories);
+        while (git.hasNext())
+            out << QDir::cleanPath(git.next());
+        out.sort();
+        return out;
+    }
     QStringList xmls, gpxs;
     QDirIterator it(folder, { QStringLiteral("*.xml"), QStringLiteral("*.XML"), QStringLiteral("*.gpx"),
                               QStringLiteral("*.GPX") },
@@ -341,13 +370,14 @@ QStringList RlvLibrary::findRoutes(const QString &folder)
     return out;
 }
 
-RlvLibrary::Entry RlvLibrary::entryFor(const QString &path, QHash<QString, Entry> &cache, bool *changed)
+RlvLibrary::Entry RlvLibrary::entryFor(const QString &path, QHash<QString, Entry> &cache, bool *changed, Kind kind)
 {
+    const bool gpx = kind == Kind::Gpx;
     const auto it = cache.constFind(path);
     if (it != cache.constEnd() && it->valid) {
         qint64 size = 0;
         const qint64 mtime = fileStamp(path, it->gpxPath, &size);
-        if (it->mtime == mtime && it->size == size && QFileInfo(it->videoPath).isFile())
+        if (it->mtime == mtime && it->size == size && (gpx || QFileInfo(it->videoPath).isFile()))
             return it.value();
     }
 
@@ -361,12 +391,12 @@ RlvLibrary::Entry RlvLibrary::entryFor(const QString &path, QHash<QString, Entry
         e.name = r.name();
         e.title = r.title() != r.name() ? r.title() : QString();
         e.country = r.country();
-        e.videoPath = r.videoPath();
+        e.videoPath = gpx ? QString() : r.videoPath();
         e.gpxPath = r.gpxPath();
         e.distanceM = r.totalDistance();
         e.ascentM = r.ascent();
-        e.durationSec = int(std::lround(r.videoDuration() - r.videoOffset()));
-        e.valid = r.hasVideo();
+        e.durationSec = gpx ? 0 : int(std::lround(r.videoDuration() - r.videoOffset()));
+        e.valid = gpx || r.hasVideo();
         e.error = e.valid ? QString() : QStringLiteral("Video file not found");
     } else {
         e.error = error.isEmpty() ? QStringLiteral("Invalid route") : error;
@@ -378,16 +408,16 @@ RlvLibrary::Entry RlvLibrary::entryFor(const QString &path, QHash<QString, Entry
     return e;
 }
 
-RlvLibrary::ScanResult RlvLibrary::scanFolders(const QStringList &folders, QHash<QString, Entry> cache)
+RlvLibrary::ScanResult RlvLibrary::scanFolders(const QStringList &folders, QHash<QString, Entry> cache, Kind kind)
 {
     ScanResult res;
     QSet<QString> seen;
     for (const QString &folder : folders) {
-        for (const QString &p : findRoutes(folder)) {
+        for (const QString &p : findRoutes(folder, kind)) {
             if (seen.contains(p))
                 continue;
             seen.insert(p);
-            res.found.append(entryFor(p, cache, &res.cacheChanged));
+            res.found.append(entryFor(p, cache, &res.cacheChanged, kind));
         }
     }
     std::sort(res.found.begin(), res.found.end(), [](const Entry &a, const Entry &b) {
@@ -420,11 +450,12 @@ void RlvLibrary::rescan()
     auto result = std::make_shared<ScanResult>();
     const QStringList dirs = folders();
     const QHash<QString, Entry> cache = m_cache;
-    QThread *thread = QThread::create([result, dirs, cache] {
+    const Kind kind = m_kind;
+    QThread *thread = QThread::create([result, dirs, cache, kind] {
         if (const int delay = s_scanDelayMs.load(); delay > 0)
             QThread::msleep(delay);
         try {
-            *result = scanFolders(dirs, cache);
+            *result = scanFolders(dirs, cache, kind);
         } catch (...) {
             result->failed = true;
         }
@@ -440,10 +471,10 @@ void RlvLibrary::rescan()
             m_scanThread = nullptr;
             m_scanResult.reset();
             if (result->failed) {
-                setError(QStringLiteral("Could not scan the video library"));
+                setError(QStringLiteral("Could not scan the %1").arg(libraryWhat()));
                 emit scanned();   // the list stays as it was
             } else {
-                if (m_lastError.startsWith(QLatin1String("Scanning the video library"))
+                if (m_lastError.startsWith(QLatin1String("Scanning the "))
                     || m_lastError.startsWith(QLatin1String("Could not scan")))
                     setError(QString());   // an earlier failed / given-up scan
                 applyScan(std::move(*result));
@@ -470,8 +501,8 @@ void RlvLibrary::abandonScan()
     m_abandonedScans.append(m_scanThread);
     m_scanThread = nullptr;
     m_scanResult.reset();
-    setError(QStringLiteral("Scanning the video library took too long (a folder may be on a slow or "
-                            "disconnected drive). Rescan to try again."));
+    setError(QStringLiteral("Scanning the %1 took too long (a folder may be on a slow or "
+                            "disconnected drive). Rescan to try again.").arg(libraryWhat()));
     emit scanningChanged();
     emit scanned();   // the list stays as it was
     m_rescanPending = false;   // the same folders would hang again: only on request
@@ -490,7 +521,7 @@ void RlvLibrary::rescanNow()
         emit scanningChanged();
     }
     m_rescanPending = false;
-    applyScan(scanFolders(folders(), m_cache));
+    applyScan(scanFolders(folders(), m_cache, m_kind));
 }
 
 bool RlvLibrary::waitForScan(int timeoutMs)
@@ -544,7 +575,7 @@ bool RlvLibrary::isTemporaryPath(const QString &path) const
 
 void RlvLibrary::loadCache()
 {
-    const QJsonObject root = QJsonDocument::fromJson(m_db->setting(kSettingCache).toString().toUtf8()).object();
+    const QJsonObject root = QJsonDocument::fromJson(m_db->setting(settingKey(kSettingCache)).toString().toUtf8()).object();
     for (auto it = root.constBegin(); it != root.constEnd(); ++it) {
         const QJsonObject o = it.value().toObject();
         Entry e;
@@ -587,7 +618,7 @@ void RlvLibrary::saveCache()
                                           { QStringLiteral("asc"), e.ascentM },
                                           { QStringLiteral("dur"), e.durationSec } });
     }
-    m_db->setSetting(kSettingCache, QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));
+    m_db->setSetting(settingKey(kSettingCache), QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));
 }
 
 } // namespace watt

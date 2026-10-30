@@ -535,12 +535,18 @@ struct GearsState
 };
 } // namespace
 
-static GearsState gearsState(const VirtualGears *g, const RlvSession *rlv, const FreeRideSession *fr)
+static GearsState gearsState(const VirtualGears *g, const RlvSession *rlv, const FreeRideSession *fr,
+                             const RlvSession *gpx = nullptr)
 {
     GearsState st;
+    // the GPX ride when it is active or its page is open (and no other ride is active)
+    if (gpx && (gpx->active() || ((!rlv || !rlv->active()) && (!fr || !fr->active())
+                                  && g->activePage() == QLatin1String("gpx"))))
+        rlv = gpx;
     const bool onRlv = rlv && (rlv->active() || ((!fr || !fr->active()) && g->activePage() != QLatin1String("freeride")));
     if (onRlv) {
-        st.session = QStringLiteral("video ride (%1, %2)").arg(rlv->state(), rlv->mode());
+        st.session = QStringLiteral("%1 ride (%2, %3)")
+                         .arg(rlv->isGpx() ? QStringLiteral("GPX") : QStringLiteral("video"), rlv->state(), rlv->mode());
         st.path = rlv->resistancePath();
         st.routeGrade = rlv->gradePercent();
         st.effectiveGrade = rlv->effectiveGradePercent();
@@ -580,7 +586,7 @@ static QString trainerCommand(const SensorHub *hub)
 
 QString VirtualGears::diagnosticsText() const
 {
-    const GearsState st = gearsState(this, m_rlv, m_freeRide);
+    const GearsState st = gearsState(this, m_rlv, m_freeRide, m_gpx);
     QString r;
     QTextStream out(&r);
     out << "[Virtual gears]\n";
@@ -642,7 +648,7 @@ QString VirtualGears::diagnosticsText() const
 
 QString VirtualGears::debugLine() const
 {
-    const GearsState st = gearsState(this, m_rlv, m_freeRide);
+    const GearsState st = gearsState(this, m_rlv, m_freeRide, m_gpx);
     return QStringLiteral("method=%1 session=%2 path=%3%4 grade=%5 eff=%6 demand=%7W wantGrade=%8 vRef=%9km/h "
                           "gear=%10 ref=%11 det=%12 cmd[%13] trainer[v=%14 cad=%15 P=%16]")
         .arg(shiftMethod(), st.session, st.path, st.decision.isEmpty() ? QString() : QStringLiteral("->") + st.decision)
@@ -721,6 +727,11 @@ void VirtualGears::setSessions(FreeRideSession *freeRide, RlvSession *rlv)
 {
     m_freeRide = freeRide;
     m_rlv = rlv;
+}
+
+void VirtualGears::setGpxSession(RlvSession *gpx)
+{
+    m_gpx = gpx;
 }
 
 // --- persistence -------------------------------------------------------------------
@@ -878,8 +889,13 @@ void VirtualGears::controllerShift(int direction)
     // a paused one only on its own page (else the open page's session does)
     const bool onVideo = m_activePage == QLatin1String("video");
     const bool onFreeRide = m_activePage == QLatin1String("freeride");
+    const bool onGpx = m_activePage == QLatin1String("gpx");
     if (m_rlv && (m_rlv->running() || (m_rlv->paused() && onVideo))) {
         m_rlv->controllerShift(direction);
+        return;
+    }
+    if (m_gpx && (m_gpx->running() || (m_gpx->paused() && onGpx))) {
+        m_gpx->controllerShift(direction);
         return;
     }
     if (m_freeRide && (m_freeRide->running() || (m_freeRide->paused() && onFreeRide))) {
@@ -888,6 +904,10 @@ void VirtualGears::controllerShift(int direction)
     }
     if (m_rlv && m_activePage == QLatin1String("video")) {
         m_rlv->controllerShift(direction);
+        return;
+    }
+    if (m_gpx && onGpx) {
+        m_gpx->controllerShift(direction);
         return;
     }
     if (m_freeRide && m_activePage == QLatin1String("freeride")) {

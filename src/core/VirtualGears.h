@@ -69,6 +69,8 @@ class SensorHub;
 //   3. the Video Ride page is open (activePage "video")    -> RlvSession::controllerShift()
 //   4. the Free Ride page is open (activePage "freeride")  -> FreeRideSession::controllerShift()
 //   5. otherwise (e.g. Devices page)        -> shift the gear (test it on the Devices page)
+// The GPX Ride (setGpxSession(), a second RlvSession) is routed like the video
+// ride: running -> it; its page "gpx" open -> it.
 // The sessions shift in their road modes and step the ERG target by ±10 W in
 // ERG. Nothing ever changes the difficulty.
 class VirtualGears : public QObject
@@ -177,6 +179,7 @@ public:
 
     // Routing targets for controllerShift() (main.cpp).
     void setSessions(FreeRideSession *freeRide, RlvSession *rlv);
+    void setGpxSession(RlvSession *gpx);
     // While it returns true a profile switch does not replace the bike.
     void setBusyCheck(std::function<bool()> busy) { m_busy = std::move(busy); }
     void reloadIfPending();
@@ -431,6 +434,7 @@ private:
     ProfileManager *m_profiles;
     QPointer<FreeRideSession> m_freeRide;
     QPointer<RlvSession> m_rlv;
+    QPointer<RlvSession> m_gpx;
     QPointer<SensorHub> m_hub;
     std::function<bool()> m_busy;
     const QObject *m_rideOwner = nullptr;

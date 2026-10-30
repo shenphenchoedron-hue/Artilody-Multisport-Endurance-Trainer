@@ -8,67 +8,83 @@ import Artilody.Backend
 // Real Life Video ride: ride a filmed route; the video follows your position
 // on its GPS track. All logic lives in the Rlv (session) and Videos (library)
 // singletons; this page only shows the video and keeps it in sync:
-//   * source = Rlv.videoUrl while the page is shown or a ride is active
-//     (no decoding in the background); a new source seeks to Rlv.videoPosition
-//   * player.position is set ONLY on Rlv.seekRequested(ms) (never bound)
-//   * player.playbackRate is bound to Rlv.playbackRate
-//   * play() while Rlv.videoShouldPlay, else pause()
-//   * Rlv.reportVideoPosition(player.position) every 500 ms while playing
+//   * source = page.session.videoUrl while the page is shown or a ride is active
+//     (no decoding in the background); a new source seeks to page.session.videoPosition
+//   * player.position is set ONLY on page.session.seekRequested(ms) (never bound)
+//   * player.playbackRate is bound to page.session.playbackRate
+//   * play() while page.session.videoShouldPlay, else pause()
+//   * page.session.reportVideoPosition(player.position) every 500 ms while playing
 // Before the start (route chosen / start point moved) the frame at the start
 // point is shown as a poster (play() + pause(), some backends render no frame
 // for a seek in the stopped state).
+//
+// The same page is the GPX Ride (GpxRidePage.qml: gpx true, session Gpx,
+// library GpxRoutes): the same session class, physics and controls on a plain
+// .gpx track; the video window shows the route in 3D (Route3DView) instead.
 Item {
     id: page
     signal openDevices()
     signal requestFinish()
 
-    readonly property string st: Rlv.state
+    // GPX Ride instead of Video Ride
+    property bool gpx: false
+    // the ride session (Rlv / Gpx) and its route library (Videos / GpxRoutes)
+    property var session: Rlv
+    property var library: Videos
+    // words that differ between the two pages
+    readonly property string routeWord: gpx ? "route" : "video"
+    readonly property string rideWord: gpx ? "GPX ride" : "video ride"
+    readonly property string libraryWord: gpx ? "GPX library" : "video library"
+    readonly property string namePrefix: gpx ? "gpx" : "video"
+
+    readonly property string st: page.session.state
     readonly property bool finished: st === "finished"
-    readonly property bool locked: Rlv.active
+    readonly property bool locked: page.session.active
     // Only one session at a time: a workout / free ride / row IN PROGRESS on
     // another page (riding, or paused with a recording) disables Start - and
     // only Start: the pickers, gears, difficulty etc. stay usable. The reason
     // card (SessionBlockNotice) says which session and offers the fix.
     // Prepared (not started) and finished sessions never block (SessionGuard);
     // nothing starts by pedaling, only by Start / Space.
-    readonly property var blocker: Sessions.videoBlocker
+    readonly property var blocker: page.gpx ? Sessions.gpxBlocker : Sessions.videoBlocker
     readonly property bool otherSession: !!page.blocker && ("" + (page.blocker.kind || "")).length > 0
     // resistance mode: "sim" (the route as a simulated road, default) or
     // "erg" (fixed watts). gears: in "sim" the virtual gear sets the
     // resistance (a Zwift Click is connected: Zwift protocol or FTMS
     // gradient, or the fallback on a trainer without gradient simulation);
     // otherwise the rider shifts the real bike and the trainer gets the grade.
-    readonly property bool gears: Rlv.virtualGears
-    readonly property bool simMode: Rlv.mode === "sim"
-    readonly property bool ergMode: Rlv.mode === "erg"
+    readonly property bool gears: page.session.virtualGears
+    readonly property bool simMode: page.session.mode === "sim"
+    readonly property bool ergMode: page.session.mode === "erg"
     // "Virtual shifting: Zwift protocol" / "… FTMS gradient" / "Shifting: your bike's gears"
     function shiftingText() {
         return Gears.shiftingStatus
     }
     // (never depends on the video: the ride starts even when the video cannot be played)
-    readonly property bool canStart: Rlv.hasRoute && Rlv.trainerConnected && !page.otherSession
+    readonly property bool canStart: page.session.hasRoute && page.session.trainerConnected && !page.otherSession
     // why Start is disabled ("" = it is not)
-    readonly property string startBlockedReason: Rlv.active || page.canStart ? ""
+    readonly property string startBlockedReason: page.session.active || page.canStart ? ""
         : page.otherSession ? page.blocker.text
-        : !Rlv.hasRoute ? (Videos.scanning && Videos.count === 0 ? "Scanning the video library…" : "No video chosen")
-        : !Rlv.trainerConnected ? "No trainer connected" : ""
+        : !page.session.hasRoute ? (page.library.scanning && page.library.count === 0 ? "Scanning the " + page.libraryWord + "…"
+                                                                                     : "No " + page.routeWord + " chosen")
+        : !page.session.trainerConnected ? "No trainer connected" : ""
 
     // WATT_DEBUG_RLVUI=1: every change of the enabling conditions on stderr
     readonly property string uiState: "page=" + (visible ? "shown" : "hidden")
-        + " state=" + Rlv.state + " hasRoute=" + Rlv.hasRoute + " trainer=" + Rlv.trainerConnected
+        + " state=" + page.session.state + " hasRoute=" + page.session.hasRoute + " trainer=" + page.session.trainerConnected
         + " canStart=" + canStart + " reason=\"" + startBlockedReason + "\""
-        + " scanning=" + Videos.scanning + " videos=" + Videos.count
+        + " scanning=" + page.library.scanning + " videos=" + page.library.count
         + " media=" + player.mediaStatus + " playback=" + player.playbackState + " error=" + player.error
         + " poster=" + posterPending + " noPicture=" + noPicture + " gotFrame=" + gotFrame
         + " app=" + Qt.application.state
-    onUiStateChanged: if (Sessions.debugUi) console.info("RLVUI page: " + uiState)
+    onUiStateChanged: if (Sessions.debugUi) console.info("RLVUI " + namePrefix + " page: " + uiState)
     property bool audioOn: false
 
-    // ---- workout during the ride (Rlv.attachWorkout) ----
-    readonly property bool hasWorkout: Rlv.hasWorkout
+    // ---- workout during the ride (page.session.attachWorkout) ----
+    readonly property bool hasWorkout: page.session.hasWorkout
     // the workout holds the trainer in ERG right now
-    readonly property bool workoutErg: Rlv.workoutErgActive
-    readonly property bool workoutLive: Rlv.hasWorkout && !Rlv.workoutFinished
+    readonly property bool workoutErg: page.session.workoutErgActive
+    readonly property bool workoutLive: page.session.hasWorkout && !page.session.workoutFinished
     // small windows: the workout and the route profile share the bottom card
     // (tabs) instead of being stacked
     readonly property bool workoutTabs: Theme.compact
@@ -97,10 +113,10 @@ Item {
         if (!c)
             return
         if (c.workoutId < 0) {
-            if (Rlv.hasWorkout)
-                Rlv.detachWorkout()
-        } else if (c.workoutId !== Rlv.workoutId && !Rlv.attachWorkout(c.workoutId)) {
-            toast(Rlv.lastError.length > 0 ? Rlv.lastError : "Could not load the workout")
+            if (page.session.hasWorkout)
+                page.session.detachWorkout()
+        } else if (c.workoutId !== page.session.workoutId && !page.session.attachWorkout(c.workoutId)) {
+            toast(page.session.lastError.length > 0 ? page.session.lastError : "Could not load the workout")
         }
     }
     // ±5 % of the target: green, ±10 %: yellow, else orange (text-safe colours)
@@ -110,7 +126,7 @@ Item {
         var d = Math.abs(actual - target) / target
         return d <= 0.05 ? Theme.successText : d <= 0.10 ? Theme.warningText : Theme.orangeText
     }
-    function afterWorkoutMode() { return Rlv.mode === "erg" ? "ERG" : "Simulation" }
+    function afterWorkoutMode() { return page.session.mode === "erg" ? "ERG" : "Simulation" }
     Connections {
         target: Workouts
         function onCountChanged() { page.reloadWorkouts() }
@@ -136,7 +152,7 @@ Item {
              : g < 8 ? Theme.orangeText : Theme.dangerText
     }
     // id of the ride shown in the finished summary (see FreeRidePage: a binding
-    // on Rlv.lastRideId may keep the previous ride after an unsaved one)
+    // on page.session.lastRideId may keep the previous ride after an unsaved one)
     property real shownRideId: -1
     function routeDetails(distanceM, ascentM, sec, country) {
         var parts = [(distanceM / 1000).toFixed(1) + " km", Math.round(ascentM) + " m ↑"]
@@ -156,16 +172,16 @@ Item {
         if (w && typeof w.showToast === "function")
             w.showToast(text)
     }
-    // Videos.rescan() / addFolder() scan in a worker thread: the toast with the
-    // new count is shown when Videos.scanned() arrives (see Connections below)
+    // page.library.rescan() / addFolder() scan in a worker thread: the toast with the
+    // new count is shown when page.library.scanned() arrives (see Connections below)
     property bool scanToastPending: false
     property string scanToastEmptyText: ""
     function rescanLibrary() {
         scanToastPending = true
         scanToastEmptyText = ""
-        Videos.rescan()
-        if (Videos.scanning)
-            toast("Scanning the video library…")
+        page.library.rescan()
+        if (page.library.scanning)
+            toast("Scanning the " + page.libraryWord + "…")
         else
             reportScan()
     }
@@ -173,18 +189,18 @@ Item {
         if (!scanToastPending)
             return
         scanToastPending = false
-        if (Videos.count === 0 && scanToastEmptyText.length > 0)
+        if (page.library.count === 0 && scanToastEmptyText.length > 0)
             toast(scanToastEmptyText)
         else
-            toast(Videos.count + (Videos.count === 1 ? " video" : " videos") + " in the library")
+            toast(page.library.count + " " + page.routeWord + (page.library.count === 1 ? "" : "s") + " in the library")
     }
     Connections {
-        target: Videos
+        target: page.library
         function onScanned() {
             // a queued follow-up scan (folders changed meanwhile) starts right
             // after scanned(): wait for the last one
             Qt.callLater(function() {
-                if (!Videos.scanning)
+                if (!page.library.scanning)
                     page.reportScan()
             })
         }
@@ -195,10 +211,10 @@ Item {
         return "file://" + (p.charAt(0) === "/" ? "" : "/") + p
     }
     function openLibraryFolder() {
-        var f = Videos.ensureLibraryFolder()
+        var f = page.library.ensureLibraryFolder()
         if (f.length === 0)
             return
-        var u = Videos.libraryFolderUrl   // QUrl from C++ when available
+        var u = page.library.libraryFolderUrl   // QUrl from C++ when available
         Qt.openUrlExternally(u !== undefined && ("" + u).length > 0 ? u : folderUrl(f))
     }
 
@@ -214,8 +230,8 @@ Item {
                                        || player.mediaStatus === MediaPlayer.BufferingMedia
                                        || player.mediaStatus === MediaPlayer.BufferedMedia
                                        || player.mediaStatus === MediaPlayer.EndOfMedia
-    readonly property bool videoError: Rlv.videoAvailable && player.error !== MediaPlayer.NoError
-    readonly property bool wantPlay: Rlv.videoShouldPlay
+    readonly property bool videoError: page.session.videoAvailable && player.error !== MediaPlayer.NoError
+    readonly property bool wantPlay: page.session.videoShouldPlay
     // A backend can open a file but fail to decode its video (e.g. AV1 on a
     // computer without AV1 hardware decoding): no frame arrives at all.
     property bool gotFrame: false
@@ -243,7 +259,7 @@ Item {
                && (player.duration <= 0 || player.position >= player.duration - 500)
     }
     function seekVideo(ms) {
-        if (!Rlv.videoAvailable)
+        if (!page.session.videoAvailable)
             return
         if (!isMediaReady()) {
             pendingSeekMs = ms      // applied once the media is loaded
@@ -252,7 +268,7 @@ Item {
         pendingSeekMs = -1
         ms = clampSeek(ms)
         player.position = ms
-        if (!Rlv.videoShouldPlay)
+        if (!page.session.videoShouldPlay)
             showPoster(ms)
         else
             syncPlay()              // e.g. after the end of the video
@@ -268,9 +284,9 @@ Item {
         posterTimer.restart()
     }
     function syncPlay() {
-        if (!Rlv.videoAvailable || !isMediaReady())
+        if (!page.session.videoAvailable || !isMediaReady())
             return
-        if (Rlv.videoShouldPlay) {
+        if (page.session.videoShouldPlay) {
             posterPending = false
             posterTimer.stop()
             // at the end of the video: keep the last frame (no restart loop)
@@ -294,7 +310,7 @@ Item {
             var ms = clampSeek(pendingSeekMs)
             pendingSeekMs = -1
             player.position = ms
-            if (!Rlv.videoShouldPlay)
+            if (!page.session.videoShouldPlay)
                 showPoster(ms)
         }
         syncPlay()
@@ -446,8 +462,8 @@ Item {
                 horizontalPadding: 14
                 bold: false
                 iconName: "refresh"
-                enabled: !Videos.scanning
-                text: Videos.scanning ? "Scanning…" : "Rescan Library"
+                enabled: !page.library.scanning
+                text: page.library.scanning ? "Scanning…" : "Rescan Library"
                 onClicked: page.rescanLibrary()
             }
         }
@@ -478,23 +494,23 @@ Item {
                     Text {
                         id: wpValue
                         text: {
-                            if (Rlv.workoutFinished)
-                                return modelData === "Interval" ? "Complete" : modelData === "In target" ? Rlv.workoutCompliance + " %" : "–"
-                            var n = Rlv.workoutIntervals.length
+                            if (page.session.workoutFinished)
+                                return modelData === "Interval" ? "Complete" : modelData === "In target" ? page.session.workoutCompliance + " %" : "–"
+                            var n = page.session.workoutIntervals.length
                             switch (modelData) {
                             case "Interval":
-                                return Rlv.currentIntervalIndex >= 0
-                                       ? Rlv.currentIntervalName + "  " + (Rlv.currentIntervalIndex + 1) + "/" + n : "–"
-                            case "Target": return Rlv.workoutTargetWatts > 0 ? Rlv.workoutTargetWatts + " W" : "–"
-                            case "Left": return Theme.clock(Rlv.intervalRemainingSec)
-                            case "Next": return Rlv.nextTargetWatts > 0 ? Rlv.nextTargetWatts + " W" : "–"
-                            case "Workout": return Theme.clock(Rlv.workoutElapsedSec) + " / " + Theme.clock(Rlv.workoutTotalSec)
-                            default: return Rlv.active || Rlv.workoutElapsedSec > 0 ? Rlv.workoutCompliance + " %" : "–"
+                                return page.session.currentIntervalIndex >= 0
+                                       ? page.session.currentIntervalName + "  " + (page.session.currentIntervalIndex + 1) + "/" + n : "–"
+                            case "Target": return page.session.workoutTargetWatts > 0 ? page.session.workoutTargetWatts + " W" : "–"
+                            case "Left": return Theme.clock(page.session.intervalRemainingSec)
+                            case "Next": return page.session.nextTargetWatts > 0 ? page.session.nextTargetWatts + " W" : "–"
+                            case "Workout": return Theme.clock(page.session.workoutElapsedSec) + " / " + Theme.clock(page.session.workoutTotalSec)
+                            default: return page.session.active || page.session.workoutElapsedSec > 0 ? page.session.workoutCompliance + " %" : "–"
                             }
                         }
-                        color: modelData === "Target" && Rlv.active && page.workoutLive
-                               ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts)
-                               : modelData === "Interval" && Rlv.workoutFinished ? Theme.successText : Theme.text
+                        color: modelData === "Target" && page.session.active && page.workoutLive
+                               ? page.complianceColor(page.session.displayWatts, page.session.workoutTargetWatts)
+                               : modelData === "Interval" && page.session.workoutFinished ? Theme.successText : Theme.text
                         font.pixelSize: 18
                         font.weight: Font.Bold
                     }
@@ -507,23 +523,23 @@ Item {
             width: parent.width - 26
             height: parent.height - y - 8
             fontSize: Theme.small(12)
-            intervals: Rlv.workoutIntervals
-            totalSec: Rlv.workoutTotalSec
-            elapsed: Rlv.workoutElapsedSec
-            currentIndex: Rlv.currentIntervalIndex
-            intensity: Rlv.intensityPercent
-            finished: Rlv.workoutFinished
+            intervals: page.session.workoutIntervals
+            totalSec: page.session.workoutTotalSec
+            elapsed: page.session.workoutElapsedSec
+            currentIndex: page.session.currentIntervalIndex
+            intensity: page.session.intensityPercent
+            finished: page.session.workoutFinished
         }
     }
 
     MediaPlayer {
         id: player
         // only while the page is shown (or a ride runs): no decoding in the background
-        source: page.visible || Rlv.active ? Rlv.videoUrl : ""
+        source: !page.gpx && (page.visible || page.session.active) ? page.session.videoUrl : ""
         videoOutput: videoOut
         // RLVs are usually silent: no audio output unless switched on
         audioOutput: page.audioOn ? audioOut : null
-        playbackRate: Rlv.playbackRate
+        playbackRate: page.session.playbackRate
         onMediaStatusChanged: {
             if (player.mediaStatus === MediaPlayer.InvalidMedia || player.mediaStatus === MediaPlayer.StalledMedia
                     || player.mediaStatus === MediaPlayer.NoMedia)
@@ -545,8 +561,8 @@ Item {
             frameWatchdog.stop()
             // (re)loaded, e.g. the page became visible again: show the current
             // position (a seekRequested arriving later overrides it)
-            if (("" + player.source).length > 0 && Rlv.videoAvailable)
-                page.pendingSeekMs = Rlv.videoPosition
+            if (("" + player.source).length > 0 && page.session.videoAvailable)
+                page.pendingSeekMs = page.session.videoPosition
             else
                 page.pendingSeekMs = -1
         }
@@ -568,7 +584,7 @@ Item {
     Timer {
         id: frameWatchdog
         interval: 6000
-        onTriggered: page.noPicture = !page.gotFrame && page.isMediaReady() && Rlv.videoAvailable
+        onTriggered: page.noPicture = !page.gotFrame && page.isMediaReady() && page.session.videoAvailable
     }
     Timer {
         id: posterTimer
@@ -577,7 +593,7 @@ Item {
             if (!page.posterPending)
                 return
             page.posterPending = false
-            if (!Rlv.videoShouldPlay) {
+            if (!page.session.videoShouldPlay) {
                 player.pause()
                 player.position = page.posterMs
             }
@@ -586,21 +602,21 @@ Item {
     Timer {
         interval: 500
         repeat: true
-        running: player.playbackState === MediaPlayer.PlayingState && !page.posterPending && Rlv.active
-        onTriggered: Rlv.reportVideoPosition(player.position)
+        running: player.playbackState === MediaPlayer.PlayingState && !page.posterPending && page.session.active
+        onTriggered: page.session.reportVideoPosition(player.position)
     }
     Connections {
-        target: Rlv
+        target: page.session
         function onSeekRequested(positionMs) { page.seekVideo(positionMs) }
         function onStateChanged() {
-            page.shownRideId = Rlv.state === "finished" ? Rlv.lastRideId : -1
+            page.shownRideId = page.session.state === "finished" ? page.session.lastRideId : -1
         }
         function onRideSaved(id) {
-            page.shownRideId = Rlv.state === "finished" ? id : -1
+            page.shownRideId = page.session.state === "finished" ? id : -1
         }
         function onInformationChanged() {
-            if (Rlv.currentInformation.length > 0) {
-                infoBox.text = Rlv.currentInformation
+            if (page.session.currentInformation.length > 0) {
+                infoBox.text = page.session.currentInformation
                 infoBox.shown = true
                 infoTimer.restart()
             } else {
@@ -608,7 +624,7 @@ Item {
             }
         }
         function onWorkoutChanged() {
-            if (Rlv.hasWorkout)
+            if (page.session.hasWorkout)
                 page.bottomTab = "workout"
         }
         function onWorkoutCompleted() {
@@ -640,9 +656,9 @@ Item {
     }
     Component.onCompleted: {
         // a route restored at startup was sought before this page existed
-        if (Rlv.videoAvailable)
-            pendingSeekMs = Rlv.videoPosition
-        shownRideId = Rlv.state === "finished" ? Rlv.lastRideId : -1
+        if (page.session.videoAvailable)
+            pendingSeekMs = page.session.videoPosition
+        shownRideId = page.session.state === "finished" ? page.session.lastRideId : -1
         handleMediaStatus()
         reloadWorkouts()
     }
@@ -655,22 +671,33 @@ Item {
 
     FolderDialog {
         id: addFolderDialog
-        title: "Add a folder with Real Life Videos"
+        title: page.gpx ? "Add a folder with GPX routes" : "Add a folder with Real Life Videos"
         onAccepted: {
-            if (Videos.addFolder(selectedFolder)) {
+            if (page.library.addFolder(selectedFolder)) {
                 // addFolder() starts an asynchronous rescan: report the count once it is done
                 page.scanToastPending = true
-                page.scanToastEmptyText = "No videos found in that folder"
-                if (!Videos.scanning)
+                page.scanToastEmptyText = "No " + page.routeWord + "s found in that folder"
+                if (!page.library.scanning)
                     page.reportScan()
             } else
-                page.toast(Videos.lastError.length > 0 ? Videos.lastError : "Could not add the folder")
+                page.toast(page.library.lastError.length > 0 ? page.library.lastError : "Could not add the folder")
         }
     }
     FolderDialog {
         id: libraryFolderDialog
-        title: "Choose the videos folder"
-        onAccepted: Videos.libraryFolder = selectedFolder
+        title: page.gpx ? "Choose the GPX routes folder" : "Choose the videos folder"
+        onAccepted: page.library.libraryFolder = selectedFolder
+    }
+    // GPX Ride: ride a single .gpx file (it is not added to the library)
+    FileDialog {
+        id: gpxFileDialog
+        title: "Open a GPX route"
+        nameFilters: ["GPX routes (*.gpx *.GPX)"]
+        currentFolder: page.library.libraryFolderUrl
+        onAccepted: {
+            if (!page.session.selectPath(selectedFile))
+                page.toast(page.session.lastError.length > 0 ? page.session.lastError : "Could not load the route")
+        }
     }
 
     RowLayout {
@@ -696,14 +723,15 @@ Item {
                     width: parent.width - routeRow.width - 20
                     spacing: 0
                     Text {
-                        text: "Video Ride"
+                        text: page.gpx ? "GPX Ride" : "Video Ride"
                         color: Theme.text
                         font.pixelSize: 52
                         font.weight: Font.Black
                     }
                     Text {
                         width: parent.width
-                        text: "Ride a filmed route – the video follows your speed."
+                        text: page.gpx ? "Ride a GPX route in 3D – the road follows your speed."
+                                       : "Ride a filmed route – the video follows your speed."
                         color: Theme.text
                         font.pixelSize: 21
                         elide: Text.ElideRight
@@ -719,29 +747,31 @@ Item {
 
                     AppComboBox {
                         id: routeCombo
-                        objectName: "videoRouteCombo"
+                        objectName: page.namePrefix + "RouteCombo"
                         width: 470
                         height: 58
-                        enabled: !page.locked && Videos.count > 0
+                        enabled: !page.locked && page.library.count > 0
                         // no keyboard focus: ↑ / ↓ belong to the ride (shift / ERG)
                         // and must not switch the route
                         focusPolicy: Qt.NoFocus
                         Accessible.name: "Route"
-                        model: Videos
+                        model: page.library
                         textRole: "displayName"
-                        currentIndex: Rlv.routeIndex
-                        displayText: Videos.count === 0 ? (Videos.scanning ? "Scanning the library…" : "No videos in the library")
-                                     : Rlv.hasRoute ? (Rlv.routeTitle.length > 0 ? Rlv.routeTitle : Rlv.routeName) : "Choose a video…"
+                        currentIndex: page.session.routeIndex
+                        // (a GPX file opened on its own is shown although it is not in the library)
+                        displayText: page.session.hasRoute ? (page.session.routeTitle.length > 0 ? page.session.routeTitle : page.session.routeName)
+                                     : page.library.count === 0 ? (page.library.scanning ? "Scanning the library…" : "No " + page.routeWord + "s in the library")
+                                     : "Choose a " + page.routeWord + "…"
                         onActivated: (index) => {
-                            if (!Rlv.select(index))
-                                page.toast(Rlv.lastError.length > 0 ? Rlv.lastError : "Could not load the video")
-                            currentIndex = Qt.binding(function() { return Rlv.routeIndex })
+                            if (!page.session.select(index))
+                                page.toast(page.session.lastError.length > 0 ? page.session.lastError : "Could not load the " + page.routeWord)
+                            currentIndex = Qt.binding(function() { return page.session.routeIndex })
                         }
                         contentItem: Row {
                             leftPadding: 14
                             spacing: 12
                             Icon {
-                                name: "film"
+                                name: page.gpx ? "mapPin" : "film"
                                 size: 24
                                 color: Theme.textSecondary
                                 anchors.verticalCenter: parent.verticalCenter
@@ -754,13 +784,13 @@ Item {
                                     text: routeCombo.displayText
                                     color: Theme.text
                                     font.pixelSize: 17
-                                    font.weight: Rlv.hasRoute ? Font.Bold : Font.Normal
+                                    font.weight: page.session.hasRoute ? Font.Bold : Font.Normal
                                     elide: Text.ElideRight
                                 }
                                 Text {
-                                    visible: Rlv.hasRoute
+                                    visible: page.session.hasRoute
                                     width: parent.width
-                                    text: page.routeDetails(Rlv.totalDistanceM, Rlv.totalAscentM, Rlv.routeDurationSec, Rlv.routeCountry)
+                                    text: page.routeDetails(page.session.totalDistanceM, page.session.totalAscentM, page.session.routeDurationSec, page.session.routeCountry)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.small(13)
                                     elide: Text.ElideRight
@@ -806,31 +836,39 @@ Item {
                         height: 58
                         iconName: "folder"
                         iconSize: 24
-                        tooltip: "Video library"
+                        tooltip: page.gpx ? "GPX library" : "Video library"
                         onClicked: libraryMenu.open()
 
                         AppMenu {
                             id: libraryMenu
                             y: parent.height + 4
                             AppMenuItem {
+                                visible: page.gpx
+                                height: visible ? implicitHeight : 0
+                                text: "Open GPX File…"
+                                iconName: "mapPin"
+                                enabled: !page.locked
+                                onTriggered: gpxFileDialog.open()
+                            }
+                            AppMenuItem {
                                 text: "Add Folder…"
                                 iconName: "plus"
                                 onTriggered: addFolderDialog.open()
                             }
                             AppMenuItem {
-                                text: "Choose Videos Folder…"
+                                text: page.gpx ? "Choose GPX Folder…" : "Choose Videos Folder…"
                                 iconName: "folder"
                                 onTriggered: libraryFolderDialog.open()
                             }
                             AppMenuItem {
-                                text: "Open Videos Folder"
+                                text: page.gpx ? "Open GPX Folder" : "Open Videos Folder"
                                 iconName: "export"
                                 onTriggered: page.openLibraryFolder()
                             }
                             AppMenuItem {
-                                text: Videos.scanning ? "Scanning…" : "Rescan Library"
+                                text: page.library.scanning ? "Scanning…" : "Rescan Library"
                                 iconName: "refresh"
-                                enabled: !Videos.scanning
+                                enabled: !page.library.scanning
                                 onTriggered: page.rescanLibrary()
                             }
                         }
@@ -854,14 +892,14 @@ Item {
                     iconColor: Theme.warningText
                     valueColor: Theme.warningText
                     showPowerAverage: true
-                    value: Rlv.displayWatts
+                    value: page.session.displayWatts
                     unit: "W"
-                    footerColor: page.workoutLive && Rlv.workoutTargetWatts > 0 && Rlv.active
-                                 ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts) : Theme.textSecondary
-                    footer: page.workoutLive && Rlv.workoutTargetWatts > 0 ? "Target " + Rlv.workoutTargetWatts + " W"
-                            : page.ergMode ? "Target: " + Rlv.targetWatts + " W"
-                            : page.gears && Rlv.gearTargetWatts > 0 && Rlv.active ? "Target: " + Rlv.gearTargetWatts + " W"
-                            : "Avg: " + Rlv.avgWatts + " W"
+                    footerColor: page.workoutLive && page.session.workoutTargetWatts > 0 && page.session.active
+                                 ? page.complianceColor(page.session.displayWatts, page.session.workoutTargetWatts) : Theme.textSecondary
+                    footer: page.workoutLive && page.session.workoutTargetWatts > 0 ? "Target " + page.session.workoutTargetWatts + " W"
+                            : page.ergMode ? "Target: " + page.session.targetWatts + " W"
+                            : page.gears && page.session.gearTargetWatts > 0 && page.session.active ? "Target: " + page.session.gearTargetWatts + " W"
+                            : "Avg: " + page.session.avgWatts + " W"
                 }
                 RowingMetric {
                     Layout.fillWidth: true
@@ -870,9 +908,9 @@ Item {
                     label: "Cadence"
                     iconName: "cadence"
                     iconColor: Theme.cyan
-                    value: Rlv.cadence
+                    value: page.session.cadence
                     unit: "RPM"
-                    footer: Rlv.active && Rlv.coasting ? "Coasting"
+                    footer: page.session.active && page.session.coasting ? "Coasting"
                             : page.workoutErg ? "Workout ERG"
                             : page.gears ? "Gear " + Gears.gearLabel
                             : page.ergMode ? "ERG mode" : "Shift on your bike"
@@ -884,10 +922,10 @@ Item {
                     label: "Heart Rate"
                     iconName: "heart"
                     iconColor: Theme.heartRate
-                    value: Rlv.heartRate > 0 ? Rlv.heartRate : "–"
+                    value: page.session.heartRate > 0 ? page.session.heartRate : "–"
                     unit: "BPM"
-                    footer: Rlv.heartRate > 0 && Profiles.maxHr > 0
-                            ? Math.round(Rlv.heartRate * 100 / Profiles.maxHr) + "% of max" : "No sensor"
+                    footer: page.session.heartRate > 0 && Profiles.maxHr > 0
+                            ? Math.round(page.session.heartRate * 100 / Profiles.maxHr) + "% of max" : "No sensor"
                 }
                 RowingMetric {
                     Layout.fillWidth: true
@@ -896,9 +934,9 @@ Item {
                     label: "Speed"
                     iconName: "gauge"
                     iconColor: Theme.speed
-                    value: Rlv.speedKmh.toFixed(1)
+                    value: page.session.speedKmh.toFixed(1)
                     unit: "km/h"
-                    footer: "Avg: " + Rlv.avgSpeedKmh.toFixed(1) + " km/h"
+                    footer: "Avg: " + page.session.avgSpeedKmh.toFixed(1) + " km/h"
                 }
                 RowingMetric {
                     Layout.fillWidth: true
@@ -906,15 +944,21 @@ Item {
                     Layout.fillHeight: true
                     label: "Time"
                     iconName: "timer"
-                    value: Theme.clock(Rlv.elapsedSeconds)
-                    footer: page.kmText(Rlv.riddenMeters) + " km  •  " + Math.round(Rlv.kilojoules) + " kJ"
+                    value: Theme.clock(page.session.elapsedSeconds)
+                    footer: page.kmText(page.session.riddenMeters) + " km  •  " + Math.round(page.session.kilojoules) + " kJ"
                 }
             }
 
-            // video window
+            // video window (GPX Ride: the 3D view)
             Rectangle {
                 id: videoCard
-                readonly property bool showVideo: Rlv.hasRoute && Rlv.videoAvailable && !page.videoError
+                readonly property bool showVideo: !page.gpx && page.session.hasRoute && page.session.videoAvailable && !page.videoError
+                readonly property var scene: sceneLoader.item
+                // GPX Ride: the route is drawn in 3D
+                readonly property bool showScene: page.gpx && page.session.hasRoute && !!scene && scene.supported
+                                                  && scene.hasScene && scene.error.length === 0
+                // the ride overlays (status, grade, chips, paused / finished) on the picture
+                readonly property bool showOverlay: showVideo || showScene
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: 200
@@ -922,7 +966,7 @@ Item {
                 // (Qt 6.4 does not shrink it when the workout strip appears)
                 Layout.preferredHeight: 200
                 radius: Theme.radius
-                color: showVideo ? "#04060d" : Theme.card
+                color: showOverlay ? "#04060d" : Theme.card
                 border.color: Theme.cardBorder
                 border.width: 1
                 clip: true
@@ -934,10 +978,22 @@ Item {
                     anchors.margins: 1
                     fillMode: VideoOutput.PreserveAspectFit
                 }
+                // GPX Ride: the route in 3D (terrain, road, houses, trees, rider),
+                // following the session's distance and speed
+                Loader {
+                    id: sceneLoader
+                    active: page.gpx
+                    visible: videoCard.showScene
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    sourceComponent: Route3DView {
+                        session: page.session
+                    }
+                }
 
                 // ---- overlays on the video (light on dark in both themes) ----
                 Row {
-                    visible: videoCard.showVideo
+                    visible: videoCard.showOverlay
                     x: 16
                     y: 16
                     spacing: 8
@@ -968,12 +1024,12 @@ Item {
                             }
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: page.st === "running" ? (Rlv.coasting ? "Coasting" : "Riding") + "  •  "
-                                                                + (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
-                                                                   : page.gears ? "Virtual gears" : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
+                                text: page.st === "running" ? (page.session.coasting ? "Coasting" : "Riding") + "  •  "
+                                                                + (page.workoutErg ? "Workout ERG " + page.session.workoutTargetWatts + " W"
+                                                                   : page.gears ? "Virtual gears" : page.ergMode ? "ERG " + page.session.targetWatts + " W" : "Simulation")
                                       : page.st === "paused" ? "Paused"
-                                      : page.st === "finished" ? (Rlv.completed ? "Route complete" : "Finished")
-                                      : Rlv.trainerConnected && !page.otherSession ? "Ready – press Start" : "Preview"
+                                      : page.st === "finished" ? (page.session.completed ? "Route complete" : "Finished")
+                                      : page.session.trainerConnected && !page.otherSession ? "Ready – press Start" : "Preview"
                                 color: "white"
                                 font.pixelSize: 15
                                 font.weight: Font.DemiBold
@@ -984,7 +1040,7 @@ Item {
 
                 // grade badge
                 Rectangle {
-                    visible: videoCard.showVideo
+                    visible: videoCard.showOverlay
                     anchors.right: parent.right
                     anchors.rightMargin: 16
                     y: 16
@@ -993,7 +1049,7 @@ Item {
                     radius: 12
                     color: Qt.rgba(0, 0, 0, 0.58)
                     border.width: 2
-                    border.color: page.gradeColor(Rlv.effectiveGradePercent)
+                    border.color: page.gradeColor(page.session.effectiveGradePercent)
                     Column {
                         id: gradeCol
                         anchors.centerIn: parent
@@ -1003,21 +1059,21 @@ Item {
                             Icon {
                                 name: "mountain"
                                 size: 20
-                                color: page.gradeColor(Rlv.effectiveGradePercent)
+                                color: page.gradeColor(page.session.effectiveGradePercent)
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
                                 // the grade you ride (route × difficulty)
-                                text: page.gradeText(Rlv.effectiveGradePercent)
+                                text: page.gradeText(page.session.effectiveGradePercent)
                                 color: "white"
                                 font.pixelSize: 28
                                 font.weight: Font.Black
                             }
                         }
                         Text {
-                            visible: Math.abs(Rlv.effectiveGradePercent - Rlv.gradePercent) >= 0.05
+                            visible: Math.abs(page.session.effectiveGradePercent - page.session.gradePercent) >= 0.05
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "route " + page.gradeText(Rlv.gradePercent)
+                            text: "route " + page.gradeText(page.session.gradePercent)
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: Theme.small(13)
                         }
@@ -1029,7 +1085,7 @@ Item {
                     id: infoBox
                     property string text
                     property bool shown: false
-                    visible: videoCard.showVideo && opacity > 0.01
+                    visible: videoCard.showOverlay && opacity > 0.01
                     // the "No picture" help would be covered by the text
                     opacity: shown && text.length > 0 && !page.noPicture ? 1 : 0
                     Behavior on opacity { NumberAnimation { duration: 600 } }
@@ -1071,7 +1127,7 @@ Item {
                 // bottom chips: gear, difficulty, playback rate
                 Row {
                     id: chipRow
-                    visible: videoCard.showVideo
+                    visible: videoCard.showOverlay
                     x: 16
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 16
@@ -1084,14 +1140,15 @@ Item {
                             readonly property string chipIcon: index === 0 ? (page.workoutErg ? "bolt" : page.gears ? "cog" : page.ergMode ? "bolt" : "mountain")
                                                              : index === 1 ? "mountain" : index === 2 ? "target" : "play"
                             readonly property string chipText: index === 0
-                                ? (page.workoutErg ? "Workout ERG " + Rlv.workoutTargetWatts + " W"
+                                ? (page.workoutErg ? "Workout ERG " + page.session.workoutTargetWatts + " W"
                                    : page.gears ? Gears.gearText
-                                   : page.ergMode ? "ERG " + Rlv.targetWatts + " W" : "Simulation")
-                                : index === 1 ? "Difficulty " + Rlv.difficultyPercent + " %"
-                                : index === 2 ? Rlv.currentIntervalName + " · " + Theme.clock(Rlv.intervalRemainingSec) + " left"
-                                : "Video × " + Rlv.playbackRate.toFixed(2)
+                                   : page.ergMode ? "ERG " + page.session.targetWatts + " W" : "Simulation")
+                                : index === 1 ? "Difficulty " + page.session.difficultyPercent + " %"
+                                : index === 2 ? page.session.currentIntervalName + " · " + Theme.clock(page.session.intervalRemainingSec) + " left"
+                                : "Video × " + page.session.playbackRate.toFixed(2)
                             visible: index === 0 || (index === 1 ? !page.ergMode && !page.workoutErg
-                                                     : index === 2 ? page.workoutLive && Rlv.currentIntervalIndex >= 0 : Rlv.active)
+                                                     : index === 2 ? page.workoutLive && page.session.currentIntervalIndex >= 0
+                                                     : page.session.active && !page.gpx)
                             height: 32
                             width: chipContent.implicitWidth + 24
                             radius: 16
@@ -1225,7 +1282,7 @@ Item {
 
                 // paused / finished
                 Rectangle {
-                    visible: videoCard.showVideo && !page.noPicture
+                    visible: videoCard.showOverlay && !page.noPicture
                              && (page.st === "paused" || page.finished)
                     anchors.centerIn: parent
                     width: centerCol.implicitWidth + 56
@@ -1246,7 +1303,7 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: page.st === "paused" ? "Paused – press Resume"
-                                  : Rlv.completed ? "Route complete" : "Ride finished"
+                                  : page.session.completed ? "Route complete" : "Ride finished"
                             color: "white"
                             font.pixelSize: 26
                             font.weight: Font.Bold
@@ -1254,7 +1311,7 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: page.st === "paused" ? "Press Space or Resume to continue"
-                                  : page.kmText(Rlv.riddenMeters) + " km in " + Theme.clock(Rlv.elapsedSeconds)
+                                  : page.kmText(page.session.riddenMeters) + " km in " + Theme.clock(page.session.elapsedSeconds)
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: 15
                         }
@@ -1264,20 +1321,20 @@ Item {
                 // ---- placeholders ---------------------------------------------
                 // empty library
                 Column {
-                    visible: Videos.count === 0 && !Rlv.hasRoute
+                    visible: page.library.count === 0 && !page.session.hasRoute
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 60, 720)
                     spacing: 12
                     Icon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        name: "film"
+                        name: page.gpx ? "mapPin" : "film"
                         size: 46
                         strokeWidth: 2
                         color: Theme.accentLight
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Videos.scanning ? "Scanning the library…" : "No Real Life Videos yet"
+                        text: page.library.scanning ? "Scanning the library…" : page.gpx ? "No GPX routes yet" : "No Real Life Videos yet"
                         color: Theme.text
                         font.pixelSize: 26
                         font.weight: Font.Bold
@@ -1285,13 +1342,16 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: "Each route is a folder with the video (.mp4) and its GPS track (.gpx), "
-                              + "optionally with a route file (.xml) for the title and on-screen texts:"
+                        text: page.gpx ? "Every .gpx file in the GPX folder (and its subfolders) is a route – from a bike computer, "
+                                         + "Strava, Komoot or any route planner. Or open a single file."
+                                       : "Each route is a folder with the video (.mp4) and its GPS track (.gpx), "
+                                         + "optionally with a route file (.xml) for the title and on-screen texts:"
                         color: Theme.textSecondary
                         font.pixelSize: 16
                         wrapMode: Text.WordWrap
                     }
                     Rectangle {
+                        visible: !page.gpx
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: layoutText.implicitWidth + 40
                         height: layoutText.implicitHeight + 24
@@ -1311,7 +1371,7 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: "Put route folders into  " + Videos.libraryFolder + "  or add any other folder."
+                        text: "Put route folders into  " + page.library.libraryFolder + "  or add any other folder."
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WrapAnywhere
@@ -1320,7 +1380,18 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 12
                         AppButton {
+                            visible: page.gpx
                             height: 46
+                            fontSize: 16
+                            iconSize: 20
+                            iconName: "mapPin"
+                            text: "Open GPX File…"
+                            onClicked: gpxFileDialog.open()
+                        }
+                        AppButton {
+                            height: 46
+                            kind: page.gpx ? "secondary" : "primary"
+                            bold: !page.gpx
                             fontSize: 16
                             iconSize: 20
                             iconName: "plus"
@@ -1334,7 +1405,7 @@ Item {
                             iconSize: 20
                             bold: false
                             iconName: "folder"
-                            text: "Choose Videos Folder…"
+                            text: page.gpx ? "Choose GPX Folder…" : "Choose Videos Folder…"
                             onClicked: libraryFolderDialog.open()
                         }
                         AppButton {
@@ -1344,8 +1415,8 @@ Item {
                             iconSize: 20
                             bold: false
                             iconName: "refresh"
-                            text: Videos.scanning ? "Scanning…" : "Rescan"
-                            enabled: !Videos.scanning
+                            text: page.library.scanning ? "Scanning…" : "Rescan"
+                            enabled: !page.library.scanning
                             onClicked: page.rescanLibrary()
                         }
                     }
@@ -1353,20 +1424,20 @@ Item {
 
                 // library but no route chosen
                 Column {
-                    visible: Videos.count > 0 && !Rlv.hasRoute
+                    visible: page.library.count > 0 && !page.session.hasRoute
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 60, 560)
                     spacing: 12
                     Icon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        name: "film"
+                        name: page.gpx ? "mapPin" : "film"
                         size: 46
                         strokeWidth: 2
                         color: Theme.accentLight
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "Choose a video"
+                        text: "Choose a " + page.routeWord
                         color: Theme.text
                         font.pixelSize: 26
                         font.weight: Font.Bold
@@ -1374,7 +1445,7 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: Videos.count + (Videos.count === 1 ? " route" : " routes")
+                        text: page.library.count + (page.library.count === 1 ? " route" : " routes")
                               + " in your library. Pick one from the list above – it shows the distance and the climbing of each route."
                         color: Theme.textSecondary
                         font.pixelSize: 16
@@ -1385,16 +1456,49 @@ Item {
                         height: 46
                         fontSize: 16
                         iconSize: 20
-                        iconName: "film"
-                        text: "Choose Video…"
+                        iconName: page.gpx ? "mapPin" : "film"
+                        text: page.gpx ? "Choose Route…" : "Choose Video…"
                         onClicked: routeCombo.popup.open()
+                    }
+                }
+
+                // GPX Ride: the route cannot be drawn in 3D (the ride still works)
+                Column {
+                    visible: page.gpx && page.session.hasRoute && !videoCard.showScene
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 60, 600)
+                    spacing: 10
+                    Icon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        name: "mountain"
+                        size: 46
+                        strokeWidth: 2
+                        color: Theme.warning
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "3D view not available"
+                        color: Theme.text
+                        font.pixelSize: 24
+                        font.weight: Font.Bold
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: (videoCard.scene && videoCard.scene.error.length > 0 ? videoCard.scene.error + "\n" : "")
+                              + "You can still ride the route – distance, gradient and the profile work without the 3D view."
+                        color: Theme.textSecondary
+                        font.pixelSize: 15
+                        wrapMode: Text.WordWrap
                     }
                 }
 
                 // route without a playable video
                 Flickable {
                     id: noVideoFlick
-                    visible: Rlv.hasRoute && !videoCard.showVideo
+                    visible: !page.gpx && page.session.hasRoute && !videoCard.showVideo
                     readonly property bool compact: height < 420 || width < 560
                     anchors.fill: parent
                     anchors.margins: 12
@@ -1433,7 +1537,7 @@ Item {
                                   ? player.errorString + (page.videoCodec.length > 0 ? " (" + page.videoCodec + ")" : "")
                                     + "\nAV1 videos need AV1 hardware decoding – convert them to H.264 (720p). "
                                     + "On a Raspberry Pi install gstreamer1.0-libav."
-                                  : (Rlv.lastError.length > 0 ? Rlv.lastError + "\n" : "")
+                                  : (page.session.lastError.length > 0 ? page.session.lastError + "\n" : "")
                                     + "Put the .mp4 next to the route's .gpx / .xml file. You can still ride the route – "
                                     + "distance, gradient and the profile work without the video."
                             color: Theme.textSecondary
@@ -1531,17 +1635,17 @@ Item {
                                 Text {
                                     id: valueLabel
                                     text: {
-                                        if (!Rlv.hasRoute)
+                                        if (!page.session.hasRoute)
                                             return "–"
                                         switch (index) {
-                                        case 0: return page.kmText(Rlv.distanceMeters, 2) + " / " + page.kmText(Rlv.totalDistanceM, 1) + " km"
-                                        case 1: return page.kmText(Rlv.remainingMeters, 2) + " km"
-                                        case 2: return Math.round(Rlv.elevationM) + " m"
-                                        case 3: return Math.round(Rlv.ascentDoneM) + " / " + Math.round(Rlv.totalAscentM) + " m"
-                                        default: return page.gradeText(Rlv.gradePercent)
+                                        case 0: return page.kmText(page.session.distanceMeters, 2) + " / " + page.kmText(page.session.totalDistanceM, 1) + " km"
+                                        case 1: return page.kmText(page.session.remainingMeters, 2) + " km"
+                                        case 2: return Math.round(page.session.elevationM) + " m"
+                                        case 3: return Math.round(page.session.ascentDoneM) + " / " + Math.round(page.session.totalAscentM) + " m"
+                                        default: return page.gradeText(page.session.gradePercent)
                                         }
                                     }
-                                    color: index === 4 && Rlv.hasRoute ? page.gradeTextColor(Rlv.gradePercent) : Theme.text
+                                    color: index === 4 && page.session.hasRoute ? page.gradeTextColor(page.session.gradePercent) : Theme.text
                                     font.pixelSize: 18
                                     font.weight: Font.Bold
                                 }
@@ -1552,7 +1656,7 @@ Item {
                         anchors.right: parent.right
                         anchors.rightMargin: 18
                         y: 17
-                        visible: Rlv.hasRoute && !page.locked && !bottomTabs.visible && statsRow.width + implicitWidth + 60 < profileCard.width
+                        visible: page.session.hasRoute && !page.locked && !bottomTabs.visible && statsRow.width + implicitWidth + 60 < profileCard.width
                         text: "Click the profile to choose the start point"
                         color: Theme.textMuted
                         font.pixelSize: Theme.small(13)
@@ -1564,14 +1668,24 @@ Item {
                         y: 48
                         width: parent.width - 36
                         height: parent.height - y - 10
-                        interactive: Rlv.hasRoute && !page.locked
-                        onStartChosen: (meters) => Rlv.seekToDistance(meters)
+                        interactive: page.session.hasRoute && !page.locked
+                        // (explicit: the defaults bind the Video Ride)
+                        profile: page.session.profile
+                        total: page.session.totalDistanceM
+                        minEle: page.session.minElevationM
+                        maxEle: page.session.maxElevationM
+                        position: page.session.distanceMeters
+                        startDistance: page.session.startDistanceM
+                        elevation: page.session.elevationM
+                        informations: page.session.informations
+                        currentInformation: page.session.currentInformationIndex
+                        onStartChosen: (meters) => page.session.seekToDistance(meters)
                     }
                     Text {
-                        visible: !Rlv.hasRoute && !page.showWorkoutTab
+                        visible: !page.session.hasRoute && !page.showWorkoutTab
                         anchors.centerIn: parent
                         anchors.verticalCenterOffset: 14
-                        text: "The route profile appears here once you choose a video."
+                        text: "The route profile appears here once you choose a " + page.routeWord + "."
                         color: Theme.textMuted
                         font.pixelSize: 15
                     }
@@ -1615,25 +1729,25 @@ Item {
                         spacing: 10
 
                         AppButton {
-                            visible: !Rlv.active
+                            visible: !page.session.active
                             width: parent.width
                             height: Theme.touch(50)
                             kind: "primary"
                             iconName: "play"
-                            objectName: "videoStartButton"
+                            objectName: page.namePrefix + "StartButton"
                             text: page.finished ? "Ride Again" : "Start"
                             enabled: page.canStart
                             // the only way a ride starts (pedaling never does)
-                            onClicked: Rlv.start()
+                            onClicked: page.session.start()
                         }
                         AppButton {
-                            visible: Rlv.active
+                            visible: page.session.active
                             width: parent.width
                             height: Theme.touch(50)
-                            kind: Rlv.paused ? "success" : "danger"
-                            iconName: Rlv.paused ? "play" : "pause"
-                            text: Rlv.paused ? "Resume" : "Pause Ride"
-                            onClicked: Rlv.togglePause()
+                            kind: page.session.paused ? "success" : "danger"
+                            iconName: page.session.paused ? "play" : "pause"
+                            text: page.session.paused ? "Resume" : "Pause Ride"
+                            onClicked: page.session.togglePause()
                         }
                         RowLayout {
                             width: parent.width
@@ -1646,7 +1760,7 @@ Item {
                                 iconSize: 18
                                 iconName: "stop"
                                 text: "Finish"
-                                enabled: Rlv.active
+                                enabled: page.session.active
                                 onClicked: page.requestFinish()
                             }
                             AppButton {
@@ -1658,26 +1772,26 @@ Item {
                                 iconName: "refresh"
                                 text: "Reset"
                                 enabled: page.finished
-                                onClicked: Rlv.reset()
+                                onClicked: page.session.reset()
                             }
                         }
                         // Start disabled by a session on another page: why, and the fix
                         SessionBlockNotice {
                             width: parent.width
-                            namePrefix: "video"
-                            startWhat: "a video ride"
-                            blocker: !Rlv.active ? page.blocker : ({})
+                            namePrefix: page.namePrefix
+                            startWhat: "a " + page.rideWord
+                            blocker: !page.session.active ? page.blocker : ({})
                         }
                         Text {
-                            objectName: "videoStartReason"
+                            objectName: page.namePrefix + "StartReason"
                             width: parent.width
                             visible: text.length > 0
-                            text: !Rlv.active && page.otherSession ? ""
-                                  : !Rlv.hasRoute && !Rlv.active ? (Videos.scanning && Videos.count === 0
-                                                                    ? "Scanning the video library…" : "Choose a video to start.")
-                                  : !Rlv.active && !Rlv.trainerConnected ? "Connect a trainer to start."
-                                  : page.st === "idle" && Rlv.trainerConnected
-                                    ? "Ready – press Start (or Space). Starts at " + page.kmText(Rlv.startDistanceM, 2)
+                            text: !page.session.active && page.otherSession ? ""
+                                  : !page.session.hasRoute && !page.session.active ? (page.library.scanning && page.library.count === 0
+                                                                    ? "Scanning the " + page.libraryWord + "…" : "Choose a " + page.routeWord + " to start.")
+                                  : !page.session.active && !page.session.trainerConnected ? "Connect a trainer to start."
+                                  : page.st === "idle" && page.session.trainerConnected
+                                    ? "Ready – press Start (or Space). Starts at " + page.kmText(page.session.startDistanceM, 2)
                                       + " km; pedaling alone never starts the ride." : ""
                             color: Theme.textSecondary
                             font.pixelSize: 14
@@ -1688,7 +1802,7 @@ Item {
 
                 // no trainer connected
                 Card {
-                    visible: !Rlv.trainerConnected
+                    visible: !page.session.trainerConnected
                     width: parent.width
                     height: 142
                     Row {
@@ -1706,7 +1820,7 @@ Item {
                     Text {
                         x: 16; y: 46
                         width: parent.width - 32
-                        text: "Connect a smart trainer (or the virtual trainer) to ride the video."
+                        text: "Connect a smart trainer (or the virtual trainer) to ride the " + (page.gpx ? "route." : "video.")
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
@@ -1736,7 +1850,7 @@ Item {
                         width: parent.width - 32
                         spacing: 10
                         Text {
-                            text: Rlv.completed ? "Route complete" : "Ride finished"
+                            text: page.session.completed ? "Route complete" : "Ride finished"
                             color: Theme.text
                             font.pixelSize: 19
                             font.weight: Font.Bold
@@ -1753,12 +1867,12 @@ Item {
                                     Text {
                                         text: {
                                             switch (index) {
-                                            case 0: return Theme.clock(Rlv.elapsedSeconds)
-                                            case 1: return page.kmText(Rlv.riddenMeters) + " km"
-                                            case 2: return Rlv.avgWatts + " W"
-                                            case 3: return Math.round(Rlv.ascentDoneM) + " m"
-                                            case 4: return Rlv.avgSpeedKmh.toFixed(1) + " km/h"
-                                            default: return Math.round(Rlv.kilojoules) + " kJ"
+                                            case 0: return Theme.clock(page.session.elapsedSeconds)
+                                            case 1: return page.kmText(page.session.riddenMeters) + " km"
+                                            case 2: return page.session.avgWatts + " W"
+                                            case 3: return Math.round(page.session.ascentDoneM) + " m"
+                                            case 4: return page.session.avgSpeedKmh.toFixed(1) + " km/h"
+                                            default: return Math.round(page.session.kilojoules) + " kJ"
                                             }
                                         }
                                         color: Theme.text
@@ -1810,25 +1924,25 @@ Item {
                             height: Theme.touch(48)
                             AppComboBox {
                                 id: workoutCombo
-                                objectName: "videoWorkoutCombo"
+                                objectName: page.namePrefix + "WorkoutCombo"
                                 width: parent.width
                                 height: parent.height
                                 fontSize: 15
                                 // attachWorkout() is refused while a ride runs
-                                enabled: !Rlv.active
+                                enabled: !page.session.active
                                 focusPolicy: Qt.NoFocus
                                 Accessible.name: "Workout"
                                 model: page.workoutChoices
                                 textRole: "label"
-                                currentIndex: page.workoutIndex(Rlv.workoutId)
-                                displayText: Rlv.hasWorkout ? Rlv.workoutName : "None"
+                                currentIndex: page.workoutIndex(page.session.workoutId)
+                                displayText: page.session.hasWorkout ? page.session.workoutName : "None"
                                 onActivated: (index) => {
                                     page.chooseWorkout(index)
-                                    currentIndex = Qt.binding(function() { return page.workoutIndex(Rlv.workoutId) })
+                                    currentIndex = Qt.binding(function() { return page.workoutIndex(page.session.workoutId) })
                                 }
                             }
                             HoverHandler { id: workoutComboHover }
-                            ToolTip.visible: workoutComboHover.hovered && Rlv.active
+                            ToolTip.visible: workoutComboHover.hovered && page.session.active
                             ToolTip.delay: 400
                             ToolTip.text: "The workout can be changed before the ride starts"
                         }
@@ -1836,8 +1950,10 @@ Item {
                         Text {
                             visible: !page.hasWorkout
                             width: parent.width
-                            text: "Ride one of your cycling workouts during the video: its intervals run on the ride's clock "
-                                  + "and appear under the video. With Workout ERG the trainer holds the watts."
+                            text: page.gpx ? "Ride one of your cycling workouts on the route: its intervals run on the ride's clock "
+                                             + "and appear under the 3D view. With Workout ERG the trainer holds the watts."
+                                           : "Ride one of your cycling workouts during the video: its intervals run on the ride's clock "
+                                             + "and appear under the video. With Workout ERG the trainer holds the watts."
                             color: Theme.textSecondary
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap
@@ -1855,23 +1971,24 @@ Item {
                                 font.pixelSize: 16
                                 font.weight: Font.DemiBold
                             }
-                            // controlled switch: shows Rlv.workoutErg, a click asks Rlv to change it
+                            // controlled switch: shows page.session.workoutErg, a click asks Rlv to change it
                             ToggleSwitch {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 accessibleName: "Workout ERG"
-                                enabled: !Rlv.workoutFinished
-                                checked: Rlv.workoutErg
-                                onToggled: (on) => Rlv.workoutErg = on
+                                enabled: !page.session.workoutFinished
+                                checked: page.session.workoutErg
+                                onToggled: (on) => page.session.workoutErg = on
                             }
                         }
                         Text {
                             visible: page.hasWorkout
                             width: parent.width
-                            text: Rlv.workoutFinished ? "Workout complete – the ride continues in " + page.afterWorkoutMode() + "."
-                                  : page.workoutErg ? "The trainer holds the workout's watts; climbs only change the video's speed."
+                            text: page.session.workoutFinished ? "Workout complete – the ride continues in " + page.afterWorkoutMode() + "."
+                                  : page.workoutErg ? (page.gpx ? "The trainer holds the workout's watts; climbs only change your speed."
+                                                                : "The trainer holds the workout's watts; climbs only change the video's speed.")
                                   : "Targets as a guide – the resistance below applies."
-                            color: Rlv.workoutFinished ? Theme.successText : Theme.textSecondary
+                            color: page.session.workoutFinished ? Theme.successText : Theme.textSecondary
                             font.pixelSize: Theme.small(13)
                             wrapMode: Text.WordWrap
                         }
@@ -1892,8 +2009,8 @@ Item {
                                 spacing: 2
                                 Text {
                                     width: parent.width
-                                    text: Rlv.currentIntervalIndex >= 0
-                                          ? Rlv.currentIntervalName + "  ·  " + (Rlv.currentIntervalIndex + 1) + "/" + Rlv.workoutIntervals.length
+                                    text: page.session.currentIntervalIndex >= 0
+                                          ? page.session.currentIntervalName + "  ·  " + (page.session.currentIntervalIndex + 1) + "/" + page.session.workoutIntervals.length
                                           : "Starts with the ride"
                                     color: Theme.text
                                     font.pixelSize: 15
@@ -1907,8 +2024,8 @@ Item {
                                         spacing: 4
                                         Text {
                                             id: wkTarget
-                                            text: Rlv.workoutTargetWatts
-                                            color: Rlv.active ? page.complianceColor(Rlv.displayWatts, Rlv.workoutTargetWatts) : Theme.warningText
+                                            text: page.session.workoutTargetWatts
+                                            color: page.session.active ? page.complianceColor(page.session.displayWatts, page.session.workoutTargetWatts) : Theme.warningText
                                             font.pixelSize: 40
                                             font.weight: Font.Black
                                             font.letterSpacing: -1
@@ -1926,14 +2043,14 @@ Item {
                                         anchors.verticalCenter: parent.verticalCenter
                                         Text {
                                             anchors.right: parent.right
-                                            text: Theme.clock(Rlv.intervalRemainingSec) + " left"
+                                            text: Theme.clock(page.session.intervalRemainingSec) + " left"
                                             color: Theme.text
                                             font.pixelSize: 15
                                             font.weight: Font.DemiBold
                                         }
                                         Text {
                                             anchors.right: parent.right
-                                            text: Rlv.nextTargetWatts > 0 ? "Next " + Rlv.nextTargetWatts + " W" : "Last interval"
+                                            text: page.session.nextTargetWatts > 0 ? "Next " + page.session.nextTargetWatts + " W" : "Last interval"
                                             color: Theme.textSecondary
                                             font.pixelSize: Theme.small(13)
                                         }
@@ -1941,7 +2058,7 @@ Item {
                                 }
                                 Text {
                                     width: parent.width
-                                    text: "In target " + Rlv.workoutCompliance + " %  ·  " + Theme.clock(Rlv.workoutRemainingSec) + " to go"
+                                    text: "In target " + page.session.workoutCompliance + " %  ·  " + Theme.clock(page.session.workoutRemainingSec) + " to go"
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.small(13)
                                     elide: Text.ElideRight
@@ -1963,16 +2080,16 @@ Item {
                                 iconSize: 22
                                 Accessible.name: "Intensity −5 %"
                                 tint: Theme.accent
-                                enabled: Rlv.intensityPercent > -50
-                                onClicked: Rlv.adjustIntensity(-5)
+                                enabled: page.session.intensityPercent > -50
+                                onClicked: page.session.adjustIntensity(-5)
                             }
                             Column {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: (100 + Rlv.intensityPercent) + " %"
-                                    color: Rlv.intensityPercent === 0 ? Theme.text : Rlv.intensityPercent > 0 ? Theme.orangeText : Theme.accentText
+                                    text: (100 + page.session.intensityPercent) + " %"
+                                    color: page.session.intensityPercent === 0 ? Theme.text : page.session.intensityPercent > 0 ? Theme.orangeText : Theme.accentText
                                     font.pixelSize: 24
                                     font.weight: Font.Black
                                 }
@@ -1991,8 +2108,8 @@ Item {
                                 iconSize: 22
                                 Accessible.name: "Intensity +5 %"
                                 tint: Theme.orange
-                                enabled: Rlv.intensityPercent < 50
-                                onClicked: Rlv.adjustIntensity(5)
+                                enabled: page.session.intensityPercent < 50
+                                onClicked: page.session.adjustIntensity(5)
                             }
                         }
                         RowLayout {
@@ -2011,8 +2128,8 @@ Item {
                                 bold: false
                                 iconName: "skipForward"
                                 text: "Skip Interval"
-                                enabled: Rlv.active
-                                onClicked: Rlv.skipInterval()
+                                enabled: page.session.active
+                                onClicked: page.session.skipInterval()
                             }
                             AppButton {
                                 Layout.fillWidth: !page.workoutLive
@@ -2025,7 +2142,7 @@ Item {
                                 bold: false
                                 iconName: "close"
                                 text: page.workoutLive ? "End Workout" : "Remove Workout"
-                                onClicked: Rlv.detachWorkout()
+                                onClicked: page.session.detachWorkout()
                             }
                         }
                     }
@@ -2071,7 +2188,7 @@ Item {
                             }
                         }
                         SegmentedControl {
-                            objectName: "videoModeSelector"
+                            objectName: page.namePrefix + "ModeSelector"
                             width: parent.width
                             height: 44
                             fontSize: 14
@@ -2080,13 +2197,14 @@ Item {
                                 { value: "sim", label: "Simulation" },
                                 { value: "erg", label: "ERG" }
                             ]
-                            value: Rlv.mode
-                            onActivated: (v) => Rlv.mode = v
+                            value: page.session.mode
+                            onActivated: (v) => page.session.mode = v
                         }
                         Text {
                             width: parent.width
-                            text: page.ergMode ? (Rlv.ergHolding ? "ERG on – the trainer holds " + Rlv.sentTargetWatts + " W now. " : "")
-                                                 + "The trainer holds your watts. Climbs make the video slower, not the pedals heavier."
+                            text: page.ergMode ? (page.session.ergHolding ? "ERG on – the trainer holds " + page.session.sentTargetWatts + " W now. " : "")
+                                                 + (page.gpx ? "The trainer holds your watts. Climbs make you slower, not the pedals heavier."
+                                                             : "The trainer holds your watts. Climbs make the video slower, not the pedals heavier.")
                                   : "Climbs get harder like on the road."
                             color: Theme.textSecondary
                             font.pixelSize: 14
@@ -2097,7 +2215,7 @@ Item {
                         Text {
                             visible: page.simMode
                             width: parent.width
-                            objectName: "videoShiftingStatus"
+                            objectName: page.namePrefix + "ShiftingStatus"
                             text: page.shiftingText()
                                   + "   <a href=\"devices\" style=\"text-decoration:none\">Devices ›</a>"
                             textFormat: Text.StyledText
@@ -2112,7 +2230,7 @@ Item {
 
                         // simulation not possible on this trainer
                         Rectangle {
-                            visible: Rlv.simulationFallback
+                            visible: page.session.simulationFallback
                             width: parent.width
                             height: fallbackRow.implicitHeight + 16
                             radius: 8
@@ -2136,15 +2254,15 @@ Item {
 
                         // simulation: what the trainer gets
                         Item {
-                            visible: page.simMode && Rlv.resistancePath !== "gearErg"
+                            visible: page.simMode && page.session.resistancePath !== "gearErg"
                             width: parent.width
                             height: 26
                             // Auto shifting: light gears / descents go out as a low ERG target
-                            readonly property bool lightErg: !Rlv.simulationActive && Rlv.resistancePath === "gearHybrid"
-                                                             && Rlv.running && Rlv.sentTargetWatts > 0
+                            readonly property bool lightErg: !page.session.simulationActive && page.session.resistancePath === "gearHybrid"
+                                                             && page.session.running && page.session.sentTargetWatts > 0
                             Text {
                                 text: parent.lightErg ? "Light gear – trainer at"
-                                      : Rlv.resistancePath === "gearHub" ? "Incline sent (Zwift protocol)" : "Grade sent to trainer"
+                                      : page.session.resistancePath === "gearHub" ? "Incline sent (Zwift protocol)" : "Grade sent to trainer"
                                 color: Theme.textSecondary
                                 font.pixelSize: 14
                                 anchors.verticalCenter: parent.verticalCenter
@@ -2152,10 +2270,10 @@ Item {
                             Text {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: parent.lightErg ? Rlv.sentTargetWatts + " W"
-                                      : Rlv.simulationActive ? page.gradeText(Rlv.simulationGradePercent) : "–"
+                                text: parent.lightErg ? page.session.sentTargetWatts + " W"
+                                      : page.session.simulationActive ? page.gradeText(page.session.simulationGradePercent) : "–"
                                 color: parent.lightErg ? Theme.text
-                                       : Rlv.simulationActive ? page.gradeTextColor(Rlv.simulationGradePercent) : Theme.textMuted
+                                       : page.session.simulationActive ? page.gradeTextColor(page.session.simulationGradePercent) : Theme.textMuted
                                 font.pixelSize: 18
                                 font.weight: Font.Bold
                             }
@@ -2169,7 +2287,7 @@ Item {
                             spacing: 8
                             ShiftButton {
                                 id: easierButton
-                                objectName: "videoShiftEasier"
+                                objectName: page.namePrefix + "ShiftEasier"
                                 Layout.preferredWidth: 64
                                 Layout.fillHeight: true
                                 iconName: "minus"
@@ -2184,7 +2302,7 @@ Item {
                                 Layout.alignment: Qt.AlignVCenter
                                 spacing: 2
                                 Text {
-                                    objectName: "videoGearText"
+                                    objectName: page.namePrefix + "GearText"
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: "Gear " + (Gears.gearIndex + 1) + "/" + Gears.gearCount
                                     color: Theme.text
@@ -2200,7 +2318,7 @@ Item {
                             }
                             ShiftButton {
                                 id: harderButton
-                                objectName: "videoShiftHarder"
+                                objectName: page.namePrefix + "ShiftHarder"
                                 Layout.preferredWidth: 64
                                 Layout.fillHeight: true
                                 iconName: "plus"
@@ -2212,7 +2330,7 @@ Item {
                             }
                         }
                         Text {
-                            visible: page.gears && (Rlv.resistancePath === "gearSimulation" || Rlv.resistancePath === "gearHybrid")
+                            visible: page.gears && (page.session.resistancePath === "gearSimulation" || page.session.resistancePath === "gearHybrid")
                             width: parent.width
                             text: "Leave your bike in " + Gears.referenceLabel + " on the trainer."
                             color: Theme.textSecondary
@@ -2222,10 +2340,10 @@ Item {
                         TrainerStatusNotice {
                             width: parent.width
                             gears: page.gears
-                            namePrefix: "video"
+                            namePrefix: page.namePrefix
                         }
                         Text {
-                            visible: page.gears && Rlv.active && Rlv.cadence === 0 && Rlv.watts > 0
+                            visible: page.gears && page.session.active && page.session.cadence === 0 && page.session.watts > 0
                             width: parent.width
                             text: "No cadence from your trainer: it rides without virtual gears, and your speed follows your power."
                             color: Theme.textSecondary
@@ -2243,7 +2361,7 @@ Item {
                                 spacing: 6
                                 Text {
                                     id: ergValue
-                                    text: Rlv.targetWatts
+                                    text: page.session.targetWatts
                                     color: Theme.warningText
                                     font.pixelSize: 54
                                     font.weight: Font.Black
@@ -2267,11 +2385,11 @@ Item {
                                     font.pixelSize: Theme.small(13)
                                 }
                                 Text {
-                                    readonly property int diff: Rlv.displayWatts - Rlv.targetWatts
+                                    readonly property int diff: page.session.displayWatts - page.session.targetWatts
                                     anchors.right: parent.right
-                                    text: Rlv.displayWatts > 0 ? "Actual " + Rlv.displayWatts + " W" : "Actual – W"
-                                    color: Rlv.displayWatts <= 0 ? Theme.textSecondary
-                                           : Math.abs(diff) <= Math.max(5, Rlv.targetWatts * 0.05) ? Theme.successText : Theme.warningText
+                                    text: page.session.displayWatts > 0 ? "Actual " + page.session.displayWatts + " W" : "Actual – W"
+                                    color: page.session.displayWatts <= 0 ? Theme.textSecondary
+                                           : Math.abs(diff) <= Math.max(5, page.session.targetWatts * 0.05) ? Theme.successText : Theme.warningText
                                     font.pixelSize: 15
                                     font.weight: Font.DemiBold
                                 }
@@ -2293,8 +2411,8 @@ Item {
                                     labelSize: 20
                                     Accessible.name: (modelData > 0 ? "Increase target by " : "Decrease target by ") + Math.abs(modelData) + " watts"
                                     tint: modelData > 0 ? Theme.orange : Theme.accent
-                                    enabled: modelData > 0 ? Rlv.targetWatts < Rlv.maxTargetWatts : Rlv.targetWatts > Rlv.minTargetWatts
-                                    onClicked: Rlv.adjustTargetWatts(modelData)
+                                    enabled: modelData > 0 ? page.session.targetWatts < page.session.maxTargetWatts : page.session.targetWatts > page.session.minTargetWatts
+                                    onClicked: page.session.adjustTargetWatts(modelData)
                                     Component.onCompleted: {
                                         if (modelData === 10) resistanceCard.ergPlus10 = ergStep
                                         else if (modelData === -10) resistanceCard.ergMinus10 = ergStep
@@ -2309,7 +2427,7 @@ Item {
                             AppTextField {
                                 id: ergEntry
                                 Layout.fillWidth: true
-                                placeholderText: "Exact target, " + Rlv.minTargetWatts + "–" + Rlv.maxTargetWatts + " W"
+                                placeholderText: "Exact target, " + page.session.minTargetWatts + "–" + page.session.maxTargetWatts + " W"
                                 font.pixelSize: 15
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 1; top: 9999 }
@@ -2334,7 +2452,7 @@ Item {
                                     var v = parseInt(ergEntry.text)
                                     if (isNaN(v))
                                         return
-                                    Rlv.targetWatts = v
+                                    page.session.targetWatts = v
                                     ergEntry.text = ""
                                     page.forceActiveFocus()
                                 }
@@ -2357,31 +2475,31 @@ Item {
                             Text {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: Rlv.difficultyPercent + " %"
+                                text: page.session.difficultyPercent + " %"
                                 color: Theme.text
                                 font.pixelSize: 18
                                 font.weight: Font.Bold
                             }
                         }
                         AppSlider {
-                            objectName: "videoDifficultySlider"
+                            objectName: page.namePrefix + "DifficultySlider"
                             visible: !page.ergMode
                             width: parent.width
                             from: 0
                             to: 100
                             stepSize: 5
                             snapMode: Slider.SnapAlways
-                            value: Rlv.difficultyPercent
+                            value: page.session.difficultyPercent
                             fillColor: Theme.success
-                            onMoved: Rlv.difficultyPercent = Math.round(value)
+                            onMoved: page.session.difficultyPercent = Math.round(value)
                         }
                         Text {
                             visible: !page.ergMode
                             width: parent.width
-                            text: Rlv.difficultyPercent >= 100
+                            text: page.session.difficultyPercent >= 100
                                   ? "100 % = the real gradients of the route. Lower values flatten climbs and descents."
-                                  : "A " + page.gradeText(Math.max(Rlv.gradePercent, 6)).replace("+", "") + " climb feels like "
-                                    + page.gradeText(Math.max(Rlv.gradePercent, 6) * Rlv.difficultyPercent / 100).replace("+", "") + "."
+                                  : "A " + page.gradeText(Math.max(page.session.gradePercent, 6)).replace("+", "") + " climb feels like "
+                                    + page.gradeText(Math.max(page.session.gradePercent, 6) * page.session.difficultyPercent / 100).replace("+", "") + "."
                             color: Theme.textSecondary
                             font.pixelSize: Theme.small(13)
                             wrapMode: Text.WordWrap
@@ -2402,7 +2520,7 @@ Item {
                 // Zwift Click
                 Card {
                     id: clickCard
-                    visible: !page.finished && (Rlv.trainerConnected || Devices.controllerConnected)
+                    visible: !page.finished && (page.session.trainerConnected || Devices.controllerConnected)
                     width: parent.width
                     height: clickCol.y + clickCol.implicitHeight + 14
                     title: "Zwift Click"

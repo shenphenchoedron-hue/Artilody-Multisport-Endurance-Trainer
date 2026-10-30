@@ -21,7 +21,7 @@ ApplicationWindow {
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "freeride", "video", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "video", "gpx", "rowing", "workouts", "calendar", "builder", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -74,7 +74,7 @@ ApplicationWindow {
                                           || settingsDialog.visible || workoutDetails.visible || stopDialog.visible
                                           || rowingFinishDialog.visible || ftpResultDialog.visible
                                           || freeRideFinishDialog.visible || gearSetupDialog.visible
-                                          || videoFinishDialog.visible
+                                          || videoFinishDialog.visible || gpxFinishDialog.visible
 
     // Developer aid: start with "--light" to open in the light theme (screenshots).
     Component.onCompleted: if (Qt.application.arguments.indexOf("--light") >= 0) Theme.dark = false
@@ -215,6 +215,10 @@ ApplicationWindow {
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: videoFinishDialog.open()
                 }
+                GpxRidePage {
+                    onOpenDevices: window.showPage("devices")
+                    onRequestFinish: gpxFinishDialog.open()
+                }
                 RowingPage {
                     onOpenDevices: window.showPage("devices")
                     onOpenBuilder: {
@@ -344,6 +348,26 @@ ApplicationWindow {
             }
         }
 
+        ConfirmDialog {
+            id: gpxFinishDialog
+            title: "Finish GPX ride?"
+            message: "Your ride will be saved to History. Choose Discard to throw it away."
+            acceptText: "Save & Finish"
+            secondaryText: "Discard"
+            onAccepted: {
+                if (!Gpx.active)
+                    return
+                var id = Gpx.finish(true)
+                window.showToast(id >= 0 ? "Ride saved – see History for the analysis" : "Ride too short to save")
+            }
+            onSecondary: {
+                if (!Gpx.active)
+                    return
+                Gpx.discard()
+                window.showToast("Ride discarded")
+            }
+        }
+
         GearSetupDialog { id: gearSetupDialog }
 
         // Above every other dialog: a ride can finish while one is open.
@@ -417,6 +441,19 @@ ApplicationWindow {
             window.showToast(reason)
         }
     }
+    Connections {
+        target: Gpx
+        function onFinished() {
+            if (gpxFinishDialog.visible)
+                gpxFinishDialog.close()
+            // the end of the route finishes and saves the ride by itself
+            if (Gpx.completed)
+                window.showToast(Gpx.lastRideId >= 0 ? "Route complete – ride saved to History" : "Route complete")
+        }
+        function onStartRefused(reason) {
+            window.showToast(reason)
+        }
+    }
 
     // keyboard shortcuts for the trainer room. Space is an explicit Start /
     // Pause / Resume (like the page's button): sessions never start or resume
@@ -482,7 +519,7 @@ ApplicationWindow {
         onActivated: FreeRide.mode === "erg" ? FreeRide.adjustTargetWatts(-10) : FreeRide.adjustGrade(-0.5)
     }
 
-    // Video Ride page:
+    // Video Ride and GPX Ride pages (the same keys for the page's session):
     //   Simulation: ↑ / ↓ shift (virtual gears on), Shift + ↑ / ↓ front shift,
     //               PgUp / PgDn difficulty ±10 %
     //   ERG:        ↑ / ↓ target ±5 W, PgUp / PgDn ±10 W
@@ -490,50 +527,51 @@ ApplicationWindow {
     //               ↑ / ↓ and PgUp / PgDn intensity ±5 % (like the Zwift Click)
     // Space start / pause / resume (not while typing or while a dialog or
     // menu has the keyboard).
-    readonly property bool videoKeys: currentPage === "video" && !anyDialogOpen
+    readonly property bool videoKeys: (currentPage === "video" || currentPage === "gpx") && !anyDialogOpen
+    readonly property var rideSession: currentPage === "gpx" ? Gpx : Rlv
     Shortcut {
         sequences: ["Space"]
-        enabled: window.videoKeys && (Rlv.active || (Rlv.hasRoute && Rlv.trainerConnected))
-        onActivated: Rlv.togglePause()
+        enabled: window.videoKeys && (window.rideSession.active || (window.rideSession.hasRoute && window.rideSession.trainerConnected))
+        onActivated: window.rideSession.togglePause()
     }
     function videoStep(direction) {
-        if (Rlv.workoutErgActive)
-            Rlv.controllerShift(direction)     // intensity ±5 % (pulses the page's buttons)
-        else if (Rlv.mode === "erg")
-            Rlv.adjustTargetWatts(5 * direction)
+        if (window.rideSession.workoutErgActive)
+            window.rideSession.controllerShift(direction)     // intensity ±5 % (pulses the page's buttons)
+        else if (window.rideSession.mode === "erg")
+            window.rideSession.adjustTargetWatts(5 * direction)
         else
             direction > 0 ? Gears.shiftUp() : Gears.shiftDown()
     }
     Shortcut {
         sequences: ["Up", "+", "="]
-        enabled: window.videoKeys && (Rlv.workoutErgActive || Rlv.mode === "erg" || Rlv.virtualGears)
+        enabled: window.videoKeys && (window.rideSession.workoutErgActive || window.rideSession.mode === "erg" || window.rideSession.virtualGears)
         onActivated: window.videoStep(1)
     }
     Shortcut {
         sequences: ["Down", "-"]
-        enabled: window.videoKeys && (Rlv.workoutErgActive || Rlv.mode === "erg" || Rlv.virtualGears)
+        enabled: window.videoKeys && (window.rideSession.workoutErgActive || window.rideSession.mode === "erg" || window.rideSession.virtualGears)
         onActivated: window.videoStep(-1)
     }
     Shortcut {
         sequence: "Shift+Up"
-        enabled: window.videoKeys && Rlv.virtualGears
+        enabled: window.videoKeys && window.rideSession.virtualGears
         onActivated: Gears.shiftFrontUp()
     }
     Shortcut {
         sequence: "Shift+Down"
-        enabled: window.videoKeys && Rlv.virtualGears
+        enabled: window.videoKeys && window.rideSession.virtualGears
         onActivated: Gears.shiftFrontDown()
     }
     Shortcut {
         sequence: "PgUp"
         enabled: window.videoKeys
-        onActivated: Rlv.workoutErgActive ? Rlv.controllerShift(1)
-                     : Rlv.mode === "erg" ? Rlv.adjustTargetWatts(10) : Rlv.adjustDifficulty(10)
+        onActivated: window.rideSession.workoutErgActive ? window.rideSession.controllerShift(1)
+                     : window.rideSession.mode === "erg" ? window.rideSession.adjustTargetWatts(10) : window.rideSession.adjustDifficulty(10)
     }
     Shortcut {
         sequence: "PgDown"
         enabled: window.videoKeys
-        onActivated: Rlv.workoutErgActive ? Rlv.controllerShift(-1)
-                     : Rlv.mode === "erg" ? Rlv.adjustTargetWatts(-10) : Rlv.adjustDifficulty(-10)
+        onActivated: window.rideSession.workoutErgActive ? window.rideSession.controllerShift(-1)
+                     : window.rideSession.mode === "erg" ? window.rideSession.adjustTargetWatts(-10) : window.rideSession.adjustDifficulty(-10)
     }
 }

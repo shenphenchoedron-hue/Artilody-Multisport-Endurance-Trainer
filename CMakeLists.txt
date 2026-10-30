@@ -13,7 +13,7 @@ option(WATT_BUILD_TESTS "Build the unit tests" ON)
 # Qt 6.4 is the minimum so the app also builds with the Qt packages shipped
 # with Raspberry Pi OS (Bookworm).
 find_package(Qt6 6.4 REQUIRED COMPONENTS
-    Core Gui Qml Quick QuickControls2 Sql Bluetooth Multimedia)
+    Core Gui OpenGL Qml Quick QuickControls2 Sql Bluetooth Multimedia)
 
 qt_standard_project_setup()
 if(QT_KNOWN_POLICY_QTP0001)   # Qt >= 6.5: modules live under qrc:/qt/qml/
@@ -24,6 +24,7 @@ endif()
 add_subdirectory(src/core)    # domain model, SQLite, analysis, training engine
 add_subdirectory(src/ble)     # Bluetooth LE: FTMS trainers + HRS heart-rate sensors
 add_subdirectory(src/media)   # local music player + playlists
+add_subdirectory(src/route3d) # GPX Ride: 3D route view (Qt Quick + OpenGL)
 option(WATT_BUILD_APP "Build the QML application" ON)
 if(WATT_BUILD_APP)
     add_subdirectory(src/app) # executable + QML user interface

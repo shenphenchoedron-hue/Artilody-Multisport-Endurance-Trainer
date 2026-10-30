@@ -14,6 +14,7 @@
 #include "ProfileManager.h"
 #include "RlvLibrary.h"
 #include "RlvSession.h"
+#include "Route3DItem.h"
 #include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
@@ -37,7 +38,10 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QSize>
+#include <QSurfaceFormat>
 #include <QTimer>
 #include <cstdlib>
 #include <memory>
@@ -56,6 +60,47 @@
 using namespace watt;
 
 namespace {
+// The GPX Ride's 3D view (Route3DItem) draws with OpenGL, so Qt Quick runs on
+// OpenGL on every platform (it already does on Linux / Raspberry Pi; macOS
+// would use Metal and Windows Direct3D otherwise). Only when the computer
+// offers an OpenGL context the 3D view can use (desktop GL >= 3.1 or GLES
+// >= 3.0): otherwise - and with WATT_NO_OPENGL=1 or an explicit
+// QSG_RHI_BACKEND - Qt Quick keeps its default and the GPX Ride page says
+// that the 3D view is not available. Call after QGuiApplication exists,
+// before the first window.
+void selectQuickGraphicsApi()
+{
+    if (qEnvironmentVariableIntValue("WATT_NO_OPENGL") > 0 || qEnvironmentVariableIsSet("QSG_RHI_BACKEND")) {
+        qInfo("Graphics: Qt Quick default backend (WATT_NO_OPENGL / QSG_RHI_BACKEND set)");
+        return;
+    }
+    const QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+    QOpenGLContext probe;
+    probe.setFormat(format);
+    QOffscreenSurface surface;
+    bool ok = probe.create();
+    if (ok) {
+        surface.setFormat(probe.format());
+        surface.create();
+        ok = surface.isValid() && probe.makeCurrent(&surface);
+    }
+    QString offered = QStringLiteral("none");
+    if (ok) {
+        const QSurfaceFormat f = probe.format();
+        const bool es = probe.isOpenGLES();
+        offered = QStringLiteral("%1 %2.%3").arg(es ? QStringLiteral("OpenGL ES") : QStringLiteral("OpenGL"))
+                      .arg(f.majorVersion()).arg(f.minorVersion());
+        ok = es ? f.majorVersion() >= 3 : (f.majorVersion() > 3 || (f.majorVersion() == 3 && f.minorVersion() >= 1));
+        probe.doneCurrent();
+    }
+    if (!ok) {
+        qWarning("Graphics: no usable OpenGL (%s) - Qt Quick default backend, no GPX 3D view", qPrintable(offered));
+        return;
+    }
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+    qInfo("Graphics: Qt Quick on %s (GPX 3D view)", qPrintable(offered));
+}
+
 #ifdef Q_OS_MACOS
 // An inherited QT_QPA_PLATFORM (e.g. "offscreen" from a test / CI shell) that
 // names a platform plugin the deployed bundle doesn't ship (it ships only
@@ -157,6 +202,19 @@ int main(int argc, char *argv[])
     if (!sanitizeQpaPlatform())
         return 1;
 #endif
+    {
+        // OpenGL for the GPX Ride's 3D view (selectQuickGraphicsApi()): depth
+        // + stencil, and on macOS a core profile (else only OpenGL 2.1).
+        // Set before the application exists (required on macOS).
+        QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+        format.setDepthBufferSize(24);
+        format.setStencilBufferSize(8);
+#ifdef Q_OS_MACOS
+        format.setVersion(4, 1);
+        format.setProfile(QSurfaceFormat::CoreProfile);
+#endif
+        QSurfaceFormat::setDefaultFormat(format);
+    }
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName(QStringLiteral("Artilody"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("artilody.app"));
@@ -174,6 +232,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(QStringLiteral("artilody-watts-trainer"));
 #endif
 
+    selectQuickGraphicsApi();
     // The UI ships its own look; "Basic" is fully customisable on all platforms.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/app-icon-256.png")));
@@ -285,6 +344,16 @@ int main(int argc, char *argv[])
     RlvSession rlv(&db, &profiles, &hub, &gears, &videos);
     rlv.setFreeRideSession(&freeRide);   // an empty paused free ride is given up by the video ride's start
     rlv.setTrainingSession(&training);
+    // GPX Ride: the same session (physics, trainer control, recording) on a
+    // plain .gpx track, shown in 3D instead of a video (Route3DItem). Its own
+    // library of .gpx files (WATT_GPX_DIR=<folder>: added for this run only).
+    RlvLibrary gpxRoutes(&db, RlvLibrary::Kind::Gpx);
+    if (const QString dir = qEnvironmentVariable("WATT_GPX_DIR"); !dir.isEmpty())
+        gpxRoutes.addTemporaryFolder(dir);
+    gpxRoutes.rescan();
+    RlvSession gpx(&db, &profiles, &hub, &gears, &gpxRoutes, RlvSession::Kind::Gpx);
+    gpx.setFreeRideSession(&freeRide);
+    gpx.setTrainingSession(&training);
     // Only one session at a time, without trapping the rider: a session in
     // PROGRESS (riding, or paused with a recording) blocks the others; one
     // paused before anything was recorded is given up by another session's
@@ -292,6 +361,7 @@ int main(int argc, char *argv[])
     // pedaling or rowing never starts one. The pages show why their Start is
     // disabled, with the fix (QML "Sessions").
     SessionGuard sessions(&training, &freeRide, &rlv, &rowing, &gears);
+    sessions.setGpxSession(&gpx);
     // A known Zwift Click that is not connected (asleep, or never reconnected
     // after a profile switch, log of v1.3.8): look for it again.
     // (profileChanged also fires on every profile save: only a real switch)
@@ -306,11 +376,14 @@ int main(int argc, char *argv[])
                      [&] { devices.lookForKnownControllers(QStringLiteral("free ride started")); });
     QObject::connect(&rlv, &RlvSession::started, &devices,
                      [&] { devices.lookForKnownControllers(QStringLiteral("video ride started")); });
+    QObject::connect(&gpx, &RlvSession::started, &devices,
+                     [&] { devices.lookForKnownControllers(QStringLiteral("GPX ride started")); });
     // The rider of a ride must still exist when it is saved.
     profiles.setBusyCheck([&] {
-        return training.active() || rowing.active() || freeRide.active() || rlv.active();
+        return training.active() || rowing.active() || freeRide.active() || rlv.active() || gpx.active();
     });
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
+    QObject::connect(&gpx, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
 
     // Calendar: Planner.startEntry() prepares the session of a plan entry
     // (workout, rowing plan, free ride, video ride).
@@ -333,7 +406,8 @@ int main(int argc, char *argv[])
     // Zwift Click buttons: always routed by VirtualGears::controllerShift()
     // (shift in the road modes, ±10 W in ERG, never the difficulty).
     gears.setSessions(&freeRide, &rlv);
-    gears.setBusyCheck([&] { return freeRide.active() || rlv.active(); });
+    gears.setGpxSession(&gpx);
+    gears.setBusyCheck([&] { return freeRide.active() || rlv.active() || gpx.active(); });
     QObject::connect(&devices, &DeviceManager::controllerShift, &gears, &VirtualGears::controllerShift);
     QObject::connect(&devices, &DeviceManager::devicesChanged, &gears,
                      [&] { gears.setClickConnected(devices.controllerConnected()); });
@@ -370,12 +444,13 @@ int main(int argc, char *argv[])
         DiagLog::write("CMD", QStringLiteral("trainer <- simulation grade %1 % wind %2 m/s Crr %3 Cw %4 kg/m")
                                   .arg(g, 0, 'f', 2).arg(wind, 0, 'f', 2).arg(crr, 0, 'f', 4).arg(cw, 0, 'f', 2));
     });
-    auto logSettings = [&gears, &rlv](const char *why) {
+    auto logSettings = [&gears, &rlv, &gpx](const char *why) {
         if (!DiagLog::instance().isActive())
             return;
-        DiagLog::write("CFG", QStringLiteral("(%1) %2 difficulty %3 %")
+        DiagLog::write("CFG", QStringLiteral("(%1) %2 difficulty video %3 % gpx %4 %")
                                   .arg(QString::fromLatin1(why), gears.settingsLine())
-                                  .arg(rlv.difficultyPercent()));
+                                  .arg(rlv.difficultyPercent())
+                                  .arg(gpx.difficultyPercent()));
     };
     logSettings("start");
     {
@@ -392,6 +467,7 @@ int main(int argc, char *argv[])
         QObject::connect(&gears, &VirtualGears::clickConnectedChanged, cfgTimer, later);
         QObject::connect(&gears, &VirtualGears::shiftingChanged, cfgTimer, later);
         QObject::connect(&rlv, &RlvSession::difficultyChanged, cfgTimer, later);
+        QObject::connect(&gpx, &RlvSession::difficultyChanged, cfgTimer, later);
         QObject::connect(&profiles, &ProfileManager::profileChanged, cfgTimer, later);
     }
     QObject::connect(&gears, &VirtualGears::detectionChanged, &app, [&gears] {
@@ -425,6 +501,8 @@ int main(int argc, char *argv[])
                      [&devices] { devices.stopTrainerTests(QStringLiteral("a free ride started")); });
     QObject::connect(&rlv, &RlvSession::started, &devices,
                      [&devices] { devices.stopTrainerTests(QStringLiteral("a video ride started")); });
+    QObject::connect(&gpx, &RlvSession::started, &devices,
+                     [&devices] { devices.stopTrainerTests(QStringLiteral("a GPX ride started")); });
     QObject::connect(&rowing, &RowingSession::started, &devices,
                      [&devices] { devices.stopTrainerTests(QStringLiteral("a row started")); });
     // session markers
@@ -448,6 +526,20 @@ int main(int argc, char *argv[])
                                    .arg(rlv.difficultyPercent())
                                    .arg(gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod()));
     });
+    QObject::connect(&gpx, &RlvSession::stateChanged, &app, [&gpx, &gears] {
+        DiagLog::write("RIDE", QStringLiteral("==== GPX ride %1: route \"%2\" (%3) at %4 m, mode %5, path %6, workout \"%7\", "
+                                              "difficulty %8 %, virtual gears %9, method %10")
+                                   .arg(gpx.state(), gpx.routeName(), gpx.routePath())
+                                   .arg(gpx.distanceMeters(), 0, 'f', 0)
+                                   .arg(gpx.mode(), gpx.resistancePath(), gpx.workoutName())
+                                   .arg(gpx.difficultyPercent())
+                                   .arg(gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod()));
+    });
+    QObject::connect(&gpx, &RlvSession::modeChanged, &app, [&gpx, last = std::make_shared<QString>()] {
+        const QString t = QStringLiteral("GPX ride mode %1, path %2").arg(gpx.mode(), gpx.resistancePath());
+        if (t != *last)
+            DiagLog::write("RIDE", *last = t);
+    });
     // (modeChanged also fires for unchanged values: log changes only)
     QObject::connect(&rlv, &RlvSession::modeChanged, &app, [&rlv, last = std::make_shared<QString>()] {
         const QString t = QStringLiteral("video ride mode %1, path %2").arg(rlv.mode(), rlv.resistancePath());
@@ -468,16 +560,22 @@ int main(int argc, char *argv[])
                      [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("free ride saved (ride %1)").arg(id)); });
     QObject::connect(&rlv, &RlvSession::rideSaved, &app,
                      [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("video ride saved (ride %1)").arg(id)); });
+    QObject::connect(&gpx, &RlvSession::rideSaved, &app,
+                     [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("GPX ride saved (ride %1)").arg(id)); });
     // 1 Hz: the app's computed values while a ride page / session is active
     {
+        RlvSession &rlvRef = rlv;
         auto *traceTimer = new QTimer(&app);
         QObject::connect(traceTimer, &QTimer::timeout, &app, [&] {
             if (!DiagLog::instance().isActive())
                 return;
             const QString page = gears.activePage();
-            const bool rlvLive = rlv.active();
             const bool frLive = freeRide.active();
-            const bool onRlv = rlvLive || (!frLive && page == QLatin1String("video"));
+            // the GPX ride is traced like the video ride (the same session class)
+            const bool gpxNow = gpx.active() || (!rlv.active() && !frLive && page == QLatin1String("gpx"));
+            RlvSession &rlv = gpxNow ? gpx : rlvRef;
+            const bool rlvLive = rlv.active();
+            const bool onRlv = rlvLive || (!frLive && (page == QLatin1String("video") || gpxNow));
             const bool onFr = !onRlv && (frLive || page == QLatin1String("freeride"));
             if (!onRlv && !onFr && !training.running())
                 return;
@@ -506,7 +604,7 @@ int main(int argc, char *argv[])
                            QStringLiteral("%1 %2/%3 vg=%4 method=%5 path=%6%7 gear=%8 ratio=%9 cad=%10/%11rpm "
                                           "vVirt=%12km/h grade=%13% eff=%14% diff=%15% sent=%16 wantGrade=%17% "
                                           "vRef=%18km/h refRatio=%19 det=%20 demand=%21W P=%22W vTrainer=%23km/h coast=%24 d=%25m")
-                               .arg(onRlv ? QStringLiteral("video") : QStringLiteral("freeride"),
+                               .arg(onRlv ? (gpxNow ? QStringLiteral("gpx") : QStringLiteral("video")) : QStringLiteral("freeride"),
                                     onRlv ? rlv.state() : freeRide.state(), onRlv ? rlv.mode() : freeRide.mode(),
                                     gears.enabled() ? QStringLiteral("on") : QStringLiteral("off"), gears.shiftMethod(),
                                     onRlv ? rlv.resistancePath() : freeRide.resistancePath(),
@@ -616,8 +714,11 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Gears", &gears);
     qmlRegisterSingletonInstance(uri, 1, 0, "Videos", &videos);
     qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
+    qmlRegisterSingletonInstance(uri, 1, 0, "GpxRoutes", &gpxRoutes);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Gpx", &gpx);
     qmlRegisterSingletonInstance(uri, 1, 0, "Sessions", &sessions);
     qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
+    qmlRegisterType<Route3DItem>(uri, 1, 0, "Route3DView");
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -669,6 +770,11 @@ int main(int argc, char *argv[])
     //   WATT_SCREENSHOT_RLV_WORKOUT=<workout name or id>  ride this cycling workout during the
     //                                  video ride, workout ERG on (a demo "Sweet Spot 3×10" is
     //                                  added to the screenshot database when no workout matches)
+    //   WATT_SCREENSHOT_GPX=<file.gpx>  live GPX ride (3D view) on the virtual trainer instead of
+    //                                  the cycling workout (page "gpx" last)
+    //   WATT_SCREENSHOT_GPX_SEC        seconds ridden before gpx.png (default 40)
+    //   WATT_SCREENSHOT_GPX_IDLE=1     only select the route (no ride)
+    //   WATT_SCREENSHOT_GPX_START=<m>  start point in metres (default 0)
     //   WATT_SCREENSHOT_RLV_MODE       sim (default) | erg (ERG target 200 W) | gears
     //                                  (= sim with virtual gears on)
     //                                  (WATT_SIM_TRAINER_ZWIFT=1: the virtual trainer also offers
@@ -703,6 +809,8 @@ int main(int argc, char *argv[])
     const bool shotFreeRide = !shotDir.isEmpty() && !shotRowing
                               && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE") > 0;
     const bool shotRlv = !shotRlvPath.isEmpty() && !shotRowing && !shotFreeRide;
+    const QString shotGpxPath = shotDir.isEmpty() ? QString() : qEnvironmentVariable("WATT_SCREENSHOT_GPX");
+    const bool shotGpx = !shotGpxPath.isEmpty() && !shotRowing && !shotFreeRide && !shotRlv;
     const bool shotClick = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_CLICK") > 0;
     QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
         ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
@@ -786,6 +894,11 @@ int main(int argc, char *argv[])
             if (mode == QLatin1String("erg"))
                 rlv.setTargetWatts(200);
         }
+        if (shotGpx && !gpx.selectPath(shotGpxPath))
+            qWarning("Screenshot mode: could not load the GPX route %s: %s", qPrintable(shotGpxPath),
+                     qPrintable(gpx.lastError()));
+        else if (shotGpx && qEnvironmentVariableIntValue("WATT_SCREENSHOT_GPX_START") > 0)
+            gpx.seekToDistance(qEnvironmentVariableIntValue("WATT_SCREENSHOT_GPX_START"));
         if (shotRlv && !rlv.selectPath(shotRlvPath))
             qWarning("Screenshot mode: could not load the video route %s: %s", qPrintable(shotRlvPath),
                      qPrintable(rlv.lastError()));
@@ -860,8 +973,9 @@ int main(int argc, char *argv[])
         // session has time to get going.
         const QString livePage = shotFreeRide ? QStringLiteral("freeride")
                                  : shotRlv    ? QStringLiteral("video")
+                                 : shotGpx    ? QStringLiteral("gpx")
                                               : QStringLiteral("rowing");
-        const bool shotLive = shotRowing || shotFreeRide || shotRlv;
+        const bool shotLive = shotRowing || shotFreeRide || shotRlv || shotGpx;
         const QStringList names = window->property("pageNames").toStringList();
         QList<int> order;
         for (int i = 0; i < names.size(); ++i)
@@ -871,6 +985,7 @@ int main(int argc, char *argv[])
             order << names.indexOf(livePage);
         const char *liveSecVar = shotFreeRide ? "WATT_SCREENSHOT_FREERIDE_SEC"
                                  : shotRlv    ? "WATT_SCREENSHOT_RLV_SEC"
+                                 : shotGpx    ? "WATT_SCREENSHOT_GPX_SEC"
                                               : "WATT_SCREENSHOT_ROWING_SEC";
         const int liveSec = qEnvironmentVariableIntValue(liveSecVar) > 0 ? qEnvironmentVariableIntValue(liveSecVar) : 40;
 
@@ -879,6 +994,7 @@ int main(int argc, char *argv[])
         auto clock = std::make_shared<QElapsedTimer>();
         const bool finishRlv = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_FINISH") > 0;
         const bool rlvIdle = shotRlv && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RLV_IDLE") > 0;
+        const bool gpxIdle = shotGpx && qEnvironmentVariableIntValue("WATT_SCREENSHOT_GPX_IDLE") > 0;
         const bool finishFreeRide = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_FINISH") > 0;
         const bool freeRideIdle = shotFreeRide && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FREERIDE_IDLE") > 0;
         const bool rowingReady = shotRowing && qEnvironmentVariableIntValue("WATT_SCREENSHOT_ROWING_READY") > 0;
@@ -938,7 +1054,7 @@ int main(int argc, char *argv[])
         const QString selectorName = shotFreeRide ? QStringLiteral("freeRideModeSelector")
                                                   : QStringLiteral("videoModeSelector");
         clock->start();
-        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv, &devices] {
+        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv, &gpx, &devices] {
             const int s = (*step)++;
             if (!blocker.isEmpty() && (s == 1 || s == 2)) {
                 const bool workout = blocker.startsWith(QLatin1String("workout"));
@@ -983,6 +1099,9 @@ int main(int argc, char *argv[])
                 } else if (shotRlv) {
                     if (!rlvIdle)
                         rlv.start();
+                } else if (shotGpx) {
+                    if (!gpxIdle)
+                        gpx.start();
                 } else if (!workoutIdle) {
                     training.start();
                 }
@@ -1178,6 +1297,8 @@ int main(int argc, char *argv[])
                   rlv.speedKmh(), rlv.videoPosition(), rlv.playbackRate(), rlv.videoDriftSec());
         if (rlv.active())
             rlv.finish(shotDir.isEmpty());
+        if (gpx.active())
+            gpx.finish(shotDir.isEmpty());
     };
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [&] {
         closeSessions();

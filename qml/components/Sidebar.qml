@@ -6,7 +6,7 @@ Rectangle {
     property int currentIndex: 0
     property bool profileOpen: false
     // Page names in StackLayout order (Main.qml window.pageNames).
-    property var pageNames: ["dashboard", "freeride", "video", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    property var pageNames: ["dashboard", "freeride", "video", "gpx", "rowing", "workouts", "calendar", "builder", "history", "devices"]
     signal navigate(int index)
     signal profileRequested()
 
@@ -17,6 +17,7 @@ Rectangle {
         { label: "Watt Training", icon: "bike", page: "dashboard" },
         { label: "Free Ride", icon: "freeRide", page: "freeride" },
         { label: "Video Ride", icon: "video", page: "video" },
+        { label: "GPX Ride", icon: "mapPin", page: "gpx" },
         { label: "Rowing", icon: "rowing", page: "rowing" },
         { label: "Workouts", icon: "calendar", page: "workouts" },
         { label: "Calendar", icon: "calendarDays", page: "calendar" },
@@ -62,13 +63,18 @@ Rectangle {
         // cycling workout wins, then a free ride, a video ride, a row.
         // Nothing starts by pedaling or rowing - only Start / Space.
         readonly property bool freeRide: !Training.active && FreeRide.active
-        readonly property bool video: !Training.active && !freeRide && Rlv.active
+        // a video ride or a GPX ride (the same session class: Rlv / Gpx)
+        readonly property bool videoRide: !Training.active && !freeRide && Rlv.active
+        readonly property bool gpxRide: !Training.active && !freeRide && !videoRide && Gpx.active
+        readonly property bool video: videoRide || gpxRide
+        readonly property var ride: gpxRide ? Gpx : Rlv
+        readonly property string rideName: gpxRide ? "GPX" : "Video"
         // a workout ridden during the video: "Video 12:34" / "Sweet Spot 2/6 • 230 W"
-        readonly property bool videoWorkout: video && Rlv.hasWorkout && !Rlv.workoutFinished
-                                             && Rlv.currentIntervalIndex >= 0
+        readonly property bool videoWorkout: video && ride.hasWorkout && !ride.workoutFinished
+                                             && ride.currentIntervalIndex >= 0
         readonly property bool rowing: !Training.active && !freeRide && !video && Rowing.active
-        readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? Rlv.paused : Training.paused
-        readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : video ? Rlv.running : Training.running
+        readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? ride.paused : Training.paused
+        readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : video ? ride.running : Training.running
 
         visible: Training.active || freeRide || video || rowing
         anchors.bottom: parent.bottom
@@ -99,8 +105,8 @@ Rectangle {
                 Text {
                     text: live.rowing ? (live.paused ? "Paused" : "Rowing")
                           : live.freeRide ? (live.paused ? "Free Ride paused" : "Free Ride")
-                          : live.video ? (live.paused ? "Video paused" : "Video")
-                                         + (live.videoWorkout ? "  " + Theme.clock(Rlv.elapsedSeconds) : "")
+                          : live.video ? (live.paused ? live.rideName + " paused" : live.rideName)
+                                         + (live.videoWorkout ? "  " + Theme.clock(live.ride.elapsedSeconds) : "")
                           : (live.paused ? "Paused" : "Riding")
                     color: Theme.text
                     font.pixelSize: 14
@@ -122,9 +128,9 @@ Rectangle {
                           + Sensors.displayPower + " W"
                         : live.video
                           ? (live.videoWorkout
-                             ? Rlv.currentIntervalName + " " + (Rlv.currentIntervalIndex + 1) + "/"
-                               + Rlv.workoutIntervals.length + " • " + Sensors.displayPower + " W"
-                             : Theme.clock(Rlv.elapsedSeconds) + " • " + (Rlv.riddenMeters / 1000).toFixed(1)
+                             ? live.ride.currentIntervalName + " " + (live.ride.currentIntervalIndex + 1) + "/"
+                               + live.ride.workoutIntervals.length + " • " + Sensors.displayPower + " W"
+                             : Theme.clock(live.ride.elapsedSeconds) + " • " + (live.ride.riddenMeters / 1000).toFixed(1)
                                + " km • " + Sensors.displayPower + " W")
                         : Theme.clock(Training.elapsedSec) + "  •  " + Sensors.displayPower + " W"
                 color: Theme.textSecondary
@@ -134,7 +140,7 @@ Rectangle {
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: sidebar.navigate(sidebar.indexOfPage(live.rowing ? "rowing" : live.freeRide ? "freeride" : live.video ? "video" : "dashboard"))
+            onClicked: sidebar.navigate(sidebar.indexOfPage(live.rowing ? "rowing" : live.freeRide ? "freeride" : live.gpxRide ? "gpx" : live.video ? "video" : "dashboard"))
         }
     }
 }
