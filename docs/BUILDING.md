@@ -11,7 +11,7 @@ The official release packages are built by the GitHub Actions workflow [`.github
 | CMake | 3.21 |
 | Compiler | C++17 (GCC, Clang, MSVC 2019+ or MinGW) |
 | Qt | **6.4** or newer (CI uses 6.4.2 on Linux and 6.8.3 on Windows/macOS) |
-| Qt modules | Core, Gui, Qml, Quick, QuickControls2, Sql (SQLite driver), Bluetooth (`qtconnectivity`), Multimedia (`qtmultimedia`), and Test for the unit tests |
+| Qt modules | Core, Gui, OpenGL, Qml, Quick, QuickControls2, Sql (SQLite driver), Bluetooth (`qtconnectivity`), Multimedia (`qtmultimedia`), and Test for the unit tests |
 | Linux Bluetooth | BlueZ ≥ 5.48 |
 
 Ninja is optional but recommended (`-G Ninja`).
@@ -155,6 +155,8 @@ The release installer is built with Inno Setup from [`packaging/windows/installe
 | `WATT_DB_PATH=<file>` | Use a different SQLite database instead of the default `watt-trainer.sqlite` in the user's app-data folder |
 | `WATT_SCREENSHOT_DIR=<dir>` | Render every page to PNG in `<dir>`, then quit (used for screenshots and smoke tests) |
 | `WATT_SCREENSHOT_STEP_MS=<ms>` | Delay between pages in screenshot mode (default 1500 ms) |
+| `WATT_GPX_DIR=<folder>` | Add a folder of `.gpx` files to the GPX Ride library for this run only |
+| `WATT_NO_OPENGL=1` | Keep Qt Quick's default graphics backend (no OpenGL; the GPX Ride 3D view is then unavailable) |
 
 - You don't need hardware to develop the app. Connect the **Virtual Trainer** and **Virtual HR Sensor** on the Devices page.
 - To run the app without a display (CI), set `QT_QPA_PLATFORM=offscreen` and `QT_QUICK_BACKEND=software`. See [`packaging/ci/smoke-test.sh`](../packaging/ci/smoke-test.sh).

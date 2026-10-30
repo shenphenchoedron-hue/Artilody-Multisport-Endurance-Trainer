@@ -1,6 +1,17 @@
 Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
 
-## What's new in 1.3.10
+## What's new in 1.4.0
+
+**GPX Ride** – ride any GPX route in a 3D world (sidebar → **GPX Ride**, under Video Ride).
+
+- **Any GPX track**: from a bike computer, Strava, Komoot or a route planner – no video needed. Every `.gpx` file in the GPX folder (`Documents/Artilody GPX Routes`, and its subfolders) is listed with name, distance and climbing; **Open GPX File…** rides a single file. More folders can be added like in the video library.
+- **3D view**: the route is drawn as a road through a generated landscape with hills, fields, houses, trees, sky and a rider on a bike, seen from just behind the rider. The view follows your position and speed from the app's own physics – the same road model, trainer control and recording as the Video Ride – so the 3D road, the gradient sent to the trainer and the elevation profile always agree.
+- **Same page as the Video Ride**: power, cadence, heart rate, speed and time at the top, the route's elevation profile at the bottom (click it to start part-way), and on the right Simulation / ERG, difficulty, a workout with Workout ERG, virtual gears and the Zwift Click. GPX Ride has its own settings (mode, difficulty, last route).
+- **History**: GPX rides are saved as *GPX: <route>* and can be exported as FIT/CSV like any ride.
+- **Graphics**: the app now draws with OpenGL on all platforms (needed for the 3D view; before, macOS used Metal and Windows Direct3D). On a computer without OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi) the app keeps its previous graphics and the GPX Ride page says that the 3D view is not available – the route can still be ridden with the profile.
+- No database change – install over 1.3.10 (or older) and keep all your data.
+
+## Also included from 1.3.10
 
 Safer switching between **ERG** and **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetblack Victory).
 
@@ -105,6 +116,9 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 
 ## Known limitations
 
+- **GPX Ride's 3D view** supports routes up to 200 km with track points at most 2 km apart; it has so far been tested on macOS only (not yet on Windows or a Raspberry Pi). On a Pi, prefer a Pi 4 or 5.
+- **GPX Rides cannot be planned in the calendar yet.**
+
 - **The Video Ride workout strip shows no actual-power line yet** – only the target blocks and the elapsed-time cursor; your actual power is shown in the Power tile and saved with the ride.
 - **Changing the route of a planned Video Ride replaces the entry** (it is removed and added again with the new route, keeping date and notes).
 - **The neutral start state and the soft start have so far only been tested with the virtual trainer and in unit tests**, not yet on every real trainer. Some trainers ignore a 0 % grade while standing still; that is harmless. Please send the diagnostic log if a trainer behaves oddly at the start of a ride.
@@ -122,6 +136,7 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 ## Highlights
 
 - **Smart trainer control**: connects to Bluetooth LE smart trainers that use the standard Fitness Machine Service (FTMS) and sets the target power for you in ERG mode.
+- **GPX Ride in 3D**: ride any GPX route through a 3D landscape with the same physics and trainer control as a video ride.
 - **Free Ride, virtual gears and Real Life Video**: ride a road with a grade or a filmed route – optionally with a watts workout and Workout ERG – shift virtual gears with a Zwift Click, or hold an ERG wattage.
 - **Concept2 rowing**: connects to a Concept2 PM5 for free rows, watt-plan rowing workouts and ghost races against your personal best.
 - **Training calendar**: plan workouts, rows, Free Rides and Video Rides by day and start them from the calendar.

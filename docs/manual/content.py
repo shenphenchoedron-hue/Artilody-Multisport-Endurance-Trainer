@@ -1,6 +1,6 @@
 """Text of the Artilody Watts Trainer user manual.
 
-Written against the v1.3.10 source code (incl. Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.4.0 source code (incl. GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -225,6 +225,7 @@ def build(s, env):
         [UI("Watt Training"), "(Bicycle icon; formerly Dashboard.) The cycling workout page – live metrics, charts and controls; press Start to begin."],
         [UI("Free Ride"), "Ride without a workout: a road with a grade (your gears or virtual gears) or ERG (chapter 12)."],
         [UI("Video Ride"), "Ride a filmed route (Real Life Video): the video follows your speed (chapter 13)."],
+        [UI("GPX Ride"), "Ride any GPX route in 3D with the Video Ride's physics and controls (section 13, GPX Ride)."],
         [UI("Rowing"), "Rowing with a Concept2 PM5: Free Row, Watt Plan and Ghost Race (chapter 11)."],
         [UI("Workouts"), "The workout library: browse, search, preview and start cycling and rowing workouts."],
         [UI("Calendar"), "The training plan: plan, move and start workouts, Free Rides and Video Rides by day "
@@ -1741,6 +1742,35 @@ def build(s, env):
     s.tip("Free route videos with GPX tracks are available from several RLV communities; respect the licence "
           "of each video (many are non-commercial only).")
 
+    s.section("GPX Ride: a GPX route in 3D")
+    s.p(f"The {UI('GPX Ride')} page (sidebar, under {UI('Video Ride')}) rides any GPX route – from a bike "
+        "computer, Strava, Komoot or a route planner – without a video. The route is drawn as a road through a "
+        "generated 3D landscape with hills, fields, houses, trees, sky and a rider on a bike, seen from just "
+        "behind the rider.")
+    s.figure(SHOTS / "gpx-ride.png",
+             "The GPX Ride page during a 7.5 % climb: live metrics at the top, the 3D view with the gradient and "
+             "the resistance mode, the elevation profile with your position, and the Resistance card with the "
+             "grade sent to the trainer.")
+    s.bullets([
+        f"<b>Routes</b>: every {C('.gpx')} file in the GPX folder and its subfolders is a route – by default "
+        f"{C('Documents/Artilody GPX Routes')} in your home folder. The drop-down lists each route with its "
+        f"distance and climbing; the folder button next to it adds folders, changes or opens the GPX folder, "
+        f"rescans the library, and {UI('Open GPX File…')} rides a single file. The track needs elevation for "
+        "gradients.",
+        "<b>The same ride as a Video Ride</b>: the same physics, trainer control, Resistance card (Simulation or "
+        "ERG), Difficulty, Workout card with Workout ERG, virtual gears and Zwift Click, keys and Start / Pause / "
+        "Finish / Reset as described in this chapter. The 3D view follows your position and speed, so the "
+        "gradient you feel, the elevation profile and the picture agree. GPX Ride remembers its own mode, "
+        "difficulty and last route, separately from Video Ride.",
+        "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
+        "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
+        "the page says why the 3D view is not available – the route can still be ridden with the profile.",
+        "<b>Graphics</b>: the 3D view needs OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi; a Pi 4 or 5 is "
+        "recommended). The app draws with OpenGL on all platforms when it is available.",
+    ])
+    s.note("GPX Rides cannot be planned in the calendar yet; only one ride (workout, row, Free Ride, Video Ride "
+           "or GPX Ride) runs at a time.")
+
     # =====================================================================
     s.chapter("Music player",
               "Play your own music while you ride – from the Watt Training page, without leaving the app.")
@@ -2075,7 +2105,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.10",
+  "app": "Artilody Watts Trainer 1.4.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

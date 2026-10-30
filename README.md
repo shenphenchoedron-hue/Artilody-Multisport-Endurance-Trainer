@@ -32,6 +32,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Training calendar** | Plan workouts, **Free Rides** and **Video Rides** by day, drag to move, start them from the calendar; entries are ticked off automatically. |
 | **Workout Builder** | Visual block editor (watts or % FTP, ramps, cadence, RPE); share workouts as `.awt` or Zwift `.zwo` files. Create workouts on any computer with the companion **[Artilody Workout Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator)**. |
 | **Free Ride & virtual shifting** | Ride a road with a grade or hold an ERG wattage; with a **Zwift Click** you shift **Zwift's 24 virtual gears** – on trainers with the Zwift trainer protocol (Zwift Hub, Jetblack Victory, …) automatically through that protocol, otherwise as an FTMS gradient. Nothing to set up. |
+| **GPX Ride in 3D** | Ride any GPX route through a generated 3D landscape (road, hills, houses, trees, rider) with gradient simulation or ERG – the same physics and controls as a Video Ride. |
 | **Video Ride (Real Life Video)** | Ride filmed routes (video + GPS) at the speed you ride, with gradient simulation or ERG – and optionally a watts workout with **Workout ERG** on top. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
 | **History & export** | NP / IF / TSS, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
@@ -40,7 +41,22 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.3.10
+## What's new in 1.4.0
+
+**GPX Ride** – ride any GPX route in 3D (sidebar → **GPX Ride**). See [GPX Ride](#gpx-ride).
+
+- **Any GPX track** – from a bike computer, Strava, Komoot or a route planner; no video needed. The `.gpx` files in `Documents/Artilody GPX Routes` are listed with distance and climbing, or open a single file.
+- **3D view** – a road through a generated landscape with hills, houses, trees and a rider, following your position and speed from the app's own physics, so the 3D road, the gradient sent to the trainer and the elevation profile agree.
+- **The Video Ride's controls** – trainer data at the top, the elevation profile at the bottom, Simulation / ERG, difficulty, Workout ERG, virtual gears and the Zwift Click; rides are saved as *GPX: <route>*.
+- **OpenGL on all platforms** – needed for the 3D view. Without OpenGL 3.1 (ES 3.0 on a Pi) the app keeps its previous graphics and the route can still be ridden without the 3D view.
+- No database change – install over 1.3.10 (or older) and keep all your data. See the [1.4.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.4.0).
+
+<p align="center">
+  <img src="docs/screenshots/gpx-ride.png" alt="GPX Ride in 3D" width="900">
+</p>
+
+<details>
+<summary><b>What's new in 1.3.10</b> – ERG and the Zwift trainer protocol</summary>
 
 Safer switching between **ERG** and **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetblack Victory).
 
@@ -49,6 +65,8 @@ Safer switching between **ERG** and **virtual shifting with the Zwift trainer pr
 - **No resistance hop when going from ERG to the hub** – the first hub gear matches the power the trainer brakes with now (same physics values as sent to the trainer), then ramps over 4 s to your gear. Only with fresh data from a trainer whose speed is verified as its flywheel's; otherwise (unknown speed type, old data, 0 W, standstill, descents) it starts from the light gear and ramps up.
 - **Zwift Hub gets road and gear at once** – when it answers the start of the data stream without riding data, the app no longer waits 4 s with the trainer on its own default resistance.
 - No database change – install over 1.3.9 (or older) and keep all your data. See the [1.3.10 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.10).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.3.9</b> – Zwift Hub handshake, start gear from FTP, light pedaling</summary>
@@ -207,9 +225,9 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.3.10](#whats-new-in-1310)
+- [What's new in 1.4.0](#whats-new-in-140)
 - [Features](#features)
-  - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
+  - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
 - [Download & install](#download--install)
 - [User manual](#user-manual)
@@ -297,6 +315,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 <p align="center">
   <img src="docs/screenshots/video-ride.png" alt="Video Ride with a Real Life Video" width="900"><br>
   <sub><b>Video Ride</b> with a workout: Workout ERG holds the target, the workout's blocks above the route's elevation profile.<br>Video: cycling.vangestel.online, CC BY-NC-SA 4.0</sub>
+</p>
+
+### GPX Ride
+- **GPX Ride page** (sidebar → **GPX Ride**, under Video Ride): ride any GPX route in a 3D world – a road through a generated landscape with hills, fields, houses, trees, sky and a rider on a bike, seen from just behind the rider.
+- **Choosing a route**: every `.gpx` file in the GPX folder and its subfolders is a route – from a bike computer, Strava, Komoot or any route planner. The default folder is `Documents/Artilody GPX Routes`; the folder button next to the drop-down adds folders, changes or opens the GPX folder, rescans, and **Open GPX File…** rides a single file. Tracks need elevation for gradients; routes up to 200 km with track points at most 2 km apart can be shown in 3D.
+- **The same ride as a Video Ride**: power, cadence, heart rate, speed and time at the top, the 3D view in the middle (gradient, mode and difficulty as overlays) and the route's elevation profile at the bottom (click it to start part-way). Resistance (**Simulation** or **ERG**), **Difficulty**, a **workout with Workout ERG**, virtual gears and the **Zwift Click** work exactly as in the [Video Ride](#real-life-video), with the same physics; the 3D road follows your position, so the gradient you feel, the profile and the picture agree. GPX Ride remembers its own mode, difficulty and last route.
+- Rides are saved to History as *GPX: <route>* and can be exported as FIT/CSV.
+- **Graphics**: the 3D view needs OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi; a Pi 4 or 5 is recommended). Without it, the page says so and you can still ride the route with the profile.
+
+<p align="center">
+  <img src="docs/screenshots/gpx-ride.png" alt="GPX Ride" width="900"><br>
+  <sub><b>GPX Ride</b>: a 7.5 % climb in the 3D view, the gradient sent to the trainer and the position on the elevation profile.</sub>
 </p>
 
 ### Plan
@@ -405,18 +435,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.3.10**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.4.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.3.10-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/ArtilodyWattsTrainer-1.3.10-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.3.10-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/ArtilodyWattsTrainer-1.3.10-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.3.10-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/ArtilodyWattsTrainer-1.3.10-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.3.10_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/artilody-watts-trainer_1.3.10_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.3.10_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/artilody-watts-trainer_1.3.10_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.3.10_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/artilody-watts-trainer_1.3.10_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.3.10/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.4.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/ArtilodyWattsTrainer-1.4.0-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.4.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/ArtilodyWattsTrainer-1.4.0-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.4.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/ArtilodyWattsTrainer-1.4.0-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.4.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/artilody-watts-trainer_1.4.0_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.4.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/artilody-watts-trainer_1.4.0_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.4.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/artilody-watts-trainer_1.4.0_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/Artilody-Watts-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -426,7 +456,7 @@ The current version is **1.3.10**. All files are on the **[Releases page](https:
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.3.10-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyWattsTrainer-1.4.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -452,8 +482,8 @@ The current version is **1.3.10**. All files are on the **[Releases page](https:
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.3.10_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.3.10_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.4.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.4.0_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -469,7 +499,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.3.10_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.4.0_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -513,7 +543,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.3.10",
+  "app": "Artilody Watts Trainer 1.4.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
