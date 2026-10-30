@@ -3,7 +3,11 @@
 #include "materials.h"
 #include "settlement.h"
 
+#include <QFont>
+#include <QGuiApplication>
+#include <QImage>
 #include <QOpenGLContext>
+#include <QPainter>
 #include <QSurfaceFormat>
 
 #include <algorithm>
@@ -59,6 +63,7 @@ const char *const kFragmentShaderHead = R"(
 in vec3 col;in vec3 world;in vec3 norm;flat in int mat;in float edge;
 uniform vec3 eye;uniform vec2 uvOrigin;
 uniform sampler2D asphaltMap;uniform sampler2D grassMap;uniform sampler2D gravelMap;uniform sampler2D noiseMap;
+uniform sampler2D bannerMap;
 uniform float opacity;
 out vec4 frag;
 )";
@@ -89,6 +94,7 @@ void main(){
     if(mat==2)base=grass(uv)*col;
     if(mat==3)base=texture(gravelMap,uv*.75).rgb;
     if(mat==4){float grain=texture(asphaltMap,uv*.8).r;base=col*(.9+grain*.35);}
+    if(mat==9)base=texture(bannerMap,col.rg).rgb;
     if(mat==5){
         vec3 g=grass(uv);
         vec3 stone=texture(gravelMap,uv*.75).rgb;
@@ -142,6 +148,40 @@ void main(){
 )";
 
 constexpr double kTextureRepeatM = 5000.0;   // every texture scale above repeats here
+
+// START / FINISH arches (inflatable, like at a race)
+const QVector3D kStartGreen(.10f, .62f, .24f);
+const QVector3D kFinishRed(.80f, .12f, .10f);
+constexpr float kArchHalfSpan = 4.4f;   // tube centre beside the road (gravel ends at 3.6 m)
+constexpr float kArchLegHeight = 3.0f;  // straight legs, then a half circle
+constexpr float kArchTube = .48f;       // inflated tube radius
+constexpr float kBannerHalfWidth = 2.6f, kBannerHeight = 1.3f;   // 4:1 like the texture halves
+
+// White bold "START" on green (top half) and "FINISH" on red (bottom half).
+QImage bannerImage()
+{
+    QImage img(1024, 512, QImage::Format_RGBA8888);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    auto half = [&](int y, QVector3D c, const QString &text) {
+        const QRect r(0, y, 1024, 256);
+        p.fillRect(r, QColor::fromRgbF(c.x(), c.y(), c.z()));
+        p.setPen(QPen(QColor(255, 255, 255, 230), 10));
+        p.drawRect(r.adjusted(10, 10, -10, -10));
+        QFont f = QGuiApplication::font();
+        f.setPixelSize(170);
+        f.setWeight(QFont::Black);
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 14);
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(r, Qt::AlignCenter, text);
+    };
+    half(0, kStartGreen * 1.1f, QStringLiteral("START"));
+    half(256, kFinishRed * 1.1f, QStringLiteral("FINISH"));
+    p.end();
+    return img;
+}
 
 } // namespace
 
@@ -259,6 +299,13 @@ bool Route3DScene::initialize(QOpenGLContext *context)
             return false;
         }
     }
+    m_bannerTexture = std::make_unique<QOpenGLTexture>(bannerImage(), QOpenGLTexture::GenerateMipMaps);
+    m_bannerTexture->setWrapMode(QOpenGLTexture::ClampToEdge);
+    m_bannerTexture->setMinificationFilter(QOpenGLTexture::LinearMipMapLinear);
+    m_bannerTexture->setMagnificationFilter(QOpenGLTexture::Linear);
+    m_gateBuffer.create();
+    m_gateBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    m_gatesDirty = true;
     m_vao.create();
     m_skyVao.create();
     m_buffer.create();
@@ -283,6 +330,8 @@ void Route3DScene::release()
     waitForTile();
     for (auto &t : m_textures)
         t.reset();
+    m_bannerTexture.reset();
+    m_gateBuffer.destroy();
     m_buffer.destroy();
     m_ghostBuffer.destroy();
     m_ghostIndexBuffer.destroy();
@@ -307,9 +356,124 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
     m_build.clear();
     m_buildDecals.clear();
     m_meshCount = m_decalCount = 0;
+    m_gatesDirty = true;
     m_ghostIndices.clear();
     m_ghostIndexShadow = size_t(-1);
     m_ghostIndexSource = nullptr;
+}
+
+void Route3DScene::setStartDistance(double drawnMetres)
+{
+    if (drawnMetres == m_startDistance)
+        return;
+    m_startDistance = drawnMetres;
+    m_gatesDirty = true;
+}
+
+// An inflatable arch: a fat tube up one side, over the road in a half circle
+// and down the other, in light/dark segments like the sewn panels of a real
+// one, with a printed banner on both faces (readable from either side).
+void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
+{
+    const Route &route = *m_route;
+    d = std::clamp(d, 0.0, route.length());
+    QVector3D f = v(route.at(std::min(route.length(), d + 3))) - v(route.at(std::max(0.0, d - 3)));
+    f.setY(0);
+    if (f.lengthSquared() < 1e-6f)
+        f = QVector3D(0, 0, -1);
+    f.normalize();
+    const QVector3D s(-f.z(), 0, f.x()), up(0, 1, 0);   // s: the rider's right
+    const QVector3D c = v(route.at(d));
+    const float road = c.y();
+    const QVector3D color = finish ? kFinishRed : kStartGreen;
+    // centre line in the arch plane: (lateral, height); legs reach into the ground
+    auto groundAt = [&](float lateral) {
+        const QVector3D q = c + s * lateral;
+        return float(m_terrain.surface(q.x(), q.z())) - .3f;
+    };
+    std::vector<QVector2D> path;
+    const float top = road + kArchLegHeight;
+    for (int i = 0; i <= 4; ++i)
+        path.emplace_back(-kArchHalfSpan, groundAt(-kArchHalfSpan) + (top - groundAt(-kArchHalfSpan)) * i / 4.f);
+    for (int i = 1; i < 24; ++i) {
+        const float a = float(3.14159265 * i / 24);
+        path.emplace_back(-kArchHalfSpan * std::cos(a), top + kArchHalfSpan * std::sin(a));
+    }
+    for (int i = 0; i <= 4; ++i)
+        path.emplace_back(kArchHalfSpan, top + (groundAt(kArchHalfSpan) - top) * i / 4.f);
+    auto at = [&](const QVector2D &p) { return QVector3D(c.x(), 0, c.z()) + s * p.x() + up * p.y(); };
+    constexpr int sides = 14;
+    float along = 0;
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        const QVector3D a = at(path[i]), b = at(path[i + 1]);
+        const QVector3D t = (b - a).normalized();
+        // ring frame: f (along the road) and the in-plane normal
+        const QVector3D n = QVector3D::crossProduct(f, t).normalized();
+        along += (b - a).length();
+        const bool seam = int(along / 1.3f) % 2 == 0;
+        const QVector3D col = color * (seam ? 1.0f : .86f);
+        // slight bulge between seams: inflated panels
+        for (int k = 0; k < sides; ++k) {
+            const float a0 = float(6.2831853 * k / sides), a1 = float(6.2831853 * (k + 1) / sides);
+            const QVector3D r0 = n * std::cos(a0) + f * std::sin(a0), r1 = n * std::cos(a1) + f * std::sin(a1);
+            const QVector3D p00 = a + r0 * kArchTube, p01 = a + r1 * kArchTube, p10 = b + r0 * kArchTube,
+                            p11 = b + r1 * kArchTube;
+            put(out, p00, r0, col, Solid, 0);
+            put(out, p10, r0, col, Solid, 0);
+            put(out, p11, r1, col, Solid, 0);
+            put(out, p00, r0, col, Solid, 0);
+            put(out, p11, r1, col, Solid, 0);
+            put(out, p01, r1, col, Solid, 0);
+        }
+    }
+    // banner on the front (towards the approaching rider) and on the back
+    const float v0 = finish ? .5f : 0.f, v1 = v0 + .5f;
+    const float by1 = top + kArchHalfSpan - .25f, by0 = by1 - kBannerHeight;
+    for (float side : { -1.f, 1.f }) {   // -1: front (faces -f)
+        const QVector3D off = f * (side * (kArchTube + .03f));
+        const QVector3D n = f * side;
+        auto P = [&](float lateral, float y) { return QVector3D(c.x(), y, c.z()) + s * lateral + off; };
+        // front: left edge (-s) = u 0; back: seen from behind, left edge is +s
+        const float uL = side < 0 ? 0.f : 1.f, uR = 1.f - uL;
+        const QVector3D tl(uL, v0, 0), tr(uR, v0, 0), bl(uL, v1, 0), br(uR, v1, 0);
+        put(out, P(-kBannerHalfWidth, by1), n, tl, Banner, 0);
+        put(out, P(kBannerHalfWidth, by1), n, tr, Banner, 0);
+        put(out, P(kBannerHalfWidth, by0), n, br, Banner, 0);
+        put(out, P(-kBannerHalfWidth, by1), n, tl, Banner, 0);
+        put(out, P(kBannerHalfWidth, by0), n, br, Banner, 0);
+        put(out, P(-kBannerHalfWidth, by0), n, bl, Banner, 0);
+    }
+}
+
+double Route3DScene::startGate(double length) const
+{
+    return std::min(length, m_startDistance + 25.0);
+}
+
+void Route3DScene::drawGates(double distance)
+{
+    if (!m_route)
+        return;
+    const double length = m_route->length();
+    if (m_gatesDirty) {
+        m_gateVertices.clear();
+        // START ahead of the start point (seen whole before you ride through
+        // it), FINISH just before the end (you finish under it)
+        arch(m_gateVertices, startGate(length), false);
+        m_startGateCount = int(m_gateVertices.size());
+        arch(m_gateVertices, std::max(0.0, length - 1.0), true);
+        m_gateBuffer.bind();
+        m_gateBuffer.allocate(m_gateVertices.data(), int(m_gateVertices.size() * sizeof(Vertex)));
+        m_gatesDirty = false;
+    }
+    // START until you have ridden through it, then FINISH (a loop has both at one place)
+    const bool finishHalf = distance > startGate(length) + 2.0;
+    m_gateBuffer.bind();
+    attributes();
+    if (finishHalf)
+        glDrawArrays(GL_TRIANGLES, m_startGateCount, int(m_gateVertices.size()) - m_startGateCount);
+    else
+        glDrawArrays(GL_TRIANGLES, 0, m_startGateCount);
 }
 
 // --- geometry (unchanged from the prototype) -----------------------------------------------
@@ -816,7 +980,7 @@ void Route3DScene::attributes()
 
 // --- frame ------------------------------------------------------------------------------------
 
-void Route3DScene::render(const QSize &pixelSize, double distance, double speedKmh, float time)
+void Route3DScene::render(const QSize &pixelSize, double distance, double speedKmh, double crank, float time)
 {
     if (!m_ready || pixelSize.isEmpty())
         return;
@@ -863,6 +1027,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
 
     for (int i = 0; i < 4; ++i)
         m_textures[size_t(i)]->bind(uint(i));
+    m_bannerTexture->bind(4u);
     // 1. Sky: one full-screen triangle, no depth (own, empty vertex array).
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -893,8 +1058,11 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     m_shader.setUniformValue("grassMap", 1);
     m_shader.setUniformValue("gravelMap", 2);
     m_shader.setUniformValue("noiseMap", 3);
+    m_shader.setUniformValue("bannerMap", 4);
     attributes();
     glDrawArrays(GL_TRIANGLES, 0, m_meshCount);
+    // START / FINISH arch
+    drawGates(distance);
     // 3. Distant hills, centred on the camera like a skybox.
     m_ringBuffer.bind();
     attributes();
@@ -929,7 +1097,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         attributes();
         glDrawArrays(GL_TRIANGLES, m_meshCount, m_decalCount);
     }
-    const auto &body = m_ghost.build(route, distance, speedKmh);
+    const auto &body = m_ghost.build(route, distance, speedKmh, crank);
     ghostVertices.reserve(ghostVertices.size() + body.size());
     for (const auto &g : body)
         ghostVertices.push_back({ g.position.x(), g.position.y(), g.position.z(), g.color.x(), g.color.y(), g.color.z(),
@@ -964,6 +1132,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     }
     for (int i = 0; i < 4; ++i)
         m_textures[size_t(i)]->release(uint(i));
+    m_bannerTexture->release(4u);
     glActiveTexture(GL_TEXTURE0);
     m_shader.release();
     QOpenGLBuffer::release(QOpenGLBuffer::VertexBuffer);

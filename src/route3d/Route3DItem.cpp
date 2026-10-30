@@ -60,15 +60,17 @@ public:
             m_version = view->routeVersion();
             m_scene.setRoute(view->drawnRoute());
         }
+        m_scene.setStartDistance(view->frameStartDistance());
         m_distance = view->frameDistance();
         m_speedKmh = view->frameSpeedKmh();
+        m_crank = view->frameCrank();
         m_time = view->frameTime();
     }
 
     void render() override
     {
         if (m_scene.ready())
-            m_scene.render(framebufferObject()->size(), m_distance, m_speedKmh, m_time);
+            m_scene.render(framebufferObject()->size(), m_distance, m_speedKmh, m_crank, m_time);
         // hand the context back to the scene graph in a known state
         QQuickOpenGLUtils::resetOpenGLState();
     }
@@ -79,6 +81,7 @@ private:
     quint64 m_version = 0;
     double m_distance = 0;
     double m_speedKmh = 0;
+    double m_crank = 0;
     float m_time = 0;
 };
 
@@ -91,6 +94,7 @@ Route3DItem::Route3DItem(QQuickItem *parent)
     setMirrorVertically(true);
     m_clock.start();
     m_sinceTick.start();
+    m_frameClock.start();
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &Route3DItem::onFrame);
     checkSupported();
@@ -270,6 +274,7 @@ void Route3DItem::onPosition()
 {
     const double old = m_baseDistance;
     m_baseDistance = m_session && m_route ? mapDistance(m_built, m_session->distanceMeters()) : 0.0;
+    m_startDrawn = m_session && m_route ? mapDistance(m_built, m_session->startDistanceM()) : 0.0;
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
     const bool running = m_session && m_session->running();
     if (m_baseDistance != old || running != m_running)
@@ -284,6 +289,13 @@ void Route3DItem::onPosition()
 
 void Route3DItem::onFrame()
 {
+    // legs: the real cadence while riding (smoothed), still when paused / coasting
+    const double dt = std::min(m_frameClock.restart() / 1000.0, 0.25);
+    const double rpm = m_running && m_session ? std::max(0, m_session->cadence()) : 0.0;
+    m_shownRpm += (rpm - m_shownRpm) * (1.0 - std::exp(-dt / kCadenceSmoothingSec));
+    if (rpm == 0 && m_shownRpm < 3)
+        m_shownRpm = 0;   // come to rest instead of creeping
+    m_crank = std::fmod(m_crank + m_shownRpm / 60.0 * 2 * M_PI * dt, 2 * M_PI);
     if (m_running && m_route) {
         // extrapolate from the last tick; never backwards (the next tick
         // catches up), but a jump (seek) is taken at once

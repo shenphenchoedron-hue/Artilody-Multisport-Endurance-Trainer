@@ -47,6 +47,10 @@ public:
     static constexpr int kFrameMs = 33;        // ~30 FPS while riding
     static constexpr int kIdleFrameMs = 100;   // clouds / trees keep moving when not riding
     static constexpr double kMaxExtrapolationSec = 0.6;
+    // The rider's legs follow the real cadence (RlvSession::cadence, ~1 Hz):
+    // the shown rpm approaches it with this time constant, so the legs do not
+    // jerk at each new value. 0 rpm (coasting, no cadence) = legs still.
+    static constexpr double kCadenceSmoothingSec = 0.6;
 
     explicit Route3DItem(QQuickItem *parent = nullptr);
     ~Route3DItem() override;
@@ -64,6 +68,8 @@ public:
     quint64 routeVersion() const { return m_routeVersion; }
     double frameDistance() const { return m_frameDistance; }
     double frameSpeedKmh() const { return m_speedKmh; }
+    double frameCrank() const { return m_crank; }
+    double frameStartDistance() const { return m_startDrawn; }
     float frameTime() const { return float(m_clock.elapsed() / 1000.0); }
     void setRendererError(const QString &error);
 
@@ -114,6 +120,10 @@ private:
     double m_baseDistance = 0;     // drawn metres at the last session tick
     double m_speedKmh = 0;
     double m_frameDistance = 0;    // what the next frame shows
+    double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
+    double m_crank = 0;            // pedal angle (radians), integrated from the cadence
+    double m_shownRpm = 0;         // smoothed cadence driving m_crank
+    QElapsedTimer m_frameClock;    // time between frames for the crank
     bool m_running = false;
     QElapsedTimer m_sinceTick;
     QElapsedTimer m_clock;

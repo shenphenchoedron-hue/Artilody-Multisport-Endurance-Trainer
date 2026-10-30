@@ -52,16 +52,24 @@ public:
     // A new route (shared with the GUI thread, never modified). Null clears it.
     void setRoute(std::shared_ptr<const route3d::Route> route);
 
+    // Inflatable arches: a green START arch where the ride starts (startDistance,
+    // metres on the drawn road) and a red FINISH arch at the end of the route.
+    // START is shown until you have ridden through it, then FINISH - so on a
+    // loop (both at one place) you start under green and finish under red.
+    void setStartDistance(double drawnMetres);
+
     // Draws one frame into the bound framebuffer. distance: metres along the
-    // route3d::Route; speedKmh: the rider's speed (lean in bends); timeSec:
-    // animation clock (clouds, wind in the trees).
-    void render(const QSize &pixelSize, double distance, double speedKmh, float timeSec);
+    // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
+    // pedal angle (radians, from the real cadence); timeSec: animation clock
+    // (clouds, wind in the trees).
+    void render(const QSize &pixelSize, double distance, double speedKmh, double crank, float timeSec);
 
     // Releases the GL objects (context current).
     void release();
 
 private:
-    enum Material { Solid = 0, Asphalt = 1, Grass = 2, Gravel = 3, Paint = 4, Verge = 5, Shadow = 6, Distant = 7, Foliage = 8 };
+    enum Material { Solid = 0, Asphalt = 1, Grass = 2, Gravel = 3, Paint = 4, Verge = 5, Shadow = 6, Distant = 7, Foliage = 8,
+                    Banner = 9 };   // Banner: colour r,g = texture coordinates in the START / FINISH banner
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
@@ -84,6 +92,10 @@ private:
     void shadowDisc(std::vector<Vertex> &out, QVector3D c, QVector3D fwd, float rx, float rz, float strength,
                     const std::function<float(QVector3D)> &height);
     void buildRing();
+    // one inflatable arch across the road at drawn distance d (finish: red)
+    void arch(std::vector<Vertex> &out, double d, bool finish);
+    void drawGates(double distance);
+    double startGate(double length) const;   // drawn metres of the START arch
     // The landscape around the camera: rebuilt when the camera enters another
     // 32 m tile. The first tile of a route is built in the frame; later ones
     // on a worker thread (the old tile is drawn meanwhile) and only uploaded
@@ -99,6 +111,12 @@ private:
     QOpenGLContext *m_context = nullptr;
     QOpenGLShaderProgram m_shader, m_skyShader;
     std::array<std::unique_ptr<QOpenGLTexture>, 4> m_textures;
+    std::unique_ptr<QOpenGLTexture> m_bannerTexture;   // START (top half) / FINISH (bottom half)
+    QOpenGLBuffer m_gateBuffer { QOpenGLBuffer::VertexBuffer };
+    std::vector<Vertex> m_gateVertices;
+    int m_startGateCount = 0;     // first vertices: the START arch, then the FINISH arch
+    double m_startDistance = 0;
+    bool m_gatesDirty = true;
     QOpenGLBuffer m_buffer { QOpenGLBuffer::VertexBuffer };
     QOpenGLBuffer m_ghostBuffer { QOpenGLBuffer::VertexBuffer };
     QOpenGLBuffer m_ringBuffer { QOpenGLBuffer::VertexBuffer };

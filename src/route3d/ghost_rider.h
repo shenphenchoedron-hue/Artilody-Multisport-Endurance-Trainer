@@ -252,8 +252,10 @@ class GhostRider {
     }
 public:
     // Returns world-space vertices; indices() gives the matching triangle list.
-    const std::vector<GhostVertex>& build(const Route& route,double distance,double speed){
-        auto pose=ghostPose(route,distance,speed);placeFrame(pose);
+    // crank: the pedal angle in radians (the app drives it from the rider's
+    // real cadence; the wheels follow the distance)
+    const std::vector<GhostVertex>& build(const Route& route,double distance,double speed,double crank){
+        auto pose=ghostPose(route,distance,speed);pose.crank=crank;placeFrame(pose);
         buildProcedural(pose);
         // Transparency is composited from the front surface by the renderer.
         return mesh;

@@ -24,7 +24,8 @@ inline GhostPose ghostPose(const Route& route,double distance,double speedKmh){
         double speed=std::clamp(speedKmh,0.0,120.0)/3.6;
         pose.lean=std::clamp(std::atan(speed*speed*curve/9.81),-.40,.40);
     }
-    // Distance-based animation freezes naturally when paused or speed is zero.
+    // Distance-based default (the app replaces crank with the real cadence,
+    // GhostRider::build); the wheels always follow the distance.
     pose.crank=d*6.283185307/6.0;
     pose.wheel=-d/.34;
     return pose;
