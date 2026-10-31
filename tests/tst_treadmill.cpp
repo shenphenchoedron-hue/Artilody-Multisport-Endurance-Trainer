@@ -790,7 +790,8 @@ private slots:
         QVERIFY(walk->duration() > 0.5);
         QVERIFY(figure.setWalkModel(walk));
         std::vector<route3d::GeoPoint> geo;
-        for (const auto &p : runroutes::standardRoute().points())
+        const RlvRoute standard = runroutes::standardRoute();   // (kept alive: points() refers to it)
+        for (const auto &p : standard.points())
             geo.push_back({ p.lat, p.lon, p.elevation });
         const route3d::Route route = route3d::Route::fromGeo(geo);
         for (double kmh : { 4.0, 6.2, 12.0 }) {
@@ -812,7 +813,8 @@ private slots:
         route3d::GhostRider rider;
         QVERIFY(rider.setRiderModel(m));
         std::vector<route3d::GeoPoint> geo;
-        for (const auto &p : runroutes::standardRoute().points())
+        const RlvRoute standard = runroutes::standardRoute();   // (kept alive: points() refers to it)
+        for (const auto &p : standard.points())
             geo.push_back({ p.lat, p.lon, p.elevation });
         const route3d::Route route = route3d::Route::fromGeo(geo);
         const auto &v = rider.build(route, 50.0, 30.0, 0.0);
