@@ -131,7 +131,8 @@ AppDialog {
             format: ".zwo workout file"
             body: "For Zwift, and for other training apps that can import Zwift workout files. "
                   + "Power, cadence and ramps are kept."
-            warning: dlg.rowing ? "This is a rowing workout. Zwift has no rowing, so it is written as a bike workout." : ""
+            warning: dlg.rowing ? "This is a rowing workout. Zwift has no rowing, so it is written as a bike workout."
+                   : Builder.sport === "running" ? "Written as a Zwift run workout (% of threshold pace). The incline is not kept." : ""
             AppButton {
                 width: parent.width
                 height: 50
@@ -157,7 +158,7 @@ AppDialog {
         OptionCard {
             iconName: "document"
             tint: Theme.accentLight
-            heading: "Artilody Watts Trainer"
+            heading: "Artilody Multisport Endurance Trainer"
             format: ".awt workout file"
             body: "Exact copy for your training computer – keeps the sport (cycling / rowing), block names, "
                   + "cadence or stroke rate and RPE. Save it anywhere, e.g. on a USB stick."

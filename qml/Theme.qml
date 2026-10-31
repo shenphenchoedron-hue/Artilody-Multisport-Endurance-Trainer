@@ -42,6 +42,7 @@ QtObject {
     readonly property color pace: "#38d9f5"         // pace curve (rowing)
     readonly property color rowingColor: "#22d6e6"  // rowing sport accent
     readonly property color cyclingColor: accent    // cycling sport accent
+    readonly property color runningColor: "#ff8a26" // running sport accent (Treadmill Run)
     readonly property color speed: "#38d9f5"        // virtual speed curve (free ride)
 
     // Text-safe variants of the accents: the bright accents suit the dark
@@ -60,7 +61,13 @@ QtObject {
     readonly property color faintLine: dark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0.09, 0.13, 0.31, 0.2)
 
     function sportColor(s) {
-        return s === "rowing" ? rowingColor : cyclingColor
+        return s === "rowing" ? rowingColor : s === "running" ? runningColor : cyclingColor
+    }
+    function sportIcon(s) {
+        return s === "rowing" ? "rowing" : s === "running" ? "run" : "bike"
+    }
+    function sportName(s) {
+        return s === "rowing" ? "Rowing" : s === "running" ? "Running" : "Cycling"
     }
 
     // Calendar entry kinds (Planner: "workout" | "freeride" | "rlv")
@@ -70,10 +77,12 @@ QtObject {
         return kind === "freeride" ? freeRideColor : kind === "rlv" ? videoColor : sportColor(sport)
     }
     function kindIcon(kind, sport) {
-        return kind === "freeride" ? "freeRide" : kind === "rlv" ? "video" : (sport === "rowing" ? "rowing" : "bike")
+        return kind === "freeride" ? "freeRide" : kind === "rlv" ? "video"
+             : (sport === "rowing" ? "rowing" : sport === "running" ? "run" : "bike")
     }
     function kindLabel(kind, sport) {
-        return kind === "freeride" ? "Free Ride" : kind === "rlv" ? "Video Ride" : (sport === "rowing" ? "Rowing" : "Cycling")
+        return kind === "freeride" ? "Free Ride" : kind === "rlv" ? "Video Ride"
+             : (sport === "rowing" ? "Rowing" : sport === "running" ? "Running" : "Cycling")
     }
 
     // Six power / RPE zones (Z1 … Z6)
@@ -249,6 +258,9 @@ QtObject {
         // real life video
         "video": "M2.5 6.5h13v11h-13z M15.5 10.5l6-3.5v10l-6-3.5",
         "warning": "M12 3.5L2.5 20h19z M12 9.5v5 M12 17.2v.2",
+        // treadmill run
+        "run": "M13.6 4.6a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0 -3.8 0 M8.5 10l3.6-2.4h3.2l2 3.6 3 1.1 M13.4 7.8l-2.6 6.1 3.6 3.1V21.5 M10.6 14l-2.2 4.2H4.2",
+        "treadmill": "M2.5 17h14.5l4.5-6 M20.5 11l-1.6-6.5h-2.6 M5 17v3 M15 17v3 M2.5 20.5h16 M10.6 4.5a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0 -3.2 0 M8 15l2.4-3.8 2.4 1.6 M10.4 11.2l1.6-3.6 2.6 2.2",
         "film": "M4 3.5h16v17H4z M8 3.5v17 M16 3.5v17 M4 8h4 M4 12h4 M4 16h4 M16 8h4 M16 12h4 M16 16h4"
     })
 }

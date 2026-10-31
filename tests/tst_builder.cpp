@@ -173,6 +173,7 @@ private slots:
     {
         WorkoutLibrary lib(db, profiles);
         lib.reload();
+        lib.setSportFilter(QStringLiteral("cycling"));
         const int all = lib.rowCount();
         QVERIFY(all >= 6);
         lib.setCategory(QStringLiteral("Recovery"));
@@ -192,6 +193,16 @@ private slots:
         QCOMPARE(lib.rowCount(), all + 1);
         QVERIFY(lib.remove(copy));
         QCOMPARE(lib.rowCount(), all);
+        // running workouts have their own filter; the test category follows the sport
+        lib.setSportFilter(QStringLiteral("running"));
+        QVERIFY(lib.rowCount() >= 6);
+        QCOMPARE(lib.categories().at(4), QStringLiteral("AnT Test"));
+        lib.setCategory(QStringLiteral("AnT Test"));
+        QCOMPARE(lib.rowCount(), 1);
+        lib.setSportFilter(QStringLiteral("all"));
+        QCOMPARE(lib.category(), QStringLiteral("Tests"));   // FTP and AnT tests
+        QCOMPARE(lib.rowCount(), 2);
+        lib.setCategory(QStringLiteral("All"));
     }
 
     void libraryCatalogIgnoresFilters()
@@ -199,6 +210,7 @@ private slots:
         WorkoutLibrary lib(db, profiles);
         lib.reload();
         const int all = lib.rowCount();
+        const int cycling = int(lib.catalog(QStringLiteral("cycling")).size());
         Workout row;
         row.name = QStringLiteral("Aaa Row Pyramid");
         row.category = QStringLiteral("Intervals");
@@ -214,7 +226,7 @@ private slots:
         QCOMPARE(rowing.size(), 1);
         QCOMPARE(rowing.first().toMap().value(QStringLiteral("workoutId")).toLongLong(), rowId);
         QCOMPARE(rowing.first().toMap().value(QStringLiteral("sport")).toString(), QStringLiteral("rowing"));
-        QCOMPARE(lib.catalog(QStringLiteral("cycling")).size(), all);
+        QCOMPARE(lib.catalog(QStringLiteral("cycling")).size(), cycling);
         QCOMPARE(lib.catalog().first().toMap().value(QStringLiteral("name")).toString(), row.name);   // sorted by name
         QCOMPARE(lib.searchText(), QStringLiteral("threshold"));       // filters untouched
         lib.setSearchText(QString());
@@ -229,9 +241,9 @@ private slots:
         const int all = lib.rowCount();
         qint64 rampId = -1, otherBuiltIn = -1;
         for (const Workout &w : db->workouts()) {
-            if (w.isProtected())
+            if (w.isProtected() && w.isFtpTest())
                 rampId = w.id;
-            else if (w.builtIn)
+            else if (w.builtIn && !w.isProtected())
                 otherBuiltIn = w.id;
         }
         QVERIFY(rampId > 0);

@@ -56,11 +56,16 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/WorkoutStrip.qml
     ${QML_ROOT}/components/SessionBlockNotice.qml
     ${QML_ROOT}/components/TrainerStatusNotice.qml
+    # treadmill run
+    ${QML_ROOT}/components/RunWorkoutStrip.qml
+    ${QML_ROOT}/components/RunChart.qml
+    ${QML_ROOT}/components/RunMetric.qml
     # pages
     ${QML_ROOT}/pages/DashboardPage.qml
     ${QML_ROOT}/pages/FreeRidePage.qml
     ${QML_ROOT}/pages/VideoRidePage.qml
     ${QML_ROOT}/pages/GpxRidePage.qml
+    ${QML_ROOT}/pages/TreadmillPage.qml
     ${QML_ROOT}/pages/WorkoutsPage.qml
     ${QML_ROOT}/pages/CalendarPage.qml
     ${QML_ROOT}/pages/BuilderPage.qml
@@ -77,6 +82,8 @@ set(APP_QML_FILES
     ${QML_ROOT}/dialogs/RampDialog.qml
     ${QML_ROOT}/dialogs/IntervalSetDialog.qml
     ${QML_ROOT}/dialogs/GearSetupDialog.qml
+    ${QML_ROOT}/dialogs/AntResultDialog.qml
+    ${QML_ROOT}/dialogs/AntDialog.qml
 )
 
 # All QML files live flat in the module root inside the resource system so they
@@ -110,6 +117,24 @@ qt_add_resources(ArtilodyWattTrainer "appicon"
     FILES ${APP_ICON_DIR}/app-icon-256.png
 )
 
+# Treadmill Run: the skinned, animated runner figure (Mixamo rig with a
+# running cycle) for the 3D view (route3d::GlbModel, :/models/runner.glb).
+# Optional walker.glb: the same figure with a walking cycle (used at walking
+# speeds, cross-faded with the run).
+set(WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/runner.glb)
+if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
+    list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
+endif()
+# the cyclist (posed on the bike by the app; no animation used)
+if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
+    list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
+endif()
+qt_add_resources(ArtilodyWattTrainer "models"
+    PREFIX "/models"
+    BASE ${PROJECT_SOURCE_DIR}/assets/models
+    FILES ${WATT_FIGURE_MODELS}
+)
+
 qt_add_qml_module(ArtilodyWattTrainer
     URI Artilody
     VERSION 1.0
@@ -123,10 +148,10 @@ target_link_libraries(ArtilodyWattTrainer PRIVATE
     Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 
 set_target_properties(ArtilodyWattTrainer PROPERTIES
-    OUTPUT_NAME "Artilody Watts Trainer"
+    OUTPUT_NAME "Artilody Multisport Endurance Trainer"
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_GUI_IDENTIFIER app.artilody.watttrainer
-    MACOSX_BUNDLE_BUNDLE_NAME "Artilody Watts Trainer"
+    MACOSX_BUNDLE_BUNDLE_NAME "Artilody Multisport Endurance Trainer"
     MACOSX_BUNDLE_ICON_FILE AppIcon.icns
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}

@@ -19,6 +19,7 @@ Rectangle {
 
     readonly property string mod: Qt.platform.os === "osx" ? "⌘" : "Ctrl+"
     readonly property string modShift: Qt.platform.os === "osx" ? "⇧⌘" : "Ctrl+Shift+"
+    readonly property string modAlt: Qt.platform.os === "osx" ? "⌥⌘" : "Ctrl+Alt+"
 
     function focusSearch() {
         search.forceActiveFocus()
@@ -100,6 +101,7 @@ Rectangle {
                 minWidth: 260
                 AppMenuItem { text: "Cycling workout"; iconName: "bike"; hint: panel.mod + "N"; onTriggered: panel.newRequested("cycling") }
                 AppMenuItem { text: "Rowing workout"; iconName: "rowing"; hint: panel.modShift + "N"; onTriggered: panel.newRequested("rowing") }
+                AppMenuItem { text: "Running workout"; iconName: "run"; hint: panel.modAlt + "N"; onTriggered: panel.newRequested("running") }
             }
         }
         IconButton {
@@ -145,7 +147,8 @@ Rectangle {
         options: [
             { value: "all", label: "All" },
             { value: "cycling", label: "Cycling", icon: "bike" },
-            { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+            { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor },
+            { value: "running", label: "Running", icon: "run", color: Theme.runningColor, textColor: Theme.textOnColor }
         ]
         onActivated: (v) => Library.sportFilter = v
     }

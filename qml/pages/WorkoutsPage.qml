@@ -13,7 +13,16 @@ Item {
 
     readonly property var sel: Workouts.selected
     readonly property bool selRowing: sel.sport === "rowing"
+    readonly property bool selRunning: sel.sport === "running"
+    readonly property bool selCycling: !selRowing && !selRunning
     property bool ergSelected: Profiles.defaultErg
+
+    // The "FTP" a workout's watts are based on. Running workouts are % of the
+    // AnT speed; their "watts" are speeds in 0.1 km/h (WorkoutChart sport mode).
+    function ftpFor(sport) {
+        return sport === "rowing" ? Profiles.rowingFtp
+             : sport === "running" ? Math.round(RunLibrary.antSpeedKmh * 10) : Profiles.ftp
+    }
 
     // Navigation lives in Main.qml (ApplicationWindow.window.showPage).
     function goTo(name) {
@@ -36,6 +45,17 @@ Item {
         else
             page.message("Could not set up the rowing plan")
     }
+    function runWorkout(id) {
+        if (Running.active) {
+            page.message("A treadmill run is in progress – finish it first")
+            goTo("treadmill")
+            return
+        }
+        if (Running.attachWorkout(id))
+            goTo("treadmill")
+        else
+            page.message(Running.lastError.length > 0 ? Running.lastError : "Could not load the running workout")
+    }
     function planWorkout(id, name) {
         calendarPicker.workoutId = id
         calendarPicker.subtitle = "Plan \"" + name + "\" on…"
@@ -51,7 +71,7 @@ Item {
         x: Theme.pageMargin + 8
         y: 30
         title: "Workouts"
-        subtitle: "Choose your next ride or row"
+        subtitle: "Choose your next ride, row or run"
     }
 
     SegmentedControl {
@@ -63,7 +83,8 @@ Item {
         options: [
             { value: "all", label: "All sports" },
             { value: "cycling", label: "Cycling", icon: "bike" },
-            { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+            { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor },
+            { value: "running", label: "Running", icon: "run", color: Theme.runningColor, textColor: Theme.textOnColor }
         ]
         onActivated: (v) => Workouts.sportFilter = v
     }
@@ -198,6 +219,12 @@ Item {
                     iconName: "rowing"
                     iconColor: Theme.rowingColor
                     onTriggered: page.createWorkout("rowing")
+                }
+                AppMenuItem {
+                    text: "New running workout"
+                    iconName: "run"
+                    iconColor: Theme.runningColor
+                    onTriggered: page.createWorkout("running")
                 }
             }
         }
@@ -371,7 +398,8 @@ Item {
                     showHeartRate: false
                     segments: model.segments
                     totalSec: model.totalSec
-                    ftp: model.sport === "rowing" ? Profiles.rowingFtp : Profiles.ftp
+                    sport: model.sport
+                    ftp: page.ftpFor(model.sport)
                     barGaps: false
                     enabled: false
                 }
@@ -465,7 +493,7 @@ Item {
                     }
                     AppMenuItem {
                         // built-in workouts cannot be deleted; the Ramp FTP Test says why
-                        text: page.sel.requiredForFtp ? "Delete (required for FTP tests)" : "Delete"
+                        text: page.sel.requiredForFtp ? (page.selRunning ? "Delete (required for AnT tests)" : "Delete (required for FTP tests)") : "Delete"
                         iconName: "trash"
                         destructive: true
                         enabled: page.sel.deletable === true
@@ -508,7 +536,8 @@ Item {
             showHeartRate: false
             showAxisTitles: true
             fontSize: 14
-            ftp: page.selRowing ? Profiles.rowingFtp : Profiles.ftp
+            sport: page.sel.sport || "cycling"
+            ftp: page.ftpFor(page.sel.sport)
             barGaps: false
         }
 
@@ -524,7 +553,8 @@ Item {
             }
             StatTile {
                 Layout.fillWidth: true; Layout.fillHeight: true
-                iconName: "bolt"; valueSize: 21; iconColor: Theme.warning; caption: "Intensity"; value: (page.sel.intensity || 0) + "% FTP"
+                iconName: "bolt"; valueSize: 21; iconColor: Theme.warning; caption: "Intensity"
+                value: (page.sel.intensity || 0) + (page.selRunning ? "% AnT" : "% FTP")
             }
             StatTile {
                 Layout.fillWidth: true; Layout.fillHeight: true
@@ -549,7 +579,7 @@ Item {
             x: 20
             anchors.bottom: modeRow.top
             anchors.bottomMargin: 10
-            visible: !page.selRowing
+            visible: page.selCycling
             text: "Ride Mode"
             color: Theme.text
             font.pixelSize: 18
@@ -558,7 +588,7 @@ Item {
 
         RowLayout {
             id: modeRow
-            visible: !page.selRowing
+            visible: page.selCycling
             x: 20
             width: parent.width - 40
             height: 74
@@ -622,22 +652,23 @@ Item {
         }
 
         Rectangle {
-            visible: page.selRowing
+            visible: !page.selCycling
+            readonly property color tint: page.selRunning ? Theme.runningColor : Theme.rowingColor
             x: 20
             width: parent.width - 40
             height: 96
             anchors.bottom: actionRow.top
             anchors.bottomMargin: 22
             radius: 10
-            color: Qt.rgba(Theme.rowingColor.r, Theme.rowingColor.g, Theme.rowingColor.b, 0.12)
-            border.color: Qt.rgba(Theme.rowingColor.r, Theme.rowingColor.g, Theme.rowingColor.b, 0.55)
+            color: Qt.rgba(tint.r, tint.g, tint.b, 0.12)
+            border.color: Qt.rgba(tint.r, tint.g, tint.b, 0.55)
             Icon {
                 x: 16
                 y: 16
-                name: "rowing"
+                name: page.selRunning ? "run" : "rowing"
                 size: 30
                 strokeWidth: 2
-                color: Theme.rowingColor
+                color: parent.tint
             }
             Column {
                 x: 60
@@ -645,14 +676,18 @@ Item {
                 width: parent.width - 76
                 spacing: 4
                 Text {
-                    text: "Rowing workout"
+                    text: page.selRunning ? (page.sel.isAntTest ? "AnT test" : "Running workout") : "Rowing workout"
                     color: Theme.text
                     font.pixelSize: 17
                     font.weight: Font.Bold
                 }
                 Text {
                     width: parent.width
-                    text: "Watt targets use your rowing FTP (" + Profiles.rowingFtp + " W). Row it on a Concept2 PM5 (or the Virtual Rower) on the Rowing page."
+                    text: page.selRunning
+                          ? "Speeds are % of your AnT (" + RunLibrary.antSpeedKmh.toFixed(1) + " km/h · " + RunLibrary.antPace
+                            + " /km)" + (page.sel.maxIncline > 0 ? ", incline up to " + page.sel.maxIncline.toFixed(1) + " %" : "")
+                            + ". Run it on your treadmill on the Treadmill Run page."
+                          : "Watt targets use your rowing FTP (" + Profiles.rowingFtp + " W). Row it on a Concept2 PM5 (or the Virtual Rower) on the Rowing page."
                     color: Theme.textSecondary
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -679,12 +714,17 @@ Item {
                 // the rider presses Start there - pedaling never starts it.
                 objectName: "workoutLoadButton"
                 text: page.selRowing ? (Rowing.active ? "Rowing…" : "Row Workout")
+                      : page.selRunning ? (Running.active ? "Running…" : "Run Workout")
                       : Training.active ? "In progress" : "Load Workout"
                 fontSize: 20
-                enabled: page.selRowing ? !Rowing.active : !Training.active
+                enabled: page.selRowing ? !Rowing.active : page.selRunning ? !Running.active : !Training.active
                 onClicked: {
                     if (page.selRowing) {
                         page.rowWorkout(page.sel.workoutId)
+                        return
+                    }
+                    if (page.selRunning) {
+                        page.runWorkout(page.sel.workoutId)
                         return
                     }
                     if (Training.loadWorkout(page.sel.workoutId)) {
@@ -731,7 +771,7 @@ Item {
             text: "Ride without workout ›"
             color: Theme.accentLight
             font.pixelSize: 14
-            visible: !page.selRowing && !Training.active
+            visible: page.selCycling && !Training.active
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
@@ -773,8 +813,9 @@ Item {
     Connections {
         target: Workouts
         function onSelectedChanged() {
-            // rowing workouts are set up on the Rowing page, not on Watt Training
-            if (!Training.active && Workouts.selectedId >= 0 && Workouts.selected.sport !== "rowing")
+            // rowing / running workouts are set up on the Rowing / Treadmill Run page, not on Watt Training
+            if (!Training.active && Workouts.selectedId >= 0 && Workouts.selected.sport !== "rowing"
+                    && Workouts.selected.sport !== "running")
                 Training.loadWorkout(Workouts.selectedId)
         }
     }

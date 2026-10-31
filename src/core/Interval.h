@@ -22,6 +22,11 @@ struct Interval
     double endPercent = 0.60;     // fraction of FTP at the end (== start unless ramp)
     int cadence = 0;              // target cadence (rpm), 0 = none
     int rpeZone = -1;             // explicit RPE zone 0..5, -1 = derive from intensity
+    // Running workouts only: suggested treadmill incline in % (0 = flat).
+    // For running the start / end fractions are of the runner's AnT speed.
+    double inclinePercent = 0.0;
+    static constexpr double kMinIncline = -5.0;
+    static constexpr double kMaxIncline = 25.0;
 
     bool isRamp() const;
     double percentAt(double secondsIntoInterval) const;

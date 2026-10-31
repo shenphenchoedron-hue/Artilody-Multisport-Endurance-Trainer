@@ -496,8 +496,10 @@ private slots:
         QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:03"), QStringLiteral("KICKR"), 0x0020)), K::Trainer);
         // rower + bike bits: ambiguous, stays a trainer
         QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:04"), QString(), 0x0030)), K::Trainer);
-        // treadmill only: not offered
-        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:05"), QString(), 0x0001)), K::Unknown);
+        // treadmill only: a treadmill (read only, Treadmill Run)
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:05"), QString(), 0x0001)), K::Treadmill);
+        // cross trainer only: not offered
+        QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:08"), QString(), 0x0002)), K::Unknown);
         // type 0 (not filled in): falls back to the UUID -> trainer
         QCOMPARE(DeviceManager::classify(ftmsDevice(QStringLiteral("D4:36:39:AA:CC:06"), QString(), 0x0000)), K::Trainer);
         // malformed service data: falls back to the UUID -> trainer

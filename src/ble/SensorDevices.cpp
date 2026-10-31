@@ -21,6 +21,65 @@ void SensorDevice::setRssi(int rssi)
     emit rssiChanged(rssi);
 }
 
+// --- TreadmillDevice ----------------------------------------------------------
+
+TreadmillDevice::TreadmillDevice(QObject *parent)
+    : SensorDevice(parent)
+{
+    m_staleTimer.setInterval(1000);
+    connect(&m_staleTimer, &QTimer::timeout, this, [this] { checkStale(); });
+    connect(this, &SensorDevice::stateChanged, this, [this](LinkState) {
+        const bool on = connected();
+        if (on) {
+            m_staleTimer.start();
+        } else {
+            m_staleTimer.stop();
+            clearLiveValues();
+        }
+        emit connectedChanged(on);
+    });
+}
+
+void TreadmillDevice::applyMeasurement(double speedKmh, double inclinePercent, bool inclineKnown, double distanceM,
+                                       int heartRate)
+{
+    if (speedKmh >= 0 && std::isfinite(speedKmh))
+        m_speed = std::clamp(speedKmh, 0.0, 40.0);
+    if (inclineKnown && std::isfinite(inclinePercent)) {
+        m_incline = std::clamp(inclinePercent, -10.0, 40.0);
+        m_inclineKnown = true;
+    }
+    if (distanceM >= 0 && std::isfinite(distanceM))
+        m_distance = distanceM;
+    if (heartRate > 0) {
+        m_hr = heartRate;
+        emit heartRateMeasured(heartRate);
+    }
+    ++m_packets;
+    m_hasData = true;
+    m_sinceData.start();
+    emit measurementChanged();
+}
+
+void TreadmillDevice::clearLiveValues()
+{
+    if (m_speed == 0 && m_hr == 0)
+        return;
+    m_speed = 0;
+    m_hr = 0;
+    emit measurementChanged();
+}
+
+void TreadmillDevice::checkStale(qint64 msSinceData)
+{
+    if (msSinceData < 0)
+        msSinceData = m_sinceData.isValid() ? m_sinceData.elapsed() : qint64(kStaleMs) + 1;
+    if (msSinceData > kStaleMs && m_speed > 0) {
+        m_speed = 0;
+        emit measurementChanged();
+    }
+}
+
 // --- RowerDevice ------------------------------------------------------------
 
 namespace {

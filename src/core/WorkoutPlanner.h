@@ -82,6 +82,8 @@ public:
     void setSessions(TrainingSession *training, FreeRideSession *freeRide, RlvSession *rlv, RlvLibrary *videos);
     // Rowing lives in another library: main.cpp passes Rowing.setupPlan().
     void setRowingStarter(std::function<bool(qint64 workoutId)> starter) { m_rowingStarter = std::move(starter); }
+    // running workouts: attaches the workout to the treadmill run (page "treadmill")
+    void setRunningStarter(std::function<bool(qint64 workoutId)> starter) { m_runningStarter = std::move(starter); }
 
     int revision() const { return m_revision; }
     qint64 activeEntryId() const { return m_activeEntryId; }
@@ -204,6 +206,7 @@ private:
     QPointer<RlvSession> m_rlv;
     QPointer<RlvLibrary> m_videos;
     std::function<bool(qint64)> m_rowingStarter;
+    std::function<bool(qint64)> m_runningStarter;
     int m_revision = 0;
     qint64 m_activeEntryId = -1;
     QString m_lastError;

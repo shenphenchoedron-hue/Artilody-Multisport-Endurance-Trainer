@@ -230,7 +230,7 @@ bool WorkoutPlanner::normalizeOptions(const QString &kind, const QVariantMap &in
                 setError(QStringLiteral("Workout not found"));
                 return false;
             }
-            if (w->isRowing() || w->intervals.isEmpty() || w->totalDurationSec() <= 0) {
+            if (!w->isCycling() || w->intervals.isEmpty() || w->totalDurationSec() <= 0) {
                 setError(QStringLiteral("\"%1\" cannot be ridden in a video ride").arg(w->name));
                 return false;
             }
@@ -641,6 +641,18 @@ QString WorkoutPlanner::startEntry(const QVariant &entryOrId)
         }
         setActiveEntry(id);
         return QStringLiteral("rowing");
+    }
+    if (w->isRunning()) {
+        if (!m_runningStarter) {
+            setError(QStringLiteral("Treadmill running is not available"));
+            return {};
+        }
+        if (!m_runningStarter(w->id)) {
+            setError(QStringLiteral("Could not load \"%1\" for a treadmill run").arg(w->name));
+            return {};
+        }
+        setActiveEntry(id);
+        return QStringLiteral("treadmill");
     }
     if (!m_training) {
         setError(QStringLiteral("Workouts are not available"));

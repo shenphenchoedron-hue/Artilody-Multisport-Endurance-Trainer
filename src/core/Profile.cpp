@@ -6,6 +6,9 @@ namespace watt {
 
 int Profile::ftpFor(const QString &sport) const
 {
+    static_assert(running::kDefaultAntKmh == 12.0, "keep Profile::antSpeedKmh's default in sync");
+    if (sport::normalize(sport) == sport::running())
+        return running::speedUnits(antSpeedKmh);
     return ftpForSport(sport, ftp, rowingFtp);
 }
 

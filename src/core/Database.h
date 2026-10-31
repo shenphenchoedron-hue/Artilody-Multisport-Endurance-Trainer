@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PlanTypes.h"
+#include "RunWorkout.h"
 #include "Profile.h"
 #include "Ride.h"
 #include "Track.h"
@@ -31,7 +32,11 @@ public:
     //   5  planned_workouts: kind ('workout' | 'freeride' | 'rlv'), route_path,
     //      route_name, planned_duration_sec, options (JSON); workout_id nullable
     //      (table rebuilt once: SQLite cannot drop NOT NULL with ALTER TABLE)
-    static constexpr int kSchemaVersion = 5;
+    //   6  run_workouts (treadmill running workouts, speed / % AnT) and
+    //      ant_tests (anaerobic threshold tests per profile)
+    //   7  running workouts move into workouts (sport 'running', % of the AnT
+    //      speed); run_workouts is copied over and dropped
+    static constexpr int kSchemaVersion = 7;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -104,6 +109,16 @@ public:
     static QString traceToText(const QVector<TracePoint> &trace);
     static QVector<TracePoint> traceFromText(const QString &text);
 
+    // Running workouts are plain workouts of sport "running" (workouts()).
+    // Current AnT speed of a profile: newest ant_tests entry, else the default.
+    double currentAntKmh(qint64 profileId) const;
+
+    // Anaerobic threshold tests, newest first.
+    QVector<AntTest> antTests(qint64 profileId, int limit = -1) const;
+    std::optional<AntTest> latestAntTest(qint64 profileId) const;
+    qint64 saveAntTest(const AntTest &test);             // insert when id < 0
+    bool deleteAntTest(qint64 id);
+
     // Music
     QVector<Playlist> playlists() const;
     qint64 createPlaylist(const QString &name);
@@ -115,6 +130,8 @@ public:
     bool reorderTracks(qint64 playlistId, const QVector<qint64> &trackIdsInOrder);
     bool updateTrackInfo(qint64 trackId, const QString &title, const QString &artist, qint64 durationMs);
 
+    bool hasTable(const QString &table) const;
+
 private:
     bool exec(const QString &sql);
     bool migrate();
@@ -123,6 +140,8 @@ private:
     bool migrateToV3();
     bool migrateToV4();
     bool migrateToV5();
+    bool migrateToV6();
+    bool migrateToV7();
     bool columnNotNull(const QString &table, const QString &column) const;
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);

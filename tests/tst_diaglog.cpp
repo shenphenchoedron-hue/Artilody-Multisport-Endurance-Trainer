@@ -77,7 +77,7 @@ private slots:
         // the writer thread flushes within kFlushMs without any call
         QTRY_VERIFY_WITH_TIMEOUT(readAll(file).contains(QStringLiteral("Set Target Power: 150 W")), 3000);
         const QString text = readAll(file);
-        QVERIFY2(text.contains(QStringLiteral("Artilody Watts Trainer 9.9.9")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Artilody Multisport Endurance Trainer 9.9.9")), qPrintable(text));
         QVERIFY(text.contains(QStringLiteral("SYS   Qt ")));
         QVERIFY(text.contains(QStringLiteral("Device: ")));
         QVERIFY(text.contains(QStringLiteral("two | lines æøå")));   // one line per event, UTF-8

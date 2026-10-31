@@ -19,6 +19,7 @@ qt_add_library(watt_ble STATIC
     ZwiftHubLink.h ZwiftHubLink.cpp
     BleHeartRateSensor.h BleHeartRateSensor.cpp
     Pm5Rower.h Pm5Rower.cpp
+    BleTreadmill.h BleTreadmill.cpp
     ZwiftClick.h ZwiftClick.cpp
     SimulatedDevices.h SimulatedDevices.cpp
     DeviceListModel.h DeviceListModel.cpp

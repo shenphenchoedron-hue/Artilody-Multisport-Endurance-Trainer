@@ -6,6 +6,9 @@ import Artilody.Backend
 //  - targetSeries:   per-second target (History) drawn as zone coloured area
 //  - powerSeries:    per-second actual power (line, or area when no targets exist)
 //  - hrSeries:       per-second heart rate (magenta line on the right axis)
+// Running workouts (sport: "running"): the "watts" are speeds in 0.1 km/h and
+// ftp is the AnT speed in these units (Profile::ftpFor("running")); the axis
+// shows km/h (or % AnT) and the bars use the running zones.
 Canvas {
     id: chart
 
@@ -16,7 +19,10 @@ Canvas {
     property real seriesStep: 1   // seconds represented by one powerSeries/hrSeries value
     property int totalSec: 0
     property int ftp: 250
-    property var zoneBounds: Profiles.zoneBounds   // personal zones (fractions of FTP)
+    property string sport: "cycling"
+    readonly property bool speedMode: sport === "running"
+    // personal zones (fractions of FTP); running: % of the AnT speed
+    property var zoneBounds: speedMode ? [0.78, 0.88, 0.95, 1.00, 1.06] : Profiles.zoneBounds
 
     property bool showAxes: true
     property bool showAxisTitles: true
@@ -59,6 +65,7 @@ Canvas {
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
     onFtpChanged: requestPaint()
+    onSportChanged: requestPaint()
     onZoneBoundsChanged: requestPaint()
     Connections {
         target: Theme
@@ -96,6 +103,8 @@ Canvas {
             for (var k = 0; k < powerSeries.length; k += step)
                 m = Math.max(m, powerSeries[k])
         }
+        if (speedMode)   // 0.1 km/h: at least AnT + 15 %, in 2 km/h steps
+            return Math.max(Math.ceil(ftp * 1.15 / 20) * 20, Math.ceil((m * 1.08) / 20) * 20, 60)
         var axis = Math.max(minPowerAxis, Math.ceil((m * 1.08) / 100) * 100)
         return axis
     }
@@ -140,7 +149,7 @@ Canvas {
         var fontPx = fontSize
 
         // --- grid & axes --------------------------------------------------
-        var yStep = maxW > 600 ? 200 : 100
+        var yStep = speedMode ? (percentAxis && ftp > 0 ? ftp / 4 : compact ? 50 : maxW > 240 ? 40 : 20) : maxW > 600 ? 200 : 100
         var minutes = dur / 60
         var xStepMin = minutes > 90 ? 20 : minutes > 40 ? 10 : minutes > 15 ? 5 : minutes > 6 ? 2 : 1
         if (showAxes) {
@@ -179,7 +188,8 @@ Canvas {
             ctx.textAlign = "right"
             ctx.textBaseline = "middle"
             for (var yl = 0; yl <= maxW; yl += yStep) {
-                var label = percentAxis && ftp > 0 ? Math.round(yl / ftp * 100) + "%" : "" + yl
+                var label = percentAxis && ftp > 0 ? Math.round(yl / ftp * 100) + "%"
+                          : speedMode ? "" + Math.round(yl / 10) : "" + yl
                 ctx.beginPath()
                 ctx.moveTo(L - 5, yOf(yl))
                 ctx.lineTo(L, yOf(yl))
@@ -212,7 +222,8 @@ Canvas {
                 ctx.translate(18, T + PH / 2)
                 ctx.rotate(-Math.PI / 2)
                 ctx.textBaseline = "middle"
-                ctx.fillText(percentAxis ? "Power (% FTP)" : "Power (W)", 0, 0)
+                ctx.fillText(speedMode ? (percentAxis ? "Speed (% AnT)" : "Speed (km/h)")
+                                       : percentAxis ? "Power (% FTP)" : "Power (W)", 0, 0)
                 ctx.restore()
                 if (showHeartRate) {
                     ctx.save()
@@ -382,7 +393,7 @@ Canvas {
             Text {
                 id: bubbleText
                 anchors.centerIn: parent
-                text: chart.cursorWatts + " W"
+                text: chart.speedMode ? (chart.cursorWatts / 10).toFixed(1) + " km/h" : chart.cursorWatts + " W"
                 color: "white"
                 font.pixelSize: chart.fontSize + 2
                 font.weight: Font.Bold

@@ -267,4 +267,40 @@ private:
     bool m_reportHr = true;
 };
 
+// Virtual FTMS treadmill ("sim:treadmill") for trying the Treadmill Run
+// without hardware. A simulated runner sets the belt: it follows what a
+// running workout suggests (TreadmillDevice::suggest(), like a runner
+// pressing the +/- keys: 0.1 km/h and 0.5 % steps), otherwise it runs at
+// setFreeSpeed() (10 km/h, 1 % incline).
+class SimulatedTreadmill : public TreadmillDevice
+{
+    Q_OBJECT
+public:
+    explicit SimulatedTreadmill(QObject *parent = nullptr);
+
+    QString id() const override { return QStringLiteral("sim:treadmill"); }
+    QString name() const override { return QStringLiteral("Virtual Treadmill"); }
+    QString protocol() const override { return QStringLiteral("Simulated FTMS treadmill"); }
+    QString dataSourceText() const override { return QStringLiteral("Simulated Treadmill Data"); }
+    bool isSimulated() const override { return true; }
+    void connectDevice() override;
+    void disconnectDevice() override;
+    void suggest(double speedKmh, double inclinePercent) override;
+    void setFreeSpeed(double kmh, double inclinePercent = 1.0);
+    double belt() const { return m_belt; }
+
+    // One simulation step of `dt` seconds (driven by a 250 ms timer).
+    void step(double dt = 0.25);
+
+private:
+    QTimer m_timer;
+    double m_belt = 0;          // km/h
+    double m_incline = 0;       // %
+    double m_wantSpeed = 10.0, m_wantIncline = 1.0;
+    double m_freeSpeed = 10.0, m_freeIncline = 1.0;
+    bool m_suggested = false;
+    double m_dist = 0;
+    double m_t = 0;
+};
+
 } // namespace watt

@@ -181,6 +181,128 @@ std::optional<RowerData> parseRowerData(const QByteArray &data)
 }
 
 namespace {
+// One Treadmill Data layout. paceBytes: FTMS v1.0 defines the two pace fields
+// as UInt8 (0.1 km/min); some treadmills send UInt16 - parseTreadmillData()
+// tries both and keeps the one that consumes the packet exactly.
+std::optional<TreadmillData> parseTreadmillLayout(const QByteArray &data, int paceBytes, bool *exact)
+{
+    Reader r(data);
+    const quint16 flags = r.u16();
+    if (!r.ok())
+        return std::nullopt;
+    TreadmillData d;
+    d.moreData = flags & (1 << 0);
+    // Bit 0 "More Data" (inverted): the instantaneous speed is present when it is 0.
+    if (!d.moreData)
+        d.speedKmh = r.u16() / 100.0;
+    if (flags & (1 << 1))
+        d.averageSpeedKmh = r.u16() / 100.0;
+    if (flags & (1 << 2))
+        d.totalDistanceM = int(r.u24());
+    if (flags & (1 << 3)) {
+        d.inclinePercent = r.s16() / 10.0;
+        d.rampAngleDeg = r.s16() / 10.0;
+    }
+    if (flags & (1 << 4)) {
+        d.positiveElevationGainM = r.u16() / 10.0;
+        d.negativeElevationGainM = r.u16() / 10.0;
+    }
+    if (flags & (1 << 5))
+        d.paceKmPerMin = r.u(paceBytes) / 10.0;
+    if (flags & (1 << 6))
+        d.averagePaceKmPerMin = r.u(paceBytes) / 10.0;
+    if (flags & (1 << 7)) {
+        d.totalEnergyKcal = r.u16();
+        r.u16();   // energy per hour
+        r.u8();    // energy per minute
+    }
+    if (flags & (1 << 8))
+        d.heartRateBpm = r.u8();
+    if (flags & (1 << 9))
+        r.u8();    // metabolic equivalent
+    if (flags & (1 << 10))
+        d.elapsedTimeS = r.u16();
+    if (flags & (1 << 11))
+        d.remainingTimeS = r.u16();
+    if (flags & (1 << 12)) {
+        d.forceOnBeltN = r.s16();
+        d.powerW = r.s16();
+    }
+    if (!r.ok())
+        return std::nullopt;
+    if (exact)
+        *exact = r.atEnd();
+    // "data not available" markers (0x7FFF incline / ramp angle, 0xFFFF speed)
+    if (d.inclinePercent && std::abs(*d.inclinePercent - 3276.7) < 0.05)
+        d.inclinePercent.reset();
+    if (d.rampAngleDeg && std::abs(*d.rampAngleDeg - 3276.7) < 0.05)
+        d.rampAngleDeg.reset();
+    if (d.speedKmh && *d.speedKmh > 655.0)
+        d.speedKmh.reset();
+    return d;
+}
+} // namespace
+
+std::optional<TreadmillData> parseTreadmillData(const QByteArray &data)
+{
+    bool exact = false;
+    auto spec = parseTreadmillLayout(data, 1, &exact);
+    if (spec && exact)
+        return spec;
+    const quint16 flags = data.size() >= 2 ? quint16(quint8(data.at(0)) | (quint8(data.at(1)) << 8)) : 0;
+    if (flags & ((1 << 5) | (1 << 6))) {
+        bool wideExact = false;
+        auto wide = parseTreadmillLayout(data, 2, &wideExact);
+        if (wide && (wideExact || !spec))
+            return wide;
+    }
+    return spec;   // extra trailing bytes are ignored
+}
+
+void TreadmillData::merge(const TreadmillData &o)
+{
+    auto take = [](auto &a, const auto &b) {
+        if (b)
+            a = b;
+    };
+    take(speedKmh, o.speedKmh);
+    take(averageSpeedKmh, o.averageSpeedKmh);
+    take(totalDistanceM, o.totalDistanceM);
+    take(inclinePercent, o.inclinePercent);
+    take(rampAngleDeg, o.rampAngleDeg);
+    take(positiveElevationGainM, o.positiveElevationGainM);
+    take(negativeElevationGainM, o.negativeElevationGainM);
+    take(paceKmPerMin, o.paceKmPerMin);
+    take(averagePaceKmPerMin, o.averagePaceKmPerMin);
+    take(totalEnergyKcal, o.totalEnergyKcal);
+    take(heartRateBpm, o.heartRateBpm);
+    take(elapsedTimeS, o.elapsedTimeS);
+    take(remainingTimeS, o.remainingTimeS);
+    take(forceOnBeltN, o.forceOnBeltN);
+    take(powerW, o.powerW);
+}
+
+QString describeTreadmillData(const TreadmillData &d)
+{
+    QStringList p;
+    if (d.speedKmh)
+        p << QStringLiteral("speed %1 km/h").arg(*d.speedKmh, 0, 'f', 2);
+    if (d.inclinePercent)
+        p << QStringLiteral("incline %1 %").arg(*d.inclinePercent, 0, 'f', 1);
+    if (d.totalDistanceM)
+        p << QStringLiteral("distance %1 m").arg(*d.totalDistanceM);
+    if (d.heartRateBpm)
+        p << QStringLiteral("HR %1").arg(*d.heartRateBpm);
+    if (d.elapsedTimeS)
+        p << QStringLiteral("elapsed %1 s").arg(*d.elapsedTimeS);
+    if (d.powerW)
+        p << QStringLiteral("power %1 W").arg(*d.powerW);
+    if (d.moreData)
+        p << QStringLiteral("(more data)");
+    return p.isEmpty() ? QStringLiteral("no fields") : p.join(QStringLiteral(", "));
+}
+
+namespace {
 template<typename F>
 void forEachField(RowerData &a, const RowerData &b, F f)
 {

@@ -9,6 +9,7 @@ namespace watt {
 class FreeRideSession;
 class RlvSession;
 class RowingSession;
+class RunSession;
 class TrainingSession;
 class VirtualGears;
 
@@ -38,6 +39,7 @@ class SessionGuard : public QObject
     Q_PROPERTY(QVariantMap videoBlocker READ videoBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap gpxBlocker READ gpxBlocker NOTIFY changed)
     Q_PROPERTY(QVariantMap rowingBlocker READ rowingBlocker NOTIFY changed)
+    Q_PROPERTY(QVariantMap runBlocker READ runBlocker NOTIFY changed)
     // WATT_DEBUG_RLVUI=1: the sessions / blockers (and the Video Ride page's
     // enabling conditions) are logged to stderr on every change.
     Q_PROPERTY(bool debugUi READ debugUi CONSTANT)
@@ -50,12 +52,16 @@ public:
     // The GPX Ride (a second RlvSession, Kind::Gpx): wired like the video ride
     // against the free ride, the row and the video ride. Null removes it.
     void setGpxSession(RlvSession *gpx);
+    // The Treadmill Run: blocks / is blocked by every other session (kind
+    // "run", page "treadmill"). Null removes it.
+    void setRunSession(RunSession *run);
 
     QVariantMap workoutBlocker() const { return blockerFor(QStringLiteral("workout")); }
     QVariantMap freeRideBlocker() const { return blockerFor(QStringLiteral("freeride")); }
     QVariantMap videoBlocker() const { return blockerFor(QStringLiteral("video")); }
     QVariantMap gpxBlocker() const { return blockerFor(QStringLiteral("gpx")); }
     QVariantMap rowingBlocker() const { return blockerFor(QStringLiteral("rowing")); }
+    QVariantMap runBlocker() const { return blockerFor(QStringLiteral("run")); }
     // The first other session in progress (workout, free ride, video, row).
     Q_INVOKABLE QVariantMap blockerFor(const QString &kind) const;
     // Ends the session of `kind` (the blocker's "kind"): save = finish and
@@ -78,6 +84,8 @@ private:
     void unwire();
     void wireGpx();
     void unwireGpx();
+    void wireRun();
+    void unwireRun();
     void onPageChanged();
     void onSessionChanged();
 
@@ -86,6 +94,7 @@ private:
     RlvSession *m_rlv;
     RlvSession *m_gpx = nullptr;
     RowingSession *m_rowing;
+    RunSession *m_run = nullptr;
     VirtualGears *m_gears;
     bool m_debug = false;
     QString m_lastDescription;

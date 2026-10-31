@@ -20,12 +20,30 @@ AppDialog {
     property int restPercent: 55
     property bool recoveryAfterLast: true
 
-    readonly property string ftpLabel: Builder.sport === "rowing" ? "Rowing FTP" : "FTP"
+    readonly property string ftpLabel: Builder.sport === "running" ? "AnT" : Builder.sport === "rowing" ? "Rowing FTP" : "FTP"
+    // running sets: % of the AnT speed (a walk at 55 % would be no recovery jog)
+    property string lastSport: ""
+    onVisibleChanged: {
+        if (!visible || Builder.sport === lastSport)
+            return
+        lastSport = Builder.sport
+        if (Builder.sport === "running") {
+            repeats = 6; workSec = 180; workPercent = 105; restSec = 120; restPercent = 68
+        } else {
+            repeats = 5; workSec = 30; workPercent = 120; restSec = 60; restPercent = 55
+        }
+    }
+
     readonly property int blockCount: repeats * 2 - (recoveryAfterLast ? 0 : 1)
     readonly property int totalSec: repeats * workSec + (repeats - (recoveryAfterLast ? 0 : 1)) * restSec
 
     function watts(percent) {
         return Math.round(percent * Builder.ftp / 100)
+    }
+    // "≈ 250 W" (running: "≈ 12.6 km/h"; Builder.ftp is the AnT in 0.1 km/h there)
+    function hint(percent) {
+        return Builder.sport === "running" ? "≈ " + (percent * Builder.ftp / 1000).toFixed(1) + " km/h"
+                                           : "≈ " + watts(percent) + " W"
     }
     function clampPercent(v) {
         return Math.max(0, Math.min(400, Math.round(v)))
@@ -91,7 +109,7 @@ AppDialog {
             iconName: "bolt"
             iconColor: Theme.warning
             label: "Power"
-            sublabel: "≈ " + dlg.watts(dlg.workPercent) + " W"
+            sublabel: dlg.hint(dlg.workPercent)
             unit: "% " + dlg.ftpLabel
             value: dlg.workPercent
             onDecrement: dlg.workPercent = dlg.clampPercent(dlg.workPercent - 1)
@@ -115,7 +133,7 @@ AppDialog {
             iconName: "bolt"
             iconColor: Theme.success
             label: "Power"
-            sublabel: "≈ " + dlg.watts(dlg.restPercent) + " W"
+            sublabel: dlg.hint(dlg.restPercent)
             unit: "% " + dlg.ftpLabel
             value: dlg.restPercent
             onDecrement: dlg.restPercent = dlg.clampPercent(dlg.restPercent - 1)

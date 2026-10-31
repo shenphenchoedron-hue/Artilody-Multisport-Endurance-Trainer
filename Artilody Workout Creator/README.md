@@ -4,7 +4,7 @@
 
 # Artilody Workout Creator
 
-**Build cycling and rowing workouts on any computer – then take them to Artilody Watts Trainer or Zwift.**
+**Build cycling, rowing and running workouts on any computer – then take them to Artilody Multisport Endurance Trainer or Zwift.**
 
 </div>
 
@@ -13,7 +13,7 @@
 </p>
 
 Artilody Workout Creator is a small, standalone desktop app with the **same Workout Builder as
-[Artilody Watts Trainer](../README.md)**: the same block cards, chart, interval settings, drag-to-reorder,
+[Artilody Multisport Endurance Trainer](../README.md)**: the same block cards, chart, interval settings, drag-to-reorder,
 right-click menu and keyboard shortcuts. You don't need a trainer, Bluetooth or a database. Every workout is a
 file, so you can design workouts on your laptop and copy them to your training computer or to Zwift.
 
@@ -52,14 +52,14 @@ file, so you can design workouts on your laptop and copy them to your training c
 Workouts are stored as **% of FTP**, so they scale to the FTP of whoever rides them. The FTP set in the creator
 only changes the watts you see while you edit.
 
-### In Artilody Watts Trainer (on your training computer)
+### In Artilody Multisport Endurance Trainer (on your training computer)
 
 1. Copy the `.awt` file to the training computer, for example with a USB stick, a cloud folder or e-mail.
    You can export it with **Export → Export .awt…** or copy it straight from your Workouts folder.
-2. In Artilody Watts Trainer open **Workouts → Import** and choose the file. The workout appears in your
+2. In Artilody Multisport Endurance Trainer open **Workouts → Import** and choose the file. The workout appears in your
    library with its sport (cycling / rowing), block names, cadence / stroke rate and RPE.
 
-Artilody Watts Trainer can also import the `.zwo` files.
+Artilody Multisport Endurance Trainer can also import the `.zwo` files.
 
 ### In Zwift
 
@@ -73,7 +73,7 @@ are kept, but the sport is not.
 
 ### File formats
 
-- **`.awt`** – the native Artilody Watts Trainer format (UTF-8 JSON, `"format": "artilody-watts-trainer/workout"`,
+- **`.awt`** – the native Artilody Multisport Endurance Trainer format (UTF-8 JSON, `"format": "artilody-watts-trainer/workout"`,
   version 1). It is written by exactly the same code as the app's own export (`src/core/WorkoutIO`), so the app
   imports it without changes. Each file in the Workouts folder holds one workout.
 - **`.zwo`** – the Zwift workout format (XML). It keeps power, ramps and cadence, but block names, RPE and the
@@ -81,7 +81,7 @@ are kept, but the sport is not.
 
 ## How it is built (shared code)
 
-The creator is a separate CMake project inside the Artilody Watts Trainer repository. It shares as much as
+The creator is a separate CMake project inside the Artilody Multisport Endurance Trainer repository. It shares as much as
 possible with the app, so both edit workouts the same way and write the same files:
 
 | Shared (compiled / bundled from the main repo) | Creator only (this folder) |
@@ -107,7 +107,7 @@ repository) and to `shared/` otherwise. After changing shared code here, refresh
 "Artilody Workout Creator/tools/sync_shared.sh" <path to Artilody-Workout-Creator checkout>
 ```
 
-The shared code is part of Artilody Watts Trainer and licensed under GPL-3.0.
+The shared code is part of Artilody Multisport Endurance Trainer and licensed under GPL-3.0.
 
 ## Building
 
@@ -170,4 +170,4 @@ sudo cmake --install build-creator     # /usr/local/bin/artilody-workout-creator
 
 ## License
 
-GPL-3.0, the same license as Artilody Watts Trainer. See [`../LICENSE`](../LICENSE).
+GPL-3.0, the same license as Artilody Multisport Endurance Trainer. See [`../LICENSE`](../LICENSE).

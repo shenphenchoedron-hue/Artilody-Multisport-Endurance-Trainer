@@ -13,13 +13,13 @@ set(CPACK_PACKAGE_VENDOR "Artilody")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Indoor cycling and rowing power training (FTMS trainers, Concept2 PM5, heart rate)")
 set(CPACK_PACKAGE_DESCRIPTION
-"Artilody Watts Trainer is a desktop app for structured indoor cycling
+"Artilody Multisport Endurance Trainer is a desktop app for structured indoor cycling
 workouts and rowing. It connects to Bluetooth LE smart trainers (FTMS, ERG
 mode), Concept2 PM5 rowing monitors and heart-rate sensors, drives interval workouts by power, records rides to a
 local SQLite database, analyses them (NP, TSS, zones) and plays local music
 while you ride. Built with Qt 6 / QML.")
 set(CPACK_PACKAGE_CONTACT "Artilody <noreply@artilody.app>")
-set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_STRIP_FILES ON)
 if(EXISTS "${PROJECT_SOURCE_DIR}/LICENSE")

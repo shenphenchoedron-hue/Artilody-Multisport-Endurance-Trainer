@@ -12,17 +12,19 @@
 //
 // .awt layout (version 1):
 //   { "format": "artilody-watts-trainer/workout", "version": 1,
-//     "exportedAt": "<ISO-8601 UTC>", "app": "Artilody Watts Trainer <ver>",
+//     "exportedAt": "<ISO-8601 UTC>", "app": "Artilody Multisport Endurance Trainer <ver>",
 //     "workouts": [ { "name", "category", "focus", "description",
-//                     "sport": "cycling"|"rowing",
+//                     "sport": "cycling"|"rowing"|"running",
 //                     "intervals": [ Interval::toJson() objects ] } ] }
 // "sport" was added without bumping the format version (older readers ignore
 // it); a missing/unknown sport is read as "cycling".
 //
 // .zwo: Zwift only knows sportType "bike" and "run". Rowing workouts can be
 // exported, but are written with sportType "bike" (their intervals are % FTP
-// like bike workouts), so the sport is lost on a .zwo round trip. Imported
-// .zwo files are always cycling workouts.
+// like bike workouts), so the sport is lost on a .zwo round trip. Running
+// workouts are written / read as sportType "run" (Zwift's run intensities are
+// % of the threshold pace, ours % of the AnT speed). Other imported .zwo files
+// are cycling workouts.
 // Intensities are fractions of FTP, so shared workouts scale to the
 // importing rider's FTP.
 namespace watt::workoutio {
@@ -51,7 +53,7 @@ struct ImportResult
 };
 
 // appName: written to the informational "app" field (.awt) / <author> (.zwo);
-// empty = "Artilody Watts Trainer". It does not affect importing.
+// empty = "Artilody Multisport Endurance Trainer". It does not affect importing.
 QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion, const QString &appName = QString());
 QByteArray toZwo(const Workout &workout, const QString &appName = QString());
 

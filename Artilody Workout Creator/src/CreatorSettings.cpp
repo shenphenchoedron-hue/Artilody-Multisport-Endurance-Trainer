@@ -1,5 +1,6 @@
 #include "CreatorSettings.h"
 
+#include "Workout.h"
 #include "Zones.h"
 
 #include <QDir>
@@ -12,6 +13,7 @@ namespace {
 const QString kFtp = QStringLiteral("profile/ftp");
 const QString kRowingFtp = QStringLiteral("profile/rowingFtp");
 const QString kCadence = QStringLiteral("profile/cadence");
+const QString kAnt = QStringLiteral("profile/antKmh");
 const QString kDark = QStringLiteral("ui/darkTheme");
 const QString kShowZwo = QStringLiteral("library/showZwo");
 const QString kFolder = QStringLiteral("library/folder");
@@ -26,6 +28,8 @@ CreatorSettings::CreatorSettings(const QString &iniFile, QObject *parent)
     m_ftp = std::clamp(m_settings->value(kFtp, 250).toInt(), minFtp(), maxFtp());
     m_rowingFtp = std::clamp(m_settings->value(kRowingFtp, 150).toInt(), minFtp(), maxFtp());
     m_cadence = std::clamp(m_settings->value(kCadence, 85).toInt(), 40, 140);
+    m_antKmh = std::clamp(m_settings->value(kAnt, watt::running::kDefaultAntKmh).toDouble(),
+                          watt::running::kMinAntKmh, watt::running::kMaxAntKmh);
     m_dark = m_settings->value(kDark, true).toBool();
     m_showZwo = m_settings->value(kShowZwo, true).toBool();
     m_folder = m_settings->value(kFolder).toString();
@@ -51,6 +55,16 @@ void CreatorSettings::setRowingFtp(int watts)
         return;
     m_rowingFtp = watts;
     m_settings->setValue(kRowingFtp, watts);
+    emit profileChanged();
+}
+
+void CreatorSettings::setAntSpeedKmh(double kmh)
+{
+    kmh = std::round(std::clamp(kmh, watt::running::kMinAntKmh, watt::running::kMaxAntKmh) * 10.0) / 10.0;
+    if (qFuzzyCompare(kmh, m_antKmh))
+        return;
+    m_antKmh = kmh;
+    m_settings->setValue(kAnt, kmh);
     emit profileChanged();
 }
 

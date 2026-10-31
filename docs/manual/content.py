@@ -1,6 +1,6 @@
-"""Text of the Artilody Watts Trainer user manual.
+"""Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.4.1 source code (incl. GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.5.0 source code (incl. Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -32,10 +32,10 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Introduction", new_page=True, lead=
-              "Artilody Watts Trainer is a free, open-source desktop app for structured, power-based indoor "
-              "cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 "
-              "PM5 rower, controls the trainer's resistance in ERG mode and records every ride and row locally "
-              "on your computer.")
+              "Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source desktop "
+              "app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart "
+              "trainer, treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer's resistance in "
+              "ERG mode and records every ride, row and run locally on your computer.")
 
     s.section("What the app does")
     s.bullets([
@@ -54,6 +54,9 @@ def build(s, env):
         "started with a double-click and ticked off automatically when you complete them.",
         f"{UI('Rows on a Concept2')} – connects to a Concept2 PM5 for free rows over a distance, watt-plan "
         "rowing workouts and ghost races against your own personal best.",
+        f"{UI('Runs on a treadmill')} – reads speed and incline from a Bluetooth FTMS treadmill and lets you run "
+        "GPX routes or a built-in 10 km loop in 3D, with running workouts in % of your anaerobic threshold (AnT) "
+        "and a built-in AnT test (chapter 14).",
         f"{UI('Shares workouts')} – export your workouts as Artilody {C('.awt')} files or Zwift {C('.zwo')} "
         "files, and import workouts that others have shared with you.",
         f"{UI('Estimates your FTP')} – the built-in Ramp FTP Test (or your own 20-minute test) calculates your "
@@ -68,7 +71,7 @@ def build(s, env):
     s.p("Power, measured in <b>watts (W)</b>, is the most direct measure of how hard you are working on the "
         "bike. Unlike heart rate it responds instantly and is not affected by heat, fatigue or caffeine. "
         "<b>FTP (Functional Threshold Power)</b> is the highest power you can sustain for roughly one hour. "
-        "All workouts in Artilody Watts Trainer are stored as a percentage of FTP, so when your FTP changes, "
+        "All workouts in Artilody Multisport Endurance Trainer are stored as a percentage of FTP, so when your FTP changes, "
         "every workout target and every training zone is scaled automatically.")
     s.sub("ERG mode and Free Ride")
     s.p(f"In {UI('ERG mode')} the app tells the trainer which power to hold. If you pedal faster, the trainer "
@@ -128,7 +131,7 @@ def build(s, env):
         ["Debian 12 Bookworm (amd64)", C(f"artilody-watts-trainer_{V}_debian12_amd64.deb")],
         ["Raspberry Pi OS 64-bit Bookworm (Pi 3/4/5/400)",
          C(f"artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")],
-        ["User manual (this document)", C("Artilody-Watts-Trainer-Manual.pdf")],
+        ["User manual (this document)", C("Artilody-Multisport-Endurance-Trainer-Manual.pdf")],
         ["Checksums", C("SHA256SUMS.txt")],
     ], [2.3, 3.4])
     s.tip(f"To check a download, compare its SHA-256 checksum with {C('SHA256SUMS.txt')}: on Linux run "
@@ -142,7 +145,7 @@ def build(s, env):
         f"Download {C(f'ArtilodyWattsTrainer-{V}-windows-x64-setup.exe')} and run it. The installer creates a "
         "Start menu entry and, if you choose, a desktop shortcut.",
         f"Prefer not to install anything? Extract the ZIP file instead and start "
-        f"{C('Artilody Watts Trainer.exe')} from the extracted folder.",
+        f"{C('Artilody Multisport Endurance Trainer.exe')} from the extracted folder.",
         f"<b>SmartScreen:</b> the app is not code-signed yet, so Windows may show <i>“Windows protected your "
         f"PC”</i>. Click {UI('More info')} → {UI('Run anyway')}.",
         f"Turn on Bluetooth under {UI('Settings → Bluetooth &amp; devices')}.",
@@ -150,13 +153,13 @@ def build(s, env):
 
     s.section("macOS")
     s.steps([
-        f"Open the DMG and drag {UI('Artilody Watts Trainer')} onto the {UI('Applications')} folder.",
+        f"Open the DMG and drag {UI('Artilody Multisport Endurance Trainer')} onto the {UI('Applications')} folder.",
         f"<b>Gatekeeper:</b> the app is ad-hoc signed but not notarized by Apple. The first time you open it, "
         f"right-click (or Control-click) the app and choose {UI('Open')}, then confirm with {UI('Open')}.",
         "If macOS reports that the app is “damaged” or still refuses to open it, run this command once in "
         "Terminal:",
     ])
-    s.code('xattr -cr "/Applications/Artilody Watts Trainer.app"')
+    s.code('xattr -cr "/Applications/Artilody Multisport Endurance Trainer.app"')
     s.p(f"<b>Bluetooth permission:</b> when macOS asks whether the app may use Bluetooth, click "
         f"{UI('Allow')}. If you denied access by mistake, enable it again under "
         f"{UI('System Settings → Privacy &amp; Security → Bluetooth')}. Without this permission the app can "
@@ -167,7 +170,7 @@ def build(s, env):
         "libraries:")
     s.code(f"sudo apt install ./artilody-watts-trainer_{V}_ubuntu24.04_amd64.deb   # Ubuntu 24.04\n"
            f"sudo apt install ./artilody-watts-trainer_{V}_debian12_amd64.deb      # Debian 12")
-    s.p(f"Start {UI('Artilody Watts Trainer')} from the application menu or run {C('artilody-watts-trainer')} "
+    s.p(f"Start {UI('Artilody Multisport Endurance Trainer')} from the application menu or run {C('artilody-watts-trainer')} "
         "in a terminal. Bluetooth needs the BlueZ service to be running:")
     s.code("sudo systemctl enable --now bluetooth")
 
@@ -184,12 +187,12 @@ def build(s, env):
 
     s.section("Uninstalling")
     s.bullets([
-        f"Windows: {UI('Settings → Apps → Artilody Watts Trainer → Uninstall')}.",
+        f"Windows: {UI('Settings → Apps → Artilody Multisport Endurance Trainer → Uninstall')}.",
         "macOS: move the app from Applications to the Trash.",
         f"Linux and Raspberry Pi: {C('sudo apt remove artilody-watts-trainer')}.",
     ])
     s.note("Your rides, profiles, workouts and settings are stored separately in your user folder (see "
-           "section 15.3) and are kept when you uninstall the app.")
+           "section 16.3) and are kept when you uninstall the app.")
 
     s.section("First start")
     s.p("On the very first start the app creates its database and fills it with:")
@@ -247,7 +250,7 @@ def build(s, env):
     s.bullets([
         f"{UI('Sun/moon icon')} – switches between the dark and the light theme. The app always starts in the "
         "dark theme; the choice applies until you close the app.",
-        f"{UI('Gear icon')} – opens the Settings dialog (section 15.1).",
+        f"{UI('Gear icon')} – opens the Settings dialog (section 16.1).",
         f"{UI('Avatar and name')} – opens the profile menu: a list of all profiles (name and FTP) to switch "
         f"between, {UI('Edit profile…')} and {UI('New profile…')}. Switching and creating profiles is disabled "
         "while a ride is running or paused.",
@@ -280,6 +283,9 @@ def build(s, env):
         ["FTP", "50 – 600 W, steps of 5", "Used to calculate power zones and all cycling workout targets."],
         ["Rowing FTP", "50 – 600 W, steps of 5", "Used for rowing workouts and rows (default 150 W, "
          "section 11.7)."],
+        ["Walk → Run", "4 – 10 km/h, steps of 0.1", "The speed where you change from walking to running "
+         "(default 6.3 km/h). The 3D runner on the Treadmill Run page walks below it and runs above it "
+         "(chapter 14). Stored per profile."],
         ["Max heart rate", "100 – 230 BPM", "Must be more than 20 BPM above the resting heart rate."],
         ["Resting heart rate", "30 – 110 BPM", "Used together with max HR for the Karvonen zones."],
         ["Preferred cadence", "50 – 130 RPM",
@@ -619,7 +625,7 @@ def build(s, env):
         "Values drop to 0 or “–”: power and cadence are reset after 3 seconds without new data, heart rate "
         "after 6 seconds. This usually means a weak signal – reduce the distance or use a USB adapter with an "
         "extension cable.",
-        "See chapter 16 for more solutions.",
+        "See chapter 17 for more solutions.",
     ])
 
     # =====================================================================
@@ -668,7 +674,7 @@ def build(s, env):
         "FTP of the person who imports it: a block at 90 % FTP is 225 W for a rider with 250 W FTP and 180 W "
         "for a rider with 200 W FTP.")
     s.table(["Format", "Use it for", "Contains"], [
-        [C(".awt") + "<br/>(Artilody workout)", "Sharing with other Artilody Watts Trainer users, and "
+        [C(".awt") + "<br/>(Artilody workout)", "Sharing with other Artilody Multisport Endurance Trainer users, and "
          "backing up your own workouts. Recommended.",
          "Everything: name, sport, category, focus, description and every block with type, name, duration, start/end "
          "intensity, cadence and RPE. One file can hold many workouts (Appendix C)."],
@@ -714,7 +720,7 @@ def build(s, env):
         "per workout are rejected.",
     ])
     s.sub("Zwift .zwo files – what is converted")
-    s.table(["In the .zwo file", "In Artilody Watts Trainer"], [
+    s.table(["In the .zwo file", "In Artilody Multisport Endurance Trainer"], [
         [C("Warmup") + ", " + C("Cooldown") + ", " + C("Ramp"), "Warm Up, Cool Down and Ramp blocks (start "
          "and end power)."],
         [C("SteadyState"), "A steady block; depending on its intensity it becomes a Recovery, Steady or "
@@ -729,7 +735,7 @@ def build(s, env):
     ], [2.2, 3.6])
     s.note("A .zwo file cannot store everything: <b>RPE settings</b> of a block are not exported (the RPE "
            "zone is derived from the intensity again after import), and Steady, Interval and Recovery blocks "
-           "are all written as <i>SteadyState</i>. Use .awt when sharing with other Artilody Watts Trainer "
+           "are all written as <i>SteadyState</i>. Use .awt when sharing with other Artilody Multisport Endurance Trainer "
            "users to keep every detail.")
 
     s.section("Ride mode: ERG or Free Ride")
@@ -762,7 +768,7 @@ def build(s, env):
     s.table(["Card", "Shows"], [
         [UI("Power"), "Current power in watts. The bar is coloured by your current power zone. Footer: the "
                       "target power and your deviation from it (e.g. <i>+2 W</i>). The small <b>3 s avg</b> badge "
-                      "shows that the value is the rolling 3-second average (section 15.2); click it to switch "
+                      "shows that the value is the rolling 3-second average (section 16.2); click it to switch "
                       "to the raw trainer value (<i>Instant</i>) and back."],
         [UI("Cadence"), "Current cadence in RPM. Footer: the target range ±5 RPM around the interval's cadence, "
                         "or around your preferred cadence if the interval has none."],
@@ -798,7 +804,7 @@ def build(s, env):
         "Free Ride). The text below explains the current mode.",
         f"{UI('Controls')} – {UI('Start')} / {UI('Pause')} / {UI('Resume')} and "
         f"{UI('Stop')}.",
-        f"{UI('Music Player')} – see chapter 14.",
+        f"{UI('Music Player')} – see chapter 15.",
     ])
 
     s.section("Pause, resume and stop")
@@ -1102,7 +1108,7 @@ def build(s, env):
         f"{C('ride-YYYYMMDD-HHMM-&lt;workout&gt;.fit')}; files with the same name in that folder are replaced. "
         "A message reports how many files were written. Most platforms accept several files in one upload.")
     s.note("The FIT files are written by an independent encoder that is part of this app. FIT is a file format "
-           "by Garmin; Artilody Watts Trainer is not affiliated with or endorsed by Garmin, Strava, "
+           "by Garmin; Artilody Multisport Endurance Trainer is not affiliated with or endorsed by Garmin, Strava, "
            "TrainingPeaks or intervals.icu.")
 
     s.section("Exporting CSV")
@@ -1434,8 +1440,9 @@ def build(s, env):
            "in proportion to the cube root of the power (on an air-braked rower the speed grows with the cube "
            "root of the power), and it ends exactly at the distance rowed."),
 
-    s.section("Sport type: cycling and rowing workouts")
-    s.p("Every workout has a sport – <b>Cycling</b> or <b>Rowing</b>:")
+    s.section("Sport type: cycling, rowing and running workouts")
+    s.p("Every workout has a sport – <b>Cycling</b>, <b>Rowing</b> or <b>Running</b> (running workouts: "
+        "chapter 14):")
     s.bullets([
         f"<b>Workouts page:</b> cards show a Cycling or Rowing badge, and the filter {UI('All sports')} / "
         f"{UI('Cycling')} / {UI('Rowing')} at the top limits the library to one sport. For a rowing workout "
@@ -1483,7 +1490,7 @@ def build(s, env):
     s.section("The page")
     s.bullets([
         "<b>Metric tiles</b> – power (with the ERG target or the power the current gear needs; the <b>3 s</b> "
-        "badge shows the rolling average and toggles it, section 15.2), speed (average), "
+        "badge shows the rolling average and toggles it, section 16.2), speed (average), "
         "cadence (current gear), heart rate (% of max), time (average power; for a Free Ride started from the "
         "calendar with a planned duration: <i>Planned 60 min • 23:10 left (61 %)</i>, a target only) and distance "
         "(energy in kJ).",
@@ -1766,9 +1773,12 @@ def build(s, env):
         "when you start part-way along the route) and a red FINISH arch at the end. The START arch is shown "
         "until you have ridden through it, then the FINISH arch – on a loop, where both stand at the same "
         "place, you start under green and finish under red.",
-        "<b>The rider is you</b>: the rider's legs turn at your real cadence (the value in the Cadence tile); "
-        "they stand still when you stop pedaling, have no cadence or pause, while the wheels roll on with "
-        "your speed.",
+        "<b>The rider is you</b>: a 3D cyclist in a blue jersey, black bib shorts and a red helmet. His feet "
+        "follow the pedals at your real cadence (the value in the Cadence tile) and stand still when you stop "
+        "pedaling, have no cadence or pause, while the wheels roll on with your speed. He rocks gently from "
+        "side to side with the pedal stroke – a little more on climbs steeper than 6 %.",
+        "<b>After the finish</b>: on a point-to-point route the road runs on about 50 m past the FINISH arch "
+        "(drawn only – the ride ends at the arch).",
         "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
         "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
         "the page says why the 3D view is not available – the route can still be ridden with the profile.",
@@ -1777,6 +1787,66 @@ def build(s, env):
     ])
     s.note("GPX Rides cannot be planned in the calendar yet; only one ride (workout, row, Free Ride, Video Ride "
            "or GPX Ride) runs at a time.")
+
+    # =====================================================================
+    s.chapter("Treadmill Run",
+              lead="Run on your treadmill through the same 3D world as the GPX Ride – a GPX route or the built-in "
+                   "Artilody Lakeside 10K – with running workouts based on your anaerobic threshold (AnT).")
+    s.figure(SHOTS / "treadmill-run.png",
+             "The Treadmill Run page during a threshold workout on the Lakeside 10K: speed, pace, incline, heart "
+             "rate and time at the top, the 3D view with the runner, the workout's targets and the route, and "
+             "on the right the treadmill, your AnT and the running workouts.")
+    s.section("Connecting a treadmill")
+    s.p(f"Treadmills appear on the Devices page under {UI('Treadmills')}. Any treadmill that sends the standard "
+        "Bluetooth <b>FTMS Treadmill Data</b> works – most current connected treadmills and many walking pads. "
+        f"The {UI('Virtual Treadmill')} lets you try everything without one; its speed follows the workout.")
+    s.note("The app only <b>reads</b> the treadmill (speed, incline, distance). It never changes the belt speed or "
+           "the incline – you always set them on the treadmill itself. Workout targets are suggestions.")
+    s.section("The page")
+    s.bullets([
+        f"<b>Route</b>: with {UI('GPX')} switched off you run the built-in <i>Artilody Lakeside 10K</i>, a "
+        "10 km loop with 11 corners, lap after lap. Switch GPX on to run any route from your GPX folder "
+        "(the same library as the GPX Ride).",
+        "<b>Metrics</b>: speed (km/h), pace (/km), incline, heart rate and time, plus distance, laps and "
+        "energy. The 3D road follows the treadmill's speed; the route's own gradient is shown next to the "
+        "treadmill's incline.",
+        "<b>The runner</b>: a 3D figure that walks below your walk → run speed and runs above it (Profile → "
+        f"{UI('Walk → Run')}), with contact shadows under the feet.",
+        f"<b>Start / Pause / Finish</b>: you press {UI('Start')}; the belt alone never starts a run. "
+        "Finished runs are saved to History.",
+    ])
+    s.section("Anaerobic threshold (AnT)")
+    s.p("Running workouts are based on your <b>AnT</b> – the fastest speed you can hold for about an hour. "
+        "Until you have a value, 12.0 km/h is used. The running zones are:")
+    s.table(["Zone", "% of AnT"], [
+        ["Z1 Recovery", "below 78 %"], ["Z2 Endurance", "78 – 88 %"], ["Z3 Tempo", "88 – 95 %"],
+        ["Z4 Threshold", "95 – 100 %"], ["Z5 VO2 max", "100 – 106 %"], ["Z6 Anaerobic", "above 106 %"],
+    ], [1.6, 1.6])
+    s.p(f"{UI('Run AnT Test')} loads the built-in test: 10 min warm-up, 30 min at the fastest <i>even</i> pace "
+        "you can hold, 5 min cool-down. Your new AnT is the average speed (and heart rate) of the last 20 "
+        f"minutes of the test; the result dialog lets you save it. {UI('Zones &amp; History')} shows all tests, "
+        "lets you enter an AnT by hand and sets how often the app reminds you to test again (2 – 26 weeks).")
+    s.section("Running workouts")
+    s.figure(SHOTS / "builder-running.png",
+             "A running workout in the Workout Builder: speeds in % of AnT (or km/h) with a suggested incline "
+             "per block.")
+    s.bullets([
+        f"<b>Workouts page</b>: the {UI('Running')} filter shows the running workouts (eight built-in plus "
+        f"the AnT test and your own). {UI('Run Workout')} opens the selected one on the Treadmill Run page.",
+        f"<b>Builder</b>: {UI('New running workout')} or the {UI('Running')} sport selector. Targets are "
+        "% of AnT – typing a value below 30 (or with a decimal point) enters km/h instead. Every block has a "
+        f"suggested {UI('Incline')} instead of a cadence; the chart shows km/h or % AnT.",
+        "<b>Calendar</b>: plan running workouts like any other; <i>Run</i> opens them on the treadmill page "
+        "and a completed run ticks the entry off.",
+        f"<b>Sharing</b>: {C('.awt')} files keep the sport and the incline; Zwift {C('.zwo')} files are written "
+        "and read as <i>run</i> workouts (% of threshold pace; no incline).",
+        "<b>During the run</b>: the strip under the 3D view shows the current block, the target speed and "
+        "incline and the belt's difference to the target.",
+    ])
+    s.section("Runs in History and export")
+    s.p("Runs show speed, pace, incline, distance and heart rate in History. FIT export writes them as "
+        "<i>running</i> activities with the sub-sport <i>treadmill</i>; the cadence is written as strides per "
+        "minute. CSV export works as for rides.")
 
     # =====================================================================
     s.chapter("Music player",
@@ -1822,7 +1892,7 @@ def build(s, env):
         f"{UI('Show virtual devices')} and {UI('Auto-connect known devices')} – same as in Connection "
         "Preferences on the Devices page.",
         f"{UI('Smooth power')} – shows cycling watts as a rolling average (on by default, 3 s) and the length "
-        "of the average: 1, 3, 5 or 10 s (section 15.2).",
+        "of the average: 1, 3, 5 or 10 s (section 16.2).",
         f"{UI('Diagnostic log')} (on by default) – writes a trace log file automatically: the logs folder "
         "(selectable text), an scp command to fetch the logs from a Raspberry Pi, "
         f"{UI('Open logs folder')} and {UI('Export logs…')} (copies all log files to a folder you choose, "
@@ -1875,7 +1945,7 @@ def build(s, env):
     s.tip("You can move your complete training history to a new computer the same way. Music files and "
           "avatar pictures are referenced by path and must be copied separately.")
     s.section("Offline and privacy")
-    s.p("Artilody Watts Trainer runs fully offline: no account, no cloud, no telemetry or analytics. "
+    s.p("Artilody Multisport Endurance Trainer runs fully offline: no account, no cloud, no telemetry or analytics. "
         "The app only talks to your Bluetooth devices. Your data leaves your computer only when you export a "
         "ride (FIT or CSV) or a workout, or copy the database yourself – the app never uploads anything.")
 
@@ -1960,7 +2030,7 @@ def build(s, env):
          "FTP."),
         ("macOS says the app cannot be opened or is damaged.",
          "Right-click the app → Open → Open. If that does not help, run "
-         + C('xattr -cr "/Applications/Artilody Watts Trainer.app"') + " in Terminal (section 2.2)."),
+         + C('xattr -cr "/Applications/Artilody Multisport Endurance Trainer.app"') + " in Terminal (section 2.2)."),
         ("Windows shows “Windows protected your PC”.",
          "The app is not code-signed yet. Click More info → Run anyway."),
         ("Raspberry Pi: the UI is slow or too small.",
@@ -2112,7 +2182,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.4.1",
+  "app": "Artilody Multisport Endurance Trainer 1.5.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -2157,7 +2227,7 @@ def build(s, env):
         "workout object or a plain list of workouts.")
 
     s.chapter("License & credits", appendix=True)
-    s.p("Artilody Watts Trainer is free software: you can redistribute it and/or modify it under the terms of "
+    s.p("Artilody Multisport Endurance Trainer is free software: you can redistribute it and/or modify it under the terms of "
         "the <b>GNU General Public License version 3</b> (GPL-3.0) as published by the Free Software "
         "Foundation. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without "
         "even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the "
@@ -2173,6 +2243,6 @@ def build(s, env):
     s.p(f"Source code, releases and issue tracker: {L(REPO)}")
     s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")
     s.spacer(10)
-    s.p(f'<font color="#5b6485">This manual describes Artilody Watts Trainer version {V} (October 2026). '
+    s.p(f'<font color="#5b6485">This manual describes Artilody Multisport Endurance Trainer version {V} (October 2026). '
         "Screenshots show the app with the virtual trainer, heart-rate sensor and rower and demo data; the profile dialog "
         "illustration is a design mockup.</font>")

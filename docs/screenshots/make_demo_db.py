@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Populate an Artilody Watts Trainer database with realistic demo rides.
+"""Populate an Artilody Multisport Endurance Trainer database with realistic demo rides.
 
 Used to produce the documentation screenshots in this folder. Only the Python 3
 standard library is needed. Output is deterministic (fixed random seed); ride
@@ -10,7 +10,7 @@ Usage:
     #    (screenshot mode runs headless and quits by itself):
     QT_QPA_PLATFORM=offscreen WATT_DB_PATH=/tmp/watt-demo.sqlite \
         WATT_SCREENSHOT_DIR=/tmp/wshot-init WATT_SCREENSHOT_STEP_MS=700 \
-        "<build>/src/app/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"
+        "<build>/src/app/Artilody Multisport Endurance Trainer.app/Contents/MacOS/Artilody Multisport Endurance Trainer"
 
     # 2. Insert 16 rides + 7 rows over the last 30 days, three rowing workouts,
     #    rowing personal bests and a training plan (calendar) around today with

@@ -93,10 +93,12 @@ private slots:
             db.seedDefaults();
             QCOMPARE(db.profiles().first().rowingFtp, 150);
             for (const Workout &w : db.workouts())
-                QCOMPARE(w.sport, QStringLiteral("cycling"));
+                QVERIFY(w.sport == QStringLiteral("cycling") || w.sport == QStringLiteral("running"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 5);
+        QCOMPARE(Database::kSchemaVersion, 7);
+        QVERIFY(columns(path, QStringLiteral("run_workouts")).isEmpty());   // v7: running workouts live in workouts
+        QVERIFY(columns(path, QStringLiteral("ant_tests")).contains(QStringLiteral("speed_kmh")));
         for (const char *c : { "kind", "route_path", "route_name", "planned_duration_sec", "options" })
             QVERIFY(columns(path, QStringLiteral("planned_workouts")).contains(QString::fromLatin1(c)));
         QVERIFY(columns(path, QStringLiteral("profiles")).contains(QStringLiteral("gear_setup")));
@@ -151,7 +153,8 @@ private slots:
             QCOMPARE(db.playlistTracks(1).size(), 1);
             QCOMPARE(db.setting(QStringLiteral("currentProfile")).toInt(), 1);
             // seeding must not duplicate the library of an existing user
-            QCOMPARE(db.workouts().size(), 1 + 1);   // + restored built-in FTP test
+            // + restored built-in FTP test + the running workouts (new in v7)
+            QCOMPARE(db.workouts().size(), 1 + 1 + RunWorkout::builtInLibrary().size());
 
             // new columns/tables are writable
             Profile changed = *p;
@@ -240,7 +243,7 @@ private slots:
             QCOMPARE(db.plannedWorkouts(1, {}, {}).size(), 1);
             QVERIFY(db.bestRowingRecord(1, 2000));
             QCOMPARE(db.playlistTracks(1).size(), 1);
-            QCOMPARE(db.workouts().size(), 2);
+            QCOMPARE(db.workouts().size(), 2 + RunWorkout::builtInLibrary().size());   // + running (v7)
             // the new columns work
             QVERIFY(db.gearSetupJson(1).isEmpty());
             QVERIFY(db.setGearSetupJson(1, QStringLiteral("{\"chainrings\":[42]}")));
@@ -364,7 +367,7 @@ private slots:
         {
             Database db;
             QVERIFY(db.open(path));
-            QCOMPARE(pragmaVersion(path), 5);
+            QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
             // existing entries: same ids, order, completion, ride link, notes; kind workout
             QVector<PlannedWorkout> all = db.plannedWorkouts(1, {}, {});
             QCOMPARE(all.size(), 3);
@@ -551,8 +554,10 @@ private slots:
         QCOMPARE(lib.get(id).value(QStringLiteral("sport")).toString(), QStringLiteral("rowing"));
         lib.setSportFilter(QStringLiteral("cycling"));
         QCOMPARE(lib.rowCount(), Workout::builtInLibrary().size());
+        lib.setSportFilter(QStringLiteral("running"));
+        QCOMPARE(lib.rowCount(), RunWorkout::builtInLibrary().size());
         lib.setSportFilter(QStringLiteral("all"));
-        QCOMPARE(lib.rowCount(), Workout::builtInLibrary().size() + 1);
+        QCOMPARE(lib.rowCount(), Workout::builtInLibrary().size() + RunWorkout::builtInLibrary().size() + 1);
     }
 };
 

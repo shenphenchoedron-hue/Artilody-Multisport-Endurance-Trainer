@@ -3,21 +3,21 @@
 # Trainer (GPL-3.0) into the shared/ folder of a standalone creator checkout
 # (https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator).
 #
-#   tools/sync_shared.sh <creator checkout> [Artilody Watts Trainer checkout]
+#   tools/sync_shared.sh <creator checkout> [Artilody Multisport Endurance Trainer checkout]
 #
 # The second argument defaults to the repository this script lives in when it
-# is run from "Artilody Workout Creator/tools" inside Artilody Watts Trainer.
+# is run from "Artilody Workout Creator/tools" inside Artilody Multisport Endurance Trainer.
 # Only the files the creator actually compiles/bundles are copied, keeping the
 # same relative layout (shared/src/core/..., shared/qml/...). Afterwards the
 # target's CMake picks them up automatically (ARTILODY_SHARED_DIR).
 set -euo pipefail
 
-TARGET="${1:?usage: sync_shared.sh <creator checkout> [Artilody Watts Trainer checkout]}"
+TARGET="${1:?usage: sync_shared.sh <creator checkout> [Artilody Multisport Endurance Trainer checkout]}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE="${2:-$(cd "$HERE/.." && pwd)}"
 
 if [ ! -f "$SOURCE/src/core/WorkoutIO.h" ]; then
-    echo "error: $SOURCE is not an Artilody Watts Trainer checkout (src/core/WorkoutIO.h missing)" >&2
+    echo "error: $SOURCE is not an Artilody Multisport Endurance Trainer checkout (src/core/WorkoutIO.h missing)" >&2
     exit 1
 fi
 if [ ! -f "$TARGET/CMakeLists.txt" ] || ! grep -q ArtilodyWorkoutCreator "$TARGET/CMakeLists.txt"; then
@@ -71,21 +71,21 @@ done
 
 REV="$(git -C "$SOURCE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 cat > "$DEST/README.md" <<NOTE
-# Shared code from Artilody Watts Trainer
+# Shared code from Artilody Multisport Endurance Trainer
 
 The files in this folder are copied unchanged from
-[Artilody Watts Trainer](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer)
+[Artilody Multisport Endurance Trainer](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer)
 (GPL-3.0), so that the Workout Creator edits workouts with exactly the same
 Builder and writes exactly the same \`.awt\` / \`.zwo\` files as the app.
 
-**Do not edit them here.** Change them in Artilody Watts Trainer and refresh
+**Do not edit them here.** Change them in Artilody Multisport Endurance Trainer and refresh
 this folder with:
 
 \`\`\`sh
-tools/sync_shared.sh <this checkout> <Artilody Watts Trainer checkout>
+tools/sync_shared.sh <this checkout> <Artilody Multisport Endurance Trainer checkout>
 \`\`\`
 
-Synced from Artilody Watts Trainer commit \`$REV\`.
+Synced from Artilody Multisport Endurance Trainer commit \`$REV\`.
 NOTE
 
 echo "Copied ${#FILES[@]} shared files from $SOURCE ($REV) to $DEST"

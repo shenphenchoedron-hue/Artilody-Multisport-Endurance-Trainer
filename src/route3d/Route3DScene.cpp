@@ -1,5 +1,8 @@
 #include "Route3DScene.h"
 
+#include <QFile>
+#include <map>
+
 #include "materials.h"
 #include "settlement.h"
 
@@ -362,6 +365,74 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
     m_ghostIndexSource = nullptr;
 }
 
+namespace {
+std::shared_ptr<const route3d::GlbModel> loadModel(const char *env, const QString &resource, const char *what,
+                                                   route3d::GlbModel::Outfit outfit = route3d::GlbModel::Outfit::Runner)
+{
+    const QString override = qEnvironmentVariable(env);
+    // <env>=procedural: the built-in figure
+    if (override == QLatin1String("procedural"))
+        return {};
+    const QString path = override.isEmpty() ? resource : override;
+    if (!QFile::exists(path))
+        return {};
+    auto m = std::make_shared<route3d::GlbModel>();
+    QString error;
+    if (!m->loadFile(path, &error, outfit)) {
+        qWarning("Route3D: %s model %s not used: %s", what, qPrintable(path), qPrintable(error));
+        return {};
+    }
+    return m;
+}
+} // namespace
+
+// The runner figure: the skinned, animated runner.glb (Qt resource
+// :/models/runner.glb, or WATT_RUNNER_GLB=<file>) when it loads, else the
+// procedural runner. Loaded once per process.
+std::shared_ptr<const route3d::GlbModel> runnerModel()
+{
+    static const std::shared_ptr<const route3d::GlbModel> model =
+        loadModel("WATT_RUNNER_GLB", QStringLiteral(":/models/runner.glb"), "runner");
+    return model;
+}
+
+// The same figure walking (walker.glb: :/models/walker.glb, or
+// WATT_WALKER_GLB=<file>); optional, used at walking speeds.
+std::shared_ptr<const route3d::GlbModel> walkerModel()
+{
+    static const std::shared_ptr<const route3d::GlbModel> model =
+        loadModel("WATT_WALKER_GLB", QStringLiteral(":/models/walker.glb"), "walker");
+    return model;
+}
+
+// The cyclist: the skinned rider.glb (:/models/rider.glb, or
+// WATT_RIDER_GLB=<file>, =procedural for the built-in rider) posed on the bike
+// (GlbModel::poseOnBike); else the procedural rider. Loaded once per process.
+std::shared_ptr<const route3d::GlbModel> riderModel()
+{
+    static const std::shared_ptr<const route3d::GlbModel> model = [] {
+        auto m = loadModel("WATT_RIDER_GLB", QStringLiteral(":/models/rider.glb"), "rider",
+                           route3d::GlbModel::Outfit::Cyclist);
+        if (m && !m->canRide()) {
+            qWarning("Route3D: rider.glb lacks the joints needed on the bike (Mixamo skeleton) - not used");
+            m.reset();
+        }
+        return m;
+    }();
+    return model;
+}
+
+void Route3DScene::setRunner(bool on)
+{
+    m_runner = on;
+    if (on && !m_runnerModelTried) {
+        m_runnerModelTried = true;
+        m_runnerFigure.setModel(runnerModel());
+        if (auto walk = walkerModel(); walk && !m_runnerFigure.setWalkModel(walk))
+            qWarning("Route3D: walker.glb is not the same figure (mesh) as runner.glb - not used");
+    }
+}
+
 void Route3DScene::setStartDistance(double drawnMetres)
 {
     if (drawnMetres == m_startDistance)
@@ -461,7 +532,7 @@ void Route3DScene::drawGates(double distance)
         // it), FINISH just before the end (you finish under it)
         arch(m_gateVertices, startGate(length), false);
         m_startGateCount = int(m_gateVertices.size());
-        arch(m_gateVertices, std::max(0.0, length - 1.0), true);
+        arch(m_gateVertices, std::max(0.0, m_route->finish() - 1.0), true);
         m_gateBuffer.bind();
         m_gateBuffer.allocate(m_gateVertices.data(), int(m_gateVertices.size() * sizeof(Vertex)));
         m_gatesDirty = false;
@@ -1070,6 +1141,12 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     glDrawArrays(GL_TRIANGLES, 0, int(m_ring.size()));
     m_shader.setUniformValue("offset", QVector3D());
     // 4. Soft contact shadows (blended, no depth writes) and the rider.
+    if (!m_runner && !m_riderModelTried) {
+        m_riderModelTried = true;
+        m_ghost.setRiderModel(riderModel());
+    }
+    const auto &body = m_runner ? m_runnerFigure.build(route, distance, speedKmh, crank)
+                                : m_ghost.build(route, distance, speedKmh, crank);
     std::vector<Vertex> ghostVertices;
     {
         auto pose = ghostPose(route, distance, speedKmh);
@@ -1082,8 +1159,39 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
             return float(route.at(along + QVector3D::dotProduct(q - QVector3D(float(pose.center.x), 0, float(pose.center.z)), fwd)).y) + .06f;
         };
         QVector3D c(float(pose.center.x), 0, float(pose.center.z));
-        c += QVector3D(-m_sun.x(), 0, -m_sun.z()).normalized() * .35f;
-        shadowDisc(ghostVertices, c, fwd, .38f, 1.0f, .45f, roadHeight);
+        // a soft shadow of the body, only a little towards the sun's side
+        // (further out it no longer touches the wheels / feet: they look as
+        // if they float)
+        const QVector3D centre = c;
+        c += QVector3D(-m_sun.x(), 0, -m_sun.z()).normalized() * .12f;
+        shadowDisc(ghostVertices, c, fwd, m_runner ? .30f : .34f, m_runner ? .45f : .85f, .34f, roadHeight);
+        // dark contact spots where the figure touches the road: the tyres'
+        // contact patches, each foot while it is down (fading as it lifts)
+        const QVector3D right(-fwd.z(), 0, fwd.x());
+        auto surface = [&](const QVector3D &q) { return roadHeight(q) - .06f + .025f; };   // asphalt top
+        struct Spot { QVector3D sum; int n = 0; float lowest = 1e9f; };
+        std::map<std::pair<int, int>, Spot> spots;
+        constexpr float kReach = .10f;   // a spot fades out over this height
+        for (const auto &g : body) {
+            const float h = g.position.y() - surface(g.position);
+            if (h > kReach)
+                continue;
+            const QVector3D d = g.position - centre;
+            const auto key = std::make_pair(int(std::floor(QVector3D::dotProduct(d, right) / .14f)),
+                                            int(std::floor(QVector3D::dotProduct(d, fwd) / .35f)));
+            Spot &s = spots[key];
+            s.sum += g.position;
+            ++s.n;
+            s.lowest = std::min(s.lowest, h);
+        }
+        for (const auto &[key, s] : spots) {
+            if (s.n < 3)
+                continue;
+            const float strength = .62f * std::clamp(1.f - std::max(0.f, s.lowest) / kReach, 0.f, 1.f);
+            if (strength > .02f)
+                shadowDisc(ghostVertices, s.sum / float(s.n), fwd, m_runner ? .07f : .045f, m_runner ? .14f : .13f,
+                           strength, roadHeight);
+        }
     }
     const size_t ghostShadowCount = ghostVertices.size();
     glEnable(GL_BLEND);
@@ -1097,7 +1205,6 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         attributes();
         glDrawArrays(GL_TRIANGLES, m_meshCount, m_decalCount);
     }
-    const auto &body = m_ghost.build(route, distance, speedKmh, crank);
     ghostVertices.reserve(ghostVertices.size() + body.size());
     for (const auto &g : body)
         ghostVertices.push_back({ g.position.x(), g.position.y(), g.position.z(), g.color.x(), g.color.y(), g.color.z(),
@@ -1107,7 +1214,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     attributes();
     glDrawArrays(GL_TRIANGLES, 0, int(ghostShadowCount));
     // Body indices are static per model; re-upload only when the mesh layout changes.
-    const auto &bodyIndex = m_ghost.indices();
+    const auto &bodyIndex = m_runner ? m_runnerFigure.indices() : m_ghost.indices();
     if (m_ghostIndexShadow != ghostShadowCount || m_ghostIndexSource != bodyIndex.data()
         || m_ghostIndices.size() != bodyIndex.size()) {
         m_ghostIndices.resize(bodyIndex.size());

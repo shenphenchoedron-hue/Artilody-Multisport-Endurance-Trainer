@@ -13,14 +13,15 @@
 namespace watt {
 
 class RlvRoute;
-class RlvSession;
+class RouteProgressSource;
 
 // The 3D view of the GPX Ride page (QML type "Route3DView", Artilody.Backend):
 // the Route3D prototype's world drawn along the session's route.
 //
 //   Route3DView { session: Gpx }
 //
-// The session (RlvSession, Kind::Gpx) is the only source of truth: its route,
+// The session (RlvSession, Kind::Gpx, or the Treadmill Run's RunSession: any
+// QObject implementing RouteProgressSource) is the only source of truth: its route,
 // distance and speed come from the app's physics; the view only follows
 // them. The track is the session's RlvRoute (smoothed elevation), projected
 // and smoothed for drawing by route3d::Route::fromGeo(), which also reports
@@ -70,6 +71,9 @@ public:
     double frameSpeedKmh() const { return m_speedKmh; }
     double frameCrank() const { return m_crank; }
     double frameStartDistance() const { return m_startDrawn; }
+    bool frameRunner() const { return m_runner; }
+    // (read live: the profile's setting may change during a run)
+    double frameWalkRunKmh() const;
     float frameTime() const { return float(m_clock.elapsed() / 1000.0); }
     void setRendererError(const QString &error);
 
@@ -95,15 +99,19 @@ signals:
 protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
-private:
+private slots:
     void rebuildRoute();
     void onPosition();
+
+private:
     void onFrame();
     void updateTimer();
     void checkSupported();
 
-    QPointer<QObject> m_sessionObject;   // the RlvSession (QObject: forward declared)
-    RlvSession *m_session = nullptr;     // valid while m_sessionObject is
+    QPointer<QObject> m_sessionObject;   // the session (RlvSession / RunSession)
+    RouteProgressSource *m_session = nullptr;   // valid while m_sessionObject is
+    bool m_runner = false;               // draw a runner (Treadmill Run) instead of the cyclist
+    double m_walkRunKmh = 6.25;          // runner: the athlete's walk -> run speed
     Built m_built;
     std::shared_ptr<const route3d::Route> m_route;
     quint64 m_routeVersion = 0;

@@ -4,7 +4,7 @@ import QtQuick.Dialogs
 import Artilody.Backend
 
 // Artilody Workout Creator: file library (left) + the Workout Builder page
-// shared with Artilody Watts Trainer (right).
+// shared with Artilody Multisport Endurance Trainer (right).
 ApplicationWindow {
     id: window
 
@@ -113,6 +113,7 @@ ApplicationWindow {
     // --- keyboard shortcuts ------------------------------------------------------
     Shortcut { sequences: [StandardKey.New]; enabled: !window.anyDialogOpen; onActivated: window.newWorkout("cycling") }
     Shortcut { sequence: "Ctrl+Shift+N"; enabled: !window.anyDialogOpen; onActivated: window.newWorkout("rowing") }
+    Shortcut { sequence: "Ctrl+Alt+N"; enabled: !window.anyDialogOpen; onActivated: window.newWorkout("running") }
     Shortcut { sequences: [StandardKey.Open]; enabled: !window.anyDialogOpen; onActivated: window.openFileDialog() }
     Shortcut { sequences: [StandardKey.Save]; enabled: !window.anyDialogOpen; onActivated: window.saveCurrent() }
     Shortcut { sequence: "Ctrl+Shift+S"; enabled: !window.anyDialogOpen; onActivated: window.saveAsDialog() }
@@ -193,7 +194,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 showExport: true
                 pageSubtitle: {
-                    var sport = Builder.sport === "rowing" ? "Rowing workout" : "Cycling workout"
+                    var sport = Theme.sportName(Builder.sport) + " workout"
                     if (Library.currentPath.length === 0)
                         return sport + "  ·  not saved yet"
                     var f = Library.currentFileName

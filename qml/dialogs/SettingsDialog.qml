@@ -188,7 +188,7 @@ AppDialog {
             }
         }
         Text {
-            text: "Artilody Watts Trainer " + appVersion
+            text: "Artilody Multisport Endurance Trainer " + appVersion
             color: Theme.textMuted
             font.pixelSize: 13
         }

@@ -42,7 +42,7 @@ AppDialog {
                 Text { text: "Bring workouts in"; color: Theme.text; font.pixelSize: 16; font.weight: Font.DemiBold }
                 Text {
                     width: parent.width
-                    text: "Import .zwo files from Zwift or .awt files exported by Artilody Watts Trainer "
+                    text: "Import .zwo files from Zwift or .awt files exported by Artilody Multisport Endurance Trainer "
                           + "(Workouts → Export) to edit them here. Files with several workouts are split into one file each."
                     color: Theme.textSecondary
                     font.pixelSize: 15

@@ -740,4 +740,69 @@ void SimulatedRower::step(double dt)
     commitMeasurement();
 }
 
+// ---------------------------------------------------------------------------
+
+SimulatedTreadmill::SimulatedTreadmill(QObject *parent)
+    : TreadmillDevice(parent)
+{
+    m_timer.setInterval(250);
+    connect(&m_timer, &QTimer::timeout, this, [this] { step(0.25); });
+}
+
+void SimulatedTreadmill::connectDevice()
+{
+    if (state() != LinkState::Disconnected)
+        return;
+    setState(LinkState::Connecting);
+    QTimer::singleShot(600, this, [this] {
+        if (state() != LinkState::Connecting)
+            return;
+        setRssi(-50);
+        setState(LinkState::Connected);
+        emit logMessage(QStringLiteral("Treadmill connected (%1) – reading speed and incline only").arg(name()), true);
+        m_timer.start();
+    });
+}
+
+void SimulatedTreadmill::disconnectDevice()
+{
+    m_timer.stop();
+    setState(LinkState::Disconnected);
+}
+
+void SimulatedTreadmill::suggest(double speedKmh, double inclinePercent)
+{
+    // <= 0: no workout target any more - the runner goes back to his own pace
+    m_suggested = speedKmh > 0;
+    if (m_suggested) {
+        m_wantSpeed = std::clamp(speedKmh, 1.0, 25.0);
+        m_wantIncline = std::clamp(inclinePercent, 0.0, 15.0);
+    }
+}
+
+void SimulatedTreadmill::setFreeSpeed(double kmh, double inclinePercent)
+{
+    m_freeSpeed = std::clamp(kmh, 0.0, 25.0);
+    m_freeIncline = std::clamp(inclinePercent, 0.0, 15.0);
+}
+
+void SimulatedTreadmill::step(double dt)
+{
+    m_t += dt;
+    const double wantSpeed = m_suggested ? m_wantSpeed : m_freeSpeed;
+    const double wantIncline = m_suggested ? m_wantIncline : m_freeIncline;
+    // the runner presses +/- about three times a second: 0.1 km/h, 0.5 % steps
+    const double maxSpeedStep = 1.2 * dt;
+    m_belt += std::clamp(wantSpeed - m_belt, -maxSpeedStep, maxSpeedStep);
+    if (std::abs(wantSpeed - m_belt) < 0.05)
+        m_belt = wantSpeed;
+    const double maxInclineStep = 2.0 * dt;
+    m_incline += std::clamp(wantIncline - m_incline, -maxInclineStep, maxInclineStep);
+    m_incline = std::round(m_incline * 2.0) / 2.0;
+    m_dist += m_belt / 3.6 * dt;
+    // a belt shows its set speed with tiny load-dependent wobble
+    const double shown = m_belt > 0.2 ? std::round((m_belt + noise(0.03)) * 100.0) / 100.0 : 0.0;
+    applyMeasurement(std::max(0.0, shown), m_incline, true, m_dist, 0);
+}
+
 } // namespace watt

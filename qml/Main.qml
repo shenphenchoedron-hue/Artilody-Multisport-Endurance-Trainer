@@ -17,11 +17,11 @@ ApplicationWindow {
     minimumWidth: 800
     minimumHeight: 480
     visible: true
-    title: "Artilody Watts Trainer"
+    title: "Artilody Multisport Endurance Trainer"
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "freeride", "video", "gpx", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -75,6 +75,7 @@ ApplicationWindow {
                                           || rowingFinishDialog.visible || ftpResultDialog.visible
                                           || freeRideFinishDialog.visible || gearSetupDialog.visible
                                           || videoFinishDialog.visible || gpxFinishDialog.visible
+                                          || runFinishDialog.visible || antResultDialog.visible
 
     // Developer aid: start with "--light" to open in the light theme (screenshots).
     Component.onCompleted: if (Qt.application.arguments.indexOf("--light") >= 0) Theme.dark = false
@@ -218,6 +219,12 @@ ApplicationWindow {
                 GpxRidePage {
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: gpxFinishDialog.open()
+                }
+                TreadmillPage {
+                    id: treadmillPage
+                    onOpenDevices: window.showPage("devices")
+                    onRequestFinish: runFinishDialog.open()
+                    onMessage: (text) => window.showToast(text)
                 }
                 RowingPage {
                     onOpenDevices: window.showPage("devices")
@@ -368,7 +375,35 @@ ApplicationWindow {
             }
         }
 
+        ConfirmDialog {
+            id: runFinishDialog
+            title: "Finish run?"
+            message: "Your run will be saved to History. Choose Discard to throw it away."
+            acceptText: "Save & Finish"
+            secondaryText: "Discard"
+            onAccepted: {
+                if (!Running.active)
+                    return
+                var id = Running.finish(true)
+                window.showToast(id >= 0 ? "Run saved – see History for the analysis" : "Run too short to save")
+            }
+            onSecondary: {
+                if (!Running.active)
+                    return
+                Running.discard()
+                window.showToast("Run discarded")
+            }
+        }
+
         GearSetupDialog { id: gearSetupDialog }
+
+        // AnT test result (Treadmill Run): above the other dialogs, the test
+        // block ends while the runner keeps going
+        AntResultDialog {
+            id: antResultDialog
+            z: 1001
+            onMessage: (text) => window.showToast(text)
+        }
 
         // Above every other dialog: a ride can finish while one is open.
         FtpResultDialog {
@@ -406,6 +441,9 @@ ApplicationWindow {
         }
         function onRowingWorkoutRefused(workoutId, name) {
             window.showToast("\"" + name + "\" is a rowing workout – start it on the Rowing page")
+        }
+        function onRunningWorkoutRefused(workoutId, name) {
+            window.showToast("\"" + name + "\" is a running workout – run it on the Treadmill Run page")
         }
     }
 
@@ -455,6 +493,24 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: Running
+        function onFinished() {
+            if (runFinishDialog.visible)
+                runFinishDialog.close()
+            if (Running.completed)
+                window.showToast(Running.lastRideId >= 0 ? (Running.hasWorkout ? "Workout complete – run saved to History"
+                                                                                : "Route complete – run saved to History")
+                                                         : "Run complete")
+        }
+        function onStartRefused(reason) {
+            window.showToast(reason)
+        }
+        function onAntTestCompleted(result) {
+            antResultDialog.openWith(result)
+        }
+    }
+
     // keyboard shortcuts for the trainer room. Space is an explicit Start /
     // Pause / Resume (like the page's button): sessions never start or resume
     // by pedaling or rowing.
@@ -462,6 +518,12 @@ ApplicationWindow {
         sequence: "Space"
         enabled: window.currentPage === "dashboard" && !window.anyDialogOpen
         onActivated: Training.togglePause()
+    }
+    Shortcut {
+        sequence: "Space"
+        enabled: window.currentPage === "treadmill" && !window.anyDialogOpen
+                 && (Running.active || Running.treadmillConnected)
+        onActivated: Running.togglePause()
     }
     Shortcut {
         sequence: "Space"

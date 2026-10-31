@@ -55,6 +55,19 @@ AppDialog {
         }
         RowLayout {
             spacing: 16
+            Label { text: "Running AnT" }
+            UnitSpinBox {
+                from: 5
+                to: 26
+                stepSize: 0.1
+                decimals: 1
+                unit: "km/h"
+                value: Settings.antSpeedKmh
+                onValueChanged: Settings.antSpeedKmh = value
+            }
+        }
+        RowLayout {
+            spacing: 16
             Label { text: "Default cadence" }
             UnitSpinBox {
                 from: 40
@@ -66,8 +79,8 @@ AppDialog {
         }
         Text {
             Layout.fillWidth: true
-            text: "Only used to show watts while you edit. Workout files store % of FTP, so on the training "
-                  + "computer they follow the rider's own FTP (or Rowing FTP)."
+            text: "Only used to show watts and speeds while you edit. Workout files store % of FTP (running: % of "
+                  + "the AnT speed), so on the training computer they follow the athlete's own FTP, Rowing FTP or AnT."
             color: Theme.textSecondary
             font.pixelSize: 14
             wrapMode: Text.WordWrap

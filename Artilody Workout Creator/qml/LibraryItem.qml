@@ -53,7 +53,7 @@ Rectangle {
         border.color: Qt.rgba(tint.r, tint.g, tint.b, 0.7)
         Icon {
             anchors.centerIn: parent
-            name: !model.valid ? "info" : (item.rowing ? "rowing" : "bike")
+            name: !model.valid ? "info" : Theme.sportIcon(model.sport)
             size: 19
             strokeWidth: 2
             color: model.valid ? sportDot.tint : Theme.danger

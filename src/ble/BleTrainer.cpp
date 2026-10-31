@@ -264,6 +264,14 @@ void BleTrainer::onServiceReady()
         emit rowerDetected();
         return;
     }
+    // A treadmill (Treadmill Data, no Indoor Bike Data): hand it to the
+    // read-only treadmill driver before anything is written to it.
+    if (m_link->hasCharacteristic(uuid16(ftms::kTreadmillDataUuid))
+        && !m_link->hasCharacteristic(uuid16(ftms::kIndoorBikeDataUuid))) {
+        emit logMessage(QStringLiteral("%1 is a treadmill, not a smart trainer – switching to the treadmill driver").arg(m_name), true);
+        emit treadmillDetected();
+        return;
+    }
     emit logMessage(QStringLiteral("FTMS service ready on %1").arg(m_name), true);
     {
         QStringList present;

@@ -15,6 +15,8 @@ CreatorBackend::CreatorBackend(CreatorSettings *settings, WorkoutFileLibrary *li
 
 int CreatorBackend::ftpFor(const QString &sport) const
 {
+    if (watt::sport::normalize(sport) == watt::sport::running())
+        return watt::running::speedUnits(m_settings->antSpeedKmh());   // AnT in 0.1 km/h
     return watt::ftpForSport(sport, m_settings->ftp(), m_settings->rowingFtp());
 }
 

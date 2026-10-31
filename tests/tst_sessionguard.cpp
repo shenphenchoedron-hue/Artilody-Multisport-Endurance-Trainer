@@ -13,6 +13,8 @@
 #include "RlvSession.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
+#include "RunLibrary.h"
+#include "RunSession.h"
 #include "SensorDevices.h"
 #include "SensorHub.h"
 #include "SessionGuard.h"
@@ -48,6 +50,17 @@ public:
     }
     void progress(double t, double d) { applyElapsed(t); applyDistance(d); commitMeasurement(); }
     int strokes = 0;
+};
+
+class FakeTreadmill : public TreadmillDevice
+{
+public:
+    QString id() const override { return QStringLiteral("tm"); }
+    QString name() const override { return QStringLiteral("Fake Treadmill"); }
+    QString protocol() const override { return QStringLiteral("test"); }
+    void connectDevice() override { setState(LinkState::Connected); }
+    void disconnectDevice() override { setState(LinkState::Disconnected); }
+    void belt(double kmh) { applyMeasurement(kmh, 1.0, true, -1, 0); }
 };
 
 // flat straight route north, 1 point per second at 8 m/s, with a dummy video
@@ -428,6 +441,48 @@ private slots:
 
     // a Zwift Click press on the Video Ride page goes to the video ride, not
     // to a free ride paused on its own page
+    // Treadmill Run: a run in progress blocks the other sessions and is
+    // blocked by them; endSession("run") ends it from another page.
+    void treadmillRunBlocksOtherSessions()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        RunLibrary lib(&f.db, f.profiles.get());
+        RunSession run(&f.db, f.profiles.get(), f.hub.get(), &lib);
+        run.setManualClock(true);
+        run.setMinimumSaveSeconds(5);
+        FakeTreadmill tm;
+        tm.connectDevice();
+        run.setTreadmill(&tm);
+        f.guard->setRunSession(&run);
+        QVERIFY(f.blockerKind(f.guard->runBlocker()).isEmpty());
+
+        tm.belt(10.0);
+        QVERIFY(run.start());
+        run.advanceClock(10000);
+        QCOMPARE(f.blockerKind(f.guard->videoBlocker()), QStringLiteral("run"));
+        QCOMPARE(f.blockerKind(f.guard->rowingBlocker()), QStringLiteral("run"));
+        QCOMPARE(f.guard->videoBlocker().value(QStringLiteral("page")).toString(), QStringLiteral("treadmill"));
+        QVERIFY(!f.rlv->start());
+        f.pedal();
+        f.training->start();
+        QVERIFY(!f.training->running());
+
+        // ended (saved) from another page
+        const qint64 id = f.guard->endSession(QStringLiteral("run"), true);
+        QVERIFY(id > 0);
+        QVERIFY(!run.active());
+        QVERIFY(f.blockerKind(f.guard->videoBlocker()).isEmpty());
+
+        // a free ride in progress blocks the run
+        f.rideFree(6000);
+        QCOMPARE(f.blockerKind(f.guard->runBlocker()), QStringLiteral("freeride"));
+        QVERIFY(!run.start());
+        f.freeRide->finish(false);
+        QVERIFY(run.start());
+        f.guard->setRunSession(nullptr);
+    }
+
     void controllerFollowsOpenPageWhilePaused()
     {
         Fixture f;

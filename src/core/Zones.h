@@ -30,6 +30,9 @@ struct ZoneSet
     bool isValid() const;                // strictly increasing, positive
     QJsonArray toJson() const;
     static ZoneSet fromJson(const QJsonArray &array);
+    // Running zones by % of the AnT speed (Z1 < 78 %, 78-88, 88-95, 95-100,
+    // 100-106, > 106 %); used for running workouts instead of the power zones.
+    static ZoneSet running() { ZoneSet z; z.upper = { 0.78, 0.88, 0.95, 1.00, 1.06 }; return z; }
 
     bool operator==(const ZoneSet &o) const { return upper == o.upper; }
 };

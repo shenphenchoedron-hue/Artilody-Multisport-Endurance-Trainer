@@ -17,7 +17,7 @@ namespace awc {
 // File based workout library of the Workout Creator: every .awt (and,
 // optionally, Zwift .zwo) file in the "Workouts folder" is one entry. No
 // database – the files are the library, so they can be copied to the training
-// computer (Artilody Watts Trainer → Workouts → Import) or to Zwift.
+// computer (Artilody Multisport Endurance Trainer → Workouts → Import) or to Zwift.
 //
 // Exposed to QML as "Library". The Builder (shared WorkoutBuilder) reads and
 // writes workouts through CreatorBackend, which forwards to workout() /

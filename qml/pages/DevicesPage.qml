@@ -11,6 +11,7 @@ Item {
     property bool trainersOpen: true
     property bool hrOpen: true
     property bool rowersOpen: true
+    property bool treadmillsOpen: true
     property bool othersOpen: true
     property bool controllersOpen: true
     // live Zwift Click buttons (Devices.controllerButtonsChanged), for testing
@@ -19,6 +20,7 @@ Item {
     readonly property var sectionTrainer: ({ title: "Smart Trainers", icon: "bike", kind: "trainer" })
     readonly property var sectionHr: ({ title: "Heart Rate Sensors", icon: "heart", kind: "hr" })
     readonly property var sectionRower: ({ title: "Rowers (Concept2 PM5)", icon: "rowing", kind: "rower" })
+    readonly property var sectionTreadmill: ({ title: "Treadmills (FTMS, read only)", icon: "treadmill", kind: "treadmill" })
     readonly property var sectionOther: ({ title: "Other Bluetooth devices", icon: "bluetooth", kind: "other" })
     readonly property var sectionController: ({ title: "Controllers (Zwift Click)", icon: "controller", kind: "controller" })
 
@@ -259,7 +261,7 @@ Item {
                     // A static model (sections keyed by kind): a model rebuilt on every
                     // connection change recreated all sections and closed their menus.
                     // The rower has two slots; only one of them is visible.
-                    model: [page.sectionRower, page.sectionTrainer, page.sectionRower,
+                    model: [page.sectionRower, page.sectionTrainer, page.sectionRower, page.sectionTreadmill,
                             page.sectionHr, page.sectionController, page.sectionOther]
                     Rectangle {
                         id: section
@@ -270,10 +272,12 @@ Item {
                         readonly property string kindName: modelData.kind
                         readonly property bool open: modelData.kind === "trainer" ? page.trainersOpen
                                                    : modelData.kind === "rower" ? page.rowersOpen
+                                                   : modelData.kind === "treadmill" ? page.treadmillsOpen
                                                    : modelData.kind === "other" ? page.othersOpen
                                                    : modelData.kind === "controller" ? page.controllersOpen : page.hrOpen
                         readonly property var listModel: modelData.kind === "trainer" ? Devices.trainers
                                                        : modelData.kind === "rower" ? Devices.rowers
+                                                       : modelData.kind === "treadmill" ? Devices.treadmills
                                                        : modelData.kind === "other" ? Devices.otherDevices
                                                        : modelData.kind === "controller" ? Devices.controllers : Devices.heartRateSensors
                         width: devCol.width
@@ -293,6 +297,7 @@ Item {
                                 size: 28
                                 color: modelData.kind === "hr" ? Theme.danger
                                      : modelData.kind === "rower" ? Theme.rowingColor
+                                     : modelData.kind === "treadmill" ? Theme.runningColor
                                      : modelData.kind === "controller" ? Theme.orange
                                      : modelData.kind === "other" ? Theme.textSecondary : Theme.accentLight
                                 anchors.verticalCenter: parent.verticalCenter
@@ -319,6 +324,8 @@ Item {
                                                                      ? (Devices.trainerState === 2 ? Devices.trainerName : "")
                                                                      : section.kindName === "rower"
                                                                        ? (Devices.rowerState === 2 ? Devices.rowerName : "")
+                                                                       : section.kindName === "treadmill"
+                                                                       ? (Devices.treadmillState === 2 ? Devices.treadmillName : "")
                                                                        : section.kindName === "controller"
                                                                          ? (Devices.controllerConnected
                                                                             ? (Devices.controllerCount > 1 ? Devices.controllerCount + " Zwift Click pods" : Devices.controllerName)
@@ -359,6 +366,8 @@ Item {
                                     page.trainersOpen = !page.trainersOpen
                                 else if (modelData.kind === "rower")
                                     page.rowersOpen = !page.rowersOpen
+                                else if (modelData.kind === "treadmill")
+                                    page.treadmillsOpen = !page.treadmillsOpen
                                 else if (modelData.kind === "other")
                                     page.othersOpen = !page.othersOpen
                                 else if (modelData.kind === "controller")
@@ -379,7 +388,8 @@ Item {
                                     x: 0
                                     width: listCol.width
                                     readonly property bool rowerLive: section.kindName === "rower" && linkState === 2
-                                    height: rowerLive ? 160 : 92
+                                    readonly property bool treadmillLive: section.kindName === "treadmill" && linkState === 2
+                                    height: rowerLive || treadmillLive ? 160 : 92
                                     radius: 10
                                     color: linkState === 2 ? Theme.navSelected : "transparent"
                                     border.width: linkState === 2 ? 1.5 : 0
@@ -393,11 +403,13 @@ Item {
                                         Icon {
                                             anchors.centerIn: parent
                                             name: section.kindName === "hr" ? "heartPulse" : section.kindName === "rower" ? "rowing"
+                                                : section.kindName === "treadmill" ? "treadmill"
                                                 : section.kindName === "controller" ? "controller"
                                                 : section.kindName === "other" ? "bluetooth" : "trainer"
                                             size: 44
                                             strokeWidth: 1.6
                                             color: section.kindName === "hr" ? "#ff6b8a" : section.kindName === "rower" ? Theme.rowingColor
+                                                 : section.kindName === "treadmill" ? Theme.runningColor
                                                  : section.kindName === "controller" ? Theme.orange
                                                  : section.kindName === "other" ? Theme.textSecondary : Theme.text
                                         }
@@ -441,7 +453,7 @@ Item {
                                                 text: protocol
                                                 color: Theme.textSecondary
                                                 font.pixelSize: 14
-                                                width: section.kindName === "hr" ? 230 : section.kindName === "rower" ? 270
+                                                width: section.kindName === "hr" ? 230 : section.kindName === "rower" || section.kindName === "treadmill" ? 270
                                                      : section.kindName === "controller" ? (linkState === 2 ? 150 : 230)
                                                      : section.kindName === "other" ? 210 : 150
                                                 elide: Text.ElideRight
@@ -451,6 +463,7 @@ Item {
                                     // live values
                                     Row {
                                         visible: linkState === 2 && section.kindName !== "rower" && section.kindName !== "controller"
+                                                 && section.kindName !== "treadmill"
                                         x: section.kindName === "hr" ? 360 : 286
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 14
@@ -550,6 +563,37 @@ Item {
                                             }
                                         }
                                     }
+                                    // live treadmill values (second line, read only)
+                                    Row {
+                                        visible: parent.treadmillLive
+                                        x: 12
+                                        y: 92
+                                        spacing: 8
+                                        Repeater {
+                                            model: ["Speed", "Pace", "Incline", "Data"]
+                                            Rectangle {
+                                                width: (listCol.width - 24 - 3 * 8) / 4
+                                                height: 56
+                                                radius: 8
+                                                color: Theme.field
+                                                Column {
+                                                    x: 10
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    spacing: 2
+                                                    Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 12 }
+                                                    Text {
+                                                        text: index === 0 ? Devices.treadmillSpeed.toFixed(1) + " km/h"
+                                                              : index === 1 ? (Devices.treadmillSpeed >= 1 ? RunLibrary.paceFor(Devices.treadmillSpeed) + " /km" : "–")
+                                                              : index === 2 ? (Devices.treadmillInclineKnown ? Devices.treadmillIncline.toFixed(1) + " %" : "not reported")
+                                                              : "read only"
+                                                        color: Theme.text
+                                                        font.pixelSize: 17
+                                                        font.weight: Font.Bold
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     Row {
                                         anchors.right: parent.right
                                         anchors.rightMargin: 12
@@ -589,6 +633,14 @@ Item {
                                             tooltip: "Connect as rower"
                                             onClicked: Devices.connectAsRower(deviceId)
                                         }
+                                        // a treadmill listed as trainer / other device
+                                        IconButton {
+                                            visible: (section.kindName === "trainer" || section.kindName === "other") && !simulated && linkState === 0
+                                            width: 44; height: 44
+                                            iconName: "treadmill"
+                                            tooltip: "Connect as treadmill (read only)"
+                                            onClicked: Devices.connectAsTreadmill(deviceId)
+                                        }
                                         IconButton {
                                             width: 44; height: 44
                                             iconName: "settings"
@@ -616,6 +668,7 @@ Item {
                             }
                             Row {
                                 visible: section.kindName === "rower" || section.kindName === "other" || section.kindName === "controller"
+                                         || section.kindName === "treadmill"
                                          || (section.kindName === "trainer" && section.listModel.count > (Devices.simulatorEnabled ? 1 : 0))
                                 x: 16
                                 height: 34
@@ -628,8 +681,10 @@ Item {
                                           ? "Press any button on the Zwift Click to wake it  •  Click v2: pair both pods"
                                           : section.kindName === "other"
                                           ? "Unrecognised Bluetooth LE devices – is your PM5 here? Use Connect as rower."
+                                          : section.kindName === "treadmill"
+                                          ? "Only speed and incline are read – the app never starts, stops or changes the treadmill."
                                           : section.kindName === "trainer"
-                                          ? "A rowing machine (Concept2 PM5) listed here? Use the rowing button to connect it as rower."
+                                          ? "A rowing machine or treadmill listed here? Use the rowing / treadmill button to connect it."
                                           : "On the PM5: More Options → Turn Wireless ON → Connect Device"
                                     color: Theme.textSecondary
                                     font.pixelSize: 14

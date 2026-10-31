@@ -19,7 +19,8 @@ class IntervalModel : public QAbstractListModel
 public:
     enum Roles {
         NameRole = Qt::UserRole + 1, TypeRole, TypeNameRole, DurationRole, DurationTextRole, WattsRole,
-        EndWattsRole, PercentRole, EndPercentRole, CadenceRole, RpeRole, ZoneRole, RampRole
+        EndWattsRole, PercentRole, EndPercentRole, CadenceRole, RpeRole, ZoneRole, RampRole,
+        InclineRole, SpeedRole, EndSpeedRole   // running: incline %, target speed km/h
     };
 
     explicit IntervalModel(BuilderBackend *backend, QObject *parent = nullptr);
@@ -38,6 +39,9 @@ public:
     // Watts are shown relative to the FTP of this sport (see ftpForSport()).
     void setSport(const QString &sport);
 
+    // power zones, or the running zones (% AnT) for running workouts
+    ZoneSet zones() const;
+
 private:
     int ftp() const;
     BuilderBackend *m_backend;
@@ -54,11 +58,15 @@ class WorkoutBuilder : public QObject
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY workoutChanged)
     Q_PROPERTY(QString focus READ focus WRITE setFocus NOTIFY workoutChanged)
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY workoutChanged)
-    // "cycling" (default) or "rowing"; saved with the workout. Watts are % of
-    // the profile's FTP or rowing FTP accordingly.
+    // "cycling" (default), "rowing" or "running"; saved with the workout.
+    // Watts are % of the profile's FTP or rowing FTP accordingly. Running
+    // workouts are % of the AnT speed: their "ftp" / "watts" are speeds in
+    // 0.1 km/h (running::speedUnits()), each block also has an incline.
     Q_PROPERTY(QString sport READ sport WRITE setSport NOTIFY workoutChanged)
     Q_PROPERTY(QStringList sports READ sports CONSTANT)
     Q_PROPERTY(int ftp READ ftp NOTIFY ftpChanged)   // also on profile / FTP changes
+    Q_PROPERTY(bool running READ isRunning NOTIFY workoutChanged)
+    Q_PROPERTY(double antSpeedKmh READ antSpeedKmh NOTIFY ftpChanged)   // running: the AnT (km/h)
     Q_PROPERTY(IntervalModel *intervals READ intervals CONSTANT)
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
@@ -75,7 +83,7 @@ class WorkoutBuilder : public QObject
     Q_PROPERTY(int tss READ tss NOTIFY contentChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(QStringList rpeOptions READ rpeOptions CONSTANT)
-    Q_PROPERTY(QStringList categories READ categories CONSTANT)
+    Q_PROPERTY(QStringList categories READ categories NOTIFY workoutChanged)   // per sport
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:
@@ -98,6 +106,8 @@ public:
     void setSport(const QString &sport);
     QStringList sports() const { return sport::all(); }
     int ftp() const;   // FTP of the current workout's sport
+    bool isRunning() const { return m_workout.isRunning(); }
+    double antSpeedKmh() const { return m_backend->ftpFor(sport::running()) / double(running::kUnitsPerKmh); }
     IntervalModel *intervals() { return &m_model; }
     int selectedIndex() const { return m_selected; }
     void setSelectedIndex(int index);
@@ -118,7 +128,7 @@ public:
 
     Workout currentWorkout() const;
 
-    // sport: "cycling" (default when empty) or "rowing"
+    // sport: "cycling" (default when empty), "rowing" or "running"
     Q_INVOKABLE void newWorkout(const QString &sport = QString());
     Q_INVOKABLE bool loadWorkout(qint64 id);
     Q_INVOKABLE qint64 save();     // returns id or -1
@@ -137,6 +147,10 @@ public:
     Q_INVOKABLE void setEndPercent(int index, int percent);   // % FTP, makes the block a ramp
     Q_INVOKABLE void setCadence(int index, int rpm);
     Q_INVOKABLE void setRpe(int index, int zone);             // -1 = auto
+    // running: start speed in km/h (end too for non-ramps), stored as % AnT
+    Q_INVOKABLE void setSpeed(int index, double kmh);
+    Q_INVOKABLE void setEndSpeed(int index, double kmh);
+    Q_INVOKABLE void setIncline(int index, double percent);   // running: suggested treadmill incline
 
     // Generated block groups, inserted after the selection. The new blocks
     // are plain blocks (so .awt / .zwo files stay compatible) and are all
@@ -183,6 +197,10 @@ signals:
     void saved(qint64 id);
 
 private:
+    // a new block of type t, with sensible values for the workout's sport
+    Interval defaultBlock(BlockType t) const;
+    // running blocks: no cadence, a suggested incline
+    void adaptToSport(Interval &i) const;
     void modify(int index, const std::function<void(Interval &)> &fn);
     void markDirty();
     void setError(const QString &e);

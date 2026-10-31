@@ -22,7 +22,18 @@ AppDialog {
     property int endPercent: 100
 
     readonly property bool stepMode: shape === "steps"
-    readonly property string ftpLabel: Builder.sport === "rowing" ? "Rowing FTP" : "FTP"
+    readonly property string ftpLabel: Builder.sport === "running" ? "AnT" : Builder.sport === "rowing" ? "Rowing FTP" : "FTP"
+    // running: a progression from an easy to a threshold speed (% AnT)
+    property string lastSport: ""
+    onVisibleChanged: {
+        if (!visible || Builder.sport === lastSport)
+            return
+        lastSport = Builder.sport
+        startPercent = Builder.sport === "running" ? 75 : 50
+        endPercent = 100
+        direction = "up"
+    }
+
 
     function percentOfStep(k) {
         if (steps <= 1)
@@ -31,6 +42,11 @@ AppDialog {
     }
     function watts(percent) {
         return Math.round(percent * Builder.ftp / 100)
+    }
+    // "≈ 250 W" (running: "≈ 12.6 km/h"; Builder.ftp is the AnT in 0.1 km/h there)
+    function hint(percent) {
+        return Builder.sport === "running" ? "≈ " + (percent * Builder.ftp / 1000).toFixed(1) + " km/h"
+                                           : "≈ " + watts(percent) + " W"
     }
     function setDirection(d) {
         direction = d
@@ -150,7 +166,7 @@ AppDialog {
             iconName: "bolt"
             iconColor: Theme.warning
             label: dlg.stepMode ? "First step" : "Start power"
-            sublabel: "≈ " + dlg.watts(dlg.startPercent) + " W"
+            sublabel: dlg.hint(dlg.startPercent)
             unit: "% " + dlg.ftpLabel
             value: dlg.startPercent
             onDecrement: dlg.setPercent("start", dlg.startPercent - 1)
@@ -162,7 +178,7 @@ AppDialog {
             iconName: "trendUp"
             iconColor: Theme.warning
             label: dlg.stepMode ? "Last step" : "End power"
-            sublabel: "≈ " + dlg.watts(dlg.endPercent) + " W"
+            sublabel: dlg.hint(dlg.endPercent)
             unit: "% " + dlg.ftpLabel
             value: dlg.endPercent
             onDecrement: dlg.setPercent("end", dlg.endPercent - 1)

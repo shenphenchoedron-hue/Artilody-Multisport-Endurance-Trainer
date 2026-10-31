@@ -78,6 +78,8 @@ QJsonObject Interval::toJson() const
         o.insert(QStringLiteral("cadence"), cadence);
     if (rpeZone >= 0)
         o.insert(QStringLiteral("rpe"), rpeZone);
+    if (std::abs(inclinePercent) > 1e-9)
+        o.insert(QStringLiteral("incline"), inclinePercent);
     return o;
 }
 
@@ -91,6 +93,7 @@ Interval Interval::fromJson(const QJsonObject &o)
     i.endPercent = std::max(0.0, o.value(QStringLiteral("end")).toDouble(i.startPercent));
     i.cadence = std::max(0, o.value(QStringLiteral("cadence")).toInt(0));
     i.rpeZone = std::clamp(o.value(QStringLiteral("rpe")).toInt(-1), -1, 5);
+    i.inclinePercent = std::clamp(o.value(QStringLiteral("incline")).toDouble(0.0), kMinIncline, kMaxIncline);
     return i;
 }
 
@@ -122,7 +125,8 @@ bool Interval::operator==(const Interval &o) const
     return name == o.name && type == o.type && durationSec == o.durationSec
         && qFuzzyCompare(1.0 + startPercent, 1.0 + o.startPercent)
         && qFuzzyCompare(1.0 + endPercent, 1.0 + o.endPercent)
-        && cadence == o.cadence && rpeZone == o.rpeZone;
+        && cadence == o.cadence && rpeZone == o.rpeZone
+        && qFuzzyCompare(1.0 + inclinePercent, 1.0 + o.inclinePercent);
 }
 
 } // namespace watt

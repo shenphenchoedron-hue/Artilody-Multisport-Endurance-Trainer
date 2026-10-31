@@ -10,6 +10,7 @@ namespace watt::ftms {
 
 constexpr quint16 kServiceUuid = 0x1826;
 constexpr quint16 kFeatureUuid = 0x2ACC;               // read
+constexpr quint16 kTreadmillDataUuid = 0x2ACD;         // notify
 constexpr quint16 kRowerDataUuid = 0x2AD1;             // notify
 constexpr quint16 kIndoorBikeDataUuid = 0x2AD2;        // notify
 constexpr quint16 kTrainingStatusUuid = 0x2AD3;        // read / notify (optional)
@@ -76,8 +77,11 @@ struct ServiceData
     bool shortForm = false;   // 2-byte form: Flags + 1-byte type (Victory, Zwift Hub)
     bool rower() const { return machineType & MachineRower; }
     bool indoorBike() const { return machineType & MachineIndoorBike; }
+    bool treadmill() const { return machineType & MachineTreadmill; }
     // A rower and not (also) an indoor bike: classify as rowing machine.
     bool rowerOnly() const { return rower() && !indoorBike(); }
+    // A treadmill and neither an indoor bike nor a rower.
+    bool treadmillOnly() const { return treadmill() && !indoorBike() && !rower(); }
 };
 // `data` is the service data value as returned by
 // QBluetoothDeviceInfo::serviceData(0x1826), i.e. without the UUID. A copy that
@@ -134,6 +138,38 @@ public:
 private:
     std::optional<RowerData> m_pending;
 };
+
+// --- Treadmill Data (FTMS v1.0 §4.9, 0x2ACD) ----------------------------------
+// The app only READS a treadmill (speed, incline, ...): it never writes the
+// control point, so the treadmill is never started, stopped or changed.
+struct TreadmillData
+{
+    bool moreData = false;                         // flags bit 0 (speed absent)
+    std::optional<double> speedKmh;                // 0.01 km/h
+    std::optional<double> averageSpeedKmh;
+    std::optional<int> totalDistanceM;             // uint24
+    std::optional<double> inclinePercent;          // sint16, 0.1 %
+    std::optional<double> rampAngleDeg;            // sint16, 0.1 °
+    std::optional<double> positiveElevationGainM;  // 0.1 m
+    std::optional<double> negativeElevationGainM;
+    std::optional<double> paceKmPerMin;            // 0.1 km/min
+    std::optional<double> averagePaceKmPerMin;
+    std::optional<int> totalEnergyKcal;
+    std::optional<int> heartRateBpm;
+    std::optional<int> elapsedTimeS;
+    std::optional<int> remainingTimeS;
+    std::optional<int> forceOnBeltN;
+    std::optional<int> powerW;
+
+    // Copies every field present in `other` (later packet wins).
+    void merge(const TreadmillData &other);
+};
+// Parses one Treadmill Data notification. Returns nullopt for malformed data.
+// The pace fields are read as UInt8 (spec); a UInt16 layout is accepted when
+// only it matches the packet length.
+std::optional<TreadmillData> parseTreadmillData(const QByteArray &data);
+// "speed 10.50 km/h, incline 2.0 %, distance 1234 m"
+QString describeTreadmillData(const TreadmillData &d);
 
 struct Features
 {

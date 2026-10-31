@@ -1,9 +1,8 @@
 #include "Route3DItem.h"
 
 #include "Route3DScene.h"
-#include "FreeRideSession.h"   // (RlvSession.h needs it complete)
 #include "RlvRoute.h"
-#include "RlvSession.h"
+#include "RouteProgress.h"
 
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
@@ -28,6 +27,9 @@ constexpr double kMaxDrawGapM = 400.0;
 // hostile track must not make the drawing allocate without bound.
 constexpr double kMaxTrackM = 200000.0;
 constexpr double kMaxGapM = 2000.0;
+// After the FINISH arch the drawn road runs on straight for this far (not
+// ridden: a point-to-point route would otherwise end in the grass).
+constexpr double kRunOutM = 50.0;
 
 class Route3DRenderer : public QQuickFramebufferObject::Renderer
 {
@@ -61,6 +63,8 @@ public:
             m_scene.setRoute(view->drawnRoute());
         }
         m_scene.setStartDistance(view->frameStartDistance());
+        m_scene.setRunner(view->frameRunner());
+        m_scene.setWalkRunKmh(view->frameWalkRunKmh());
         m_distance = view->frameDistance();
         m_speedKmh = view->frameSpeedKmh();
         m_crank = view->frameCrank();
@@ -127,21 +131,25 @@ QObject *Route3DItem::session() const
 
 void Route3DItem::setSession(QObject *object)
 {
-    auto *s = qobject_cast<RlvSession *>(object);
+    auto *source = dynamic_cast<RouteProgressSource *>(object);
+    QObject *s = source ? object : nullptr;
     if (s == session())
         return;
     if (m_sessionObject)
         disconnect(m_sessionObject, nullptr, this, nullptr);
     m_sessionObject = s;
-    m_session = s;
+    m_session = source;
+    m_runner = source && source->runnerFigure();
+    m_walkRunKmh = source ? source->walkRunKmh() : 6.25;
     m_builtValid = false;
-    if (s)
+    if (s) {
         connect(s, &QObject::destroyed, this, [this] { m_session = nullptr; });
-    if (m_session) {
-        connect(m_session, &RlvSession::routeChanged, this, &Route3DItem::rebuildRoute);
-        connect(m_session, &RlvSession::positionChanged, this, &Route3DItem::onPosition);
-        connect(m_session, &RlvSession::metricsChanged, this, &Route3DItem::onPosition);
-        connect(m_session, &RlvSession::stateChanged, this, &Route3DItem::onPosition);
+        // (both session classes have these signals; string-based so the view
+        // does not depend on the session libraries)
+        connect(s, SIGNAL(routeChanged()), this, SLOT(rebuildRoute()));
+        connect(s, SIGNAL(positionChanged()), this, SLOT(onPosition()));
+        connect(s, SIGNAL(metricsChanged()), this, SLOT(onPosition()));
+        connect(s, SIGNAL(stateChanged()), this, SLOT(onPosition()));
     }
     emit sessionChanged();
     rebuildRoute();
@@ -198,21 +206,47 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route)
         geoIndexOf[i] = int(geo.size());
         geo.push_back({ p.lat, p.lon, p.elevation });
     }
+    // the run-out: the road goes on straight past the finish (same height),
+    // unless the route is a loop (the finish is at the start, the road goes on)
+    const size_t ridden = geo.size();
+    {
+        const route3d::GeoPoint end = geo.back();
+        const route3d::GeoPoint &first = geo.front();
+        const bool loop = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon) < 60.0;
+        // the direction over the last ~20 m
+        size_t k = geo.size() - 1;
+        while (k > 0 && RlvRoute::haversine(geo[k].lat, geo[k].lon, end.lat, end.lon) < 20.0)
+            --k;
+        const double span = RlvRoute::haversine(geo[k].lat, geo[k].lon, end.lat, end.lon);
+        if (!loop && span > 1.0) {
+            const double dLat = (end.lat - geo[k].lat) / span, dLon = (end.lon - geo[k].lon) / span;   // per metre
+            for (int m = 10; m <= int(kRunOutM); m += 10)
+                geo.push_back({ end.lat + dLat * m, end.lon + dLon * m, end.elevation });
+        }
+    }
     Built b;
     // fromGeo reports where each input point lies on the drawn (smoothed)
     // road: app distance -> drawn distance, point by point.
     std::vector<double> drawnAt;
-    b.route = std::make_shared<const route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt));
+    auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt));
+    if (geo.size() > ridden)
+        drawn->finishDistance = drawnAt[ridden - 1];
+    b.route = drawn;
     b.appDistance.reserve(pts.size());
     b.drawnDistance.reserve(pts.size());
     double last = 0;
     for (int i = 0; i < pts.size(); ++i) {
         // (never backwards: the app distance is monotonic, so is the drawn one)
-        last = std::max(last, std::min(b.route->length(), drawnAt[size_t(geoIndexOf[i])]));
+        last = std::max(last, std::min(b.route->finish(), drawnAt[size_t(geoIndexOf[i])]));
         b.appDistance.append(pts.at(i).distance);
         b.drawnDistance.append(last);
     }
     return b;
+}
+
+double Route3DItem::frameWalkRunKmh() const
+{
+    return m_session && m_sessionObject ? m_session->walkRunKmh() : m_walkRunKmh;
 }
 
 double Route3DItem::mapDistance(const Built &b, double d)
@@ -291,7 +325,8 @@ void Route3DItem::onFrame()
 {
     // legs: the real cadence while riding (smoothed), still when paused / coasting
     const double dt = std::min(m_frameClock.restart() / 1000.0, 0.25);
-    const double rpm = m_running && m_session ? std::max(0, m_session->cadence()) : 0.0;
+    // (runner: steps per minute -> stride cycles of two steps)
+    const double rpm = m_running && m_session ? std::max(0, m_session->cadence()) * (m_runner ? 0.5 : 1.0) : 0.0;
     m_shownRpm += (rpm - m_shownRpm) * (1.0 - std::exp(-dt / kCadenceSmoothingSec));
     if (rpm == 0 && m_shownRpm < 3)
         m_shownRpm = 0;   // come to rest instead of creeping
@@ -300,7 +335,7 @@ void Route3DItem::onFrame()
         // extrapolate from the last tick; never backwards (the next tick
         // catches up), but a jump (seek) is taken at once
         const double dt = std::min(m_sinceTick.elapsed() / 1000.0, kMaxExtrapolationSec);
-        const double target = std::min(m_route->length(), m_baseDistance + m_speedKmh / 3.6 * dt);
+        const double target = std::min(m_route->finish(), m_baseDistance + m_speedKmh / 3.6 * dt);
         if (std::abs(target - m_frameDistance) > 25.0)
             m_frameDistance = target;
         else

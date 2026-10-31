@@ -128,7 +128,7 @@ Item {
                 parts.push(durationText(e.durationSec))
             parts.push(e.workoutId >= 0 ? "Workout " + ((e.options || {}).workoutErg === false ? "(guide)" : "ERG") : modeText(e))
         } else {
-            parts.push(e.sport === "rowing" ? "Rowing" : "Cycling")
+            parts.push(Theme.sportName(e.sport))
             if (e.category)
                 parts.push(e.category)
             parts.push(durationText(e.durationSec))
@@ -164,7 +164,7 @@ Item {
     function startLabel(e) {
         var k = kindOf(e)
         return k === "freeride" ? "Start Free Ride" : k === "rlv" ? "Start Video Ride"
-             : e.sport === "rowing" ? "Row this workout" : "Ride this workout"
+             : e.sport === "rowing" ? "Row this workout" : e.sport === "running" ? "Run this workout" : "Ride this workout"
     }
 
     // --- data ------------------------------------------------------------------------------------
@@ -197,6 +197,7 @@ Item {
                 stats.planned++
                 if (e.completed) stats.completed++
                 if (e.sport === "rowing") stats.rowing++
+                else if (e.sport === "running") stats.running = (stats.running || 0) + 1
                 else stats.cycling++
                 stats.seconds += e.durationSec
             }
@@ -284,6 +285,21 @@ Item {
                     toast(Planner.lastError)
             } else {
                 toast(Planner.lastError.length > 0 ? Planner.lastError : "Could not start \"" + e.name + "\"")
+            }
+            return
+        }
+        if (e.sport === "running") {
+            if (Running.active) {
+                toast("A treadmill run is in progress – finish it first")
+                goTo("treadmill")
+                return
+            }
+            markActive(e)
+            if (Running.attachWorkout(e.workoutId))
+                goTo("treadmill")
+            else {
+                clearActive()
+                toast("Could not load \"" + e.name + "\" for a treadmill run")
             }
             return
         }
@@ -480,6 +496,7 @@ Item {
             spacing: 16
             Repeater {
                 model: [{ k: "workout", s: "cycling", t: "Cycling" }, { k: "workout", s: "rowing", t: "Rowing" },
+                        { k: "workout", s: "running", t: "Running" },
                         { k: "freeride", s: "cycling", t: "Free Ride" }, { k: "rlv", s: "cycling", t: "Video" }]
                 Row {
                     spacing: 6
@@ -957,7 +974,7 @@ Item {
                             iconSpacing: 8
                             horizontalPadding: 10
                             iconName: "play"
-                            text: dayRow.entry.sport === "rowing" ? "Row" : "Ride"
+                            text: dayRow.entry.sport === "rowing" ? "Row" : dayRow.entry.sport === "running" ? "Run" : "Ride"
                             kind: dayRow.entry.completed ? "secondary" : "primary"
                             onClicked: page.startEntry(dayRow.entry)
                         }
@@ -1490,7 +1507,8 @@ Item {
                     options: [
                         { value: "all", label: "All" },
                         { value: "cycling", label: "Cycling", icon: "bike" },
-                        { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+                        { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor },
+                        { value: "running", label: "Running", icon: "run", color: Theme.runningColor, textColor: Theme.textOnColor }
                     ]
                     onActivated: (v) => picker.sport = v
                 }
@@ -1534,7 +1552,7 @@ Item {
                         color: Qt.rgba(pickRow.sportColor.r, pickRow.sportColor.g, pickRow.sportColor.b, 0.22)
                         Icon {
                             anchors.centerIn: parent
-                            name: modelData.sport === "rowing" ? "rowing" : "bike"
+                            name: Theme.sportIcon(modelData.sport)
                             size: 24
                             strokeWidth: 2
                             color: pickRow.sportColor

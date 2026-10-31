@@ -53,6 +53,8 @@ constexpr quint64 kSportCycling = 2;
 constexpr quint64 kSubSportIndoorCycling = 6;
 constexpr quint64 kSportRowing = 15;
 constexpr quint64 kSubSportIndoorRowing = 14;
+constexpr quint64 kSportRunning = 1;
+constexpr quint64 kSubSportTreadmill = 1;
 constexpr quint64 kEventTimer = 0;
 constexpr quint64 kEventSession = 8;
 constexpr quint64 kEventLap = 9;
@@ -268,8 +270,13 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     const quint64 workJ = u32(ride.kilojoules * 1000.0);
     const quint64 calories = u16(ride.kilojoules);   // ~1 kcal per kJ of mechanical work (~24 % efficiency)
     const bool rowing = ride.sport == QLatin1String("rowing");
-    const quint64 sport = rowing ? kSportRowing : kSportCycling;
-    const quint64 subSport = rowing ? kSubSportIndoorRowing : kSubSportIndoorCycling;
+    const bool runningSport = ride.sport == QLatin1String("running");
+    const quint64 sport = rowing ? kSportRowing : runningSport ? kSportRunning : kSportCycling;
+    const quint64 subSport = rowing ? kSubSportIndoorRowing : runningSport ? kSubSportTreadmill : kSubSportIndoorCycling;
+    // FIT running cadence is strides (= 2 steps) per minute; samples hold steps per minute
+    auto cadenceOf = [runningSport](const Sample &s) {
+        return s.cadence >= 0 ? u8(runningSport ? (s.cadence + 1) / 2 : s.cadence) : invalidFor(UInt8);
+    };
     // Free rides (virtual gearing) record a per-second virtual speed.
     const bool recordSpeed = !rowing && std::any_of(samples.cbegin(), samples.cend(),
                                                     [](const Sample &s) { return s.speedMps > 0; });
@@ -322,7 +329,7 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
         rec = { { kFieldTimestamp, UInt32, fitTime(startUnix + t) },
                 { 7, UInt16, u16(s.power) },
                 { 3, UInt8, u8OrInvalid(s.heartRate) },
-                { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) } };
+                { 4, UInt8, cadenceOf(s) } };
         if (recordDistance)
             rec.push_back({ 5, UInt32, u32(distances[size_t(i)] * 100.0) });   // distance: m, scale 100
         if (recordSpeed)
@@ -336,7 +343,7 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
         rec = { { kFieldTimestamp, UInt32, fitTime(startUnix + tEnd) },
                 { 7, UInt16, u16(s.power) },
                 { 3, UInt8, u8OrInvalid(s.heartRate) },
-                { 4, UInt8, s.cadence >= 0 ? u8(s.cadence) : invalidFor(UInt8) },
+                { 4, UInt8, cadenceOf(s) },
                 { 5, UInt32, u32(distances.back() * 100.0) } };
         if (recordSpeed)
             rec.push_back({ 6, UInt16, u16(s.speedMps * 1000.0) });

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate the Artilody Watts Trainer user manual (PDF).
+"""Generate the Artilody Multisport Endurance Trainer user manual (PDF).
 
 Usage:
     python docs/manual/make_manual.py [output.pdf]
 
 Requirements: reportlab (>= 3.6) and Pillow.
-The default output is docs/Artilody-Watts-Trainer-Manual.pdf.
+The default output is docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf.
 
 All manual text lives in content.py (next to this script). This file contains
 only the layout engine: page templates, styles, table of contents, PDF
@@ -38,12 +38,12 @@ ROOT = HERE.parents[1]
 DOCS = ROOT / "docs"
 SHOTS = DOCS / "screenshots"
 MOCKUPS = DOCS / "mockups"
-DEFAULT_OUT = DOCS / "Artilody-Watts-Trainer-Manual.pdf"
+DEFAULT_OUT = DOCS / "Artilody-Multisport-Endurance-Trainer-Manual.pdf"
 
-APP = "Artilody Watts Trainer"
-VERSION = "1.4.1"
+APP = "Artilody Multisport Endurance Trainer"
+VERSION = "1.5.0"
 DATE = "October 2026"
-REPO = "https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer"
+REPO = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer"
 
 # --- brand colours (from qml/Theme.qml) -------------------------------------
 NAVY = colors.HexColor("#1d2c74")

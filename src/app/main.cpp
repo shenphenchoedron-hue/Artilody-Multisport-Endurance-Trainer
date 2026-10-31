@@ -1,4 +1,4 @@
-// Artilody Watts Trainer – indoor cycling power training
+// Artilody Multisport Endurance Trainer – indoor cycling power training
 //
 // main() only wires the modular back-end (core / ble / media) together and
 // exposes it to the QML user interface. No business logic lives in QML.
@@ -18,6 +18,8 @@
 #include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
+#include "RunLibrary.h"
+#include "RunSession.h"
 #include "SensorHub.h"
 #include "SessionGuard.h"
 #include "SimulatedDevices.h"
@@ -223,7 +225,7 @@ int main(int argc, char *argv[])
     // derived from them; changing them would silently move (i.e. "lose") the
     // user's existing database. Only the user-visible display name changes.
     QGuiApplication::setApplicationName(QStringLiteral("Watt Trainer"));
-    QGuiApplication::setApplicationDisplayName(QStringLiteral("Artilody Watts Trainer"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("Artilody Multisport Endurance Trainer"));
     QGuiApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     // qWarning / qCritical also go to the diagnostic log file (console output stays).
     DiagLog::installMessageHandler();
@@ -360,8 +362,20 @@ int main(int argc, char *argv[])
     // start. Sessions only start on an explicit Start (button / Space) -
     // pedaling or rowing never starts one. The pages show why their Start is
     // disabled, with the fix (QML "Sessions").
+    // Treadmill Run: running on an FTMS treadmill (read only: speed and
+    // incline) through the GPX Ride's 3D world - the standard 10 km route or
+    // a GPX track - with running workouts (% of the AnT speed or km/h) and
+    // the built-in AnT test.
+    RunLibrary runLibrary(&db, &profiles);
+    RunSession run(&db, &profiles, &hub, &runLibrary);
+    run.setTreadmill(devices.treadmill());
+    QObject::connect(&devices, &DeviceManager::treadmillChanged, &run, &RunSession::setTreadmill);
+    QObject::connect(&run, &RunSession::rideSaved, &history, &HistoryManager::showNewRide);
+    QObject::connect(&run, &RunSession::rideSaved, &app,
+                     [](qint64 id) { DiagLog::write("RIDE", QStringLiteral("treadmill run saved (ride %1)").arg(id)); });
     SessionGuard sessions(&training, &freeRide, &rlv, &rowing, &gears);
     sessions.setGpxSession(&gpx);
+    sessions.setRunSession(&run);
     // A known Zwift Click that is not connected (asleep, or never reconnected
     // after a profile switch, log of v1.3.8): look for it again.
     // (profileChanged also fires on every profile save: only a real switch)
@@ -380,7 +394,7 @@ int main(int argc, char *argv[])
                      [&] { devices.lookForKnownControllers(QStringLiteral("GPX ride started")); });
     // The rider of a ride must still exist when it is saved.
     profiles.setBusyCheck([&] {
-        return training.active() || rowing.active() || freeRide.active() || rlv.active() || gpx.active();
+        return training.active() || rowing.active() || freeRide.active() || rlv.active() || gpx.active() || run.active();
     });
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
     QObject::connect(&gpx, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
@@ -389,6 +403,17 @@ int main(int argc, char *argv[])
     // (workout, rowing plan, free ride, video ride).
     planner.setSessions(&training, &freeRide, &rlv, &videos);
     planner.setRowingStarter([&rowing](qint64 workoutId) { return rowing.setupPlan(workoutId); });
+    planner.setRunningStarter([&run](qint64 workoutId) { return !run.active() && run.attachWorkout(workoutId); });
+    // a run that finished its workout ticks off the plan entry (like a ride)
+    QObject::connect(&run, &RunSession::rideSaved, &planner, [&](qint64 rideId) {
+        if (run.workoutId() < 0 || !run.workoutFinished())
+            return;
+        if (const auto ride = db.ride(rideId))
+            planner.completeForRide(run.workoutId(), ride->startedAt.date(), rideId, ride->profileId);
+    });
+    // running workouts are ordinary workouts (Builder, Workouts page): the
+    // treadmill's list follows every change of the library
+    QObject::connect(&library, &WorkoutLibrary::catalogChanged, &runLibrary, &RunLibrary::reloadWorkouts);
     // A saved Free Ride / Video Ride completes its active plan entry when it
     // qualifies (WorkoutPlanner: >= 50 % of the planned duration / 10 min;
     // route end or >= 90 % of the route).
@@ -717,6 +742,8 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "GpxRoutes", &gpxRoutes);
     qmlRegisterSingletonInstance(uri, 1, 0, "Gpx", &gpx);
     qmlRegisterSingletonInstance(uri, 1, 0, "Sessions", &sessions);
+    qmlRegisterSingletonInstance(uri, 1, 0, "RunLibrary", &runLibrary);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Running", &run);
     qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
     qmlRegisterType<Route3DItem>(uri, 1, 0, "Route3DView");
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
@@ -811,6 +838,11 @@ int main(int argc, char *argv[])
     const bool shotRlv = !shotRlvPath.isEmpty() && !shotRowing && !shotFreeRide;
     const QString shotGpxPath = shotDir.isEmpty() ? QString() : qEnvironmentVariable("WATT_SCREENSHOT_GPX");
     const bool shotGpx = !shotGpxPath.isEmpty() && !shotRowing && !shotFreeRide && !shotRlv;
+    // WATT_SCREENSHOT_RUN=1: the Treadmill Run on the virtual treadmill
+    // (WATT_SCREENSHOT_RUN_MODE=free|workout|anttest, WATT_SCREENSHOT_RUN_GPX=<file>
+    // runs that GPX instead of the standard route, WATT_SCREENSHOT_RUN_SEC)
+    const bool shotRun = !shotDir.isEmpty() && !shotRowing && !shotFreeRide && !shotRlv && !shotGpx
+                         && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RUN") > 0;
     const bool shotClick = !shotDir.isEmpty() && qEnvironmentVariableIntValue("WATT_SCREENSHOT_CLICK") > 0;
     QQuickWindow *shotWindow = !shotDir.isEmpty() && !engine.rootObjects().isEmpty()
         ? qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()) : nullptr;
@@ -830,6 +862,23 @@ int main(int argc, char *argv[])
             devices.connectSimulatedController();
         if (qEnvironmentVariableIntValue("WATT_SCREENSHOT_GEARS") > 0)
             gears.setEnabled(true);
+        // WATT_SCREENSHOT_WORKOUTS_SPORT=running: the Workouts page filtered to
+        // that sport with its first workout selected; the Builder edits it
+        // (WATT_SCREENSHOT_BUILDER_WORKOUT=<name prefix> picks another one)
+        if (const QString sp = qEnvironmentVariable("WATT_SCREENSHOT_WORKOUTS_SPORT"); !sp.isEmpty()) {
+            library.setSportFilter(sp);
+            const QString wanted = qEnvironmentVariable("WATT_SCREENSHOT_BUILDER_WORKOUT");
+            qint64 pick = library.firstWorkoutId(sp);
+            for (const QVariant &v : library.catalog(sp)) {
+                const QVariantMap m = v.toMap();
+                if (!wanted.isEmpty() && m.value(QStringLiteral("name")).toString().startsWith(wanted))
+                    pick = m.value(QStringLiteral("workoutId")).toLongLong();
+            }
+            if (pick >= 0) {
+                library.setSelectedId(pick);
+                builder.loadWorkout(pick);
+            }
+        }
         // WATT_SCREENSHOT_ZWIFT_PROTOCOL=off: the advanced override (with
         // WATT_SIM_TRAINER_ZWIFT=1 the virtual trainer offers the Zwift protocol,
         // used automatically while the (virtual) Click is connected)
@@ -893,6 +942,28 @@ int main(int argc, char *argv[])
                 gears.setEnabled(true);
             if (mode == QLatin1String("erg"))
                 rlv.setTargetWatts(200);
+        }
+        if (shotRun) {
+            devices.connectDevice(QStringLiteral("sim:treadmill"));
+            // WATT_SCREENSHOT_RUN_KMH=5: the virtual runner's own pace (free run)
+            if (auto *sim = qobject_cast<SimulatedTreadmill *>(devices.treadmill());
+                sim && qEnvironmentVariableIntValue("WATT_SCREENSHOT_RUN_KMH") > 0)
+                sim->setFreeSpeed(qEnvironmentVariableIntValue("WATT_SCREENSHOT_RUN_KMH"));
+            const QString runGpx = qEnvironmentVariable("WATT_SCREENSHOT_RUN_GPX");
+            if (!runGpx.isEmpty() && !run.selectGpx(runGpx))
+                qWarning("Screenshot mode: could not load the GPX route %s: %s", qPrintable(runGpx), qPrintable(run.lastError()));
+            else if (runGpx.isEmpty())
+                run.useStandardRoute();
+            const QString mode = qEnvironmentVariable("WATT_SCREENSHOT_RUN_MODE", QStringLiteral("workout"));
+            if (mode == QLatin1String("anttest"))
+                run.setupAntTest();
+            else if (mode == QLatin1String("workout")) {
+                for (const QVariant &v : runLibrary.workouts()) {
+                    const QVariantMap m = v.toMap();
+                    if (m.value(QStringLiteral("name")).toString().startsWith(QLatin1String("Threshold")))
+                        run.attachWorkout(m.value(QStringLiteral("workoutId")).toLongLong());
+                }
+            }
         }
         if (shotGpx && !gpx.selectPath(shotGpxPath))
             qWarning("Screenshot mode: could not load the GPX route %s: %s", qPrintable(shotGpxPath),
@@ -974,8 +1045,9 @@ int main(int argc, char *argv[])
         const QString livePage = shotFreeRide ? QStringLiteral("freeride")
                                  : shotRlv    ? QStringLiteral("video")
                                  : shotGpx    ? QStringLiteral("gpx")
+                                 : shotRun    ? QStringLiteral("treadmill")
                                               : QStringLiteral("rowing");
-        const bool shotLive = shotRowing || shotFreeRide || shotRlv || shotGpx;
+        const bool shotLive = shotRowing || shotFreeRide || shotRlv || shotGpx || shotRun;
         const QStringList names = window->property("pageNames").toStringList();
         QList<int> order;
         for (int i = 0; i < names.size(); ++i)
@@ -986,6 +1058,7 @@ int main(int argc, char *argv[])
         const char *liveSecVar = shotFreeRide ? "WATT_SCREENSHOT_FREERIDE_SEC"
                                  : shotRlv    ? "WATT_SCREENSHOT_RLV_SEC"
                                  : shotGpx    ? "WATT_SCREENSHOT_GPX_SEC"
+                                 : shotRun    ? "WATT_SCREENSHOT_RUN_SEC"
                                               : "WATT_SCREENSHOT_ROWING_SEC";
         const int liveSec = qEnvironmentVariableIntValue(liveSecVar) > 0 ? qEnvironmentVariableIntValue(liveSecVar) : 40;
 
@@ -1054,7 +1127,7 @@ int main(int argc, char *argv[])
         const QString selectorName = shotFreeRide ? QStringLiteral("freeRideModeSelector")
                                                   : QStringLiteral("videoModeSelector");
         clock->start();
-        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv, &gpx, &devices] {
+        QObject::connect(timer, &QTimer::timeout, &app, [=, &training, &rowing, &freeRide, &rlv, &gpx, &run, &devices] {
             const int s = (*step)++;
             if (!blocker.isEmpty() && (s == 1 || s == 2)) {
                 const bool workout = blocker.startsWith(QLatin1String("workout"));
@@ -1102,6 +1175,9 @@ int main(int argc, char *argv[])
                 } else if (shotGpx) {
                     if (!gpxIdle)
                         gpx.start();
+                } else if (shotRun) {
+                    if (qEnvironmentVariableIntValue("WATT_SCREENSHOT_RUN_IDLE") <= 0 && !run.start())
+                        qWarning("Screenshot mode: the run did not start: %s", qPrintable(run.lastError()));
                 } else if (!workoutIdle) {
                     training.start();
                 }

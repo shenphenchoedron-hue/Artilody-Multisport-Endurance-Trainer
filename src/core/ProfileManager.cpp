@@ -28,6 +28,17 @@ void ProfileManager::load()
     emit profilesChanged();
 }
 
+void ProfileManager::refreshAnt()
+{
+    if (m_profile.id < 0)
+        return;
+    const double ant = m_db->currentAntKmh(m_profile.id);
+    if (qFuzzyCompare(ant, m_profile.antSpeedKmh))
+        return;
+    m_profile.antSpeedKmh = ant;
+    emit profileChanged();
+}
+
 QString ProfileManager::initials() const
 {
     QString out;

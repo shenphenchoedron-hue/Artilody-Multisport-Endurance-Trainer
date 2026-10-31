@@ -1,5 +1,5 @@
 // Tests of the Artilody Workout Creator back-end: files written by the
-// creator must import unchanged into Artilody Watts Trainer (same WorkoutIO
+// creator must import unchanged into Artilody Multisport Endurance Trainer (same WorkoutIO
 // code), .zwo export must round-trip, and the folder library must scan,
 // filter, save, rename, duplicate and delete files.
 
@@ -284,7 +284,7 @@ private slots:
     {
         Env env;
         QTemporaryDir src;
-        // a multi-workout export as written by Artilody Watts Trainer
+        // a multi-workout export as written by Artilody Multisport Endurance Trainer
         const QString multi = src.filePath(QStringLiteral("export.awt"));
         QVERIFY(io::writeFile(multi, io::toAwt(demo::workouts().mid(0, 3), QStringLiteral("1.1.2"))));
         const QString zwo = src.filePath(QStringLiteral("z.zwo"));

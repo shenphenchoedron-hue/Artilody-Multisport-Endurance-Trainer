@@ -39,6 +39,9 @@ public:
     explicit ProfileManager(Database *db, QObject *parent = nullptr);
 
     void load();
+    // The AnT speed (ant_tests) changed: re-reads it into current() and emits
+    // profileChanged (running workouts are % of it).
+    void refreshAnt();
     const Profile &current() const { return m_profile; }
     // While it returns true (a ride / row is running or paused, main.cpp)
     // deleteProfile() is refused: the ride's rider must still exist when it

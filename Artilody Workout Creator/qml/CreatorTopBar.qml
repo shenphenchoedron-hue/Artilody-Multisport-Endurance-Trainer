@@ -18,6 +18,7 @@ Item {
 
     readonly property string mod: Qt.platform.os === "osx" ? "⌘" : "Ctrl+"
     readonly property string modShift: Qt.platform.os === "osx" ? "⇧⌘" : "Ctrl+Shift+"
+    readonly property string modAlt: Qt.platform.os === "osx" ? "⌥⌘" : "Ctrl+Alt+"
 
     width: row.width
     height: 60
@@ -59,6 +60,7 @@ Item {
                 minWidth: 290
                 AppMenuItem { text: "New cycling workout"; iconName: "bike"; hint: bar.mod + "N"; onTriggered: bar.newRequested("cycling") }
                 AppMenuItem { text: "New rowing workout"; iconName: "rowing"; hint: bar.modShift + "N"; onTriggered: bar.newRequested("rowing") }
+                AppMenuItem { text: "New running workout"; iconName: "run"; hint: bar.modAlt + "N"; onTriggered: bar.newRequested("running") }
                 AppMenuItem { text: "Open…"; iconName: "folder"; hint: bar.mod + "O"; onTriggered: bar.openRequested() }
                 AppMenuSeparator {}
                 AppMenuItem { text: "Save"; iconName: "save"; hint: bar.mod + "S"; onTriggered: bar.saveRequested() }

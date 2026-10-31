@@ -7,7 +7,7 @@ Column {
     spacing: 14
 
     readonly property var steps: [
-        { icon: "bike", tint: Theme.accentLight, title: "Artilody Watts Trainer",
+        { icon: "bike", tint: Theme.accentLight, title: "Artilody Multisport Endurance Trainer",
           text: "Copy the .awt (or .zwo) file to the training computer – e.g. with a USB stick or a cloud folder – "
                 + "then open Workouts → Import and choose the file. Watts follow that computer's FTP." },
         { icon: "export", tint: Theme.orange, title: "Zwift",

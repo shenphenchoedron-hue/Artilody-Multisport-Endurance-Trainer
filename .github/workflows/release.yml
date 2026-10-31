@@ -17,7 +17,7 @@ concurrency:
 
 env:
   QT_VERSION: "6.8.3"
-  FALLBACK_VERSION: "1.4.1"
+  FALLBACK_VERSION: "1.5.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -278,16 +278,16 @@ jobs:
       - name: Deploy (windeployqt)
         run: |
           $ErrorActionPreference = 'Stop'
-          $stage = 'dist/windows/Artilody Watts Trainer'
+          $stage = 'dist/windows/Artilody Multisport Endurance Trainer'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           # qt_standard_project_setup() puts executables in the build root on Windows
           # (CMAKE_RUNTIME_OUTPUT_DIRECTORY); locate the app wherever it ended up.
-          $exe = Get-ChildItem -Path build -Recurse -File -Filter 'Artilody Watts Trainer.exe' | Select-Object -First 1
-          if (-not $exe) { throw "Artilody Watts Trainer.exe not found in build/" }
+          $exe = Get-ChildItem -Path build -Recurse -File -Filter 'Artilody Multisport Endurance Trainer.exe' | Select-Object -First 1
+          if (-not $exe) { throw "Artilody Multisport Endurance Trainer.exe not found in build/" }
           Write-Output "Found $($exe.FullName)"
           Copy-Item -LiteralPath $exe.FullName -Destination $stage
           Copy-Item -LiteralPath (Join-Path $exe.DirectoryName 'music') -Destination "$stage/music" -Recurse
-          windeployqt --release --qmldir qml --no-compiler-runtime --no-translations --no-opengl-sw "$stage/Artilody Watts Trainer.exe"
+          windeployqt --release --qmldir qml --no-compiler-runtime --no-translations --no-opengl-sw "$stage/Artilody Multisport Endurance Trainer.exe"
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed ($LASTEXITCODE)" }
           # App-local MSVC runtime so the zip also runs without the VC++ redistributable.
           $crt = Get-ChildItem -Path (Join-Path $env:VCToolsRedistDir 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
@@ -303,7 +303,7 @@ jobs:
         run: |
           $plugin = Join-Path $env:QT_ROOT_DIR 'plugins/platforms/qoffscreen.dll'
           if (Test-Path -LiteralPath $plugin) {
-            Copy-Item -LiteralPath $plugin -Destination 'dist/windows/Artilody Watts Trainer/platforms/'
+            Copy-Item -LiteralPath $plugin -Destination 'dist/windows/Artilody Multisport Endurance Trainer/platforms/'
             "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           } else {
             Write-Output "::warning::qoffscreen.dll not found - skipping smoke test"
@@ -319,11 +319,11 @@ jobs:
         run: |
           # Make sure the deployed files are used, not the Qt installation.
           unset QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH
-          packaging/ci/smoke-test.sh "dist/windows/Artilody Watts Trainer/Artilody Watts Trainer.exe" "smoke-shots/windows"
+          packaging/ci/smoke-test.sh "dist/windows/Artilody Multisport Endurance Trainer/Artilody Multisport Endurance Trainer.exe" "smoke-shots/windows"
 
       - name: Remove offscreen platform plugin
         if: always()
-        run: Remove-Item -LiteralPath 'dist/windows/Artilody Watts Trainer/platforms/qoffscreen.dll' -ErrorAction SilentlyContinue
+        run: Remove-Item -LiteralPath 'dist/windows/Artilody Multisport Endurance Trainer/platforms/qoffscreen.dll' -ErrorAction SilentlyContinue
 
       - name: Upload screenshots
         if: always()
@@ -337,7 +337,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = '${{ steps.version.outputs.version }}'
-          Compress-Archive -Path 'dist/windows/Artilody Watts Trainer' -DestinationPath "dist/ArtilodyWattsTrainer-$ver-windows-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path 'dist/windows/Artilody Multisport Endurance Trainer' -DestinationPath "dist/ArtilodyMultisportEnduranceTrainer-$ver-windows-x64.zip" -CompressionLevel Optimal
 
       - name: Build installer (Inno Setup)
         run: |
@@ -351,11 +351,11 @@ jobs:
             $iscc = $default
           }
           Write-Output "Using $iscc"
-          $source = (Resolve-Path -LiteralPath 'dist/windows/Artilody Watts Trainer').Path
+          $source = (Resolve-Path -LiteralPath 'dist/windows/Artilody Multisport Endurance Trainer').Path
           $output = (Resolve-Path -LiteralPath 'dist').Path
           & $iscc "/DAppVersion=$ver" "/DSourceDir=$source" "/DOutputDir=$output" 'packaging/windows/installer.iss'
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
-          $setup = "dist/ArtilodyWattsTrainer-$ver-windows-x64-setup.exe"
+          $setup = "dist/ArtilodyMultisportEnduranceTrainer-$ver-windows-x64-setup.exe"
           if (-not (Test-Path -LiteralPath $setup)) { throw "$setup was not created" }
           Get-ChildItem dist -File
 
@@ -364,8 +364,8 @@ jobs:
         with:
           name: release-windows
           path: |
-            dist/ArtilodyWattsTrainer-*-windows-x64.zip
-            dist/ArtilodyWattsTrainer-*-windows-x64-setup.exe
+            dist/ArtilodyMultisportEnduranceTrainer-*-windows-x64.zip
+            dist/ArtilodyMultisportEnduranceTrainer-*-windows-x64-setup.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -378,7 +378,7 @@ jobs:
       run:
         shell: bash
     env:
-      APP: build/src/app/Artilody Watts Trainer.app
+      APP: build/src/app/Artilody Multisport Endurance Trainer.app
     steps:
       - uses: actions/checkout@v4
 
@@ -435,7 +435,7 @@ jobs:
         continue-on-error: true
         env:
           QT_QPA_PLATFORM: offscreen
-        run: packaging/ci/smoke-test.sh "$APP/Contents/MacOS/Artilody Watts Trainer" "smoke-shots/macos"
+        run: packaging/ci/smoke-test.sh "$APP/Contents/MacOS/Artilody Multisport Endurance Trainer" "smoke-shots/macos"
 
       - name: Upload screenshots
         if: always()
@@ -468,7 +468,7 @@ jobs:
       - name: Check universal binaries
         run: |
           set -uo pipefail
-          exe="$APP/Contents/MacOS/Artilody Watts Trainer"
+          exe="$APP/Contents/MacOS/Artilody Multisport Endurance Trainer"
           lipo -info "$exe"
           archs=$(lipo -archs "$exe")
           if [[ "$archs" != *arm64* || "$archs" != *x86_64* ]]; then
@@ -491,13 +491,13 @@ jobs:
         run: |
           set -euo pipefail
           ver='${{ steps.version.outputs.version }}'
-          dmg="dist/ArtilodyWattsTrainer-${ver}-macOS-universal.dmg"
+          dmg="dist/ArtilodyMultisportEnduranceTrainer-${ver}-macOS-universal.dmg"
           stage="$RUNNER_TEMP/dmg"
           rm -rf "$stage"; mkdir -p "$stage" dist
-          ditto "$APP" "$stage/Artilody Watts Trainer.app"
+          ditto "$APP" "$stage/Artilody Multisport Endurance Trainer.app"
           ln -s /Applications "$stage/Applications"
           for i in 1 2 3; do
-            if hdiutil create -volname "Artilody Watts Trainer" -srcfolder "$stage" -ov -format UDZO "$dmg"; then
+            if hdiutil create -volname "Artilody Multisport Endurance Trainer" -srcfolder "$stage" -ov -format UDZO "$dmg"; then
               break
             fi
             echo "hdiutil failed (attempt $i), retrying..."; sleep 10
@@ -510,7 +510,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-macos
-          path: dist/ArtilodyWattsTrainer-*-macOS-universal.dmg
+          path: dist/ArtilodyMultisportEnduranceTrainer-*-macOS-universal.dmg
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -548,9 +548,9 @@ jobs:
             "artilody-watts-trainer_${v}_debian12_amd64.deb" \
             "artilody-watts-trainer_${v}_ubuntu24.04_amd64.deb" \
             "artilody-watts-trainer_${v}_raspberrypi-os-bookworm_arm64.deb" \
-            "ArtilodyWattsTrainer-${v}-windows-x64.zip" \
-            "ArtilodyWattsTrainer-${v}-windows-x64-setup.exe" \
-            "ArtilodyWattsTrainer-${v}-macOS-universal.dmg"; do
+            "ArtilodyMultisportEnduranceTrainer-${v}-windows-x64.zip" \
+            "ArtilodyMultisportEnduranceTrainer-${v}-windows-x64-setup.exe" \
+            "ArtilodyMultisportEnduranceTrainer-${v}-macOS-universal.dmg"; do
             test -f "dist/$f" || { echo "::error::Missing asset $f"; exit 1; }
           done
           sed "s/{{VERSION}}/${v}/g" packaging/release-notes.md > "$RUNNER_TEMP/release-notes.md"
@@ -561,7 +561,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Artilody Watts Trainer v${{ steps.version.outputs.version }}
+          name: Artilody Multisport Endurance Trainer v${{ steps.version.outputs.version }}
           body_path: ${{ runner.temp }}/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: false
@@ -571,4 +571,4 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/SHA256SUMS.txt
-            docs/Artilody-Watts-Trainer-Manual.pdf
+            docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf

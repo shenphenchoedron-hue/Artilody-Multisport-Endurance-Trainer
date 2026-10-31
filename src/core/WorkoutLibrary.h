@@ -19,10 +19,11 @@ class WorkoutLibrary : public QAbstractListModel
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY filterChanged)
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY filterChanged)
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY filterChanged)
-    // "all" (default), "cycling" or "rowing"
+    // "all" (default), "cycling", "rowing" or "running"
     Q_PROPERTY(QString sportFilter READ sportFilter WRITE setSportFilter NOTIFY filterChanged)
     Q_PROPERTY(QStringList sports READ sports CONSTANT)
-    Q_PROPERTY(QStringList categories READ categories CONSTANT)
+    // the test category follows the sport filter: "FTP Tests", "AnT Test" or "Tests" (all)
+    Q_PROPERTY(QStringList categories READ categories NOTIFY filterChanged)
     Q_PROPERTY(QStringList sortModes READ sortModes CONSTANT)
     Q_PROPERTY(qint64 selectedId READ selectedId WRITE setSelectedId NOTIFY selectedChanged)
     Q_PROPERTY(QVariantMap selected READ selected NOTIFY selectedChanged)
@@ -97,8 +98,10 @@ signals:
     void selectedChanged();
     void countChanged();
     void lastMessageChanged();
+    void catalogChanged();   // reload(): workouts added, edited or removed
 
 private:
+    ZoneSet zonesFor(const Workout &w) const;
     void applyFilter();
     void setMessage(const QString &message);
     int writeAwt(const QVector<Workout> &workouts, const QString &path);

@@ -1,6 +1,6 @@
 import QtQuick
 
-// Small pill that tells cycling and rowing apart: sport icon + optional label.
+// Small pill that tells cycling, rowing and running apart: sport icon + optional label.
 //   SportBadge { sport: "rowing" }                 -> [oar] ROWING
 //   SportBadge { sport: "cycling"; compact: true } -> [bike] (icon only)
 Rectangle {
@@ -24,7 +24,7 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 5
         Icon {
-            name: badge.rowing ? "rowing" : "bike"
+            name: Theme.sportIcon(badge.sport)
             size: badge.iconSize
             color: badge.sportColor
             strokeWidth: 2
@@ -32,7 +32,7 @@ Rectangle {
         }
         Text {
             visible: !badge.compact
-            text: badge.rowing ? "ROWING" : "CYCLING"
+            text: Theme.sportName(badge.sport).toUpperCase()
             color: Theme.text
             font.pixelSize: badge.fontSize
             font.weight: Font.DemiBold

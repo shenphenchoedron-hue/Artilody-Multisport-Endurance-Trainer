@@ -13,12 +13,14 @@ QString normalize(const QString &value)
     const QString v = value.trimmed().toLower();
     if (v == QLatin1String("rowing") || v == QLatin1String("row") || v == QLatin1String("rower"))
         return rowing();
+    if (v == QLatin1String("running") || v == QLatin1String("run") || v == QLatin1String("treadmill"))
+        return running();
     return cycling();
 }
 
 QStringList all()
 {
-    return { cycling(), rowing() };
+    return { cycling(), rowing(), running() };
 }
 } // namespace sport
 
@@ -189,14 +191,19 @@ QString Workout::summary(int ftp) const
     if (idx < 0)
         return QStringLiteral("Empty workout");
     const Interval &b = intervals.at(idx);
-    if (b.isRamp()) {
-        return QStringLiteral("Ramp %1 – %2 W")
-            .arg(b.wattsAt(0, ftp)).arg(b.wattsAt(b.durationSec, ftp));
-    }
-    const QString watts = QStringLiteral("%1 W").arg(b.wattsAt(0, ftp));
+    // running: ftp is the AnT speed in 0.1 km/h (see running::speedUnits())
+    const bool run = isRunning();
+    auto value = [&](double t) {
+        const int units = b.wattsAt(t, ftp);
+        return run ? QString::number(units / double(running::kUnitsPerKmh), 'f', 1) : QString::number(units);
+    };
+    const QString unit = run ? QStringLiteral("km/h") : QStringLiteral("W");
+    if (b.isRamp())
+        return QStringLiteral("Ramp %1 – %2 %3").arg(value(0), value(b.durationSec), unit);
+    const QString target = QStringLiteral("%1 %2").arg(value(0), unit);
     if (count > 1)
-        return QStringLiteral("%1 × %2 @ %3").arg(count).arg(minutesText(b.durationSec), watts);
-    return QStringLiteral("%1 @ %2").arg(minutesText(b.durationSec), watts);
+        return QStringLiteral("%1 × %2 @ %3").arg(count).arg(minutesText(b.durationSec), target);
+    return QStringLiteral("%1 @ %2").arg(minutesText(b.durationSec), target);
 }
 
 QString Workout::intervalsLabel() const

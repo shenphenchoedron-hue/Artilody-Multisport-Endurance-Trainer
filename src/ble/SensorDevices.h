@@ -125,6 +125,75 @@ signals:
     // The connected device turned out to be a rowing machine (Concept2 rowing
     // service, or FTMS Rower Data without Indoor Bike Data).
     void rowerDetected();
+    // The connected device turned out to be a treadmill (FTMS Treadmill Data
+    // without Indoor Bike Data). Nothing was written to it.
+    void treadmillDetected();
+};
+
+// Treadmill (FTMS Treadmill Data over BLE, or simulated). READ ONLY: the app
+// never controls a treadmill (no start / stop / speed / incline commands);
+// it only follows what the runner sets on the treadmill.
+//
+// Consumer contract (RunSession):
+//  * live values are properties sharing measurementChanged(), emitted once
+//    per incoming packet (real treadmills: ~1 Hz; simulator: 4 Hz).
+//  * speedKmh is the belt speed; it drops to 0 when no data arrived for
+//    kStaleMs (link lost, treadmill switched off).
+//  * inclineKnown is false when the treadmill does not report an incline.
+//  * heartRateMeasured(bpm) only for valid readings from the treadmill (a
+//    chest strap paired to the console).
+class TreadmillDevice : public SensorDevice
+{
+    Q_OBJECT
+    Q_PROPERTY(QString deviceId READ id CONSTANT)
+    Q_PROPERTY(QString name READ name CONSTANT)
+    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
+    Q_PROPERTY(double speedKmh READ speedKmh NOTIFY measurementChanged)
+    Q_PROPERTY(double inclinePercent READ inclinePercent NOTIFY measurementChanged)
+    Q_PROPERTY(bool inclineKnown READ inclineKnown NOTIFY measurementChanged)
+    Q_PROPERTY(double distanceMeters READ distanceMeters NOTIFY measurementChanged)
+    Q_PROPERTY(int heartRateBpm READ heartRateBpm NOTIFY measurementChanged)
+
+public:
+    static constexpr int kStaleMs = 4000;
+    explicit TreadmillDevice(QObject *parent = nullptr);
+
+    bool connected() const { return state() == LinkState::Connected; }
+    bool hasData() const { return m_hasData; }
+    double speedKmh() const { return m_speed; }
+    double inclinePercent() const { return m_incline; }
+    bool inclineKnown() const { return m_inclineKnown; }
+    double distanceMeters() const { return m_distance; }   // treadmill total, -1 = not reported
+    int heartRateBpm() const { return m_hr; }
+    int packets() const { return m_packets; }
+    // "FTMS Treadmill Data (0x2ACD)", ...
+    virtual QString dataSourceText() const { return protocol(); }
+
+    // What a running workout asks for. A real treadmill ignores it (it is
+    // never controlled); the virtual treadmill's runner follows it.
+    virtual void suggest(double speedKmh, double inclinePercent) { Q_UNUSED(speedKmh) Q_UNUSED(inclinePercent) }
+
+    // (tests) the stale check, normally run by a 1 s timer
+    void checkStale(qint64 msSinceData = -1);
+
+signals:
+    void connectedChanged(bool connected);
+    void measurementChanged();
+    void heartRateMeasured(int bpm);
+
+protected:
+    // One packet: absent values (nullopt-like: < 0 / !known) keep the last value.
+    void applyMeasurement(double speedKmh, double inclinePercent, bool inclineKnown, double distanceM, int heartRate);
+    void clearLiveValues();
+
+private:
+    double m_speed = 0, m_incline = 0, m_distance = -1;
+    bool m_inclineKnown = false;
+    int m_hr = 0;
+    int m_packets = 0;
+    bool m_hasData = false;
+    QElapsedTimer m_sinceData;
+    QTimer m_staleTimer;
 };
 
 class HeartRateDevice : public SensorDevice

@@ -165,6 +165,8 @@ QString matchCategory(const QString &raw)
     // not make a workout an FTP test - only an explicit test category does
     if (t == QLatin1String("ftptests") || t == QLatin1String("ftptest"))
         return QStringLiteral("FTP Tests");
+    if (t == QLatin1String("anttest") || t == QLatin1String("anttests"))
+        return QStringLiteral("AnT Test");
     return {};
 }
 
@@ -200,7 +202,12 @@ bool finishWorkout(Workout &w, const QString &rawCategory, Cleaner &cleaner, QSt
         warnings->append(QStringLiteral("\"%1\" is longer than 12 hours and was skipped.").arg(w.name));
         return false;
     }
-    const QString cat = matchCategory(rawCategory);
+    QString cat = matchCategory(rawCategory);
+    // the test category belongs to the sport (FTP test: bike / rower, AnT test: running)
+    if (cat == Workout::ftpTestCategory() && w.isRunning())
+        cat = Workout::antTestCategory();
+    else if (cat == Workout::antTestCategory() && !w.isRunning())
+        cat = Workout::ftpTestCategory();
     if (!cat.isEmpty()) {
         w.category = cat;
     } else {
@@ -394,7 +401,7 @@ QByteArray toAwt(const QVector<Workout> &workouts, const QString &appVersion, co
     root.insert(QStringLiteral("format"), QString::fromLatin1(kFormatId));
     root.insert(QStringLiteral("version"), kFormatVersion);
     root.insert(QStringLiteral("exportedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    QString app = appName.isEmpty() ? QStringLiteral("Artilody Watts Trainer") : appName;
+    QString app = appName.isEmpty() ? QStringLiteral("Artilody Multisport Endurance Trainer") : appName;
     if (!appVersion.isEmpty())
         app += QLatin1Char(' ') + appVersion;
     root.insert(QStringLiteral("app"), app);
@@ -411,11 +418,12 @@ QByteArray toZwo(const Workout &w, const QString &appName)
     xml.writeStartDocument();
     xml.writeStartElement(QStringLiteral("workout_file"));
     xml.writeTextElement(QStringLiteral("author"),
-                        appName.isEmpty() ? QStringLiteral("Artilody Watts Trainer") : appName);
+                        appName.isEmpty() ? QStringLiteral("Artilody Multisport Endurance Trainer") : appName);
     xml.writeTextElement(QStringLiteral("name"), w.name);
     xml.writeTextElement(QStringLiteral("description"), w.description);
-    // Zwift has no rowing sport type; see WorkoutIO.h.
-    xml.writeTextElement(QStringLiteral("sportType"), QStringLiteral("bike"));
+    // Zwift has no rowing sport type; see WorkoutIO.h. Zwift run workouts are
+    // % of the threshold pace (speed) - like our % of the AnT speed.
+    xml.writeTextElement(QStringLiteral("sportType"), w.isRunning() ? QStringLiteral("run") : QStringLiteral("bike"));
     xml.writeStartElement(QStringLiteral("tags"));
     xml.writeEmptyElement(QStringLiteral("tag"));
     xml.writeAttribute(QStringLiteral("name"), w.category);
@@ -487,7 +495,7 @@ ImportResult parseAwt(const QByteArray &rawData)
         }
         const double version = jsonNumber(root.value(QStringLiteral("version")), kFormatVersion);
         if (version > kFormatVersion) {
-            r.error = QStringLiteral("This file was made with a newer version of Artilody Watts Trainer "
+            r.error = QStringLiteral("This file was made with a newer version of Artilody Multisport Endurance Trainer "
                                      "(format version %1). Please update the app to import it.")
                           .arg(version);
             return r;
@@ -728,7 +736,8 @@ ImportResult parseZwo(const QByteArray &data)
         r.error = QStringLiteral("No <workout> section found – this does not look like a Zwift workout (.zwo) file.");
         return r;
     }
-    if (!sport.isEmpty() && sport.compare(QLatin1String("bike"), Qt::CaseInsensitive) != 0)
+    const bool run = sport.compare(QLatin1String("run"), Qt::CaseInsensitive) == 0;
+    if (!sport.isEmpty() && !run && sport.compare(QLatin1String("bike"), Qt::CaseInsensitive) != 0)
         r.warnings.append(QStringLiteral("This workout was made for \"%1\"; it was imported as a cycling workout.").arg(limited(sport, 30)));
     if (freeRide)
         r.warnings.append(QStringLiteral("Free ride sections were converted to steady blocks at 60 % FTP."));
@@ -737,7 +746,14 @@ ImportResult parseZwo(const QByteArray &data)
     if (!unknown.isEmpty())
         r.warnings.append(QStringLiteral("Ignored unsupported elements: %1.").arg(unknown.join(QStringLiteral(", "))));
 
-    w.sport = sport::cycling();
+    // Zwift run workouts: % of the threshold pace = % of the AnT speed
+    w.sport = run ? sport::running() : sport::cycling();
+    if (run) {
+        for (Interval &i : w.intervals) {
+            i.cadence = 0;
+            i.inclinePercent = 1.0;
+        }
+    }
     if (finishWorkout(w, rawCategory, cleaner, &r.warnings))
         r.workouts.append(w);
     else

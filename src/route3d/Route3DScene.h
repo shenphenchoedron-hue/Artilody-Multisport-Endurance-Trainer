@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ghost_rider.h"
+#include "ghost_runner.h"
 #include "terrain.h"
 #include "vegetation.h"
 
@@ -25,6 +26,12 @@
 class QOpenGLContext;
 
 namespace watt {
+
+// The runner figure model (runner.glb), null when there is none / it fails.
+std::shared_ptr<const route3d::GlbModel> runnerModel();
+// The same figure walking (walker.glb), null when there is none.
+std::shared_ptr<const route3d::GlbModel> walkerModel();
+std::shared_ptr<const route3d::GlbModel> riderModel();
 
 // The 3D world of the Route3D prototype (0.7): terrain, road, houses, trees,
 // sky and the built-in rider along a route3d::Route, drawn with OpenGL into
@@ -57,6 +64,10 @@ public:
     // START is shown until you have ridden through it, then FINISH - so on a
     // loop (both at one place) you start under green and finish under red.
     void setStartDistance(double drawnMetres);
+    // Draw a runner (Treadmill Run) instead of the cyclist. In render(),
+    // crank is then the stride phase (one turn = a left and a right step).
+    void setRunner(bool on);
+    void setWalkRunKmh(double kmh) { m_runnerFigure.setTransitionKmh(kmh); }
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -125,6 +136,10 @@ private:
     size_t m_ghostIndexShadow = size_t(-1);
     const uint32_t *m_ghostIndexSource = nullptr;
     route3d::GhostRider m_ghost;
+    route3d::GhostRunner m_runnerFigure;
+    bool m_runner = false;
+    bool m_runnerModelTried = false;
+    bool m_riderModelTried = false;    // the .glb cyclist (riderModel()) was looked for   // the .glb runner (runnerModel()) was looked for
     QOpenGLVertexArrayObject m_vao;
     QOpenGLVertexArrayObject m_skyVao;
     std::vector<Vertex> m_build, m_buildDecals, m_ring;   // m_build*: written by the tile job only

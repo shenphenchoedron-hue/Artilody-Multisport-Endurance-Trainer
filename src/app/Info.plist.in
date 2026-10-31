@@ -29,8 +29,8 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Artilody Watts Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
+    <string>Artilody Multisport Endurance Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Artilody Watts Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
+    <string>Artilody Multisport Endurance Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
 </dict>
 </plist>

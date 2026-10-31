@@ -14,6 +14,10 @@ class Route {
 public:
     std::vector<Point> points;
     bool flatFallback=false;
+    // Where the ridden route ends (the FINISH arch); < 0 = at length(). The
+    // drawn road may go on past it (a visual run-out after the finish).
+    double finishDistance=-1;
+    double finish() const { return finishDistance>=0?std::min(finishDistance,length()):length(); }
     double length() const { return points.empty()?0:points.back().distance; }
     Point at(double distance) const {
         if(points.empty()) return {};

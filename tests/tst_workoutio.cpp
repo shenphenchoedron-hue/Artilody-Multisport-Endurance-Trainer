@@ -63,7 +63,7 @@ private slots:
         const QJsonObject root = QJsonDocument::fromJson(data).object();
         QCOMPARE(root.value(QStringLiteral("format")).toString(), QString::fromLatin1(io::kFormatId));
         QCOMPARE(root.value(QStringLiteral("version")).toInt(), 1);
-        QCOMPARE(root.value(QStringLiteral("app")).toString(), QStringLiteral("Artilody Watts Trainer 1.1.0"));
+        QCOMPARE(root.value(QStringLiteral("app")).toString(), QStringLiteral("Artilody Multisport Endurance Trainer 1.1.0"));
         QVERIFY(root.value(QStringLiteral("exportedAt")).toString().endsWith(QLatin1Char('Z')));
 
         const io::ImportResult r = io::parseAwt(data);

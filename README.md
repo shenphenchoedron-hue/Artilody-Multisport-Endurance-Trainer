@@ -1,26 +1,26 @@
 <div align="center">
 
-<img src="docs/screenshots/icon-256.png" alt="Artilody Watts Trainer icon" width="128">
+<img src="docs/screenshots/icon-256.png" alt="Artilody Multisport Endurance Trainer icon" width="128">
 
-# Artilody Watts Trainer
+# Artilody Multisport Endurance Trainer
 
-**Free, open-source, offline power training for indoor cycling and rowing – with your Bluetooth smart trainer or Concept2 PM5.**
+**Free, open-source, offline endurance training for indoor cycling, rowing and treadmill running – with your Bluetooth smart trainer, Concept2 PM5 or treadmill.**
 
-[![Latest release](https://img.shields.io/github/v/release/shenphenchoedron-hue/Artilody-Watts-Trainer?sort=semver)](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)
-[![Release build](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/actions/workflows/release.yml/badge.svg)](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer?sort=semver)](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)
+[![Release build](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/actions/workflows/release.yml/badge.svg)](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/actions/workflows/release.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Raspberry%20Pi-informational)](#download--install)
 [![Qt 6](https://img.shields.io/badge/Qt-6%20%2F%20QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
 
-[Download](#download--install) · [User manual](docs/Artilody-Watts-Trainer-Manual.pdf) · [Quick start](#quick-start) · [Build from source](#building-from-source) · [Report a bug](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/issues)
+[Download](#download--install) · [User manual](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf) · [Quick start](#quick-start) · [Build from source](#building-from-source) · [Report a bug](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/issues)
 
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Artilody Watts Trainer Watt Training page during a workout" width="900">
+  <img src="docs/screenshots/dashboard.png" alt="Artilody Multisport Endurance Trainer Watt Training page during a workout" width="900">
 </p>
 
-Artilody Watts Trainer is a desktop app for structured, power-based indoor cycling and rowing. It connects to Bluetooth LE smart trainers (FTMS), heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride and row to a local database on your computer. You don't need an account, a subscription or an internet connection.
+Artilody Multisport Endurance Trainer (formerly *Artilody Watts Trainer*) is a desktop app for structured indoor cycling, rowing and treadmill running. It connects to Bluetooth LE smart trainers (FTMS), **FTMS treadmills**, heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride, row and run to a local database on your computer. You don't need an account, a subscription or an internet connection.
 
 It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Linux (Debian / Ubuntu)** and **Raspberry Pi OS**.
 
@@ -34,6 +34,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Free Ride & virtual shifting** | Ride a road with a grade or hold an ERG wattage; with a **Zwift Click** you shift **Zwift's 24 virtual gears** – on trainers with the Zwift trainer protocol (Zwift Hub, Jetblack Victory, …) automatically through that protocol, otherwise as an FTMS gradient. Nothing to set up. |
 | **GPX Ride in 3D** | Ride any GPX route through a generated 3D landscape (road, hills, houses, trees, rider) with gradient simulation or ERG – the same physics and controls as a Video Ride. |
 | **Video Ride (Real Life Video)** | Ride filmed routes (video + GPS) at the speed you ride, with gradient simulation or ERG – and optionally a watts workout with **Workout ERG** on top. |
+| **Treadmill Run** | Run on any FTMS treadmill through the same 3D world – GPX routes or the built-in *Artilody Lakeside 10K*. Running workouts in % of your **AnT** (anaerobic threshold) or km/h, a built-in 30-min AnT test with reminders, running zones. The treadmill is only read, never controlled. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
 | **History & export** | NP / IF / TSS, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
 | **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
@@ -41,13 +42,28 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.4.1
+## What's new in 1.5.0
+
+**A new name and a new sport**: the app is now **Artilody Multisport Endurance Trainer** and runs on your treadmill too.
+
+- **Treadmill Run** (sidebar → **Treadmill Run**, under GPX Ride) – connect any Bluetooth **FTMS treadmill** (Devices → Treadmills, or the Virtual Treadmill) and run through the 3D world. Speed and incline are read from the treadmill; the app never changes your belt. Run a GPX route (on/off) or the built-in **Artilody Lakeside 10K** with 11 corners, lap by lap.
+- **A real 3D runner** – a skinned figure that walks and runs; it changes from walking to running at **your own walk → run speed** (new profile field *Walk → Run*).
+- **Running workouts and the AnT test** – running workouts are ordinary workouts now: the **Running** filter on the Workouts page, **New running workout**, the Workout Builder (speeds in % of AnT or km/h, a suggested incline per block, running zones), the calendar (**Run**) and `.awt` / Zwift *run* `.zwo` files. The built-in **AnT test** (10 min warm-up, 30 min test, 5 min cool-down) sets your anaerobic threshold speed from the last 20 minutes and reminds you when the next test is due.
+- **A new cyclist in GPX Ride** – a skinned rider in a blue jersey, black bibs and a red helmet, posed on the bike by the app: the feet follow the pedals at your cadence, the hands hold the hoods, and he rocks a little from side to side – more on climbs over 6 %.
+- **3D polish** – the road runs on 50 m past the FINISH arch; contact shadows under wheels and feet; straight lines between jersey, shorts and skin.
+- **FIT export of runs** (sport *running*, sub-sport *treadmill*); runs are saved to History.
+- **Database upgrade** – on first start the database is upgraded automatically to schema version 7 (treadmill runs, AnT tests, running workouts); all rides, workouts, profiles, plans and settings are preserved. Your data folder, Bluetooth permission and the Windows installation are unchanged by the new name.
+
+<details>
+<summary><b>What's new in 1.4.1</b> – GPX Ride start / finish arches</summary>
 
 **GPX Ride**: start and finish arches, and a rider who pedals like you.
 
 - **START and FINISH arches** – a green inflatable START arch just ahead of where you start (also part-way along the route) and a red FINISH arch at the end. On a loop you start under green and finish under red.
 - **The rider follows your real cadence** – the rider's legs turn at the cadence in the Cadence tile and stand still when you coast, pause or have no cadence; the wheels roll on with your speed.
-- No database change – install over 1.4.0 (or older) and keep all your data. See the [1.4.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.4.1).
+- No database change. See the [1.4.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.4.1).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.4.0</b> – GPX Ride in 3D</summary>
@@ -58,7 +74,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **3D view** – a road through a generated landscape with hills, houses, trees and a rider, following your position and speed from the app's own physics, so the 3D road, the gradient sent to the trainer and the elevation profile agree.
 - **The Video Ride's controls** – trainer data at the top, the elevation profile at the bottom, Simulation / ERG, difficulty, Workout ERG, virtual gears and the Zwift Click; rides are saved as *GPX: <route>*.
 - **OpenGL on all platforms** – needed for the 3D view. Without OpenGL 3.1 (ES 3.0 on a Pi) the app keeps its previous graphics and the route can still be ridden without the 3D view.
-- No database change – install over 1.3.10 (or older) and keep all your data. See the [1.4.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.4.0).
+- No database change – install over 1.3.10 (or older) and keep all your data. See the [1.4.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.4.0).
 
 <p align="center">
   <img src="docs/screenshots/gpx-ride.png" alt="GPX Ride in 3D" width="900">
@@ -75,7 +91,7 @@ Safer switching between **ERG** and **virtual shifting with the Zwift trainer pr
 - **A Zwift Click alone never takes the trainer out of ERG** – the Zwift protocol starts again only when a ride in Ride / Simulation asks for the hub, not because a Click connects or reconnects.
 - **No resistance hop when going from ERG to the hub** – the first hub gear matches the power the trainer brakes with now (same physics values as sent to the trainer), then ramps over 4 s to your gear. Only with fresh data from a trainer whose speed is verified as its flywheel's; otherwise (unknown speed type, old data, 0 W, standstill, descents) it starts from the light gear and ramps up.
 - **Zwift Hub gets road and gear at once** – when it answers the start of the data stream without riding data, the app no longer waits 4 s with the trainer on its own default resistance.
-- No database change – install over 1.3.9 (or older) and keep all your data. See the [1.3.10 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.10).
+- No database change – install over 1.3.9 (or older) and keep all your data. See the [1.3.10 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.10).
 
 </details>
 
@@ -89,7 +105,7 @@ Fixes for **virtual shifting with the Zwift trainer protocol** (Zwift Hub, Jetbl
 - **Light pedaling counts as pedaling** – cadence ≥ 15 rpm or ≥ 30 W (the Victory reads 0 W when you spin lightly); the speed then follows the trainer's flywheel instead of sinking.
 - **No speed drop at the soft start** and **a gentle stop** – the coasting speed no longer drops when the soft start's light gear goes out, and when the flywheel stops the speed brakes to 0 within about 2 s instead of jumping (also downhill in a video).
 - **Zwift Click** – after a rider switch or at the start of a free / video ride the app looks for a known Click that is not connected and tells you to press a button on it to wake it.
-- No database change – install over 1.3.8 (or older) and keep all your data. See the [1.3.9 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.9).
+- No database change – install over 1.3.8 (or older) and keep all your data. See the [1.3.9 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.9).
 
 </details>
 
@@ -101,7 +117,7 @@ A fix for the **speed shown while coasting** with the **Zwift trainer protocol**
 - **The speed no longer rolls on after the flywheel has stopped** – before, the app's road model let a 77 kg bike roll on for 10–15 s after the trainer's flywheel had stopped. While coasting (not pedaling while the flywheel turns) the shown speed on the flat and uphill now follows the trainer's own simulated speed down, smoothly; downhill the bike and the video still roll on.
 - **Flywheel stopped = stopped** – speed 0 on any grade, no longer shown as coasting.
 - "Pedaling" means at least 30 W: the trainer's cadence lags both ways (0 rpm at 180 W at the start, still 83 rpm at 0 W when you stop pedaling), the power does not.
-- No database change – install over 1.3.7 (or older) and keep all your data. See the [1.3.8 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.8).
+- No database change – install over 1.3.7 (or older) and keep all your data. See the [1.3.8 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.8).
 
 </details>
 
@@ -111,7 +127,7 @@ A fix for the **speed shown while coasting** with the **Zwift trainer protocol**
 A small follow-up for **virtual shifting with the Zwift trainer protocol** (Jetblack Victory).
 
 - **Gentler shifting up** – a virtual shift to a harder gear ramps in over **3 s** (was 1.5 s). Shifting up at the same cadence makes the trainer accelerate the virtual bike and rider to the higher speed; over about a second that gave a power spike of +80 … 110 W right after the shift – spread over 3 s it is about halved. Shifting easier still acts at once.
-- No database change – install over 1.3.6 (or older) and keep all your data. See the [1.3.7 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.7).
+- No database change – install over 1.3.6 (or older) and keep all your data. See the [1.3.7 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.7).
 
 </details>
 
@@ -122,7 +138,7 @@ A follow-up test release for **virtual shifting with the Zwift trainer protocol*
 
 - **Smoother shifting up** – a virtual shift to a harder gear ramps in over 1.5 s instead of at once (the trainer's inertia emulation turned a sudden +9 % into a power spike); shifting easier acts at once.
 - **No second, delayed step after a shift** – the bike's real gear on the trainer is the median of the ride's measurements and changes only beyond 6 % (the Victory's coarse, lagging cadence scattered single measurements over 3.4 … 4.4 for a chain on 44×11, which moved the compensation a few seconds after a shift). A real chain shift is still picked up after three measurements; nothing is measured for 3 s after a gear change.
-- No database change – install over 1.3.5 (or older) and keep all your data. See the [1.3.6 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.6).
+- No database change – install over 1.3.5 (or older) and keep all your data. See the [1.3.6 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.6).
 
 </details>
 
@@ -132,7 +148,7 @@ A follow-up test release for **virtual shifting with the Zwift trainer protocol*
 A test release for the **Zwift trainer protocol with virtual shifting** (Zwift Click), made for the **Jetblack Victory**: with the bike in a hard real gear (e.g. 44×11) every virtual gear rode ~1.6× too hard – 400 W to get going, ~350 W in gear 12 at 80 rpm.
 
 - **Zwift protocol: virtual gears adapted to the real gear on the trainer** – with the bike in a hard real gear (e.g. 44×11) every virtual gear on the Jetblack Victory rode ~1.6× too hard: 400 W to get going, ~350 W in gear 12 at 80 rpm. The app measures the real gear from the trainer's speed and cadence and sends each virtual gear × 2.43 / real gear. The 2.43 (34×14 on a 14T Zwift Cog, SHIFTR's standard ratio) is a **model assumption** fitted to the Victory's logs – not a published Zwift spec; verifying the trainer's speed does not verify the formula or the load. How it measures: one coherent update per trainer packet (power, cadence, speed with their age – not the split change signals), windows of ≥ 2.5 s while **actively pedaling** (≥ 20 W; freewheeling never measures), ratio within 5 % and cadence within 8 %. Whether the speed is the flywheel's is **tested** on every ≥ 10 % change of the sent gear; the verdict (flywheel / follows the gear / unknown) and the real gear are **saved per trainer** – a gear-derived speed keeps the compensation off after reconnecting; *Bluetooth diagnostics → Real gear on the trainer → Measure again* resets it. An unverified first value is applied **provisionally** (never saved) and dropped after 20 s without verification. While the real gear is unknown the hub path sends a **light gear** (× 0.5, gear 12 ≈ gear 5) – no timeout to the full ratio – and every change (light ↔ compensated, new factor, compensation dropped) **ramps over 4 s from the last requested ratio** (the latest command – not a setting the trainer confirmed). The soft start treats 0 rpm and 0 W as freewheeling: a flywheel still spinning above 10 km/h no longer ends its waiting (that made it – and the light gear – cycle every ~5 s during a coast). The real gear in use is the **median** of the ride's windows and changes only beyond 6 % (the Victory's coarse, lagging cadence scattered single windows over 3.4 … 4.4 for a chain on 44×11, which used to add a second, heavier step a few seconds after a shift); a real chain shift (three windows in a row ≥ 8 % off) takes over at once, and nothing is measured for 3 s after the sent gear changed. **Shifting harder ramps in over 3 s** (the trainer accelerates the virtual 77 kg bike and rider to the higher speed – over 1.25 s that was a spike of +80 … 110 W); shifting easier acts at once. A power check switches the compensation off if the trainer calibrates the real gear itself (Zwift Hub). **Coasting = not pedaling (< 30 W – the trainer's cadence lags) while the flywheel turns**: on the flat or uphill the shown speed follows the trainer's own simulated speed (flywheel × sent gear ratio / 2.43) down, downhill the bike (and the video) rolls on; **once the flywheel stands still the bike has stopped** – speed 0 on any grade, no longer shown as coasting (before, the app's road model rolled a 77 kg bike on for 10–15 s after the flywheel had stopped). Diagnostics: `GEAR` / `RES` log lines, `hubGearFactor` in the settings line, a *Zwift protocol real gear* line in the report.
-- No database change – install over 1.3.4 (or older) and keep all your data. See the [1.3.5 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.5).
+- No database change – install over 1.3.4 (or older) and keep all your data. See the [1.3.5 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.5).
 
 </details>
 
@@ -145,7 +161,7 @@ A Zwift-trainer-protocol fix release for trainers with the Zwift trainer service
 - **No FTMS resistance commands while the Zwift protocol drives the trainer** – no FTMS start, neutral state or ERG during the handshake, at pauses or as the start state; only the FTMS control request, like Incyclist. If the app has to fall back to FTMS, the held-back FTMS start is sent first.
 - **Same physics constants as Zwift** on the Zwift protocol path: air drag CWa 0.51, rolling resistance 0.004, no wind; an incline of 0 % is sent as 0.
 - **Corrected diagnostics decoding** – riding-data speed (m/s × 100), the 4th field is power (not heart rate), the trainer's echo of the incline in whole percent and the rider-weight label in the diagnostic log.
-- No database change – install over 1.3.3 (or older) and keep all your data. See the [1.3.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.4).
+- No database change – install over 1.3.3 (or older) and keep all your data. See the [1.3.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.4).
 
 </details>
 
@@ -157,7 +173,7 @@ A trainer-control release: tests that stop by themselves, a defined trainer stat
 - **ERG test and gradient test stop automatically** – the ERG control test and the gradient test on the Devices page end when you leave the Devices page, when a session starts or when a ride page sends a resistance command; the ERG test stops after 5 min at the latest (safety timeout). While it runs the card shows *ERG test running – N W*.
 - **Neutral trainer state after control is granted** – when the trainer grants control and no ride is active, the app sends a neutral flat state (FTMS simulation 0 % with your Crr / Cw, or a low resistance level on trainers without simulation). An ERG target or grade left behind by another app (Zwift, the trainer's own app …) no longer lingers.
 - **Soft start** – at the start of a ride the trainer gets 0 % until the flywheel turns (≥ 40 rpm or ≥ 10 km/h for 2 s); then the grade ramps to the route's value over 4 s. It re-arms after more than 5 s without pedaling or after a pause. Used for gradient simulation, FTMS virtual gears and the Zwift protocol's incline – **never for ERG**.
-- No database change – install over 1.3.2 (or older) and keep all your data. See the [1.3.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.3).
+- No database change – install over 1.3.2 (or older) and keep all your data. See the [1.3.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.3).
 
 </details>
 
@@ -178,7 +194,7 @@ Virtual shifting with the Zwift Click reworked, automatic diagnostic log files a
 
 - **Without a Zwift Click** nothing changes for you: no virtual gears, the trainer gets the normal FTMS gradient simulation and you shift your bike's own gears.
 - **Known limitation** – the Zwift trainer protocol path has so far only been tested with a simulated trainer. If you ride a Zwift Hub, Jetblack Victory or a Zwift Cog trainer, please send the [diagnostic log](#diagnostic-log-send-it-with-a-bug-report) of a ride – feedback is very welcome.
-- No database change – install over 1.3.1 (or older) and keep all your data. See the [1.3.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.2).
+- No database change – install over 1.3.1 (or older) and keep all your data. See the [1.3.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.2).
 
 </details>
 
@@ -192,7 +208,7 @@ A bug-fix and safety release.
 - **Start no longer blocked for no visible reason** – only a session that is really in progress (running, or paused with a recording) blocks starting another one; a workout that was only loaded or a finished session never does, and a workout loaded on Watt Training is unloaded when you leave the page. If **Start** is greyed out, a yellow card under it says why (e.g. *"A workout is paused on Watt Training. Finish it to start a video ride."*) with **Go to …**, **End & Save** and **Discard** (click twice to confirm). See ["Start" is greyed out](#start-is-greyed-out).
 - **Video Ride controls stay usable** – a workout paused on another page no longer locks the Video Ride (or Free Ride) page: gears, ERG watts and difficulty react, and the Zwift Click shifts on the open page. Only **Start** is disabled.
 - **The video library scan can't hang** – the scan always finishes (errors in the scanner are caught, 120 s time-out), and a video error or stall no longer leaves the Video Ride page stuck.
-- No database change – install over 1.3.0 (or older) and keep all your data. See the [1.3.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.1).
+- No database change – install over 1.3.0 (or older) and keep all your data. See the [1.3.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.1).
 
 </details>
 
@@ -204,7 +220,7 @@ A bug-fix and safety release.
 - **Automatic tick-off** – a planned Free Ride is completed by a saved Free Ride of at least half the planned time (10 min for an open ride); a planned Video Ride by a saved ride on that route that reached the finish or 90 % of the distance.
 - **Ride a watts workout during a Video Ride** – pick one of your cycling workouts on the Video Ride page: its intervals run on the ride's clock and are shown as a **workout strip** (block chart in % FTP, coloured by zone, with a cursor) above the route's elevation profile, with the current target, time left, next target and your *in target* share. With **Workout ERG** (on by default) the trainer holds the workout's watts while the video follows your speed; change the **intensity** ±5 %, skip an interval or end the workout and ride on. See [Real Life Video](#real-life-video).
 - **Free Ride planned duration** – a Free Ride started from the calendar shows the planned time in the Time tile (*Planned 60 min • 23:10 left*) as a target; the ride doesn't stop by itself.
-- **Database upgrade** – on first start the database is upgraded automatically to schema version 5 (Free Ride / Video Ride plan entries); all rides, workouts, profiles, plans and settings are preserved. See the [1.3.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.3.0).
+- **Database upgrade** – on first start the database is upgraded automatically to schema version 5 (Free Ride / Video Ride plan entries); all rides, workouts, profiles, plans and settings are preserved. See the [1.3.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.3.0).
 
 </details>
 
@@ -218,27 +234,27 @@ A bug-fix and safety release.
 - **Smooth power (3 s average)** for displayed cycling watts (Settings → Smooth power); recordings still use raw power.
 - **Sidebar order** – Watt Training (then called Dashboard), Free Ride, Video Ride, Rowing at the top.
 - **FTP tests detect their protocol** (ramp: 75 % of best 1-min power; 20-min: 95 % of best 20-min power).
-- Database schema version 4, many fixes. See the [1.2.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.2.0).
+- Database schema version 4, many fixes. See the [1.2.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.2.0).
 
 </details>
 
 ### Earlier releases
 
-- [1.1.4](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.4) – Concept2 PM5 stroke rate fix, stroke-rate fallback, richer rower diagnostics.
-- [1.1.3](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.3) – PM5 found on Raspberry Pi / Linux (FTMS advertisement), FTMS rower support, Bluetooth diagnostics.
-- [1.1.2](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.2) – easier reordering and deleting in the Workout Builder.
-- [1.1.1](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.1) – music playlist layout fix.
-- [1.1.0](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/tag/v1.1.0) – workout calendar, Concept2 PM5 rowing, sport types and rowing FTP, FIT export, `.awt` / `.zwo` workout sharing.
+- [1.1.4](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.1.4) – Concept2 PM5 stroke rate fix, stroke-rate fallback, richer rower diagnostics.
+- [1.1.3](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.1.3) – PM5 found on Raspberry Pi / Linux (FTMS advertisement), FTMS rower support, Bluetooth diagnostics.
+- [1.1.2](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.1.2) – easier reordering and deleting in the Workout Builder.
+- [1.1.1](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.1.1) – music playlist layout fix.
+- [1.1.0](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.1.0) – workout calendar, Concept2 PM5 rowing, sport types and rowing FTP, FIT export, `.awt` / `.zwo` workout sharing.
 
-All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases).
+All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases).
 
 ---
 
 ## Contents
 
-- [What's new in 1.4.1](#whats-new-in-141)
+- [What's new in 1.5.0](#whats-new-in-150)
 - [Features](#features)
-  - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
+  - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
 - [Download & install](#download--install)
 - [User manual](#user-manual)
@@ -333,13 +349,27 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **Choosing a route**: every `.gpx` file in the GPX folder and its subfolders is a route – from a bike computer, Strava, Komoot or any route planner. The default folder is `Documents/Artilody GPX Routes`; the folder button next to the drop-down adds folders, changes or opens the GPX folder, rescans, and **Open GPX File…** rides a single file. Tracks need elevation for gradients; routes up to 200 km with track points at most 2 km apart can be shown in 3D.
 - **The same ride as a Video Ride**: power, cadence, heart rate, speed and time at the top, the 3D view in the middle (gradient, mode and difficulty as overlays) and the route's elevation profile at the bottom (click it to start part-way). Resistance (**Simulation** or **ERG**), **Difficulty**, a **workout with Workout ERG**, virtual gears and the **Zwift Click** work exactly as in the [Video Ride](#real-life-video), with the same physics; the 3D road follows your position, so the gradient you feel, the profile and the picture agree. GPX Ride remembers its own mode, difficulty and last route.
 - **START and FINISH**: a green inflatable START arch stands just ahead of where you start (also when you start part-way) and a red FINISH arch at the end; the START arch is shown until you have ridden through it, then the FINISH arch – on a loop you start under green and finish under red.
-- **The rider is you**: the rider's legs turn at your real cadence and stand still when you coast, pause or have no cadence; the wheels roll on with your speed.
+- **The rider is you**: a 3D cyclist (blue jersey, black bibs, red helmet) whose feet follow the pedals at your real cadence and stand still when you coast, pause or have no cadence; he rocks gently from side to side with the pedal stroke – more on climbs over 6 %. The wheels roll on with your speed.
+- **Run-out after the finish**: on point-to-point routes the road continues 50 m past the FINISH arch.
 - Rides are saved to History as *GPX: <route>* and can be exported as FIT/CSV.
 - **Graphics**: the 3D view needs OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi; a Pi 4 or 5 is recommended). Without it, the page says so and you can still ride the route with the profile.
 
 <p align="center">
   <img src="docs/screenshots/gpx-ride.png" alt="GPX Ride" width="900"><br>
   <sub><b>GPX Ride</b>: a 7.5 % climb in the 3D view, the gradient sent to the trainer and the position on the elevation profile.</sub>
+</p>
+
+### Treadmill Run
+- **Treadmill Run page** (sidebar → **Treadmill Run**): run through the same 3D world as GPX Ride on any Bluetooth **FTMS treadmill** (Devices → **Treadmills**; a **Virtual Treadmill** for trying it out). Speed and incline come from the treadmill – the app only reads them and never controls the belt.
+- **Routes**: a GPX route from your GPX folder (switch **GPX** on) or the built-in **Artilody Lakeside 10K** – a 10 km loop with 11 corners, run lap after lap. Metrics: speed, pace /km, incline, heart rate, time, distance and laps.
+- **The runner**: a 3D figure that walks below and runs above **your walk → run speed** (Profile → *Walk → Run*), with contact shadows under the feet.
+- **Running workouts**: speeds in % of your **AnT** (anaerobic threshold speed) or km/h, with a suggested incline per block. They live with all workouts – **Running** filter on the Workouts page, the Workout Builder, the calendar and `.awt` / Zwift run `.zwo` files. The page shows the target speed and incline; you set them on the treadmill.
+- **AnT test**: 10 min warm-up, a 30-min test and 5 min cool-down; your AnT is the average speed of the last 20 minutes. Results are kept as history, the zones (78 / 88 / 95 / 100 / 106 % of AnT) follow, and the app reminds you when the next test is due (every 2–26 weeks). You can also enter an AnT by hand.
+- Runs are saved to History and exported as FIT (*running*, *treadmill*) or CSV.
+
+<p align="center">
+  <img src="docs/screenshots/treadmill-run.png" alt="Treadmill Run" width="900"><br>
+  <sub><b>Treadmill Run</b>: a threshold workout on the Lakeside 10K – target speed and incline, the running workouts and your AnT.</sub>
 </p>
 
 ### Plan
@@ -436,6 +466,16 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
   </tr>
   <tr>
     <td align="center" width="50%">
+      <img src="docs/screenshots/workouts-running.png" alt="Running workouts"><br>
+      <sub><b>Running workouts</b>: % of AnT, with the AnT test</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/builder-running.png" alt="Builder: running workout"><br>
+      <sub><b>Builder</b>: running blocks in % AnT / km/h with incline</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
       <img src="docs/screenshots/freeride-erg.png" alt="Free Ride in ERG mode"><br>
       <sub><b>Free Ride ERG</b>: the trainer holds the wattage you set</sub>
     </td>
@@ -448,18 +488,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.4.1**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest)**; direct links:
+The current version is **1.5.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyWattsTrainer-1.4.1-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/ArtilodyWattsTrainer-1.4.1-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyWattsTrainer-1.4.1-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/ArtilodyWattsTrainer-1.4.1-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyWattsTrainer-1.4.1-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/ArtilodyWattsTrainer-1.4.1-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.4.1_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/artilody-watts-trainer_1.4.1_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.4.1_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/artilody-watts-trainer_1.4.1_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.4.1_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/artilody-watts-trainer_1.4.1_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Watts-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/Artilody-Watts-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/download/v1.4.1/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.5.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/ArtilodyMultisportEnduranceTrainer-1.5.0-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.5.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/ArtilodyMultisportEnduranceTrainer-1.5.0-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.5.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/ArtilodyMultisportEnduranceTrainer-1.5.0-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.5.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/artilody-watts-trainer_1.5.0_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.5.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/artilody-watts-trainer_1.5.0_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.5.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/artilody-watts-trainer_1.5.0_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -469,8 +509,8 @@ The current version is **1.4.1**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyWattsTrainer-1.4.1-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
-   If you'd rather not install anything, extract the ZIP and run `Artilody Watts Trainer.exe` from the extracted folder.
+1. Run `ArtilodyMultisportEnduranceTrainer-1.5.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+   If you'd rather not install anything, extract the ZIP and run `Artilody Multisport Endurance Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
 
@@ -479,11 +519,11 @@ The current version is **1.4.1**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>macOS</b></summary>
 
-1. Open the DMG and drag **Artilody Watts Trainer** into **Applications**.
+1. Open the DMG and drag **Artilody Multisport Endurance Trainer** into **Applications**.
 2. **Gatekeeper:** the app is ad-hoc signed but not notarized by Apple. The first time you open it, **right-click (or Control-click) the app → Open → Open**.
    If macOS says the app is "damaged" or still won't open it, run this once:
    ```sh
-   xattr -cr "/Applications/Artilody Watts Trainer.app"
+   xattr -cr "/Applications/Artilody Multisport Endurance Trainer.app"
    ```
 3. Allow **Bluetooth access** when macOS asks. If you denied it by mistake, turn it on again under *System Settings → Privacy & Security → Bluetooth*.
 
@@ -495,11 +535,11 @@ The current version is **1.4.1**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.4.1_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.4.1_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.5.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.5.0_debian12_amd64.deb      # Debian 12
 ```
 
-Start **Artilody Watts Trainer** from the application menu or run `artilody-watts-trainer`.
+Start **Artilody Multisport Endurance Trainer** from the application menu or run `artilody-watts-trainer`.
 Bluetooth needs the BlueZ service to be running: `sudo systemctl enable --now bluetooth`.
 Ubuntu 22.04 and older are **not** supported, because they ship Qt 6.2 and the app requires Qt 6.4 or newer.
 
@@ -512,7 +552,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.4.1_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.5.0_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -525,7 +565,7 @@ The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate 
 
 ## User manual
 
-The **[user manual (PDF)](docs/Artilody-Watts-Trainer-Manual.pdf)** covers every screen in detail. It is also attached to each [release](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases/latest).
+The **[user manual (PDF)](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf)** covers every screen in detail. It is also attached to each [release](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest).
 
 ## Quick start
 
@@ -544,8 +584,8 @@ On the **Workouts** page, click **Export** in the filter bar (next to **Import**
 
 | Format | Best for | Notes |
 |---|---|---|
-| **`.awt`** (Artilody workout) | Sharing with other Artilody Watts Trainer users, backups | Keeps everything: name, sport (cycling/rowing), category, focus, description and every block (type, name, duration, start/end intensity, cadence, RPE). One file can hold many workouts. |
-| **`.zwo`** (Zwift workout) | Zwift, TrainerRoad, Golden Cheetah, MyWhoosh and other apps | One workout per file, always cycling (rowing workouts are exported as bike workouts; imports become cycling workouts). RPE settings are not stored; on import, `IntervalsT` repeats are expanded into individual blocks, `FreeRide` and `MaxEffort` become steady blocks at 60 % / 150 % FTP. |
+| **`.awt`** (Artilody workout) | Sharing with other Artilody Multisport Endurance Trainer users, backups | Keeps everything: name, sport (cycling/rowing/running), category, focus, description and every block (type, name, duration, start/end intensity, cadence, RPE). One file can hold many workouts. |
+| **`.zwo`** (Zwift workout) | Zwift, TrainerRoad, Golden Cheetah, MyWhoosh and other apps | One workout per file; running workouts are written / read as Zwift *run* workouts (% of threshold pace = % of AnT, the incline is not kept), everything else as cycling (rowing workouts are exported as bike workouts). RPE settings are not stored; on import, `IntervalsT` repeats are expanded into individual blocks, `FreeRide` and `MaxEffort` become steady blocks at 60 % / 150 % FTP. |
 
 All intensities are stored **relative to FTP**, so a shared workout scales to the FTP of whoever imports it. Imported workouts are added to your own (*Custom*) workouts and can be edited or deleted. A workout that is already in your library is skipped, and a different workout with the same name is imported as *Name (imported)*. Files are validated before import (sizes, durations, intensities, categories).
 
@@ -556,7 +596,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Watts Trainer 1.4.1",
+  "app": "Artilody Multisport Endurance Trainer 1.5.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -573,7 +613,7 @@ An `.awt` file is plain UTF-8 JSON:
 }
 ```
 
-`sport` is `cycling` (default when missing) or `rowing`; `type` is one of `warmup`, `steady`, `interval`, `recovery`, `cooldown`, `ramp`; `duration` is in seconds; `start`/`end` are fractions of FTP (0.90 = 90 % FTP); `cadence` (RPM) and `rpe` (zone 0–5) are optional. The full description is in the [user manual](docs/Artilody-Watts-Trainer-Manual.pdf) (appendix C).
+`sport` is `cycling` (default when missing), `rowing` or `running` (then `start`/`end` are fractions of the AnT speed and `incline` is the suggested treadmill incline in %); `type` is one of `warmup`, `steady`, `interval`, `recovery`, `cooldown`, `ramp`; `duration` is in seconds; `start`/`end` are fractions of FTP (0.90 = 90 % FTP); `cadence` (RPM) and `rpe` (zone 0–5) are optional. The full description is in the [user manual](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf) (appendix C).
 
 > [!NOTE]
 > **About FIT files:** rides are written as FIT activity files by an independent encoder that is part of this project (no Garmin FIT SDK code is included). The files work with Garmin Connect, Strava, TrainingPeaks, intervals.icu and other platforms; upload them on the platform's website. Indoor rides contain no GPS, speed or distance. Rows are exported as **indoor rowing** activities (FIT sport *rowing*, sub-sport *indoor rowing*) with total distance, average speed, power, heart rate and stroke rate as cadence; the per-second distance curve is estimated by spreading the rowed distance in proportion to power^(1/3) (Concept2: speed ∝ power^(1/3)). FIT is a file format by Garmin; this project is not affiliated with Garmin.
@@ -585,6 +625,8 @@ An `.awt` file is plain UTF-8 JSON:
 **Rowers.** **Concept2 PM5** monitors (RowErg and other Concept2 machines with a PM5) over Bluetooth LE. On the PM5 choose *More Options → Turn Wireless ON → Connect Device* before scanning. The PM5 has no ERG mode, so watt plans are followed by feel. Older PM3/PM4 monitors are not supported, and BikeErg and SkiErg are not supported (the app only handles rowing data). If both a heart-rate strap and the PM5 report heart rate, the strap is used.
 
 **Controllers.** **Zwift Click** (v1 and v2) for virtual shifting (Zwift's 24 gears) in Free Ride and Video Ride, without the Zwift app. Trainers with the Zwift trainer service get the gear through the Zwift protocol automatically. Limits: firmware that insists on Zwift's encrypted mode is not supported (the connection log says so – update the Click in Zwift Companion), and the left pod of a Click v2 only sends buttons after Zwift has unlocked it (once per 24 h); its right pod always works. Zwift Play and Zwift Ride are not supported.
+
+**Treadmills.** Any treadmill that sends the standard Bluetooth **FTMS Treadmill Data** (speed, incline, distance) – most current connected treadmills and many walking pads. The app only reads the treadmill; speed and incline are always set on the treadmill itself.
 
 **Heart-rate sensors.** Any Bluetooth LE strap or armband using the standard **Heart Rate Service (HRS)** should work, for example Polar H10, Garmin HRM-Dual/HRM-Pro or Wahoo TICKR.
 
@@ -607,7 +649,7 @@ An `.awt` file is plain UTF-8 JSON:
 
 Only one session runs at a time. If **Start** on Watt Training, Free Ride, Video Ride or Rowing page is greyed out, a session on another page is still **in progress** – typically a workout started (or paused) on Watt Training, or a paused free ride. A yellow card under the button says which one, e.g. *"A workout is paused on Watt Training. Finish it to start a video ride."*, with **Go to Watt Training**, **End & Save** and **Discard** (click twice to confirm). Everything else on the page (route, workout, gears, difficulty) stays usable meanwhile.
 
-Sessions that are only prepared (a workout loaded on Watt Training, a route chosen, a row set up) never block, a session started and paused before anything was recorded is given up when another one starts, and finished rides never block. Nothing ever starts by pedaling or rowing. The sidebar status chip (*Paused 0:01*) also shows a session in progress. If Start stays grey without a card, start the app from Terminal with `WATT_DEBUG_RLVUI=1` (macOS: `WATT_DEBUG_RLVUI=1 "/Applications/Artilody Watts Trainer.app/Contents/MacOS/Artilody Watts Trainer"`) and attach the `RLVUI` lines to a bug report.
+Sessions that are only prepared (a workout loaded on Watt Training, a route chosen, a row set up) never block, a session started and paused before anything was recorded is given up when another one starts, and finished rides never block. Nothing ever starts by pedaling or rowing. The sidebar status chip (*Paused 0:01*) also shows a session in progress. If Start stays grey without a card, start the app from Terminal with `WATT_DEBUG_RLVUI=1` (macOS: `WATT_DEBUG_RLVUI=1 "/Applications/Artilody Multisport Endurance Trainer.app/Contents/MacOS/Artilody Multisport Endurance Trainer"`) and attach the `RLVUI` lines to a bug report.
 
 ### Virtual gears feel too heavy (light gears, descents)
 
@@ -639,7 +681,7 @@ For developers: `WATT_LOG_DIR=<folder>` writes the log elsewhere, `WATT_LOG=0` t
 
 ## Privacy
 
-Artilody Watts Trainer runs **fully offline**:
+Artilody Multisport Endurance Trainer runs **fully offline**:
 
 - No account, no cloud and no telemetry or analytics. Nothing is uploaded: FIT, CSV and workout files are only written when you export them yourself.
 - Rides and rows, profiles, workouts, the training plan, rowing records and playlists are stored in a local SQLite database (`watt-trainer.sqlite` in the user's app-data folder). The exact path is shown under **Settings** (the gear icon).
@@ -686,13 +728,13 @@ tests/      QtTest unit tests (workout, engine, analysis, database + migration, 
 
 Contributions are welcome:
 
-- **Bugs and ideas:** open an [issue](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/issues). For device problems, include your OS, trainer or sensor model and the connection log from the Devices page.
+- **Bugs and ideas:** open an [issue](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/issues). For device problems, include your OS, trainer or sensor model and the connection log from the Devices page.
 - **Pull requests:** keep changes focused, follow the existing code style, keep UI code in `qml/` and logic in `src/`, and add or update tests in `tests/`. Make sure `ctest` passes before you submit.
 - **Trainer compatibility reports** are especially useful. Let us know which trainers and sensors work for you.
 
 ## License
 
-Artilody Watts Trainer is free software, licensed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for details.
+Artilody Multisport Endurance Trainer is free software, licensed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for details.
 
 ## Acknowledgements
 

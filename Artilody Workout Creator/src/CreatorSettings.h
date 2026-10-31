@@ -8,7 +8,7 @@
 namespace awc {
 
 // Persistent settings of the Workout Creator (QSettings). Exposed to QML as
-// "Settings" and – for the components shared with Artilody Watts Trainer
+// "Settings" and – for the components shared with Artilody Multisport Endurance Trainer
 // (WorkoutChart, BuilderPage) – also as "Profiles": it provides the same
 // ftp / rowingFtp / preferredCadence / zoneBounds properties.
 //
@@ -18,6 +18,8 @@ class CreatorSettings : public QObject
     Q_OBJECT
     Q_PROPERTY(int ftp READ ftp WRITE setFtp NOTIFY profileChanged)
     Q_PROPERTY(int rowingFtp READ rowingFtp WRITE setRowingFtp NOTIFY profileChanged)
+    // running workouts: the AnT speed (km/h) the speeds are previewed with
+    Q_PROPERTY(double antSpeedKmh READ antSpeedKmh WRITE setAntSpeedKmh NOTIFY profileChanged)
     Q_PROPERTY(int preferredCadence READ preferredCadence WRITE setPreferredCadence NOTIFY profileChanged)
     Q_PROPERTY(QVariantList zoneBounds READ zoneBounds NOTIFY profileChanged)   // fractions of FTP
     Q_PROPERTY(int minFtp READ minFtp CONSTANT)
@@ -37,6 +39,8 @@ public:
     void setFtp(int watts);
     int rowingFtp() const { return m_rowingFtp; }
     void setRowingFtp(int watts);
+    double antSpeedKmh() const { return m_antKmh; }
+    void setAntSpeedKmh(double kmh);
     int preferredCadence() const { return m_cadence; }
     void setPreferredCadence(int rpm);
     QVariantList zoneBounds() const;
@@ -65,6 +69,7 @@ private:
     int m_ftp = 250;
     int m_rowingFtp = 150;
     int m_cadence = 85;
+    double m_antKmh = 12.0;
     bool m_dark = true;
     bool m_showZwo = true;
     QString m_folder;

@@ -226,6 +226,14 @@ bool Database::hasColumn(const QString &table, const QString &column) const
     return false;
 }
 
+bool Database::hasTable(const QString &table) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?"));
+    q.addBindValue(table);
+    return q.exec() && q.next() && q.value(0).toInt() > 0;
+}
+
 bool Database::addColumnIfMissing(const QString &table, const QString &column, const QString &definition)
 {
     if (hasColumn(table, column))
@@ -246,7 +254,8 @@ bool Database::migrate()
     struct Step { int version; bool (Database::*apply)(); };
     const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 },
                            { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 },
-                           { 5, &Database::migrateToV5 } };
+                           { 5, &Database::migrateToV5 }, { 6, &Database::migrateToV6 },
+                           { 7, &Database::migrateToV7 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -361,6 +370,58 @@ bool Database::columnNotNull(const QString &table, const QString &column) const
     return false;
 }
 
+bool Database::migrateToV6()
+{
+    // Treadmill running: own workouts (speed or % of the AnT speed) and the
+    // anaerobic threshold tests of each profile. Purely additive.
+    return exec(QStringLiteral("CREATE TABLE IF NOT EXISTS run_workouts ("
+                               " id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT,"
+                               " description TEXT, steps TEXT, created_at INTEGER, updated_at INTEGER)"))
+        && exec(QStringLiteral("CREATE TABLE IF NOT EXISTS ant_tests ("
+                               " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                               " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,"
+                               " tested_at TEXT NOT NULL, speed_kmh REAL NOT NULL, heart_rate INTEGER,"
+                               " incline REAL, ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL, note TEXT)"))
+        && exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_ant_tests_profile ON ant_tests(profile_id, tested_at)"));
+}
+
+bool Database::migrateToV7()
+{
+    // Running workouts become ordinary workouts (sport 'running'): the
+    // Workouts page, the Builder, the calendar and .awt files handle them like
+    // cycling and rowing workouts. Own workouts of run_workouts are copied
+    // (km/h steps become % of the newest AnT); the built-in ones are seeded by
+    // seedDefaults().
+    if (hasTable(QStringLiteral("run_workouts"))) {
+        double ant = running::kDefaultAntKmh;
+        QSqlQuery a(db());
+        if (a.exec(QStringLiteral("SELECT speed_kmh FROM ant_tests ORDER BY tested_at DESC, id DESC LIMIT 1")) && a.next()
+            && a.value(0).toDouble() > 0)
+            ant = a.value(0).toDouble();
+        QSqlQuery q(db());
+        if (!q.exec(QStringLiteral("SELECT name, category, description, steps FROM run_workouts ORDER BY id"))) {
+            setError(QStringLiteral("migrate v7"), q.lastError().text());
+            return false;
+        }
+        while (q.next()) {
+            RunWorkout r;
+            r.name = q.value(0).toString();
+            r.category = q.value(1).toString();
+            if (r.category.isEmpty())
+                r.category = QStringLiteral("Custom");
+            r.description = q.value(2).toString();
+            r.steps = RunWorkout::stepsFromJson(jsonArray(q.value(3).toString()));
+            if (r.steps.isEmpty())
+                continue;
+            if (saveWorkout(r.toWorkout(ant)) < 0)
+                return false;
+        }
+        if (!exec(QStringLiteral("DROP TABLE run_workouts")))
+            return false;
+    }
+    return true;
+}
+
 bool Database::migrateToV5()
 {
     // Calendar entries of other kinds than workouts (Free Ride, Video Ride).
@@ -429,14 +490,21 @@ void Database::seedDefaults()
             saveWorkout(w);
         setSetting(QStringLiteral("workoutsSeeded"), true);
     }
+    // running workouts arrived later (schema 7): seeded once on their own
+    if (!setting(QStringLiteral("runWorkoutsSeeded")).toBool()) {
+        for (const Workout &w : RunWorkout::builtInWorkouts())
+            saveWorkout(w);
+        setSetting(QStringLiteral("runWorkoutsSeeded"), true);
+    }
     ensureBuiltInFtpTest();
 }
 
 bool Database::hasBuiltInFtpTest() const
 {
     QSqlQuery q(db());
-    q.prepare(QStringLiteral("SELECT COUNT(*) FROM workouts WHERE built_in = 1 AND category = ?"));
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM workouts WHERE built_in = 1 AND category = ? AND sport <> ?"));
     q.addBindValue(Workout::ftpTestCategory());
+    q.addBindValue(sport::running());
     return q.exec() && q.next() && q.value(0).toInt() > 0;
 }
 
@@ -444,11 +512,22 @@ void Database::ensureBuiltInFtpTest()
 {
     // The Ramp FTP Test is required for FTP testing. Older versions allowed it
     // to be deleted, so restore it even when the library was seeded already.
-    if (hasBuiltInFtpTest())
-        return;
-    for (const Workout &w : Workout::builtInLibrary()) {
-        if (w.isProtected())
-            saveWorkout(w);
+    // The same holds for the built-in AnT test of treadmill running.
+    if (!hasBuiltInFtpTest()) {
+        for (const Workout &w : Workout::builtInLibrary()) {
+            if (w.isProtected())
+                saveWorkout(w);
+        }
+    }
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM workouts WHERE built_in = 1 AND category = ? AND sport = ?"));
+    q.addBindValue(Workout::antTestCategory());
+    q.addBindValue(sport::running());
+    if (q.exec() && q.next() && q.value(0).toInt() == 0) {
+        for (const Workout &w : RunWorkout::builtInWorkouts()) {
+            if (w.isProtected())
+                saveWorkout(w);
+        }
     }
 }
 
@@ -484,6 +563,8 @@ QVector<Profile> Database::profiles() const
         return out;
     while (q.next())
         out.append(profileFromQuery(q));
+    for (Profile &p : out)
+        p.antSpeedKmh = currentAntKmh(p.id);
     return out;
 }
 
@@ -492,8 +573,11 @@ std::optional<Profile> Database::profile(qint64 id) const
     QSqlQuery q(db());
     q.prepare(QStringLiteral("SELECT %1 FROM profiles WHERE id = ?").arg(QLatin1String(kProfileColumns)));
     q.addBindValue(id);
-    if (q.exec() && q.next())
-        return profileFromQuery(q);
+    if (q.exec() && q.next()) {
+        Profile p = profileFromQuery(q);
+        p.antSpeedKmh = currentAntKmh(p.id);
+        return p;
+    }
     return std::nullopt;
 }
 
@@ -614,7 +698,7 @@ qint64 Database::saveWorkout(const Workout &w)
 bool Database::deleteWorkout(qint64 id)
 {
     if (auto w = workout(id); w && w->isProtected()) {
-        setError(QStringLiteral("deleteWorkout"), QStringLiteral("\"%1\" is required for FTP tests").arg(w->name));
+        setError(QStringLiteral("deleteWorkout"), QStringLiteral("\"%1\" is required for %2 tests").arg(w->name, w->isAntTest() ? QStringLiteral("AnT") : QStringLiteral("FTP")));
         return false;
     }
     // Plan entries of the workout would dangle (the FK cascade covers this too,
@@ -1185,6 +1269,96 @@ bool Database::updateTrackInfo(qint64 trackId, const QString &title, const QStri
     q.addBindValue(durationMs);
     q.addBindValue(trackId);
     return q.exec();
+}
+
+// --- running ----------------------------------------------------------------------
+
+namespace {
+
+AntTest antTestFromQuery(const QSqlQuery &q)
+{
+    AntTest t;
+    t.id = q.value(0).toLongLong();
+    t.profileId = q.value(1).toLongLong();
+    t.testedAt = QDateTime::fromString(q.value(2).toString(), Qt::ISODate).toLocalTime();
+    t.speedKmh = q.value(3).toDouble();
+    t.heartRate = q.value(4).toInt();
+    t.inclinePercent = q.value(5).toDouble();
+    t.rideId = q.value(6).isNull() ? -1 : q.value(6).toLongLong();
+    t.note = q.value(7).toString();
+    return t;
+}
+} // namespace
+
+double Database::currentAntKmh(qint64 profileId) const
+{
+    if (const auto t = latestAntTest(profileId); t && t->speedKmh > 0)
+        return t->speedKmh;
+    return running::kDefaultAntKmh;
+}
+
+QVector<AntTest> Database::antTests(qint64 profileId, int limit) const
+{
+    QVector<AntTest> out;
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT id, profile_id, tested_at, speed_kmh, heart_rate, incline, ride_id, note FROM ant_tests"
+                             " WHERE profile_id = ? ORDER BY tested_at DESC, id DESC%1")
+                  .arg(limit > 0 ? QStringLiteral(" LIMIT %1").arg(limit) : QString()));
+    q.addBindValue(profileId);
+    if (!q.exec()) {
+        setError(QStringLiteral("antTests"), q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.append(antTestFromQuery(q));
+    return out;
+}
+
+std::optional<AntTest> Database::latestAntTest(qint64 profileId) const
+{
+    const auto list = antTests(profileId, 1);
+    if (list.isEmpty())
+        return std::nullopt;
+    return list.constFirst();
+}
+
+qint64 Database::saveAntTest(const AntTest &t)
+{
+    QSqlQuery q(db());
+    const QString when = (t.testedAt.isValid() ? t.testedAt : QDateTime::currentDateTime()).toUTC().toString(Qt::ISODate);
+    if (t.id < 0) {
+        q.prepare(QStringLiteral("INSERT INTO ant_tests (profile_id, tested_at, speed_kmh, heart_rate, incline, ride_id, note)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?)"));
+    } else {
+        q.prepare(QStringLiteral("UPDATE ant_tests SET profile_id = ?, tested_at = ?, speed_kmh = ?, heart_rate = ?, incline = ?,"
+                                 " ride_id = ?, note = ? WHERE id = ?"));
+    }
+    q.addBindValue(t.profileId);
+    q.addBindValue(when);
+    q.addBindValue(t.speedKmh);
+    q.addBindValue(t.heartRate);
+    q.addBindValue(t.inclinePercent);
+    q.addBindValue(nullableId(t.rideId));
+    q.addBindValue(t.note);
+    if (t.id >= 0)
+        q.addBindValue(t.id);
+    if (!q.exec()) {
+        setError(QStringLiteral("saveAntTest"), q.lastError().text());
+        return -1;
+    }
+    return t.id < 0 ? q.lastInsertId().toLongLong() : t.id;
+}
+
+bool Database::deleteAntTest(qint64 id)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM ant_tests WHERE id = ?"));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        setError(QStringLiteral("deleteAntTest"), q.lastError().text());
+        return false;
+    }
+    return q.numRowsAffected() > 0;
 }
 
 } // namespace watt

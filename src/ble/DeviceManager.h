@@ -51,6 +51,8 @@ class DeviceManager : public QObject
     Q_PROPERTY(DeviceListModel *trainers READ trainers CONSTANT)
     Q_PROPERTY(DeviceListModel *heartRateSensors READ heartRateSensors CONSTANT)
     Q_PROPERTY(DeviceListModel *rowers READ rowers CONSTANT)
+    // FTMS treadmills (read only: speed + incline for the Treadmill Run)
+    Q_PROPERTY(DeviceListModel *treadmills READ treadmills CONSTANT)
     Q_PROPERTY(DeviceListModel *otherDevices READ otherDevices CONSTANT)
     // Handlebar controllers for virtual shifting (Zwift Click v1/v2).
     Q_PROPERTY(DeviceListModel *controllers READ controllers CONSTANT)
@@ -113,6 +115,17 @@ class DeviceManager : public QObject
     // true while the stroke rate is computed from the stroke timing
     Q_PROPERTY(bool rowerStrokeRateEstimated READ rowerStrokeRateEstimated NOTIFY rowerDataChanged)
 
+    // Active treadmill (read only; the app never controls it).
+    Q_PROPERTY(watt::TreadmillDevice *treadmill READ treadmill NOTIFY treadmillChanged)
+    Q_PROPERTY(QString treadmillId READ treadmillId NOTIFY devicesChanged)
+    Q_PROPERTY(QString treadmillName READ treadmillName NOTIFY devicesChanged)
+    Q_PROPERTY(QString treadmillProtocol READ treadmillProtocol NOTIFY devicesChanged)
+    Q_PROPERTY(int treadmillState READ treadmillState NOTIFY devicesChanged)
+    Q_PROPERTY(bool treadmillConnected READ treadmillConnected NOTIFY devicesChanged)
+    Q_PROPERTY(double treadmillSpeed READ treadmillSpeed NOTIFY treadmillDataChanged)
+    Q_PROPERTY(double treadmillIncline READ treadmillIncline NOTIFY treadmillDataChanged)
+    Q_PROPERTY(bool treadmillInclineKnown READ treadmillInclineKnown NOTIFY treadmillDataChanged)
+
     Q_PROPERTY(QVariantList log READ log NOTIFY logChanged)
     Q_PROPERTY(bool autoConnect READ autoConnect WRITE setAutoConnect NOTIFY preferencesChanged)
     Q_PROPERTY(bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY preferencesChanged)
@@ -149,6 +162,7 @@ public:
     DeviceListModel *trainers() { return &m_trainers; }
     DeviceListModel *heartRateSensors() { return &m_hrSensors; }
     DeviceListModel *rowers() { return &m_rowers; }
+    DeviceListModel *treadmills() { return &m_treadmills; }
     DeviceListModel *otherDevices() { return &m_others; }
     DeviceListModel *controllers() { return &m_controllers; }
 
@@ -222,6 +236,18 @@ public:
     QString rowerDataSource() const { return m_rower ? m_rower->dataSourceText() : QString(); }
     bool rowerStrokeRateEstimated() const { return m_rower && m_rower->strokeRateEstimated(); }
 
+    // Active treadmill for C++ consumers (RunSession): connect to
+    // treadmillChanged(). May be null.
+    TreadmillDevice *treadmill() const { return m_treadmill; }
+    QString treadmillId() const { return m_treadmill ? m_treadmill->id() : QString(); }
+    QString treadmillName() const { return m_treadmill ? m_treadmill->name() : QString(); }
+    QString treadmillProtocol() const { return m_treadmill ? m_treadmill->protocol() : QString(); }
+    int treadmillState() const { return m_treadmill ? int(m_treadmill->state()) : 0; }
+    bool treadmillConnected() const { return m_treadmill && m_treadmill->state() == LinkState::Connected; }
+    double treadmillSpeed() const { return m_treadmill ? m_treadmill->speedKmh() : 0.0; }
+    double treadmillIncline() const { return m_treadmill ? m_treadmill->inclinePercent() : 0.0; }
+    bool treadmillInclineKnown() const { return m_treadmill && m_treadmill->inclineKnown(); }
+
     QVariantList log() const { return m_log; }
     bool autoConnect() const { return m_autoConnect; }
     void setAutoConnect(bool on);
@@ -267,6 +293,9 @@ public:
     // it as a rower (fallback when the PM5 is not recognised from its
     // advertisement).
     Q_INVOKABLE void connectAsRower(const QString &id);
+    // The same for treadmills: connects a device with the read-only FTMS
+    // treadmill driver and remembers it as a treadmill.
+    Q_INVOKABLE void connectAsTreadmill(const QString &id);
     // Plain-text Bluetooth report (adapter, Qt version, every device seen,
     // classification, errors) for the diagnostics dialog / bug reports.
     Q_INVOKABLE QString diagnosticsReport() const;
@@ -295,6 +324,8 @@ signals:
     void trainerStatusChanged();
     void rowerChanged(watt::RowerDevice *rower);   // active rower object replaced (may be null)
     void rowerDataChanged();                        // live rower values updated
+    void treadmillChanged(watt::TreadmillDevice *treadmill);   // active treadmill replaced (may be null)
+    void treadmillDataChanged();                    // live treadmill values updated
     // Controller buttons (Zwift Click): +1 = plus (shift up / harder),
     // -1 = minus (shift down / easier); includes auto-repeat of held buttons.
     void controllerShift(int direction);
@@ -303,7 +334,7 @@ signals:
     void controllerButtonsChanged(bool plus, bool minus);
 
 public:
-    enum class Kind { Unknown, Trainer, HeartRate, Rower, Controller };
+    enum class Kind { Unknown, Trainer, HeartRate, Rower, Controller, Treadmill };
     // Device kind from a scan result (public for tests).
     static Kind classify(const QBluetoothDeviceInfo &info);
     // Name-only rower check: "PM5 ..." (any case) or containing "Concept2",
@@ -321,6 +352,11 @@ public:
     // connectAsRower() and when a trainer connection finds rowing services.
     // Public for tests.
     void moveToRowers(const QString &id);
+    // The same for treadmills (connectAsTreadmill(), a trainer connection
+    // that found Treadmill Data). Public for tests.
+    void moveToTreadmills(const QString &id);
+    // "Treadmill", "WalkingPad", ... in the advertised name (public for tests)
+    static bool nameLooksLikeTreadmill(const QString &name);
 
 private:
     struct DiagEntry
@@ -350,6 +386,10 @@ private:
     void recordGatt(const QString &id, const QString &summary);
     void rememberRower(const QString &id, bool on);
     void onTrainerIsRower(const QString &id);
+    void onTrainerIsTreadmill(const QString &id);
+    void rememberTreadmill(const QString &id, bool on);
+    void attachTreadmill(TreadmillDevice *t);
+    void releaseTreadmill();
     void addLog(const QString &text, bool ok);
     void addSimulatedEntries();
     void attachTrainer(TrainerDevice *t);
@@ -384,11 +424,13 @@ private:
     DeviceListModel m_trainers;
     DeviceListModel m_hrSensors;
     DeviceListModel m_rowers;
+    DeviceListModel m_treadmills;
     DeviceListModel m_others;
     DeviceListModel m_controllers;
     QHash<QString, QBluetoothDeviceInfo> m_infos;
     QHash<QString, Kind> m_kinds;          // last classification per device id
     QSet<QString> m_forcedRowers;          // "Connect as rower" / detected after connecting (persisted)
+    QSet<QString> m_forcedTreadmills;      // "Connect as treadmill" / detected after connecting (persisted)
     QHash<QString, QPair<QDateTime, QString>> m_gatt;   // last GATT summary per device
     QHash<QString, DiagEntry> m_diag;
     QStringList m_diagEvents;
@@ -403,6 +445,7 @@ private:
     QPointer<TrainerDevice> m_trainer;
     QPointer<HeartRateDevice> m_hr;
     QPointer<RowerDevice> m_rower;
+    QPointer<TreadmillDevice> m_treadmill;
     QList<QPointer<ControllerDevice>> m_controllerDevs;
     QStringList m_knownControllers;      // most recently used last
     QHash<QString, QPair<bool, bool>> m_controllerButtons;   // plus/minus per controller
@@ -417,7 +460,7 @@ private:
     QVariantList m_log;
     QDateTime m_lastScan;
     QString m_scanStatus;
-    QString m_knownTrainer, m_knownHr, m_knownRower;
+    QString m_knownTrainer, m_knownHr, m_knownRower, m_knownTreadmill;
     std::function<QString()> m_extraDiagnostics;
     bool m_autoConnect = true;
     bool m_autoReconnect = true;

@@ -25,6 +25,7 @@ AppDialog {
         heightSpin.value = newProfile ? 0 : Profiles.heightCm
         ftp.value = Profiles.ftp
         rowingFtp.value = Profiles.rowingFtp
+        walkRun.value = newProfile ? 6.3 : RunLibrary.walkRunKmh
         maxHr.value = Profiles.maxHr
         restHr.value = Profiles.restHr
         cadence.value = Profiles.preferredCadence
@@ -175,6 +176,21 @@ AppDialog {
             Text {
                 width: parent.width
                 text: "Used for rowing workouts"
+                color: Theme.textSecondary
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Text { text: "Walk → Run"; color: Theme.text; font.pixelSize: 16; Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
+        Column {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            spacing: 4
+            UnitSpinBox { id: walkRun; width: parent.width; unit: "km/h"; from: 4; to: 10; stepSize: 0.1; decimals: 1 }
+            Text {
+                width: parent.width
+                text: "The speed where you start running – the treadmill runner walks below it"
                 color: Theme.textSecondary
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
@@ -379,8 +395,10 @@ AppDialog {
             onClicked: {
                 var ok = dlg.creating ? Profiles.createProfileWith(dlg.values()) >= 0
                                       : Profiles.saveProfile(dlg.values())
-                if (ok)
+                if (ok) {
+                    RunLibrary.walkRunKmh = walkRun.value   // (per profile: the current one)
                     dlg.close()
+                }
                 else
                     errorText.text = Profiles.lastError
             }

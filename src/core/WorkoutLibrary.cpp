@@ -53,7 +53,7 @@ QVariant WorkoutLibrary::data(const QModelIndex &index, int role) const
     case FavoriteRole: return w.favorite;
     case BuiltInRole: return w.builtIn;
     case SportRole: return w.sport;
-    case SegmentsRole: return Workout::segmentsToVariant(w.segments(ftp, m_profiles->current().zones));
+    case SegmentsRole: return Workout::segmentsToVariant(w.segments(ftp, zonesFor(w)));
     default: return {};
     }
 }
@@ -103,19 +103,30 @@ void WorkoutLibrary::setSportFilter(const QString &sport)
     if (m_sportFilter == value)
         return;
     m_sportFilter = value;
+    // the test category is named per sport ("FTP Tests" / "AnT Test" / "Tests")
+    const QStringList cats = categories();
+    if (!cats.contains(m_category)) {
+        const bool test = m_category == Workout::ftpTestCategory() || m_category == Workout::antTestCategory()
+                          || m_category == QLatin1String("Tests");
+        m_category = test ? cats.at(4) : QStringLiteral("All");
+    }
     applyFilter();
     emit filterChanged();
 }
 
 QStringList WorkoutLibrary::sports() const
 {
-    return { QStringLiteral("all"), sport::cycling(), sport::rowing() };
+    return { QStringLiteral("all"), sport::cycling(), sport::rowing(), sport::running() };
 }
 
 QStringList WorkoutLibrary::categories() const
 {
+    // index 4 is always the test category of the sport filter
+    const QString tests = m_sportFilter == sport::running() ? Workout::antTestCategory()
+                          : m_sportFilter == QLatin1String("all") ? QStringLiteral("Tests")
+                                                                  : Workout::ftpTestCategory();
     return { QStringLiteral("All"), QStringLiteral("Endurance"), QStringLiteral("Intervals"),
-             QStringLiteral("Recovery"), QStringLiteral("FTP Tests"), QStringLiteral("Custom") };
+             QStringLiteral("Recovery"), tests, QStringLiteral("Custom") };
 }
 
 QStringList WorkoutLibrary::sortModes() const
@@ -145,6 +156,7 @@ void WorkoutLibrary::reload()
         m_selectedId = m_visible.isEmpty() ? (m_all.isEmpty() ? -1 : m_all.first().id) : m_visible.first().id;
     }
     emit selectedChanged();
+    emit catalogChanged();
 }
 
 std::optional<Workout> WorkoutLibrary::workout(qint64 id) const
@@ -154,6 +166,11 @@ std::optional<Workout> WorkoutLibrary::workout(qint64 id) const
             return w;
     }
     return std::nullopt;
+}
+
+ZoneSet WorkoutLibrary::zonesFor(const Workout &w) const
+{
+    return w.isRunning() ? ZoneSet::running() : m_profiles->current().zones;
 }
 
 QVariantMap WorkoutLibrary::toMap(const Workout &w) const
@@ -179,7 +196,21 @@ QVariantMap WorkoutLibrary::toMap(const Workout &w) const
     m.insert(QStringLiteral("isFtpTest"), w.isFtpTest());
     m.insert(QStringLiteral("requiredForFtp"), w.isProtected());
     m.insert(QStringLiteral("blocks"), w.intervals.size());
-    m.insert(QStringLiteral("segments"), Workout::segmentsToVariant(w.segments(ftp, m_profiles->current().zones)));
+    m.insert(QStringLiteral("segments"), Workout::segmentsToVariant(w.segments(ftp, zonesFor(w))));
+    m.insert(QStringLiteral("isAntTest"), w.isAntTest());
+    if (w.isRunning()) {
+        // ftp = AnT in 0.1 km/h: the speeds of the main block for the preview
+        const double ant = m_profiles->current().antSpeedKmh;
+        m.insert(QStringLiteral("antSpeed"), ant);
+        double maxKmh = 0;
+        double maxIncline = 0;
+        for (const Interval &i : w.intervals) {
+            maxKmh = std::max({ maxKmh, i.startPercent * ant, i.endPercent * ant });
+            maxIncline = std::max(maxIncline, i.inclinePercent);
+        }
+        m.insert(QStringLiteral("maxSpeed"), maxKmh);
+        m.insert(QStringLiteral("maxIncline"), maxIncline);
+    }
     return m;
 }
 
@@ -298,7 +329,8 @@ void WorkoutLibrary::applyFilter()
             continue;
         if (m_category != QLatin1String("All")) {
             const bool custom = m_category == QLatin1String("Custom");
-            if (custom ? w.builtIn : w.category != m_category)
+            const bool tests = m_category == QLatin1String("Tests");   // FTP and AnT tests (all sports)
+            if (custom ? w.builtIn : tests ? !(w.isFtpTest() || w.isAntTest()) : w.category != m_category)
                 continue;
         }
         if (!needle.isEmpty() && !w.name.contains(needle, Qt::CaseInsensitive)

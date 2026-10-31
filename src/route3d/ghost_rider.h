@@ -1,9 +1,12 @@
 #pragma once
 #include "ghost_motion.h"
+#include "ghost_vertex.h"
+#include "glb_model.h"
 #include <QVector3D>
 #include <QVector2D>
 #include <array>
 #include <functional>
+#include <memory>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -12,12 +15,13 @@
 // Ported from the Route3D prototype (0.7). Geometry only: no Qt Widgets / GL.
 namespace route3d {
 
-struct GhostVertex {QVector3D position,normal,color;};
 // Builds the ghost rider in world space each frame.
 // A procedural road cyclist with smooth anatomical contours (the app always
 // uses this built-in rider; the prototype's optional GLB model is not used).
 // Local frame: x = rider's right, y = up, z = forward.
 class GhostRider {
+protected:
+    // (protected: GhostRunner, ghost_runner.h, builds its figure with the same primitives)
     std::vector<GhostVertex> mesh;std::vector<uint32_t> index;size_t indexedFor=size_t(-1);
     QVector3D origin,right,up,forward;
     QVector3D world(QVector3D v)const{return origin+right*v.x()+up*v.y()+forward*v.z();}
@@ -150,13 +154,27 @@ class GhostRider {
         right=r*float(std::cos(pose.lean))-u*float(std::sin(pose.lean));
         up=u*float(std::cos(pose.lean))+r*float(std::sin(pose.lean));
     }
-    void buildProcedural(const GhostPose& pose){
-        mesh.clear();mesh.reserve(36000);
-        const QVector3D frame(.10f,.24f,.56f),white(.90f,.91f,.93f),black(.06f,.06f,.07f),tyre(.09f,.09f,.095f),
-            carbon(.12f,.12f,.13f),metal(.62f,.64f,.68f),jersey(.13f,.40f,.80f),bib(.05f,.05f,.06f),skin(.84f,.64f,.51f),lens(.10f,.11f,.15f);
-        wheel(-.50f,pose.wheel,tyre,carbon,metal);wheel(.50f,pose.wheel,tyre,carbon,metal);
+    // Bike frame geometry (shared by the procedural rider and the .glb rider)
+    static constexpr float kCrank=.17f,kPedalX=.12f;
+    QVector3D bottomBracket()const{return QVector3D(0,.27f,-.08f);}
+    QVector3D saddleTop()const{return QVector3D(0,.977f,-.27f);}
+    // A compact fit: the front wheel 4 cm back and the cockpit 10 cm closer and
+    // 7 cm higher than a racing position, so the rider sits more upright.
+    static constexpr float kFrontZ=-.04f;
+    QVector3D cockpit()const{return QVector3D(0,.07f,-.10f);}
+    QVector3D hood(float side)const{return QVector3D(side*.205f,.915f,.54f)+cockpit();}
+    QVector3D pedalAt(float side,double crank)const{
+        double phase=crank+(side<0?3.141592654:0);
+        return bottomBracket()+QVector3D(side*kPedalX,float(kCrank*std::cos(phase)),float(kCrank*std::sin(phase)));
+    }
+    void buildBike(const GhostPose& pose){
+        const QVector3D frame(.10f,.24f,.56f),black(.06f,.06f,.07f),tyre(.09f,.09f,.095f),
+            carbon(.12f,.12f,.13f),metal(.62f,.64f,.68f);
+        wheel(-.50f,pose.wheel,tyre,carbon,metal);wheel(.50f+kFrontZ,pose.wheel,tyre,carbon,metal);
         // Frame: road geometry with tapered tubes and paired stays.
-        QVector3D rear(0,.34f,-.50f),front(0,.34f,.50f),bb(0,.27f,-.08f),seatTop(0,.80f,-.25f),headTop(0,.86f,.36f),crown(0,.68f,.41f);
+        const QVector3D F(0,0,kFrontZ),K=cockpit();
+        QVector3D rear(0,.34f,-.50f),front=QVector3D(0,.34f,.50f)+F,bb=bottomBracket(),seatTop(0,.80f,-.25f),
+            headTop=QVector3D(0,.86f,.36f)+F,crown=QVector3D(0,.68f,.41f)+F;
         cone(bb,crown,.030f,.026f,frame);cone(seatTop,headTop,.021f,.024f,frame);cone(bb,seatTop,.025f,.020f,frame);cone(crown,headTop,.027f,.024f,frame);
         for(float s:{-1.f,1.f}){
             cone(rear+QVector3D(s*.055f,0,0),bb+QVector3D(s*.035f,0,0),.010f,.015f,frame,8);
@@ -169,17 +187,31 @@ class GhostRider {
         tube(seatTop,saddle-QVector3D(0,.02f,0),.014f,black,8);
         ellipsoid(saddle+QVector3D(0,0,.04f),QVector3D(.035f,.018f,.12f),black);
         ellipsoid(saddle+QVector3D(0,0,-.05f),QVector3D(.068f,.022f,.065f),black);
-        QVector3D stemEnd(0,.885f,.47f);
-        tube(headTop,headTop+QVector3D(0,.03f,-.005f),.019f,black,8);tube(headTop+QVector3D(0,.025f,0),stemEnd,.016f,black,8);
-        tube(QVector3D(-.20f,.885f,.47f),QVector3D(.20f,.885f,.47f),.013f,black,10);
+        QVector3D stemEnd=QVector3D(0,.885f,.47f)+K;
+        // spacers up the steerer, then a short rising stem
+        const QVector3D steer=(headTop-crown).normalized(),spacerTop=headTop+steer*.075f;
+        tube(headTop,spacerTop,.019f,black,8);tube(spacerTop-steer*.005f,stemEnd,.016f,black,8);
+        tube(QVector3D(-.20f,.885f,.47f)+K,QVector3D(.20f,.885f,.47f)+K,.013f,black,10);
         for(float s:{-1.f,1.f}){
             QVector3D p0(s*.20f,.885f,.47f),p1(s*.205f,.88f,.545f),p2(s*.205f,.83f,.575f),p3(s*.205f,.775f,.55f),p4(s*.205f,.76f,.49f);
+            p0+=K;p1+=K;p2+=K;p3+=K;p4+=K;
             tube(p0,p1,.013f,black,8);tube(p1,p2,.013f,black,8);tube(p2,p3,.013f,black,8);tube(p3,p4,.013f,black,8);
-            ellipsoid(QVector3D(s*.205f,.905f,.545f),QVector3D(.016f,.028f,.035f),black,QVector3D(0,.6f,.8f)); // brake hood
+            ellipsoid(QVector3D(s*.205f,.905f,.545f)+K,QVector3D(.016f,.028f,.035f),black,QVector3D(0,.6f,.8f)); // brake hood
         }
         // Drivetrain: chainring on the right, crank arms, pedals.
         lathe(bb+QVector3D(.06f,0,0),{{QVector2D(.0f,.004f),QVector2D(0,1)},{QVector2D(.105f,.004f),QVector2D(0,1)},{QVector2D(.105f,-.004f),QVector2D(0,-1)},{QVector2D(.0f,-.004f),QVector2D(0,-1)}},28,metal*.75f);
         tube(bb+QVector3D(-.07f,0,0),bb+QVector3D(.07f,0,0),.018f,metal,8);
+        for(float side:{-1.f,1.f}){
+            auto pedal=pedalAt(side,pose.crank);
+            tube(bb+QVector3D(side*.075f,0,0),pedal-QVector3D(side*.02f,0,0),.012f,metal,6);
+            ellipsoid(pedal,QVector3D(.045f,.012f,.045f),black);
+        }
+    }
+    void buildProcedural(const GhostPose& pose){
+        mesh.clear();mesh.reserve(36000);
+        buildBike(pose);
+        const QVector3D white(.90f,.91f,.93f),black(.06f,.06f,.07f),jersey(.13f,.40f,.80f),bib(.05f,.05f,.06f),skin(.84f,.64f,.51f),lens(.10f,.11f,.15f);
+        const QVector3D bb=bottomBracket();
         // Photo-inspired posture: long gently arched back, low relaxed shoulders.
         QVector3D pelvis(0,1.025f,-.27f),shoulders(0,1.365f,.17f);
         auto spine=(shoulders-pelvis).normalized();
@@ -210,7 +242,7 @@ class GhostRider {
         for(int sign:{-1,1}){
             float side=float(sign);
             // Arms reach the brake hoods with elbows bent out and down.
-            auto shoulder=shoulders+QVector3D(side*.152f,-.018f,-.008f),hand=QVector3D(side*.205f,.915f,.54f);
+            auto shoulder=shoulders+QVector3D(side*.152f,-.018f,-.008f),hand=hood(side);
             auto elbow=joint(shoulder,hand,.285f,.275f,QVector3D(side*.20f,-.45f,-.25f));
             auto upper=elbow-shoulder,lower=hand-elbow;
             contour({{shoulder-upper*.04f,.052f,.054f,jersey},
@@ -224,10 +256,7 @@ class GhostRider {
                      {hand,.023f,.025f,skin}},18,3);
             ellipsoid(hand+QVector3D(0,-.007f,.012f),QVector3D(.030f,.038f,.030f),jersey,hand-elbow);
             // Legs follow the pedals with two-bone IK; knees track forward.
-            double phase=pose.crank+(sign<0?3.141592654:0);
-            auto pedal=bb+QVector3D(side*.12f,float(.17*std::cos(phase)),float(.17*std::sin(phase)));
-            tube(bb+QVector3D(side*.075f,0,0),pedal-QVector3D(side*.02f,0,0),.012f,metal,6);
-            ellipsoid(pedal,QVector3D(.045f,.012f,.045f),black);
+            auto pedal=pedalAt(side,pose.crank);
             auto hip=pelvis+QVector3D(side*.080f,0,0),ankle=pedal+QVector3D(0,.075f,-.045f);
             auto knee=joint(hip,ankle,.44f,.43f,QVector3D(side*.08f,0,1));
             auto thigh=knee-hip,shin=ankle-knee;
@@ -250,13 +279,48 @@ class GhostRider {
         }
         if(indexedFor!=mesh.size()){index.resize(mesh.size());for(size_t i=0;i<index.size();++i)index[i]=uint32_t(i);indexedFor=mesh.size();}
     }
+    // The .glb rider (GlbModel::poseOnBike) on the bike, with a red helmet.
+    std::shared_ptr<const GlbModel> glbRider;
+    std::vector<GhostVertex> riderLocal;
+    size_t modelIndexFor=size_t(-1);
+    void buildModelRider(const GhostPose& pose){
+        mesh.clear();mesh.reserve(80000);
+        buildBike(pose);
+        GlbModel::BikeFit fit;
+        fit.bottomBracket=bottomBracket();fit.crankLength=kCrank;fit.pedalX=kPedalX;fit.crank=pose.crank;
+        fit.saddleTop=saddleTop();fit.hood[0]=hood(-1);fit.hood[1]=hood(1);
+        // the grade under the rider (+-5 m): more rocking on steep climbs
+        const double horizontal=std::hypot(pose.fx,pose.fz);
+        fit.swayDeg=GlbModel::swayForGrade(horizontal>1e-6?pose.fy/horizontal:0.0);
+        GlbModel::HeadPose head;
+        glbRider->poseOnBike(fit,riderLocal,&head);
+        // (the red helmet with black vents is painted on the figure's head:
+        // GlbModel, Outfit::Cyclist - a separate shell looked bulky)
+        const size_t fixed=mesh.size();
+        for(const auto& v:riderLocal)mesh.push_back({world(v.position),worldNormal(v.normal),v.color});
+        if(modelIndexFor!=mesh.size()){
+            const auto& mi=glbRider->indices();
+            index.resize(fixed+mi.size());
+            for(size_t i=0;i<fixed;++i)index[i]=uint32_t(i);
+            for(size_t i=0;i<mi.size();++i)index[fixed+i]=mi[i]+uint32_t(fixed);
+            modelIndexFor=mesh.size();indexedFor=size_t(-1);
+        }
+    }
 public:
+    // A skinned .glb figure posed on the bike instead of the procedural
+    // rider (null, or a skeleton without the needed joints = procedural).
+    bool setRiderModel(std::shared_ptr<const GlbModel> m){
+        glbRider=(m&&m->canRide())?std::move(m):nullptr;modelIndexFor=size_t(-1);indexedFor=size_t(-1);
+        return glbRider!=nullptr;
+    }
+    bool hasRiderModel()const{return glbRider!=nullptr;}
     // Returns world-space vertices; indices() gives the matching triangle list.
     // crank: the pedal angle in radians (the app drives it from the rider's
     // real cadence; the wheels follow the distance)
     const std::vector<GhostVertex>& build(const Route& route,double distance,double speed,double crank){
         auto pose=ghostPose(route,distance,speed);pose.crank=crank;placeFrame(pose);
-        buildProcedural(pose);
+        if(glbRider)buildModelRider(pose);
+        else{buildProcedural(pose);modelIndexFor=size_t(-1);}
         // Transparency is composited from the front surface by the renderer.
         return mesh;
     }

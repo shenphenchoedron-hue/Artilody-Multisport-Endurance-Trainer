@@ -6,7 +6,7 @@ set -euo pipefail
 
 QT="${1:?usage: make_dmg.sh <Qt prefix> [build dir]}"
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"          # creator folder
-# Shared QML: parent repository (Artilody Watts Trainer) or vendored shared/.
+# Shared QML: parent repository (Artilody Multisport Endurance Trainer) or vendored shared/.
 if [ -f "$HERE/../src/core/WorkoutIO.h" ]; then
     ROOT="$(cd "$HERE/.." && pwd)"
 else

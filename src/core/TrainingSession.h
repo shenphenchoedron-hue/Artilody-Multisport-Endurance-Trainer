@@ -188,6 +188,7 @@ signals:
     void startRefused();
     // loadWorkout() was given a rowing workout (use Rowing.setupPlan()).
     void rowingWorkoutRefused(qint64 workoutId, const QString &name);
+    void runningWorkoutRefused(qint64 workoutId, const QString &name);
     // Emitted after finished() when a ride of an FTP test workout (category
     // "FTP Tests", Workout::ftpTestKind()) was saved - completed or stopped
     // by the rider, but no interval skipped - and gave a plausible estimate. The profile is not changed; the

@@ -5,6 +5,7 @@
 #include "Ride.h"
 #include "RideResistance.h"
 #include "RlvRoute.h"
+#include "RouteProgress.h"
 #include "WorkoutEngine.h"
 
 #include <QDateTime>
@@ -136,7 +137,7 @@ class VirtualGears;
 // physics and trainer control on a plain .gpx track without a video (the
 // page shows the route in 3D instead, Route3DItem). Only the names, the
 // settings keys and the route files accepted differ - never the physics.
-class RlvSession : public QObject
+class RlvSession : public QObject, public RouteProgressSource
 {
     Q_OBJECT
     Q_PROPERTY(QString kind READ kindName CONSTANT)            // "video" | "gpx"
@@ -348,7 +349,7 @@ public:
     QString state() const;
     State stateValue() const { return m_state; }
     bool active() const { return m_state == State::Running || m_state == State::Paused; }
-    bool running() const { return m_state == State::Running; }
+    bool running() const override { return m_state == State::Running; }
     bool paused() const { return m_state == State::Paused; }
     bool hasRecording() const { return m_recordedSec > 0 || m_activeMs > 0; }
     bool inProgress() const { return running() || (paused() && hasRecording()); }
@@ -363,10 +364,10 @@ public:
     // "sim" / "erg"; the old "power" and "gears" -> Sim. nullopt if unknown.
     static std::optional<Mode> parseMode(const QString &text);
 
-    const RlvRoute &route() const { return m_route; }
-    bool hasRoute() const { return m_route.isValid(); }
+    const RlvRoute &route() const override { return m_route; }
+    bool hasRoute() const override { return m_route.isValid(); }
     int routeIndex() const;
-    QString routePath() const { return m_route.sourcePath(); }
+    QString routePath() const override { return m_route.sourcePath(); }
     QString routeName() const { return m_route.name(); }
     QString routeTitle() const { return m_route.title(); }
     QString routeCountry() const { return m_route.country(); }
@@ -381,8 +382,8 @@ public:
     QVariantList informations() const;
     QString lastError() const { return m_lastError; }
 
-    double startDistanceM() const { return m_startDistance; }
-    double distanceMeters() const { return m_distance; }
+    double startDistanceM() const override { return m_startDistance; }
+    double distanceMeters() const override { return m_distance; }
     double riddenMeters() const { return std::max(0.0, m_distance - m_startDistance); }
     double remainingMeters() const { return std::max(0.0, totalDistanceM() - m_distance); }
     double progress() const;
@@ -400,14 +401,14 @@ public:
 
     int elapsedSeconds() const { return int(m_activeMs / 1000); }
     double speedMps() const;
-    double speedKmh() const { return speedMps() * 3.6; }
+    double speedKmh() const override { return speedMps() * 3.6; }
     double avgSpeedKmh() const;
     int watts() const;
     int displayWatts() const;
     int avgWatts() const;
     int maxWatts() const { return m_maxWatts; }
     double kilojoules() const { return m_energyJ / 1000.0; }
-    int cadence() const;
+    int cadence() const override;
     int heartRate() const;
     bool coasting() const;
     // Zwift protocol: pedaling = power >= kPedalPowerWatts OR cadence >=

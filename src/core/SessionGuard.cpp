@@ -3,6 +3,7 @@
 #include "FreeRideSession.h"
 #include "RlvSession.h"
 #include "RowingSession.h"
+#include "RunSession.h"
 #include "TrainingSession.h"
 #include "VirtualGears.h"
 
@@ -16,6 +17,7 @@ const QString kFreeRide = QStringLiteral("freeride");
 const QString kVideo = QStringLiteral("video");
 const QString kRowing = QStringLiteral("rowing");
 const QString kGpx = QStringLiteral("gpx");
+const QString kRun = QStringLiteral("run");
 } // namespace
 
 SessionGuard::SessionGuard(TrainingSession *training, FreeRideSession *freeRide, RlvSession *rlv,
@@ -43,6 +45,7 @@ SessionGuard::SessionGuard(TrainingSession *training, FreeRideSession *freeRide,
 
 SessionGuard::~SessionGuard()
 {
+    unwireRun();
     unwireGpx();
     unwire();
 }
@@ -61,6 +64,91 @@ void SessionGuard::setGpxSession(RlvSession *gpx)
         connect(m_gpx, &RlvSession::stateChanged, this, &SessionGuard::onSessionChanged);
     }
     onSessionChanged();
+}
+
+void SessionGuard::setRunSession(RunSession *run)
+{
+    if (run == m_run)
+        return;
+    if (m_run) {
+        unwireRun();
+        disconnect(m_run, nullptr, this, nullptr);
+    }
+    m_run = run;
+    if (m_run) {
+        wireRun();
+        connect(m_run, &RunSession::stateChanged, this, &SessionGuard::onSessionChanged);
+    }
+    onSessionChanged();
+}
+
+// The Treadmill Run against every other session: in progress blocks, an
+// empty paused one is given up by the other's start.
+void SessionGuard::wireRun()
+{
+    RunSession *run = m_run;
+    if (!run)
+        return;
+    const QString reason = QStringLiteral("A treadmill run is in progress. Finish it first.");
+    if (TrainingSession *t = m_training) {
+        run->setStartBlocker(kWorkout, [t] { return t->inProgress(); },
+                             QStringLiteral("A workout is in progress on Watt Training. Finish it before running."));
+        t->setStartBlocker(kRun, [run] { return run->inProgress(); });
+        t->setAbandonCanceller(kRun, [run] { run->abandon(); });
+    }
+    if (FreeRideSession *fr = m_freeRide) {
+        run->setStartBlocker(kFreeRide, [fr] { return fr->inProgress(); },
+                             QStringLiteral("A free ride is in progress. Finish it before running."));
+        run->setAbandonCanceller(kFreeRide, [fr] { fr->abandon(); });
+        fr->setStartBlocker(kRun, [run] { return run->inProgress(); });
+        fr->setAbandonCanceller(kRun, [run] { run->abandon(); });
+    }
+    for (RlvSession *ride : { m_rlv, m_gpx }) {
+        if (!ride)
+            continue;
+        const QString key = ride == m_gpx ? kGpx : kVideo;
+        run->setStartBlocker(key, [ride] { return ride->inProgress(); },
+                             ride == m_gpx ? QStringLiteral("A GPX ride is in progress. Finish it before running.")
+                                           : QStringLiteral("A video ride is in progress. Finish it before running."));
+        run->setAbandonCanceller(key, [ride] { ride->abandon(); });
+        ride->setStartBlocker(kRun, [run] { return run->inProgress(); });
+        ride->setAbandonCanceller(kRun, [run] { run->abandon(); });
+    }
+    if (RowingSession *row = m_rowing) {
+        run->setStartBlocker(kRowing, [row] { return row->inProgress(); },
+                             QStringLiteral("A row is in progress. Finish it before running."));
+        run->setAbandonCanceller(kRowing, [row] { row->abandon(); });
+        row->setStartBlocker(kRun, [run] { return run->inProgress(); }, reason);
+        row->setAbandonCanceller(kRun, [run] { run->abandon(); });
+    }
+}
+
+void SessionGuard::unwireRun()
+{
+    if (!m_run)
+        return;
+    for (const QString &k : { kWorkout, kFreeRide, kVideo, kGpx, kRowing }) {
+        m_run->setStartBlocker(k, {});
+        m_run->setAbandonCanceller(k, {});
+    }
+    if (m_training) {
+        m_training->setStartBlocker(kRun, {});
+        m_training->setAbandonCanceller(kRun, {});
+    }
+    if (m_freeRide) {
+        m_freeRide->setStartBlocker(kRun, {});
+        m_freeRide->setAbandonCanceller(kRun, {});
+    }
+    for (RlvSession *ride : { m_rlv, m_gpx }) {
+        if (ride) {
+            ride->setStartBlocker(kRun, {});
+            ride->setAbandonCanceller(kRun, {});
+        }
+    }
+    if (m_rowing) {
+        m_rowing->setStartBlocker(kRun, {});
+        m_rowing->setAbandonCanceller(kRun, {});
+    }
 }
 
 // The GPX Ride against the free ride, the row and the video ride (the same
@@ -230,6 +318,13 @@ QVariantMap SessionGuard::blockerFor(const QString &kind) const
                     p ? QStringLiteral("A GPX ride is paused on the GPX Ride page.")
                       : QStringLiteral("A GPX ride is in progress on the GPX Ride page."));
     }
+    if (kind != kRun && m_run && m_run->inProgress()) {
+        const bool p = m_run->paused();
+        return make(kRun, QStringLiteral("treadmill"), QStringLiteral("Treadmill Run"), QStringLiteral("run"), p,
+                    int(std::lround(m_run->elapsedSeconds())),
+                    p ? QStringLiteral("A treadmill run is paused on the Treadmill Run page.")
+                      : QStringLiteral("A treadmill run is in progress on the Treadmill Run page."));
+    }
     if (kind != kRowing && m_rowing && m_rowing->inProgress()) {
         const bool p = m_rowing->paused();
         return make(kRowing, QStringLiteral("rowing"), QStringLiteral("Rowing"), QStringLiteral("row"), p,
@@ -256,6 +351,8 @@ qint64 SessionGuard::endSession(const QString &kind, bool save)
         id = m_gpx->finish(save);
     } else if (kind == kRowing && m_rowing && m_rowing->active()) {
         id = m_rowing->finish(save);
+    } else if (kind == kRun && m_run && m_run->active()) {
+        id = m_run->finish(save);
     } else {
         return -1;
     }
@@ -288,7 +385,10 @@ QString SessionGuard::describe() const
                            int(m_rowing->elapsedSeconds()))
                       : QStringLiteral("-"),
              m_gears ? m_gears->activePage() : QStringLiteral("-"),
-             m_gpx ? QStringLiteral(" gpx=") + gpx : QString());
+             (m_gpx ? QStringLiteral(" gpx=") + gpx : QString())
+                 + (m_run ? QStringLiteral(" run=") + st(m_run->state(), m_run->paused(), m_run->hasRecording(),
+                                                         int(m_run->elapsedSeconds()))
+                          : QString()));
 }
 
 } // namespace watt

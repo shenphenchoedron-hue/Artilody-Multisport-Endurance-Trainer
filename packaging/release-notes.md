@@ -1,6 +1,19 @@
-Artilody Watts Trainer is a free, open-source (GPL-3.0) desktop app for structured, power-based indoor cycling and rowing. It connects to your Bluetooth smart trainer, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride and row locally on your computer.
+Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.4.1
+## What's new in 1.5.0
+
+**A new name and a new sport**: the app is now **Artilody Multisport Endurance Trainer** – and it runs on your treadmill.
+
+- **Treadmill Run** (sidebar → Treadmill Run, under GPX Ride): connect a Bluetooth **FTMS treadmill** (Devices → Treadmills, or the Virtual Treadmill) and run through the 3D world. Speed and incline are read from the treadmill – the app never controls the belt. Run a GPX route (GPX on/off) or the built-in **Artilody Lakeside 10K**, a 10 km loop with 11 corners, lap by lap.
+- **A 3D runner** that walks and runs and changes gait at **your own walk → run speed** (new profile field *Walk → Run*, 4–10 km/h).
+- **Running workouts** are ordinary workouts: the **Running** filter and *New running workout* on the Workouts page, the Workout Builder (speed in % of AnT or km/h, a suggested incline per block, running zones), the calendar (*Run*), `.awt` files and Zwift *run* `.zwo` files. Eight built-in running workouts plus the AnT test.
+- **AnT test**: 10 min warm-up, 30 min test, 5 min cool-down; the anaerobic threshold speed is the average of the last 20 minutes. Test history, manual entry, running zones (78 / 88 / 95 / 100 / 106 % AnT) and a reminder when the next test is due.
+- **New cyclist in GPX Ride**: a skinned rider (blue jersey, black bibs, red helmet) posed on the bike – feet on the pedals at your cadence, hands on the hoods, a gentle side-to-side rock that grows on climbs over 6 %.
+- **3D**: the road runs on 50 m past the FINISH arch; contact shadows under wheels and feet; clean lines between clothes and skin.
+- **Runs in History** and **FIT export** as running / treadmill activities.
+- **Database upgrade**: on first start the database is upgraded automatically to schema 7; all rides, workouts, profiles, plans and settings are kept. The data folder, the macOS Bluetooth permission, the Windows installation and the Linux package name (`artilody-watts-trainer`) are unchanged – install over 1.4.1 (or older).
+
+## Also included from 1.4.1
 
 **GPX Ride**: start and finish arches, and a rider who pedals like you.
 
@@ -112,7 +125,7 @@ A fix release for the **Zwift trainer protocol** (trainers with the Zwift traine
 - **Real Life Video** – ride filmed routes (video + GPS) at the speed you ride, with gradient simulation, ERG and a difficulty slider; a route library; AV1 detection with HandBrake conversion help.
 - **Weight-aware road physics and auto CdA**, **smooth power (3 s average)**, reordered sidebar, FTP tests that detect their protocol, database schema version 4 and many fixes.
 
-Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 1.1.2 Builder reordering, 1.1.1 music fix, 1.1.0 calendar, rowing, FIT export and workout sharing) are described on the [Releases page](https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/releases).
+Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 1.1.2 Builder reordering, 1.1.1 music fix, 1.1.0 calendar, rowing, FIT export and workout sharing) are described on the [Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases).
 
 ## Upgrade notes
 
@@ -137,7 +150,7 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 - **Concept2 PM5 support has so far only been tested with a PM5 simulator**, not yet with a real PM5. Please report your experience. The PM5 has **no ERG mode**: watt plans are followed by feel, the app can't set the resistance.
 - Only the **PM5 on a rower** is supported – **BikeErg and SkiErg are not supported**, nor PM3/PM4 monitors.
 - **`.zwo` files have no rowing**: rowing workouts are exported as cycling workouts, and imported `.zwo` files are always cycling. Use `.awt` to share rowing workouts.
-- **macOS**: the app is ad-hoc signed, not notarized. The first time, **right-click (Control-click) the app → Open → Open** (or run `xattr -cr "/Applications/Artilody Watts Trainer.app"`).
+- **macOS**: the app is ad-hoc signed, not notarized. The first time, **right-click (Control-click) the app → Open → Open** (or run `xattr -cr "/Applications/Artilody Multisport Endurance Trainer.app"`).
 - **Windows**: the app is not code-signed; SmartScreen may ask you to click **More info → Run anyway**.
 - ANT+ is not supported (Bluetooth LE only).
 
@@ -161,31 +174,31 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 
 | Platform | File |
 |---|---|
-| **Windows 10/11 (64-bit)**, installer | `ArtilodyWattsTrainer-{{VERSION}}-windows-x64-setup.exe` |
-| **Windows 10/11 (64-bit)**, portable ZIP | `ArtilodyWattsTrainer-{{VERSION}}-windows-x64.zip` |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | `ArtilodyWattsTrainer-{{VERSION}}-macOS-universal.dmg` |
+| **Windows 10/11 (64-bit)**, installer | `ArtilodyMultisportEnduranceTrainer-{{VERSION}}-windows-x64-setup.exe` |
+| **Windows 10/11 (64-bit)**, portable ZIP | `ArtilodyMultisportEnduranceTrainer-{{VERSION}}-windows-x64.zip` |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | `ArtilodyMultisportEnduranceTrainer-{{VERSION}}-macOS-universal.dmg` |
 | **Ubuntu 24.04 LTS** (and derivatives, amd64) | `artilody-watts-trainer_{{VERSION}}_ubuntu24.04_amd64.deb` |
 | **Debian 12 Bookworm** (amd64) | `artilody-watts-trainer_{{VERSION}}_debian12_amd64.deb` |
 | **Raspberry Pi OS 64-bit (Bookworm)**: Raspberry Pi 3, 4, 5, 400 | `artilody-watts-trainer_{{VERSION}}_raspberrypi-os-bookworm_arm64.deb` |
-| User manual (PDF) | `Artilody-Watts-Trainer-Manual.pdf` |
+| User manual (PDF) | `Artilody-Multisport-Endurance-Trainer-Manual.pdf` |
 | Checksums | `SHA256SUMS.txt` (verify with `sha256sum -c SHA256SUMS.txt --ignore-missing`) |
 
 ## Installation
 
 ### Windows
 
-1. Download `ArtilodyWattsTrainer-{{VERSION}}-windows-x64-setup.exe` and run it. It creates a Start menu entry and, if you choose, a desktop shortcut.
-   If you prefer not to install anything, extract the ZIP and start `Artilody Watts Trainer.exe` from the extracted folder.
+1. Download `ArtilodyMultisportEnduranceTrainer-{{VERSION}}-windows-x64-setup.exe` and run it. It creates a Start menu entry and, if you choose, a desktop shortcut.
+   If you prefer not to install anything, extract the ZIP and start `Artilody Multisport Endurance Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
 3. Bluetooth must be turned on (Settings → Bluetooth & devices). Bluetooth LE requires Windows 10 or newer.
 
 ### macOS
 
-1. Open the DMG and drag **Artilody Watts Trainer** onto the **Applications** folder.
+1. Open the DMG and drag **Artilody Multisport Endurance Trainer** onto the **Applications** folder.
 2. **Gatekeeper:** the app is ad-hoc signed but not notarized by Apple. The first time you open it, **right-click (or Control-click) the app → Open → Open**.
    If macOS says the app is "damaged" or still won't open it, run this once in Terminal:
    ```sh
-   xattr -cr "/Applications/Artilody Watts Trainer.app"
+   xattr -cr "/Applications/Artilody Multisport Endurance Trainer.app"
    ```
 3. **Bluetooth permission:** when macOS asks, allow Bluetooth access. If you denied it by mistake, turn it on again under System Settings → Privacy & Security → Bluetooth.
 
@@ -198,7 +211,7 @@ sudo apt install ./artilody-watts-trainer_{{VERSION}}_ubuntu24.04_amd64.deb    #
 sudo apt install ./artilody-watts-trainer_{{VERSION}}_debian12_amd64.deb        # Debian 12
 ```
 
-Start **Artilody Watts Trainer** from the application menu, or run `artilody-watts-trainer` in a terminal.
+Start **Artilody Multisport Endurance Trainer** from the application menu, or run `artilody-watts-trainer` in a terminal.
 Bluetooth needs the BlueZ service to be running (`sudo systemctl enable --now bluetooth`). Ubuntu 22.04 and older are **not** supported, because they ship Qt 6.2 and the app needs Qt 6.4 or newer.
 
 ### Raspberry Pi
@@ -214,7 +227,7 @@ The built-in Bluetooth of the Pi 3/4/5 works with smart trainers and heart-rate 
 
 ### Uninstall
 
-- Windows: Settings → Apps → Artilody Watts Trainer → Uninstall
+- Windows: Settings → Apps → Artilody Multisport Endurance Trainer → Uninstall
 - macOS: move the app from Applications to the Trash
 - Linux: `sudo apt remove artilody-watts-trainer`
 
@@ -222,4 +235,4 @@ Your rides and settings are stored separately in your user profile and are kept 
 
 ## Feedback
 
-Found a bug or have an idea? Please open an issue: https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer/issues
+Found a bug or have an idea? Please open an issue: https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/issues

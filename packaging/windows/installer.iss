@@ -1,25 +1,25 @@
-; Inno Setup script for Artilody Watts Trainer (Windows x64).
+; Inno Setup script for Artilody Multisport Endurance Trainer (Windows x64).
 ;
 ; Built in CI (.github/workflows/release.yml):
-;   iscc /DAppVersion=1.4.1 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
+;   iscc /DAppVersion=1.5.0 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
 ;
 ; SourceDir must contain the windeployqt'ed application:
-;   "Artilody Watts Trainer.exe", Qt DLLs, plugins, qml\, music\ ...
+;   "Artilody Multisport Endurance Trainer.exe", Qt DLLs, plugins, qml\, music\ ...
 
 #ifndef AppVersion
-  #define AppVersion "1.4.1"
+  #define AppVersion "1.5.0"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\..\dist\windows\Artilody Watts Trainer"
+  #define SourceDir "..\..\dist\windows\Artilody Multisport Endurance Trainer"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
 #endif
 
-#define AppName      "Artilody Watts Trainer"
-#define AppExeName   "Artilody Watts Trainer.exe"
+#define AppName      "Artilody Multisport Endurance Trainer"
+#define AppExeName   "Artilody Multisport Endurance Trainer.exe"
 #define AppPublisher "Artilody"
-#define AppURL       "https://github.com/shenphenchoedron-hue/Artilody-Watts-Trainer"
+#define AppURL       "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer"
 
 [Setup]
 ; Never change the AppId: it identifies the installation for upgrades/uninstall.
@@ -38,7 +38,7 @@ DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 #endif
 OutputDir={#OutputDir}
-OutputBaseFilename=ArtilodyWattsTrainer-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=ArtilodyMultisportEnduranceTrainer-{#AppVersion}-windows-x64-setup
 SetupIconFile=..\..\assets\icons\app-icon.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName}

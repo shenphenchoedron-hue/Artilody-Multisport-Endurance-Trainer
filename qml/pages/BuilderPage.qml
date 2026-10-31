@@ -24,12 +24,33 @@ Item {
     readonly property bool selContiguous: selCount > 0 && selLast - selFirst + 1 === selCount
     readonly property int selDuration: Builder.selectionDurationSec
     readonly property bool rowing: Builder.sport === "rowing"
-    readonly property string ftpLabel: rowing ? "Rowing FTP" : "FTP"
+    // Running workouts are % of the AnT speed; Builder.ftp / watts are speeds
+    // in 0.1 km/h there (Builder.antSpeedKmh, block.speed / endSpeed in km/h).
+    readonly property bool running: Builder.sport === "running"
+    readonly property string ftpLabel: running ? "AnT" : rowing ? "Rowing FTP" : "FTP"
+    function pace(kmh) {
+        if (!(kmh >= 1))
+            return ""
+        var sec = Math.round(3600 / kmh)
+        return Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2)
+    }
+    function speedHint(kmh) {
+        return kmh !== undefined ? "≈ " + kmh.toFixed(1) + " km/h" : ""
+    }
+    // Running: a typed value below 30 (or with a decimal point / "km") is a
+    // speed in km/h, otherwise % of the AnT.
+    function isKmh(text) {
+        var t = ("" + text).toLowerCase()
+        return page.running && (t.indexOf("km") >= 0 || t.indexOf(".") >= 0 || t.indexOf(",") >= 0
+                                || parseFloat(t) < 30)
+    }
+    function number(text) { return parseFloat(("" + text).replace(",", ".")) }
 
     // Hooks for the standalone "Artilody Workout Creator", which shares this
     // page (the defaults are the Watts Trainer behaviour).
     property string pageTitle: "Workout Builder"
-    property string pageSubtitle: page.rowing ? "Design your own rowing session" : "Design your own training session"
+    property string pageSubtitle: page.running ? "Design your own treadmill run"
+                                : page.rowing ? "Design your own rowing session" : "Design your own training session"
     property bool showExport: false     // adds an "Export" button next to Save
     signal exportRequested()
 
@@ -48,14 +69,16 @@ Item {
         y: 90
         spacing: 8
         Icon {
-            name: page.rowing ? "rowing" : "bike"
+            name: Theme.sportIcon(Builder.sport)
             size: 22
             strokeWidth: 2
             color: Theme.sportColor(Builder.sport)
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
-            text: "Power in % of " + page.ftpLabel + "  ·  your " + page.ftpLabel + ": " + Builder.ftp + " W"
+            text: page.running
+                  ? "Speed in % of AnT  ·  your AnT: " + Builder.antSpeedKmh.toFixed(1) + " km/h (" + page.pace(Builder.antSpeedKmh) + " /km)"
+                  : "Power in % of " + page.ftpLabel + "  ·  your " + page.ftpLabel + ": " + Builder.ftp + " W"
             color: Theme.textSecondary
             font.pixelSize: 17
             anchors.verticalCenter: parent.verticalCenter
@@ -90,7 +113,8 @@ Item {
             value: Builder.sport
             options: [
                 { value: "cycling", label: "Cycling", icon: "bike" },
-                { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor }
+                { value: "rowing", label: "Rowing", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor },
+                { value: "running", label: "Running", icon: "run", color: Theme.runningColor, textColor: Theme.textOnColor }
             ]
             onActivated: (v) => Builder.sport = v
         }
@@ -355,9 +379,11 @@ Item {
             AppComboBox {
                 width: 206
                 height: 46
-                model: ["Power (Watts)", "% " + page.ftpLabel]
+                model: page.running ? ["Speed (km/h)", "% AnT"] : ["Power (Watts)", "% " + page.ftpLabel]
                 currentIndex: page.percentView ? 1 : 0
                 onActivated: (index) => page.percentView = index === 1
+                // the model changes with the sport (Power / Speed): keep the chosen view
+                onModelChanged: currentIndex = page.percentView ? 1 : 0
             }
         }
 
@@ -371,6 +397,7 @@ Item {
             totalSec: Builder.totalDurationSec
             showHeartRate: false
             percentAxis: page.percentView
+            sport: Builder.sport
             ftp: Builder.ftp
             barGaps: false
             // a contiguous multi-selection is highlighted as one range
@@ -619,7 +646,8 @@ Item {
                             spacing: 8
                             Icon { name: "bolt"; size: 16; color: zone === 3 ? Theme.warning : Theme.text; anchors.verticalCenter: parent.verticalCenter }
                             Text {
-                                text: isRamp ? percent + "–" + endPercent + "%" : percent + "%"
+                                text: page.running ? (isRamp ? speed.toFixed(1) + "–" + endSpeed.toFixed(1) : speed.toFixed(1)) + " km/h"
+                                      : isRamp ? percent + "–" + endPercent + "%" : percent + "%"
                                 color: Theme.text
                                 font.pixelSize: 15
                             }
@@ -876,9 +904,11 @@ Item {
                     switch (page.sel.type) {
                     case "warmup": return "Gradually raise the effort"
                     case "cooldown": return "Bring the effort down gently"
-                    case "recovery": return page.rowing ? "Easy paddling between efforts" : "Easy spinning between efforts"
-                    case "ramp": return page.sel.endPercent < page.sel.percent ? "Steadily decreasing power" : "Steadily increasing power"
-                    case "interval": return "Build sustainable power"
+                    case "recovery": return page.running ? "Easy jogging between efforts"
+                                          : page.rowing ? "Easy paddling between efforts" : "Easy spinning between efforts"
+                    case "ramp": return (page.sel.endPercent < page.sel.percent ? "Steadily decreasing " : "Steadily increasing ")
+                                        + (page.running ? "speed" : "power")
+                    case "interval": return page.running ? "Run hard, hold the pace" : "Build sustainable power"
                     default: return "Constant effort"
                     }
                 }
@@ -912,16 +942,22 @@ Item {
                     Layout.fillWidth: true
                     iconName: "bolt"
                     iconColor: Theme.warning
-                    label: page.showEndPower ? "Start Power" : "Target Power"
-                    sublabel: page.sel.watts !== undefined ? "≈ " + page.sel.watts + " W" : ""
+                    label: page.running ? (page.showEndPower ? "Start Speed" : "Target Speed")
+                                        : page.showEndPower ? "Start Power" : "Target Power"
+                    sublabel: page.running ? page.speedHint(page.sel.speed)
+                                           : page.sel.watts !== undefined ? "≈ " + page.sel.watts + " W" : ""
                     unit: "% " + page.ftpLabel
                     value: page.sel.percent !== undefined ? page.sel.percent : ""
                     onDecrement: page.forSelected(function(i, b) { Builder.setPercent(i, b.percent - 1) })
                     onIncrement: page.forSelected(function(i, b) { Builder.setPercent(i, b.percent + 1) })
                     onEdited: (text) => {
-                        var v = parseInt(text)
-                        if (!isNaN(v))
-                            page.forSelected(function(i, b) { Builder.setPercent(i, v) })
+                        var v = page.number(text)
+                        if (isNaN(v))
+                            return
+                        if (page.isKmh(text))
+                            page.forSelected(function(i, b) { Builder.setSpeed(i, v) })
+                        else
+                            page.forSelected(function(i, b) { Builder.setPercent(i, Math.round(v)) })
                     }
                 }
                 StepperField {
@@ -929,8 +965,9 @@ Item {
                     visible: page.showEndPower
                     iconName: "trendUp"
                     iconColor: Theme.warning
-                    label: "End Power"
-                    sublabel: page.sel.endWatts !== undefined ? "≈ " + page.sel.endWatts + " W" : ""
+                    label: page.running ? "End Speed" : "End Power"
+                    sublabel: page.running ? page.speedHint(page.sel.endSpeed)
+                                           : page.sel.endWatts !== undefined ? "≈ " + page.sel.endWatts + " W" : ""
                     unit: "% " + page.ftpLabel
                     value: page.sel.endPercent !== undefined ? page.sel.endPercent : ""
                     // only ramps (and warm ups / cool downs) of a multi-selection have an end power
@@ -940,13 +977,35 @@ Item {
                     onDecrement: page.forSelected(function(i, b) { if (rampLike(b)) Builder.setEndPercent(i, b.endPercent - 1) })
                     onIncrement: page.forSelected(function(i, b) { if (rampLike(b)) Builder.setEndPercent(i, b.endPercent + 1) })
                     onEdited: (text) => {
-                        var v = parseInt(text)
+                        var v = page.number(text)
+                        if (isNaN(v))
+                            return
+                        if (page.isKmh(text))
+                            page.forSelected(function(i, b) { if (rampLike(b)) Builder.setEndSpeed(i, v) })
+                        else
+                            page.forSelected(function(i, b) { if (rampLike(b)) Builder.setEndPercent(i, Math.round(v)) })
+                    }
+                }
+                // running: suggested treadmill incline instead of a cadence
+                StepperField {
+                    Layout.fillWidth: true
+                    visible: page.running
+                    iconName: "trendUp"
+                    label: "Incline"
+                    sublabel: page.multi ? "each block" : "suggested belt incline"
+                    unit: "%"
+                    value: page.sel.incline !== undefined ? page.sel.incline.toFixed(1) : ""
+                    onDecrement: page.forSelected(function(i, b) { Builder.setIncline(i, b.incline - 0.5) })
+                    onIncrement: page.forSelected(function(i, b) { Builder.setIncline(i, b.incline + 0.5) })
+                    onEdited: (text) => {
+                        var v = page.number(text)
                         if (!isNaN(v))
-                            page.forSelected(function(i, b) { if (rampLike(b)) Builder.setEndPercent(i, v) })
+                            page.forSelected(function(i, b) { Builder.setIncline(i, v) })
                     }
                 }
                 StepperField {
                     Layout.fillWidth: true
+                    visible: !page.running
                     iconName: "target"
                     label: page.rowing ? "Stroke Rate (SPM)" : "Cadence (RPM)"
                     unit: page.rowing ? "SPM" : "RPM"
@@ -1071,7 +1130,8 @@ Item {
             x: 28
             y: 72
             text: Math.round(Builder.totalDurationSec / 60) + " min  •  " + Builder.blockCount + " blocks  •  "
-                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " " + Builder.ftp + " W"
+                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " "
+                  + (page.running ? Builder.antSpeedKmh.toFixed(1) + " km/h" : Builder.ftp + " W")
             color: Theme.textSecondary
             font.pixelSize: 17
         }
@@ -1088,6 +1148,7 @@ Item {
             segments: Builder.segments
             totalSec: Builder.totalDurationSec
             showHeartRate: false
+            sport: Builder.sport
             ftp: Builder.ftp
         }
         RowLayout {

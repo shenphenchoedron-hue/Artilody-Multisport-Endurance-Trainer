@@ -42,8 +42,11 @@ QVariant IntervalModel::data(const QModelIndex &index, int role) const
     case EndPercentRole: return int(std::lround(i.endPercent * 100));
     case CadenceRole: return i.cadence;
     case RpeRole: return i.rpeZone;
-    case ZoneRole: return zoneForInterval(i, i.averagePercent(), m_backend->zones());
+    case ZoneRole: return zoneForInterval(i, i.averagePercent(), zones());
     case RampRole: return i.isRamp();
+    case InclineRole: return i.inclinePercent;
+    case SpeedRole: return std::round(i.startPercent * ftp) / double(running::kUnitsPerKmh);
+    case EndSpeedRole: return std::round(i.endPercent * ftp) / double(running::kUnitsPerKmh);
     default: return {};
     }
 }
@@ -55,6 +58,7 @@ QHash<int, QByteArray> IntervalModel::roleNames() const
         { DurationTextRole, "durationText" }, { WattsRole, "watts" }, { EndWattsRole, "endWatts" },
         { PercentRole, "percent" }, { EndPercentRole, "endPercent" }, { CadenceRole, "cadence" },
         { RpeRole, "rpe" }, { ZoneRole, "zone" }, { RampRole, "isRamp" },
+        { InclineRole, "incline" }, { SpeedRole, "speed" }, { EndSpeedRole, "endSpeed" },
     };
 }
 
@@ -105,6 +109,11 @@ void IntervalModel::move(int from, int to)
 int IntervalModel::ftp() const
 {
     return m_backend->ftpFor(m_sport);
+}
+
+ZoneSet IntervalModel::zones() const
+{
+    return m_sport == sport::running() ? ZoneSet::running() : m_backend->zones();
 }
 
 void IntervalModel::setSport(const QString &sport)
@@ -201,8 +210,25 @@ void WorkoutBuilder::setSport(const QString &value)
     const QString s = sport::normalize(value);
     if (m_workout.sport == s)
         return;
+    const bool wasRunning = m_workout.isRunning();
     m_workout.sport = s;
     m_model.setSport(s);
+    if (wasRunning != m_workout.isRunning()) {
+        // running blocks have an incline and no cadence (and the other way round)
+        QVector<Interval> blocks = m_model.intervals();
+        for (Interval &i : blocks) {
+            if (wasRunning)
+                i.inclinePercent = 0.0;
+            adaptToSport(i);
+        }
+        m_model.setIntervals(blocks);
+        resetSelection();
+    }
+    // the test category is "FTP Tests" or "AnT Test"
+    if (m_workout.isRunning() && m_workout.category == Workout::ftpTestCategory())
+        m_workout.category = Workout::antTestCategory();
+    else if (!m_workout.isRunning() && m_workout.category == Workout::antTestCategory())
+        m_workout.category = Workout::ftpTestCategory();
     markDirty();
     emit workoutChanged();
     emit contentChanged();
@@ -280,7 +306,7 @@ int WorkoutBuilder::totalDurationSec() const
 
 QVariantList WorkoutBuilder::segments() const
 {
-    return Workout::segmentsToVariant(currentWorkout().segments(ftp(), m_backend->zones()));
+    return Workout::segmentsToVariant(currentWorkout().segments(ftp(), m_model.zones()));
 }
 
 int WorkoutBuilder::intensity() const
@@ -303,7 +329,38 @@ QStringList WorkoutBuilder::rpeOptions() const
 QStringList WorkoutBuilder::categories() const
 {
     return { QStringLiteral("Endurance"), QStringLiteral("Intervals"), QStringLiteral("Recovery"),
-             QStringLiteral("FTP Tests") };
+             isRunning() ? Workout::antTestCategory() : Workout::ftpTestCategory() };
+}
+
+Interval WorkoutBuilder::defaultBlock(BlockType t) const
+{
+    Interval i = Interval::defaultFor(t);
+    if (isRunning()) {
+        // % of the AnT speed (power defaults like 40 % would be a walk)
+        switch (t) {
+        case BlockType::WarmUp: i.durationSec = 600; i.startPercent = 0.65; i.endPercent = 0.80; break;
+        case BlockType::Steady: i.durationSec = 600; i.startPercent = i.endPercent = 0.82; break;
+        case BlockType::Interval:
+            i.name = QStringLiteral("Interval");
+            i.durationSec = 240; i.startPercent = i.endPercent = 1.05; break;
+        case BlockType::Recovery:
+            i.name = QStringLiteral("Jog");
+            i.durationSec = 120; i.startPercent = i.endPercent = 0.68; break;
+        case BlockType::CoolDown: i.durationSec = 300; i.startPercent = 0.70; i.endPercent = 0.60; break;
+        case BlockType::Ramp: i.durationSec = 600; i.startPercent = 0.75; i.endPercent = 0.95; break;
+        }
+    }
+    adaptToSport(i);
+    return i;
+}
+
+void WorkoutBuilder::adaptToSport(Interval &i) const
+{
+    if (!isRunning())
+        return;
+    i.cadence = 0;
+    if (std::abs(i.inclinePercent) < 1e-9)
+        i.inclinePercent = 1.0;   // 1 % matches the effort of running outdoors
 }
 
 void WorkoutBuilder::newWorkout(const QString &sport)
@@ -313,8 +370,14 @@ void WorkoutBuilder::newWorkout(const QString &sport)
     m_workout.name = QStringLiteral("New Workout");
     m_workout.category = QStringLiteral("Intervals");
     m_model.setSport(m_workout.sport);
-    QVector<Interval> blocks { Interval::defaultFor(BlockType::WarmUp), Interval::defaultFor(BlockType::Interval),
-                               Interval::defaultFor(BlockType::CoolDown) };
+    QVector<Interval> blocks { defaultBlock(BlockType::WarmUp), defaultBlock(BlockType::Interval),
+                               defaultBlock(BlockType::CoolDown) };
+    if (m_workout.isRunning()) {
+        blocks[1].type = BlockType::Steady;
+        blocks[1].name = QStringLiteral("Steady");
+        blocks[1].durationSec = 1200;
+        blocks[1].startPercent = blocks[1].endPercent = 0.85;
+    }
     m_model.setIntervals(blocks);
     m_selected = 1;
     resetSelection();
@@ -396,21 +459,25 @@ void WorkoutBuilder::addBlock(const QString &type)
 
     if (t == BlockType::Interval) {
         // An interval set: 3 × (5 min @ 105% + 3 min recovery)
+        // (running: 3 × (4 min @ 105 % AnT + 2 min jog))
         for (int r = 0; r < 3; ++r) {
-            Interval work = Interval::defaultFor(BlockType::Interval);
+            Interval work = defaultBlock(BlockType::Interval);
             work.name = QStringLiteral("Interval");
-            work.durationSec = 300;
-            work.startPercent = work.endPercent = 1.05;
-            work.cadence = 95;
+            if (!isRunning()) {
+                work.durationSec = 300;
+                work.startPercent = work.endPercent = 1.05;
+                work.cadence = 95;
+            }
             m_model.insert(at++, work);
-            Interval rec = Interval::defaultFor(BlockType::Recovery);
-            rec.durationSec = 180;
+            Interval rec = defaultBlock(BlockType::Recovery);
+            if (!isRunning())
+                rec.durationSec = 180;
             m_model.insert(at++, rec);
         }
         m_selected = at - 6;
     } else {
-        Interval i = Interval::defaultFor(t);
-        if (t == BlockType::Steady)
+        Interval i = defaultBlock(t);
+        if (t == BlockType::Steady && !isRunning())
             i.cadence = m_backend->preferredCadence();
         m_model.insert(at, i);
         m_selected = at;
@@ -567,6 +634,35 @@ void WorkoutBuilder::setRpe(int index, int zone)
     modify(index, [&](Interval &i) { i.rpeZone = std::clamp(zone, -1, kZoneCount - 1); });
 }
 
+void WorkoutBuilder::setSpeed(int index, double kmh)
+{
+    const double ant = antSpeedKmh();
+    if (ant <= 0)
+        return;
+    modify(index, [&](Interval &i) {
+        const double p = std::clamp(kmh, 0.0, 40.0) / ant;
+        const bool ramp = i.isRamp();
+        i.startPercent = p;
+        if (!ramp)
+            i.endPercent = p;
+    });
+}
+
+void WorkoutBuilder::setEndSpeed(int index, double kmh)
+{
+    const double ant = antSpeedKmh();
+    if (ant <= 0)
+        return;
+    modify(index, [&](Interval &i) { i.endPercent = std::clamp(kmh, 0.0, 40.0) / ant; });
+}
+
+void WorkoutBuilder::setIncline(int index, double percent)
+{
+    modify(index, [&](Interval &i) {
+        i.inclinePercent = std::round(std::clamp(percent, Interval::kMinIncline, Interval::kMaxIncline) * 10.0) / 10.0;
+    });
+}
+
 // --- generated block groups ----------------------------------------------------
 
 int WorkoutBuilder::insertRow() const
@@ -604,7 +700,7 @@ double fraction(int percent) { return std::clamp(percent, 0, kMaxPercent) / 100.
 
 void WorkoutBuilder::addRamp(int durationSec, int startPercent, int endPercent)
 {
-    Interval i = Interval::defaultFor(BlockType::Ramp);
+    Interval i = defaultBlock(BlockType::Ramp);
     i.durationSec = clampSec(durationSec);
     i.startPercent = fraction(startPercent);
     i.endPercent = fraction(endPercent);
@@ -620,7 +716,7 @@ void WorkoutBuilder::addSteps(int count, int stepSec, int startPercent, int endP
     for (int k = 0; k < count; ++k) {
         const double f = count > 1 ? double(k) / (count - 1) : 0.0;
         const int percent = int(std::lround(startPercent + (endPercent - startPercent) * f));
-        Interval i = Interval::defaultFor(BlockType::Steady);
+        Interval i = defaultBlock(BlockType::Steady);
         i.name = QStringLiteral("Step %1/%2").arg(k + 1).arg(count);
         i.durationSec = clampSec(stepSec);
         i.startPercent = i.endPercent = fraction(percent);
@@ -635,15 +731,16 @@ void WorkoutBuilder::addIntervalSet(int repeats, int workSec, int workPercent, i
     repeats = std::clamp(repeats, 1, kMaxGroupBlocks / 2);
     QVector<Interval> blocks;
     for (int r = 0; r < repeats; ++r) {
-        Interval work = Interval::defaultFor(BlockType::Interval);
+        Interval work = defaultBlock(BlockType::Interval);
         work.name = QStringLiteral("Interval %1/%2").arg(r + 1).arg(repeats);
         work.durationSec = clampSec(workSec);
         work.startPercent = work.endPercent = fraction(workPercent);
         work.cadence = 0;
         blocks.append(work);
         if (r < repeats - 1 || recoveryAfterLast) {
-            Interval rest = Interval::defaultFor(BlockType::Recovery);
-            rest.name = QStringLiteral("Recovery %1/%2").arg(r + 1).arg(repeats);
+            Interval rest = defaultBlock(BlockType::Recovery);
+            rest.name = QStringLiteral("%1 %2/%3").arg(isRunning() ? QStringLiteral("Jog") : QStringLiteral("Recovery"))
+                            .arg(r + 1).arg(repeats);
             rest.durationSec = clampSec(restSec);
             rest.startPercent = rest.endPercent = fraction(restPercent);
             blocks.append(rest);

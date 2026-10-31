@@ -1,6 +1,6 @@
-# Building Artilody Watts Trainer from source
+# Building Artilody Multisport Endurance Trainer from source
 
-This guide explains how to build, test and package Artilody Watts Trainer on each supported platform. For a short overview, see the [README](../README.md#building-from-source).
+This guide explains how to build, test and package Artilody Multisport Endurance Trainer on each supported platform. For a short overview, see the [README](../README.md#building-from-source).
 
 The official release packages are built by the GitHub Actions workflow [`.github/workflows/release.yml`](../.github/workflows/release.yml). It is the reference for the exact commands shown below.
 
@@ -30,8 +30,8 @@ The executable ends up in `build/src/app/` (on Windows in `build/`, next to the 
 | Platform | Output |
 |---|---|
 | Linux | `build/src/app/artilody-watts-trainer` |
-| macOS | `build/src/app/Artilody Watts Trainer.app` |
-| Windows | `build/Artilody Watts Trainer.exe` |
+| macOS | `build/src/app/Artilody Multisport Endurance Trainer.app` |
+| Windows | `build/Artilody Multisport Endurance Trainer.exe` |
 
 The sample music in [`music/`](../music) is copied next to the executable (or into the macOS bundle) during the build.
 
@@ -115,14 +115,14 @@ Ubuntu 22.04 and older ship Qt 6.2, which is too old.
    ```
 3. Bundle the Qt frameworks and QML modules into the app and sign it ad hoc:
    ```bash
-   macdeployqt "build/src/app/Artilody Watts Trainer.app" -qmldir=qml
-   codesign --force --deep --sign - "build/src/app/Artilody Watts Trainer.app"
+   macdeployqt "build/src/app/Artilody Multisport Endurance Trainer.app" -qmldir=qml
+   codesign --force --deep --sign - "build/src/app/Artilody Multisport Endurance Trainer.app"
    ```
 4. Optional: create a drag-and-drop DMG:
    ```bash
-   mkdir -p dmg && ditto "build/src/app/Artilody Watts Trainer.app" "dmg/Artilody Watts Trainer.app"
+   mkdir -p dmg && ditto "build/src/app/Artilody Multisport Endurance Trainer.app" "dmg/Artilody Multisport Endurance Trainer.app"
    ln -s /Applications dmg/Applications
-   hdiutil create -volname "Artilody Watts Trainer" -srcfolder dmg -ov -format UDZO ArtilodyWattsTrainer.dmg
+   hdiutil create -volname "Artilody Multisport Endurance Trainer" -srcfolder dmg -ov -format UDZO ArtilodyWattsTrainer.dmg
    ```
 
 `Info.plist` contains `NSBluetoothAlwaysUsageDescription`, so macOS asks for Bluetooth permission the first time you scan.
@@ -143,7 +143,7 @@ Ubuntu 22.04 and older ship Qt 6.2, which is too old.
    ```
 4. Deploy the Qt runtime next to the executable:
    ```powershell
-   windeployqt --release --qmldir qml "build\Artilody Watts Trainer.exe"
+   windeployqt --release --qmldir qml "build\Artilody Multisport Endurance Trainer.exe"
    ```
 
 The release installer is built with Inno Setup from [`packaging/windows/installer.iss`](../packaging/windows/installer.iss). Bluetooth LE requires Windows 10 or newer.

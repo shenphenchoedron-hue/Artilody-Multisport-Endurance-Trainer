@@ -173,6 +173,11 @@ bool TrainingSession::loadWorkout(const Workout &workout)
         emit rowingWorkoutRefused(workout.id, workout.name);
         return false;
     }
+    if (workout.isRunning()) {
+        // running workouts are run on the Treadmill Run page (Running.attachWorkout())
+        emit runningWorkoutRefused(workout.id, workout.name);
+        return false;
+    }
     m_engine.load(workout, m_profiles->current().ftpFor(workout.sport));
     clearRecording();
     m_lastIndex = -2;

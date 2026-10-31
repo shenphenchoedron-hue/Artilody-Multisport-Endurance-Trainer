@@ -15,7 +15,8 @@ inline GhostPose ghostPose(const Route& route,double distance,double speedKmh){
     double horizontal=std::hypot(dx,dz),length=std::sqrt(dx*dx+dy*dy+dz*dz);
     if(length>1e-6){pose.fx=dx/length;pose.fy=dy/length;pose.fz=dz/length;}
     if(horizontal>1e-6){pose.center.x-=dz/horizontal*1.4;pose.center.z+=dx/horizontal*1.4;}
-    pose.center.y+=.05;
+    // on the asphalt (the road's surface is 2.5 cm above the route line)
+    pose.center.y+=.028;
     auto a=route.at(d-12),b=route.at(d),c=route.at(d+12);
     double ax=b.x-a.x,az=b.z-a.z,bx=c.x-b.x,bz=c.z-b.z;
     double la=std::hypot(ax,az),lb=std::hypot(bx,bz);

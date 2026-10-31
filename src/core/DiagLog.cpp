@@ -257,7 +257,7 @@ bool DiagLog::start(const QString &dirIn)
 
 void DiagLog::writeHeader()
 {
-    append("LOG", QStringLiteral("==== Artilody Watts Trainer %1 – diagnostic log started ====")
+    append("LOG", QStringLiteral("==== Artilody Multisport Endurance Trainer %1 – diagnostic log started ====")
                       .arg(QCoreApplication::applicationVersion()));
     append("SYS", QStringLiteral("Qt %1 (built with %2)  OS %3  kernel %4 %5  arch %6")
                       .arg(QString::fromLatin1(qVersion()), QStringLiteral(QT_VERSION_STR), QSysInfo::prettyProductName(),

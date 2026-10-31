@@ -15,9 +15,11 @@ private slots:
         QVERIFY(db.open(QStringLiteral(":memory:")));
         db.seedDefaults();
         QCOMPARE(db.profiles().size(), 1);
-        QCOMPARE(db.workouts().size(), Workout::builtInLibrary().size());
+        // cycling / rowing and the running workouts (treadmill)
+        const auto seeded = Workout::builtInLibrary().size() + RunWorkout::builtInLibrary().size();
+        QCOMPARE(db.workouts().size(), seeded);
         db.seedDefaults();   // idempotent
-        QCOMPARE(db.workouts().size(), Workout::builtInLibrary().size());
+        QCOMPARE(db.workouts().size(), seeded);
         QCOMPARE(db.profiles().size(), 1);
     }
 
@@ -29,7 +31,7 @@ private slots:
         QVERIFY(db.hasBuiltInFtpTest());
         qint64 rampId = -1;
         for (const Workout &w : db.workouts()) {
-            if (w.isProtected())
+            if (w.isProtected() && w.isFtpTest())
                 rampId = w.id;
         }
         QVERIFY(rampId > 0);
@@ -57,7 +59,7 @@ private slots:
         // Simulate a library from an older version where the ramp test was
         // deleted: no built-in "FTP Tests" workout is left.
         for (Workout w : db.workouts()) {
-            if (w.isProtected()) {
+            if (w.isProtected() && w.isFtpTest()) {
                 w.builtIn = false;
                 w.category = QStringLiteral("Custom");
                 QVERIFY(db.saveWorkout(w) > 0);
@@ -72,7 +74,7 @@ private slots:
         QCOMPARE(db.workouts().size(), count);
         int ramps = 0;
         for (const Workout &w : db.workouts()) {
-            if (w.isProtected()) {
+            if (w.isProtected() && w.isFtpTest()) {
                 ++ramps;
                 QCOMPARE(w.name, QStringLiteral("Ramp FTP Test"));
                 QCOMPARE(w.intervals.size(), 2);

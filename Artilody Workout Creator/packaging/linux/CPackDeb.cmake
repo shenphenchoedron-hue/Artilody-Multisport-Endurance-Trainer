@@ -14,7 +14,7 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Create Artilody (.awt) and Zwift (.zwo) cycling and rowing workouts")
 set(CPACK_PACKAGE_DESCRIPTION
 "Artilody Workout Creator is a small desktop editor for structured cycling
-and rowing workouts with the same Workout Builder as Artilody Watts Trainer:
+and rowing workouts with the same Workout Builder as Artilody Multisport Endurance Trainer:
 warm-up, steady, interval, recovery, ramp and cool-down blocks in watts or
 % FTP. Workouts are kept as files in a library folder and can be exported as
 Artilody .awt or Zwift .zwo files. Built with Qt 6 / QML.")

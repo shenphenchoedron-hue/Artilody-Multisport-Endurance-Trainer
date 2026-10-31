@@ -1175,7 +1175,7 @@ bool RlvSession::attachWorkout(const Workout &w)
         setError(QStringLiteral("Stop the ride before choosing a workout"));
         return false;
     }
-    if (w.isRowing() || w.intervals.isEmpty() || w.totalDurationSec() <= 0) {
+    if (!w.isCycling() || w.intervals.isEmpty() || w.totalDurationSec() <= 0) {
         setError(QStringLiteral("\"%1\" cannot be ridden in a %2 (cycling workouts with intervals only)")
                      .arg(w.name, rideWhat()));
         return false;

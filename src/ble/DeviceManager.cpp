@@ -5,6 +5,7 @@
 
 #include "BleHeartRateSensor.h"
 #include "BleTrainer.h"
+#include "BleTreadmill.h"
 #include "Database.h"
 #include "DiagLog.h"
 #include "FtmsProtocol.h"
@@ -42,9 +43,11 @@ namespace {
 const QString kSimTrainer = QStringLiteral("sim:trainer");
 const QString kSimHr = QStringLiteral("sim:hr");
 const QString kSimRower = QStringLiteral("sim:rower");
+const QString kSimTreadmill = QStringLiteral("sim:treadmill");
 const QString kKindTrainer = QStringLiteral("trainer");
 const QString kKindHeartRate = QStringLiteral("heartRate");
 const QString kKindRower = QStringLiteral("rower");
+const QString kKindTreadmill = QStringLiteral("treadmill");
 const QString kKindOther = QStringLiteral("other");
 const QString kKindController = QStringLiteral("controller");
 
@@ -109,7 +112,8 @@ QString ftmsServiceDataText(const QBluetoothDeviceInfo &info)
         .arg(d->available ? QStringLiteral("available") : QStringLiteral("not available"))
         .arg(d->machineType, 4, 16, QLatin1Char('0'))
         .arg(ftms::machineTypeText(d->machineType),
-             d->rowerOnly() ? QStringLiteral("rower") : d->indoorBike() ? QStringLiteral("indoor bike") : QStringLiteral("other"),
+             d->rowerOnly() ? QStringLiteral("rower") : d->indoorBike() ? QStringLiteral("indoor bike")
+             : d->treadmillOnly() ? QStringLiteral("treadmill") : QStringLiteral("other"),
              QString::fromLatin1(raw.toHex(' ')),
              d->shortForm ? QStringLiteral(" (short 2-byte form, accepted)") : QString());
 }
@@ -256,6 +260,8 @@ DeviceManager::~DeviceManager()
         m_hr->disconnectDevice();
     if (m_rower)
         m_rower->disconnectDevice();
+    if (m_treadmill)
+        m_treadmill->disconnectDevice();
     for (const auto &c : std::as_const(m_controllerDevs)) {
         if (c)
             c->disconnectDevice();
@@ -272,6 +278,7 @@ void DeviceManager::initialize()
     m_knownTrainer = m_db->setting(QStringLiteral("ble/knownTrainer")).toString();
     m_knownHr = m_db->setting(QStringLiteral("ble/knownHr")).toString();
     m_knownRower = m_db->setting(QStringLiteral("ble/knownRower")).toString();
+    m_knownTreadmill = m_db->setting(QStringLiteral("ble/knownTreadmill")).toString();
     m_knownControllers = m_db->setting(QStringLiteral("ble/knownControllers")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
     m_knownControllers.removeDuplicates();
     if (m_knownControllers.size() > kMaxKnownControllers) {
@@ -281,6 +288,8 @@ void DeviceManager::initialize()
     m_showAll = m_db->setting(QStringLiteral("ble/showAll"), false).toBool();
     const QStringList rowers = m_db->setting(QStringLiteral("ble/rowerIds")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
     m_forcedRowers = QSet<QString>(rowers.cbegin(), rowers.cend());
+    const QStringList treadmills = m_db->setting(QStringLiteral("ble/treadmillIds")).toString().split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    m_forcedTreadmills = QSet<QString>(treadmills.cbegin(), treadmills.cend());
 
     addLog(QStringLiteral("Application started"), true);
     refreshAdapter();
@@ -294,9 +303,12 @@ void DeviceManager::initialize()
             connectDevice(kSimHr);
         if (m_knownRower == kSimRower && m_simulatorEnabled)
             connectDevice(kSimRower);
+        if (m_knownTreadmill == kSimTreadmill && m_simulatorEnabled)
+            connectDevice(kSimTreadmill);
         const bool needsScan = (!m_knownTrainer.isEmpty() && m_knownTrainer != kSimTrainer)
                                || (!m_knownHr.isEmpty() && m_knownHr != kSimHr)
                                || (!m_knownRower.isEmpty() && m_knownRower != kSimRower)
+                               || (!m_knownTreadmill.isEmpty() && m_knownTreadmill != kSimTreadmill)
                                || !m_knownControllers.isEmpty();
         if (needsScan && bluetoothAvailable()) {
             m_autoRescans = 4;   // keep looking for a known device for ~5 min
@@ -511,6 +523,7 @@ void DeviceManager::doStartScan(bool clearLists)
         m_trainers.removeDisconnected();
         m_hrSensors.removeDisconnected();
         m_rowers.removeDisconnected();
+        m_treadmills.removeDisconnected();
         m_others.removeDisconnected();
         m_controllers.removeDisconnected();
     }
@@ -582,7 +595,8 @@ void DeviceManager::onScanWindowEnded(const QString &how)
         return !known.isEmpty() && known != sim && !(dev && dev->state() != LinkState::Disconnected);
     };
     bool knownMissing = missing(m_knownTrainer, kSimTrainer, m_trainer) || missing(m_knownHr, kSimHr, m_hr)
-                        || missing(m_knownRower, kSimRower, m_rower);
+                        || missing(m_knownRower, kSimRower, m_rower)
+                        || missing(m_knownTreadmill, kSimTreadmill, m_treadmill);
     for (const QString &id : std::as_const(m_knownControllers)) {
         const ControllerDevice *c = controllerFor(id);
         if (!c || c->state() == LinkState::Disconnected)
@@ -649,7 +663,7 @@ QString DeviceManager::scanErrorText(int error, const QString &qtText)
         return QStringLiteral("Location services are turned off – they are required for Bluetooth scanning on this system.");
 #if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     case A::MissingPermissionsError:
-        return QStringLiteral("Bluetooth permission missing – allow Bluetooth for Artilody Watts Trainer in the system settings.");
+        return QStringLiteral("Bluetooth permission missing – allow Bluetooth for Artilody Multisport Endurance Trainer in the system settings.");
 #endif
     default:
         break;
@@ -702,14 +716,16 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
     if (const auto sd = ftmsServiceData(info)) {
         if (sd->rowerOnly())
             return Kind::Rower;
+        if (sd->treadmillOnly())
+            return Kind::Treadmill;
         if (sd->machineType != 0 && !sd->indoorBike())
-            return Kind::Unknown;   // treadmill, cross trainer, ... – not supported
+            return Kind::Unknown;   // cross trainer, stair climber, ... – not supported
     }
     if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration))
         return Kind::Unknown;
     const auto uuids = info.serviceUuids();
     if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)) || !info.serviceData(QBluetoothUuid(ftms::kServiceUuid)).isEmpty())
-        return Kind::Trainer;
+        return nameLooksLikeTreadmill(name) ? Kind::Treadmill : Kind::Trainer;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
         return Kind::HeartRate;
     // Before the name hints: "Zwift Click" would match the trainer hint "ZWIFT".
@@ -729,6 +745,7 @@ QString DeviceManager::kindName(Kind k)
     case Kind::HeartRate: return QStringLiteral("HeartRate");
     case Kind::Rower: return QStringLiteral("Rower");
     case Kind::Controller: return QStringLiteral("Controller");
+    case Kind::Treadmill: return QStringLiteral("Treadmill");
     case Kind::Unknown: break;
     }
     return QStringLiteral("Unknown");
@@ -768,7 +785,7 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
     }
     m_infos.insert(id, info);
 
-    const Kind kind = m_forcedRowers.contains(id) ? Kind::Rower : classify(info);
+    const Kind kind = m_forcedRowers.contains(id) ? Kind::Rower : m_forcedTreadmills.contains(id) ? Kind::Treadmill : classify(info);
     const auto prevIt = m_kinds.constFind(id);
     const bool isNew = prevIt == m_kinds.constEnd();
     const Kind prev = isNew ? Kind::Unknown : *prevIt;
@@ -795,6 +812,7 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
     const bool activeTrainer = m_trainer && m_trainer->id() == id;
     const bool activeHr = m_hr && m_hr->id() == id;
     const bool activeRower = m_rower && m_rower->id() == id;
+    const bool activeTreadmill = m_treadmill && m_treadmill->id() == id;
     const bool activeController = controllerFor(id) != nullptr;
     if (kind != Kind::Controller && m_controllers.contains(id) && !activeController)
         m_controllers.remove(id);
@@ -804,6 +822,8 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         m_hrSensors.remove(id);
     if (kind != Kind::Rower && m_rowers.contains(id) && !activeRower)
         m_rowers.remove(id);
+    if (kind != Kind::Treadmill && m_treadmills.contains(id) && !activeTreadmill)
+        m_treadmills.remove(id);
     if (kind != Kind::Unknown && m_others.contains(id))
         m_others.remove(id);
 
@@ -817,7 +837,7 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         if (!(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
             && info.coreConfigurations() != QBluetoothDeviceInfo::UnknownCoreConfiguration)
             return;
-        if (activeTrainer || activeHr || activeRower || activeController)
+        if (activeTrainer || activeHr || activeRower || activeTreadmill || activeController)
             return;
         e.kind = kKindOther;
         e.protocol = info.serviceUuids().isEmpty()
@@ -845,6 +865,12 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         e.kind = kKindRower;
         e.known = id == m_knownRower;
         m_rowers.upsert(e);
+    } else if (kind == Kind::Treadmill) {
+        e.protocol = activeTreadmill && m_treadmill->state() == LinkState::Connected ? m_treadmill->protocol()
+                                                                                     : QStringLiteral("Bluetooth FTMS treadmill");
+        e.kind = kKindTreadmill;
+        e.known = id == m_knownTreadmill;
+        m_treadmills.upsert(e);
     } else if (kind == Kind::Controller) {
         const QByteArray mfr = info.manufacturerData(zwift::kManufacturerId);
         if (activeController && controllerFor(id)->state() == LinkState::Connected)
@@ -884,6 +910,7 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         SensorDevice *held = activeTrainer ? static_cast<SensorDevice *>(m_trainer.data())
                              : activeHr    ? static_cast<SensorDevice *>(m_hr.data())
                              : activeRower ? static_cast<SensorDevice *>(m_rower.data())
+                             : activeTreadmill ? static_cast<SensorDevice *>(m_treadmill.data())
                                            : static_cast<SensorDevice *>(controllerFor(id));
         if (held) {
             if (m_autoReconnect && held->state() == LinkState::Disconnected && held->reconnectNow())
@@ -897,16 +924,18 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         if (!m_allowMultiple && kind != Kind::Controller) {
             const bool otherBusy = (m_trainer && m_trainer->id() != id && m_trainer->state() != LinkState::Disconnected)
                                    || (m_hr && m_hr->id() != id && m_hr->state() != LinkState::Disconnected)
-                                   || (m_rower && m_rower->id() != id && m_rower->state() != LinkState::Disconnected);
+                                   || (m_rower && m_rower->id() != id && m_rower->state() != LinkState::Disconnected)
+                                   || (m_treadmill && m_treadmill->id() != id && m_treadmill->state() != LinkState::Disconnected);
             if (otherBusy)
                 return;
         }
         const bool trainerFree = kind == Kind::Trainer && !activeTrainer;
         const bool hrFree = kind == Kind::HeartRate && !activeHr;
         const bool rowerFree = kind == Kind::Rower && !activeRower;
+        const bool treadmillFree = kind == Kind::Treadmill && !activeTreadmill;
         const bool controllerFree = kind == Kind::Controller && !activeController
                                     && m_controllerDevs.size() < kMaxControllers;
-        if (trainerFree || hrFree || rowerFree || controllerFree)
+        if (trainerFree || hrFree || rowerFree || treadmillFree || controllerFree)
             connectDevice(id);
     }
 }
@@ -954,7 +983,7 @@ QString DeviceManager::diagnosticsReport() const
 {
     QString r;
     QTextStream out(&r);
-    out << "Artilody Watts Trainer – Bluetooth diagnostics\n";
+    out << "Artilody Multisport Endurance Trainer – Bluetooth diagnostics\n";
     out << "Generated: " << QDateTime::currentDateTime().toString(Qt::ISODate) << "\n";
     out << "App: " << QCoreApplication::applicationVersion() << "  Qt: " << qVersion() << " (built with " << QT_VERSION_STR << ")\n";
     out << "OS: " << QSysInfo::prettyProductName() << "  kernel " << QSysInfo::kernelVersion() << "  " << QSysInfo::currentCpuArchitecture() << "\n";
@@ -992,6 +1021,13 @@ QString DeviceManager::diagnosticsReport() const
         << "  virtual devices: " << (m_simulatorEnabled ? "on" : "off") << "\n";
     if (m_rower)
         out << "Active rower: " << m_rower->name() << " " << m_rower->id() << " state " << int(m_rower->state()) << "\n";
+    out << "Known treadmill: " << (m_knownTreadmill.isEmpty() ? QStringLiteral("-") : m_knownTreadmill) << "\n";
+    if (m_treadmill)
+        out << "Active treadmill (read only): " << m_treadmill->name() << " " << m_treadmill->id() << " state "
+            << int(m_treadmill->state()) << "  speed " << m_treadmill->speedKmh() << " km/h  incline "
+            << (m_treadmill->inclineKnown() ? QString::number(m_treadmill->inclinePercent(), 'f', 1) + QStringLiteral(" %")
+                                            : QStringLiteral("not reported"))
+            << "  packets " << m_treadmill->packets() << "\n";
     out << "\n[Trainer control]\n";
     if (m_trainer) {
         out << "Trainer: " << m_trainer->name() << "  state " << int(m_trainer->state())
@@ -1198,6 +1234,77 @@ void DeviceManager::onTrainerIsRower(const QString &id)
     });
 }
 
+void DeviceManager::connectAsTreadmill(const QString &id)
+{
+    if (!m_infos.contains(id)) {
+        setScanError(QStringLiteral("This device is no longer available – scan again."));
+        return;
+    }
+    QString name = id;
+    if (const DeviceEntry *e = m_others.find(id))
+        name = e->name;
+    else if (const DeviceEntry *t = m_trainers.find(id))
+        name = t->name;
+    addLog(QStringLiteral("Connecting %1 as treadmill (manual)").arg(name), true);
+    addDiag(QStringLiteral("Connect as treadmill: %1").arg(id));
+    moveToTreadmills(id);
+    connectDevice(id);
+}
+
+void DeviceManager::moveToTreadmills(const QString &id)
+{
+    if (m_trainer && m_trainer->id() == id)
+        releaseTrainer();
+    if (m_knownTrainer == id) {
+        m_knownTrainer.clear();
+        m_db->setSetting(QStringLiteral("ble/knownTrainer"), QString());
+    }
+    rememberTreadmill(id, true);
+    m_others.remove(id);
+    m_trainers.remove(id);
+    if (m_infos.contains(id))
+        handleDeviceInfo(m_infos.value(id), true);   // re-lists it under treadmills
+    emit devicesChanged();
+}
+
+void DeviceManager::rememberTreadmill(const QString &id, bool on)
+{
+    const bool changed = on ? !m_forcedTreadmills.contains(id) : m_forcedTreadmills.remove(id);
+    if (on)
+        m_forcedTreadmills.insert(id);
+    if (!changed)
+        return;
+    QStringList list(m_forcedTreadmills.cbegin(), m_forcedTreadmills.cend());
+    list.sort();
+    m_db->setSetting(QStringLiteral("ble/treadmillIds"), list.join(QLatin1Char(';')));
+}
+
+void DeviceManager::onTrainerIsTreadmill(const QString &id)
+{
+    if (!m_trainer || m_trainer->id() != id)
+        return;
+    addLog(QStringLiteral("%1 is a treadmill – moved to Treadmills").arg(m_trainer->name()), true);
+    addDiag(QStringLiteral("%1: trainer connection found Treadmill Data, switching to the treadmill driver").arg(id));
+    moveToTreadmills(id);
+    QTimer::singleShot(1500, this, [this, id] {
+        if (!(m_treadmill && m_treadmill->id() == id))
+            connectDevice(id);
+    });
+}
+
+bool DeviceManager::nameLooksLikeTreadmill(const QString &n)
+{
+    static const QStringList hints { QStringLiteral("TREADMILL"), QStringLiteral("WALKINGPAD"), QStringLiteral("KINGSMITH"),
+                                     QStringLiteral("NORDICTRACK"), QStringLiteral("TREAD"), QStringLiteral("LAUFBAND"),
+                                     QStringLiteral("LØBEBÅND"), QStringLiteral("RUNNING MACHINE") };
+    const QString u = n.toUpper();
+    for (const QString &h : hints) {
+        if (u.contains(h))
+            return true;
+    }
+    return false;
+}
+
 void DeviceManager::recordGatt(const QString &id, const QString &summary)
 {
     m_gatt[id] = qMakePair(QDateTime::currentDateTime(), summary);
@@ -1239,6 +1346,16 @@ void DeviceManager::addSimulatedEntries()
     r.rssi = -55;
     r.known = m_knownRower == kSimRower;
     m_rowers.upsert(r);
+
+    DeviceEntry tm;
+    tm.id = kSimTreadmill;
+    tm.name = QStringLiteral("Virtual Treadmill");
+    tm.protocol = QStringLiteral("Simulated FTMS treadmill");
+    tm.simulated = true;
+    tm.kind = kKindTreadmill;
+    tm.rssi = -50;
+    tm.known = m_knownTreadmill == kSimTreadmill;
+    m_treadmills.upsert(tm);
 }
 
 // --- connections -----------------------------------------------------------
@@ -1255,6 +1372,8 @@ void DeviceManager::connectDevice(const QString &id)
     QString kind;
     if (m_rower && m_rower->id() == id)
         kind = kKindRower;
+    else if (m_treadmill && m_treadmill->id() == id)
+        kind = kKindTreadmill;
     else if (m_trainer && m_trainer->id() == id)
         kind = kKindTrainer;
     else if (m_hr && m_hr->id() == id)
@@ -1265,6 +1384,8 @@ void DeviceManager::connectDevice(const QString &id)
         kind = kKindController;
     else if (m_rowers.contains(id))
         kind = kKindRower;
+    else if (m_treadmills.contains(id))
+        kind = kKindTreadmill;
     else if (m_trainers.contains(id))
         kind = kKindTrainer;
     else if (m_hrSensors.contains(id))
@@ -1281,6 +1402,8 @@ void DeviceManager::connectDevice(const QString &id)
             releaseHeartRate();
         if (m_rower && m_rower->id() != id)
             releaseRower();
+        if (m_treadmill && m_treadmill->id() != id)
+            releaseTreadmill();
     }
 
     if (kind == kKindTrainer) {
@@ -1356,6 +1479,31 @@ void DeviceManager::connectDevice(const QString &id)
         m_knownRower = id;
         m_db->setSetting(QStringLiteral("ble/knownRower"), id);
         r->connectDevice();
+    } else if (kind == kKindTreadmill) {
+        if (m_treadmill && m_treadmill->id() == id) {
+            if (m_treadmill->state() == LinkState::Disconnected)
+                m_treadmill->connectDevice();
+            return;
+        }
+        releaseTreadmill();
+        TreadmillDevice *t = nullptr;
+        if (id == kSimTreadmill) {
+            t = new SimulatedTreadmill(this);
+        } else if (m_infos.contains(id)) {
+            auto *bt = new BleTreadmill(m_infos.value(id), adapter, this);
+            connect(bt, &BleTreadmill::treadmillDataMissing, this, [this, id, name = bt->name()] {
+                rememberTreadmill(id, false);
+                setScanError(QStringLiteral("%1 offers no FTMS Treadmill Data (0x2ACD). It is not a Bluetooth FTMS treadmill.").arg(name));
+                addDiag(QStringLiteral("%1: no Treadmill Data (0x2ACD) found").arg(id));
+            });
+            t = bt;
+        }
+        if (!t)
+            return;
+        attachTreadmill(t);
+        m_knownTreadmill = id;
+        m_db->setSetting(QStringLiteral("ble/knownTreadmill"), id);
+        t->connectDevice();
     } else if (kind == kKindController) {
         if (ControllerDevice *c = controllerFor(id)) {
             if (c->state() == LinkState::Disconnected)
@@ -1411,6 +1559,10 @@ void DeviceManager::disconnectDevice(const QString &id)
         releaseRower();
         m_knownRower.clear();
         m_db->setSetting(QStringLiteral("ble/knownRower"), QString());
+    } else if (m_treadmill && m_treadmill->id() == id) {
+        releaseTreadmill();
+        m_knownTreadmill.clear();
+        m_db->setSetting(QStringLiteral("ble/knownTreadmill"), QString());
     } else if (controllerFor(id)) {
         releaseController(id);
         m_knownControllers.removeAll(id);
@@ -1714,6 +1866,9 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
         // Not inside the trainer's own signal: it is deleted on the switch.
         QTimer::singleShot(0, this, [this, id] { onTrainerIsRower(id); });
     });
+    connect(t, &TrainerDevice::treadmillDetected, this, [this, id = t->id()] {
+        QTimer::singleShot(0, this, [this, id] { onTrainerIsTreadmill(id); });
+    });
     connect(t, &TrainerDevice::stateChanged, this, [this, t](LinkState s) {
         DiagLog::write("TRAIN", QStringLiteral("trainer %1 [%2, %3] %4  capabilities: %5  gradient simulation: %6")
                                     .arg(t->name(), t->id(), t->protocol(),
@@ -1801,6 +1956,61 @@ void DeviceManager::releaseRower()
     emit rowerDataChanged();
 }
 
+void DeviceManager::attachTreadmill(TreadmillDevice *t)
+{
+    m_treadmill = t;
+    t->setAutoReconnect(m_autoReconnect);
+    m_treadmills.setState(t->id(), int(LinkState::Connecting));
+    connect(t, &TreadmillDevice::measurementChanged, this, &DeviceManager::treadmillDataChanged);
+    connect(t, &TreadmillDevice::heartRateMeasured, this, [this](int bpm) {
+        // the console's HR only when no dedicated HR sensor is connected
+        if (!m_hr || m_hr->state() != LinkState::Connected)
+            m_hub->updateHeartRate(bpm);
+    });
+    connect(t, &TreadmillDevice::measurementChanged, this, [this, t] {
+        // the virtual HR sensor follows the run when no trainer drives it
+        if (m_trainer && m_trainer->state() == LinkState::Connected)
+            return;
+        if (auto *sim = qobject_cast<SimulatedHeartRate *>(m_hr.data())) {
+            // rough running power (~1.04 J/kg/m on the flat, more uphill)
+            // of a 75 kg runner, so the virtual heart rate follows the belt
+            const double v = t->speedKmh() / 3.6;
+            const double g = std::max(0.0, t->inclinePercent() / 100.0);
+            sim->setLoad(int(std::lround(75.0 * v * (1.04 + 4.0 * g))));
+        }
+    });
+    connect(t, &TreadmillDevice::rssiChanged, this, [this, t](int rssi) {
+        m_treadmills.setRssi(t->id(), rssi);
+        emit devicesChanged();
+    });
+    connect(t, &TreadmillDevice::logMessage, this, &DeviceManager::addLog);
+    connect(t, &TreadmillDevice::gattReport, this, [this, id = t->id()](const QString &g) { recordGatt(id, g); });
+    connect(t, &TreadmillDevice::stateChanged, this, [this, t](LinkState s) {
+        m_treadmills.setState(t->id(), int(s));
+        DiagLog::write("TREAD", QStringLiteral("treadmill %1 [%2] %3").arg(t->name(), t->id(),
+                                    s == LinkState::Connected ? QStringLiteral("connected")
+                                    : s == LinkState::Connecting ? QStringLiteral("connecting") : QStringLiteral("disconnected")));
+        emit devicesChanged();
+        emit treadmillDataChanged();
+    });
+    emit treadmillChanged(t);
+    emit treadmillDataChanged();
+}
+
+void DeviceManager::releaseTreadmill()
+{
+    if (!m_treadmill)
+        return;
+    TreadmillDevice *t = m_treadmill;
+    m_treadmill = nullptr;
+    m_treadmills.setState(t->id(), int(LinkState::Disconnected));
+    t->disconnect(this);
+    t->disconnectDevice();
+    t->deleteLater();
+    emit treadmillChanged(nullptr);
+    emit treadmillDataChanged();
+}
+
 void DeviceManager::releaseTrainer()
 {
     if (!m_trainer)
@@ -1850,6 +2060,8 @@ int DeviceManager::connectedCount() const
         ++n;
     if (m_rower && m_rower->state() == LinkState::Connected)
         ++n;
+    if (treadmillConnected())
+        ++n;
     return n + controllerCount();
 }
 
@@ -1863,6 +2075,8 @@ QString DeviceManager::connectedSummary() const
         parts << QStringLiteral("Trainer");
     if (r)
         parts << QStringLiteral("Rower");
+    if (treadmillConnected())
+        parts << QStringLiteral("Treadmill");
     if (h)
         parts << QStringLiteral("Heart Rate Sensor");
     if (controllerConnected())
@@ -2112,6 +2326,8 @@ void DeviceManager::setAutoReconnect(bool on)
         m_hr->setAutoReconnect(on);
     if (m_rower)
         m_rower->setAutoReconnect(on);
+    if (m_treadmill)
+        m_treadmill->setAutoReconnect(on);
     for (const auto &c : std::as_const(m_controllerDevs)) {
         if (c)
             c->setAutoReconnect(on);
@@ -2139,6 +2355,8 @@ void DeviceManager::setSimulatorEnabled(bool on)
             disconnectDevice(m_hr->id());
         if (m_rower && m_rower->isSimulated())
             disconnectDevice(m_rower->id());
+        if (m_treadmill && m_treadmill->isSimulated())
+            disconnectDevice(m_treadmill->id());
         for (ControllerDevice *c : controllerDevices()) {
             if (c->isSimulated()) {
                 const QString cid = c->id();
@@ -2149,6 +2367,7 @@ void DeviceManager::setSimulatorEnabled(bool on)
         m_trainers.remove(kSimTrainer);
         m_hrSensors.remove(kSimHr);
         m_rowers.remove(kSimRower);
+        m_treadmills.remove(kSimTreadmill);
     }
     savePreferences();
     if (on)

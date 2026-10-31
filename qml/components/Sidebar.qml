@@ -6,7 +6,7 @@ Rectangle {
     property int currentIndex: 0
     property bool profileOpen: false
     // Page names in StackLayout order (Main.qml window.pageNames).
-    property var pageNames: ["dashboard", "freeride", "video", "gpx", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "history", "devices"]
     signal navigate(int index)
     signal profileRequested()
 
@@ -18,6 +18,7 @@ Rectangle {
         { label: "Free Ride", icon: "freeRide", page: "freeride" },
         { label: "Video Ride", icon: "video", page: "video" },
         { label: "GPX Ride", icon: "mapPin", page: "gpx" },
+        { label: "Treadmill Run", icon: "run", page: "treadmill" },
         { label: "Rowing", icon: "rowing", page: "rowing" },
         { label: "Workouts", icon: "calendar", page: "workouts" },
         { label: "Calendar", icon: "calendarDays", page: "calendar" },
@@ -73,10 +74,11 @@ Rectangle {
         readonly property bool videoWorkout: video && ride.hasWorkout && !ride.workoutFinished
                                              && ride.currentIntervalIndex >= 0
         readonly property bool rowing: !Training.active && !freeRide && !video && Rowing.active
-        readonly property bool paused: rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? ride.paused : Training.paused
-        readonly property bool moving: rowing ? Rowing.running : freeRide ? FreeRide.running : video ? ride.running : Training.running
+        readonly property bool run: !Training.active && !freeRide && !video && !rowing && Running.active
+        readonly property bool paused: run ? Running.paused : rowing ? Rowing.paused : freeRide ? FreeRide.paused : video ? ride.paused : Training.paused
+        readonly property bool moving: run ? Running.running : rowing ? Rowing.running : freeRide ? FreeRide.running : video ? ride.running : Training.running
 
-        visible: Training.active || freeRide || video || rowing
+        visible: Training.active || freeRide || video || rowing || run
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 20
         x: 12
@@ -103,7 +105,8 @@ Rectangle {
                     }
                 }
                 Text {
-                    text: live.rowing ? (live.paused ? "Paused" : "Rowing")
+                    text: live.run ? (live.paused ? "Run paused" : "Running")
+                          : live.rowing ? (live.paused ? "Paused" : "Rowing")
                           : live.freeRide ? (live.paused ? "Free Ride paused" : "Free Ride")
                           : live.video ? (live.paused ? live.rideName + " paused" : live.rideName)
                                          + (live.videoWorkout ? "  " + Theme.clock(live.ride.elapsedSeconds) : "")
@@ -118,7 +121,10 @@ Rectangle {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
-                text: live.rowing
+                text: live.run
+                      ? Theme.clock(Running.elapsedSeconds) + " • " + (Running.runDistanceM / 1000).toFixed(2) + " km • "
+                        + Running.speedKmh.toFixed(1) + " km/h"
+                      : live.rowing
                       ? Theme.clock(Rowing.elapsedSeconds) + "  •  "
                         + (Rowing.heartRate > 0 ? Rowing.heartRate + " BPM" : Rowing.watts + " W")
                       : live.freeRide
@@ -140,7 +146,7 @@ Rectangle {
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: sidebar.navigate(sidebar.indexOfPage(live.rowing ? "rowing" : live.freeRide ? "freeride" : live.gpxRide ? "gpx" : live.video ? "video" : "dashboard"))
+            onClicked: sidebar.navigate(sidebar.indexOfPage(live.run ? "treadmill" : live.rowing ? "rowing" : live.freeRide ? "freeride" : live.gpxRide ? "gpx" : live.video ? "video" : "dashboard"))
         }
     }
 }

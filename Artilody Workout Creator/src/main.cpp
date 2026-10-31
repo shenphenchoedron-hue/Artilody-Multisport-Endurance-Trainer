@@ -1,8 +1,8 @@
-// Artilody Workout Creator – standalone editor for Artilody Watts Trainer
+// Artilody Workout Creator – standalone editor for Artilody Multisport Endurance Trainer
 // workouts (.awt) with Zwift (.zwo) import / export.
 //
 // It shares the workout model, the Builder back-end (WorkoutBuilder) and the
-// file formats (WorkoutIO) with Artilody Watts Trainer (../src/core), and the
+// file formats (WorkoutIO) with Artilody Multisport Endurance Trainer (../src/core), and the
 // QML Builder page / components (../qml). Workouts are plain files in a
 // "Workouts folder" – there is no database.
 
