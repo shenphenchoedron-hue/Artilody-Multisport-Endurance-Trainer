@@ -1800,6 +1800,11 @@ def build(s, env):
     s.p(f"Treadmills appear on the Devices page under {UI('Treadmills')}. Any treadmill that sends the standard "
         "Bluetooth <b>FTMS Treadmill Data</b> works – most current connected treadmills and many walking pads. "
         f"The {UI('Virtual Treadmill')} lets you try everything without one; its speed follows the workout.")
+    s.p(f"<b>Speed correction</b>: when the treadmill or foot pod is connected, its row shows a "
+        f"{UI('Speed correction')} tile. Compare the speed with your watch or foot pod and press "
+        f"{UI('−')} / {UI('+')} until they agree – 0.1 km/h per press, up to ±3 km/h. Example: if your watch "
+        "shows 0.1 km/h less than the app, press − once. The corrected speed is used everywhere (Treadmill "
+        "Run, distance, pace, the AnT test, History and FIT) and remembered per device; a standing belt stays 0.")
     s.note("The app only <b>reads</b> the treadmill (speed, incline, distance). It never changes the belt speed or "
            "the incline – you always set them on the treadmill itself. Workout targets are suggestions.")
     s.section("The page")
@@ -2182,7 +2187,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.5.0",
+  "app": "Artilody Multisport Endurance Trainer 1.5.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

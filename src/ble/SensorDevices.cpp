@@ -61,6 +61,15 @@ void TreadmillDevice::applyMeasurement(double speedKmh, double inclinePercent, b
     emit measurementChanged();
 }
 
+void TreadmillDevice::setSpeedOffsetKmh(double kmh)
+{
+    kmh = std::round(std::clamp(kmh, -kMaxSpeedOffset, kMaxSpeedOffset) * 10.0) / 10.0;
+    if (qFuzzyCompare(1.0 + kmh, 1.0 + m_offset))
+        return;
+    m_offset = kmh;
+    emit measurementChanged();
+}
+
 void TreadmillDevice::clearLiveValues()
 {
     if (m_speed == 0 && m_hr == 0)

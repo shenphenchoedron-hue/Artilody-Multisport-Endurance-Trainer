@@ -350,6 +350,19 @@ private slots:
         QCOMPARE(f.lib->antSpeedKmh(), running::kDefaultAntKmh);
     }
 
+    // speed correction in km/h (compared with a watch / foot pod)
+    void speedOffset()
+    {
+        QCOMPARE(TreadmillDevice::correctedSpeed(10.0, -0.1), 9.9);
+        QCOMPARE(TreadmillDevice::correctedSpeed(10.0, 0.3), 10.3);
+        QCOMPARE(TreadmillDevice::correctedSpeed(0.0, 0.5), 0.0);   // a standing belt stays 0
+        SimulatedTreadmill t;
+        t.setSpeedOffsetKmh(-0.14);
+        QCOMPARE(t.speedOffsetKmh(), -0.1);
+        t.setSpeedOffsetKmh(9);
+        QCOMPARE(t.speedOffsetKmh(), TreadmillDevice::kMaxSpeedOffset);
+    }
+
     void workoutConversion()
     {
         RunWorkout r;

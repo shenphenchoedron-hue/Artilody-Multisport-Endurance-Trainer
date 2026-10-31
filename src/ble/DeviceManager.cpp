@@ -1956,10 +1956,21 @@ void DeviceManager::releaseRower()
     emit rowerDataChanged();
 }
 
+void DeviceManager::setTreadmillSpeedOffset(double kmh)
+{
+    if (!m_treadmill)
+        return;
+    m_treadmill->setSpeedOffsetKmh(kmh);   // (rounded / clamped there)
+    m_db->setSetting(QStringLiteral("ble/treadmillSpeedOffset/%1").arg(m_treadmill->id()),
+                     m_treadmill->speedOffsetKmh());
+    emit treadmillDataChanged();
+}
+
 void DeviceManager::attachTreadmill(TreadmillDevice *t)
 {
     m_treadmill = t;
     t->setAutoReconnect(m_autoReconnect);
+    t->setSpeedOffsetKmh(m_db->setting(QStringLiteral("ble/treadmillSpeedOffset/%1").arg(t->id()), 0.0).toDouble());
     m_treadmills.setState(t->id(), int(LinkState::Connecting));
     connect(t, &TreadmillDevice::measurementChanged, this, &DeviceManager::treadmillDataChanged);
     connect(t, &TreadmillDevice::heartRateMeasured, this, [this](int bpm) {

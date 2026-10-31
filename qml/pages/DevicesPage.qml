@@ -541,7 +541,8 @@ Item {
                                             // static captions; values bound in the delegate
                                             model: ["Power", "Stroke rate", "Pace /500m", "Distance"]
                                             Rectangle {
-                                                width: (listCol.width - 24 - 3 * 8) / 4
+                                                // the correction tile is wider (value + − / + buttons)
+                                                width: (listCol.width - 24 - 3 * 8) / 4.6 * (index === 3 ? 1.6 : 1)
                                                 height: 56
                                                 radius: 8
                                                 color: Theme.field
@@ -570,9 +571,10 @@ Item {
                                         y: 92
                                         spacing: 8
                                         Repeater {
-                                            model: ["Speed", "Pace", "Incline", "Data"]
+                                            model: ["Speed", "Pace", "Incline", "Speed correction"]
                                             Rectangle {
-                                                width: (listCol.width - 24 - 3 * 8) / 4
+                                                // the correction tile is wider (value + − / + buttons)
+                                                width: (listCol.width - 24 - 3 * 8) / 4.6 * (index === 3 ? 1.6 : 1)
                                                 height: 56
                                                 radius: 8
                                                 color: Theme.field
@@ -582,13 +584,43 @@ Item {
                                                     spacing: 2
                                                     Text { text: modelData; color: Theme.textSecondary; font.pixelSize: 12 }
                                                     Text {
+                                                        visible: index !== 3
                                                         text: index === 0 ? Devices.treadmillSpeed.toFixed(1) + " km/h"
                                                               : index === 1 ? (Devices.treadmillSpeed >= 1 ? RunLibrary.paceFor(Devices.treadmillSpeed) + " /km" : "–")
                                                               : index === 2 ? (Devices.treadmillInclineKnown ? Devices.treadmillIncline.toFixed(1) + " %" : "not reported")
-                                                              : "read only"
+                                                              : ""
                                                         color: Theme.text
                                                         font.pixelSize: 17
                                                         font.weight: Font.Bold
+                                                    }
+                                                    // the correction: compare with your watch / foot pod
+                                                    // and add or subtract what the app shows too much / too little
+                                                    Text {
+                                                        visible: index === 3
+                                                        text: (Devices.treadmillSpeedOffset > 0 ? "+" : Devices.treadmillSpeedOffset < 0 ? "−" : "±")
+                                                              + Math.abs(Devices.treadmillSpeedOffset).toFixed(1) + " km/h"
+                                                        color: Devices.treadmillSpeedOffset !== 0 ? Theme.runningColor : Theme.text
+                                                        font.pixelSize: 17
+                                                        font.weight: Font.Bold
+                                                    }
+                                                }
+                                                Row {
+                                                    visible: index === 3
+                                                    anchors.right: parent.right
+                                                    anchors.rightMargin: 6
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    spacing: 4
+                                                    IconButton {
+                                                        width: 34; height: 34
+                                                        iconName: "minus"
+                                                        tooltip: "The app shows too much: 0.1 km/h less"
+                                                        onClicked: Devices.treadmillSpeedOffset = Devices.treadmillSpeedOffset - 0.1
+                                                    }
+                                                    IconButton {
+                                                        width: 34; height: 34
+                                                        iconName: "plus"
+                                                        tooltip: "The app shows too little: 0.1 km/h more"
+                                                        onClicked: Devices.treadmillSpeedOffset = Devices.treadmillSpeedOffset + 0.1
                                                     }
                                                 }
                                             }
@@ -682,7 +714,7 @@ Item {
                                           : section.kindName === "other"
                                           ? "Unrecognised Bluetooth LE devices – is your PM5 here? Use Connect as rower."
                                           : section.kindName === "treadmill"
-                                          ? "Only speed and incline are read – the app never starts, stops or changes the treadmill."
+                                          ? "Read only. Speed correction: press − / + until the speed matches your watch or foot pod."
                                           : section.kindName === "trainer"
                                           ? "A rowing machine or treadmill listed here? Use the rowing / treadmill button to connect it."
                                           : "On the PM5: More Options → Turn Wireless ON → Connect Device"

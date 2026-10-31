@@ -1,6 +1,14 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.5.0
+## What's new in 1.5.1
+
+**Speed correction for treadmills and foot pods** (Devices → Treadmills).
+
+- When a treadmill or a foot pod (e.g. **Runn**) is connected, its row has a new **Speed correction** tile with **−** / **+** buttons. Compare the speed with your watch or foot pod and press until they agree – in **0.1 km/h** steps (up to ±3 km/h), not a percentage you have to guess.
+- The corrected speed is used everywhere: the Devices page, Treadmill Run, the 3D runner, distance, pace, calories, the AnT test, History and FIT export. A standing belt stays at 0.
+- The correction is remembered per device. No database change – install over 1.5.0.
+
+## Also included from 1.5.0
 
 **A new name and a new sport**: the app is now **Artilody Multisport Endurance Trainer** – and it runs on your treadmill.
 

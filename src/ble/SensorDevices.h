@@ -4,6 +4,7 @@
 
 #include <QElapsedTimer>
 #include <QObject>
+#include <algorithm>
 #include <QStringList>
 #include <QTimer>
 #include <QVector>
@@ -160,7 +161,18 @@ public:
 
     bool connected() const { return state() == LinkState::Connected; }
     bool hasData() const { return m_hasData; }
-    double speedKmh() const { return m_speed; }
+    // The speed the app uses: the belt / pod speed plus the user's correction
+    // in km/h (Devices: compared with a watch or foot pod). A standing belt
+    // stays 0.
+    double speedKmh() const { return correctedSpeed(m_speed, m_offset); }
+    double rawSpeedKmh() const { return m_speed; }
+    static constexpr double kMaxSpeedOffset = 3.0;
+    double speedOffsetKmh() const { return m_offset; }
+    void setSpeedOffsetKmh(double kmh);
+    static double correctedSpeed(double raw, double offset)
+    {
+        return raw < .5 ? raw : std::clamp(raw + offset, 0.0, 40.0);
+    }
     double inclinePercent() const { return m_incline; }
     bool inclineKnown() const { return m_inclineKnown; }
     double distanceMeters() const { return m_distance; }   // treadmill total, -1 = not reported
@@ -187,7 +199,7 @@ protected:
     void clearLiveValues();
 
 private:
-    double m_speed = 0, m_incline = 0, m_distance = -1;
+    double m_speed = 0, m_incline = 0, m_distance = -1, m_offset = 0;
     bool m_inclineKnown = false;
     int m_hr = 0;
     int m_packets = 0;

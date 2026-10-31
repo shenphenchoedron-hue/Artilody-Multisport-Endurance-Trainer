@@ -124,6 +124,10 @@ class DeviceManager : public QObject
     Q_PROPERTY(bool treadmillConnected READ treadmillConnected NOTIFY devicesChanged)
     Q_PROPERTY(double treadmillSpeed READ treadmillSpeed NOTIFY treadmillDataChanged)
     Q_PROPERTY(double treadmillIncline READ treadmillIncline NOTIFY treadmillDataChanged)
+    // Speed correction of the active treadmill / pod in km/h (+-3, 0.1 steps),
+    // remembered per device; treadmillSpeed includes it, treadmillRawSpeed not.
+    Q_PROPERTY(double treadmillSpeedOffset READ treadmillSpeedOffset WRITE setTreadmillSpeedOffset NOTIFY treadmillDataChanged)
+    Q_PROPERTY(double treadmillRawSpeed READ treadmillRawSpeed NOTIFY treadmillDataChanged)
     Q_PROPERTY(bool treadmillInclineKnown READ treadmillInclineKnown NOTIFY treadmillDataChanged)
 
     Q_PROPERTY(QVariantList log READ log NOTIFY logChanged)
@@ -246,6 +250,9 @@ public:
     bool treadmillConnected() const { return m_treadmill && m_treadmill->state() == LinkState::Connected; }
     double treadmillSpeed() const { return m_treadmill ? m_treadmill->speedKmh() : 0.0; }
     double treadmillIncline() const { return m_treadmill ? m_treadmill->inclinePercent() : 0.0; }
+    double treadmillRawSpeed() const { return m_treadmill ? m_treadmill->rawSpeedKmh() : 0.0; }
+    double treadmillSpeedOffset() const { return m_treadmill ? m_treadmill->speedOffsetKmh() : 0.0; }
+    void setTreadmillSpeedOffset(double kmh);
     bool treadmillInclineKnown() const { return m_treadmill && m_treadmill->inclineKnown(); }
 
     QVariantList log() const { return m_log; }
