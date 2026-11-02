@@ -162,9 +162,14 @@ public:
     // the road. A later point near an earlier, parallel part of the road (at
     // least kSnapGapM further along) is moved onto it, height included: fully
     // within kSnapFullM, fading out to kSnapNoneM, so the road joins and leaves
-    // smoothly. Points in order: a third pass snaps onto the snapped second.
+    // smoothly. The weight also fades in with the distance along the route
+    // between the passes (kSnapGapM..2 kSnapGapM): after a turnaround the way
+    // back joins the way out gradually instead of jumping onto it. Another
+    // road more than kSnapRiseM higher or lower (a hairpin on a climb, a
+    // bridge) is never joined. Points in order: a third pass snaps onto the
+    // snapped second.
     // Returns the snap weight per point (1 = fully on the earlier road).
-    static constexpr double kSnapFullM=4.5, kSnapNoneM=9.0, kSnapGapM=100.0;
+    static constexpr double kSnapFullM=4.5, kSnapNoneM=9.0, kSnapGapM=40.0, kSnapRiseM=3.5;
     static std::vector<double> snapToEarlierPasses(std::vector<Point>& pts){
         const size_t n=pts.size();
         std::vector<double> weight(n,0.0);
@@ -181,14 +186,18 @@ public:
         // the resampled points lie ~5 m apart along the raw track
         const double spacing=std::max(1.0,pts[n-1].distance/double(n-1));
         const size_t gap=size_t(std::ceil(kSnapGapM/spacing));
+        const std::vector<Point> orig=pts;
         size_t inserted=0;
-        for(size_t i=1;i+1<n;++i){
+        for(size_t i=1;i<n;++i){   // (the end too: a return ending on the way out ends on it)
             while(inserted+1<n&&inserted+gap<i) insert(inserted++);
             if(inserted==0) continue;
             Point& p=pts[i];
-            double dx=pts[i+1].x-pts[i-1].x,dz=pts[i+1].z-pts[i-1].z,dl=std::hypot(dx,dz);
+            // the road's direction here as recorded (the point before is already moved)
+            const size_t next=std::min(i+1,n-1);
+            double dx=orig[next].x-orig[i-1].x,dz=orig[next].z-orig[i-1].z,dl=std::hypot(dx,dz);
             if(dl<1e-9) continue;
-            double best=kSnapNoneM; Point target;
+            auto smooth=[](double u){u=std::clamp(u,0.0,1.0);return u*u*(3-2*u);};
+            double best=0; Point target;
             long long cx=cellOf(p.x),cz=cellOf(p.z);
             for(long long gx=cx-1;gx<=cx+1;++gx)for(long long gz=cz-1;gz<=cz+1;++gz){
                 auto it=grid.find(key(gx,gz)); if(it==grid.end()) continue;
@@ -199,12 +208,16 @@ public:
                     if(std::abs(sx*dx+sz*dz)<minCos*std::sqrt(sl2)*dl) continue;   // crossing, not along
                     double t=std::clamp(((p.x-a.x)*sx+(p.z-a.z)*sz)/sl2,0.0,1.0);
                     double qx=a.x+sx*t,qz=a.z+sz*t,r=std::hypot(p.x-qx,p.z-qz);
-                    if(r<best){best=r;target={qx,a.y+(b.y-a.y)*t,qz,p.distance};}
+                    if(r>=kSnapNoneM) continue;
+                    const double qy=a.y+(b.y-a.y)*t;
+                    if(std::abs(qy-p.y)>kSnapRiseM) continue;   // another road above / below
+                    const double sep=p.distance-(a.distance+(b.distance-a.distance)*t);   // raw: monotonic
+                    const double w=smooth((kSnapNoneM-r)/(kSnapNoneM-kSnapFullM))*smooth((sep-kSnapGapM)/kSnapGapM);
+                    if(w>best){best=w;target={qx,qy,qz,p.distance};}
                 }
             }
-            if(best>=kSnapNoneM) continue;
-            double u=std::clamp((kSnapNoneM-best)/(kSnapNoneM-kSnapFullM),0.0,1.0);
-            double w=u*u*(3-2*u);
+            if(best<=0) continue;
+            const double w=best;
             p.x+=(target.x-p.x)*w;p.y+=(target.y-p.y)*w;p.z+=(target.z-p.z)*w;
             weight[i]=w;
         }

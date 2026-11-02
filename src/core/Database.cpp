@@ -446,9 +446,13 @@ bool Database::migrateToV9()
         return false;
     if (!hasTable(QStringLiteral("sprint_records")))
         return true;
+    // (sprint_records had no foreign keys: times of deleted profiles are
+    // dropped, links to deleted rides cleared - segment_records checks both)
     return exec(QStringLiteral("INSERT INTO segment_records (profile_id, kind, route_key, route_name, start_m, length_m,"
                                " time_sec, ride_id, created_at) SELECT profile_id, 'sprint', route_key, route_name,"
-                               " start_m, length_m, time_sec, ride_id, created_at FROM sprint_records ORDER BY id"))
+                               " start_m, length_m, time_sec,"
+                               " CASE WHEN ride_id IN (SELECT id FROM rides) THEN ride_id END, created_at"
+                               " FROM sprint_records WHERE profile_id IN (SELECT id FROM profiles) ORDER BY id"))
         && exec(QStringLiteral("DROP TABLE sprint_records"));
 }
 
@@ -1197,6 +1201,18 @@ int Database::segmentAttempts(qint64 profileId, const QString &kind, const QStri
     q.addBindValue(routeKey);
     q.addBindValue(lengthM);
     return q.exec() && q.next() ? q.value(0).toInt() : 0;
+}
+
+bool Database::deleteSegmentRecord(qint64 recordId)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM segment_records WHERE id = ?"));
+    q.addBindValue(recordId);
+    if (!q.exec()) {
+        setError(QStringLiteral("deleteSegmentRecord"), q.lastError().text());
+        return false;
+    }
+    return true;
 }
 
 bool Database::setSegmentRideId(qint64 recordId, qint64 rideId)

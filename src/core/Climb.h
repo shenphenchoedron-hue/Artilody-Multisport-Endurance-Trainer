@@ -52,15 +52,40 @@ inline Climb longest(const RlvRoute &route)
     const double g = kMinGradePercent / 100.0;
     auto steep = [&](size_t i) { return e[i + 1] - e[i] >= g * (d[i + 1] - d[i]); };
     auto consider = [&](size_t lo, size_t top) {
-        // the longest a < b in lo..top with an average grade >= g
+        // the longest a < b in lo..top with an average grade >= g, i.e.
+        // f(b) >= f(a) for f = e - g d: in linear time with the running
+        // minimum of f from the left and its maximum from the right (two
+        // pointers; argMin / argMax give the pair itself)
         size_t a = 0, b = 0;
-        for (size_t i = lo; i < top; ++i)
-            for (size_t j = top; j > i && d[j] - d[i] > d[b] - d[a]; --j)
-                if (e[j] - e[i] >= g * (d[j] - d[i])) {
-                    a = i;
-                    b = j;
-                    break;
+        if (top <= lo)
+            return;
+        const size_t m = top - lo + 1;
+        std::vector<double> f(m), leftMin(m), rightMax(m);
+        std::vector<size_t> argMin(m), argMax(m);
+        for (size_t k = 0; k < m; ++k)
+            f[k] = e[lo + k] - g * d[lo + k];
+        for (size_t k = 0; k < m; ++k) {
+            const bool lower = k == 0 || f[k] < leftMin[k - 1];
+            leftMin[k] = lower ? f[k] : leftMin[k - 1];
+            argMin[k] = lower ? k : argMin[k - 1];
+        }
+        for (size_t k = m; k-- > 0;) {
+            const bool higher = k + 1 == m || f[k] > rightMax[k + 1];
+            rightMax[k] = higher ? f[k] : rightMax[k + 1];
+            argMax[k] = higher ? k : argMax[k + 1];
+        }
+        for (size_t i = 0, j = 0; i < m && j < m;) {
+            if (leftMin[i] <= rightMax[j] + 1e-9) {
+                const size_t ia = lo + argMin[i], jb = lo + argMax[j];
+                if (jb > ia && d[jb] - d[ia] > d[b] - d[a]) {
+                    a = ia;
+                    b = jb;
                 }
+                ++j;
+            } else {
+                ++i;
+            }
+        }
         while (a < b && !steep(a))   // no flat lead-in / run-out
             ++a;
         while (b > a && !steep(b - 1))

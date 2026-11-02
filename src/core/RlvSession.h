@@ -690,6 +690,7 @@ private:
     void resetTimed(TimedSegment &seg);                // a new ride: nothing timed yet
     void resetSegments();
     void voidSegments();                               // paused / stopped: a running one is void
+    void discardSegments();                            // the ride is discarded: its saved times too
     // one riding step from (d0, t0): true when seg changed; finished = timed now
     bool stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished);
     void updateSegments(double d0, qint64 t0);

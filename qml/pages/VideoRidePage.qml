@@ -1124,12 +1124,16 @@ Item {
                             border.color: tone
 
                             function secs(t) {
-                                if (t >= 60) {
-                                    const m = Math.floor(t / 60)
-                                    const r = t - m * 60
-                                    return m + ":" + (r < 10 ? "0" : "") + r.toFixed(kom ? 1 : 2)
+                                // round first, then split (119.96 s is 2:00.0, not 1:60.0)
+                                const digits = kom && t >= 60 ? 1 : 2
+                                const scale = Math.pow(10, digits)
+                                const tt = Math.round(t * scale) / scale
+                                if (tt >= 60) {
+                                    const m = Math.floor(tt / 60)
+                                    const r = Math.round((tt - m * 60) * scale) / scale
+                                    return m + ":" + (r < 10 ? "0" : "") + r.toFixed(digits)
                                 }
-                                return t.toFixed(2) + " s"
+                                return tt.toFixed(2) + " s"
                             }
 
                             Column {

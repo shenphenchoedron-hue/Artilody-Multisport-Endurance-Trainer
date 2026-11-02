@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.6.0 source code (incl. GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.6.1 source code (incl. GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1790,7 +1790,8 @@ def build(s, env):
         "the top on the way up, and your time against your best at the top.",
         "<b>Times are saved</b>: every sprint and KOM you ride all the way is saved for your profile and the "
         "route (recognised by its track, so a renamed or moved GPX file keeps its times) and linked to the "
-        "saved ride. Paused time never counts; pausing during a sprint or KOM voids that attempt.",
+        "saved ride. Paused time never counts; pausing during a sprint or KOM voids that attempt, and a "
+        "discarded ride's times are deleted with it.",
         "<b>The world</b>: lakes beside the road (some with a jetty and a rowing boat, reeds along the shore), "
         "coastline with beaches, wild flowers, rocks, fenced pastures with cows, sheep and horses, hay bales, "
         "tractors, wind turbines with turning blades, benches, a white kilometre post at every kilometre and "
@@ -2204,7 +2205,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.6.0",
+  "app": "Artilody Multisport Endurance Trainer 1.6.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

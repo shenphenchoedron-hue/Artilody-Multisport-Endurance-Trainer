@@ -343,6 +343,11 @@ private slots:
                                           " ride_id INTEGER, created_at TEXT)")));
             QVERIFY(q.exec(QStringLiteral("INSERT INTO sprint_records (profile_id, route_key, route_name, start_m,"
                                           " length_m, time_sec) VALUES (1, 'abc', 'r', 500, 200, 21.5)")));
+            // orphans (no foreign keys in the old table): a deleted profile, a deleted ride
+            QVERIFY(q.exec(QStringLiteral("INSERT INTO sprint_records (profile_id, route_key, route_name, start_m,"
+                                          " length_m, time_sec) VALUES (999, 'abc', 'r', 500, 200, 19.0)")));
+            QVERIFY(q.exec(QStringLiteral("INSERT INTO sprint_records (profile_id, route_key, route_name, start_m,"
+                                          " length_m, time_sec, ride_id) VALUES (1, 'abc', 'r', 500, 200, 25.0, 4242)")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 8")));
             d.close();
         }
@@ -354,6 +359,7 @@ private slots:
         const auto best = db.bestSegment(1, QStringLiteral("sprint"), QStringLiteral("abc"), 200);
         QVERIFY(best.has_value());
         QCOMPARE(best->timeSec, 21.5);
+        QCOMPARE(db.segmentAttempts(1, QStringLiteral("sprint"), QStringLiteral("abc"), 200), 2);   // the orphan profile's dropped
         QVERIFY(!db.bestSegment(1, QStringLiteral("kom"), QStringLiteral("abc"), 200).has_value());
     }
 

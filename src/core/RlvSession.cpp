@@ -886,8 +886,10 @@ qint64 RlvSession::finish(bool save)
     voidSegments();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
-    if (!save)
+    if (!save) {
+        discardSegments();          // a discarded ride's sprint / KOM times go with it
         emit lastRideIdChanged();   // discarded: stays -1
+    }
     m_gears->flushSettings();
     emit finished();
     m_gears->reloadIfPending();
@@ -1223,6 +1225,22 @@ void RlvSession::resetSegments()
     resetTimed(m_kom);
     emit sprintChanged();
     emit komChanged();
+}
+
+void RlvSession::discardSegments()
+{
+    for (TimedSegment *seg : { &m_sprint, &m_kom }) {
+        if (seg->recordId < 0)
+            continue;
+        m_db->deleteSegmentRecord(seg->recordId);
+        seg->recordId = -1;
+        seg->phase = SegmentPhase::Void;
+        seg->time = 0;
+        seg->newBest = false;
+        loadBest(*seg, m_rideProfile.id);
+        seg->previousBest = seg->best;
+        emit seg == &m_sprint ? sprintChanged() : komChanged();
+    }
 }
 
 void RlvSession::voidSegments()

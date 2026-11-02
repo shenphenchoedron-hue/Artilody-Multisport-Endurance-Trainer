@@ -276,6 +276,25 @@ private slots:
         QCOMPARE(f.gpx->sprintBestSec(), first);
         QCOMPARE(f.gpx->sprintAttempts(), 2);
 
+        // a faster sprint in a discarded ride: deleted again, the best stays
+        {
+            QVERIFY(f.gpx->seekToDistance(0));
+            f.hub->updateCadence(90);
+            f.hub->updatePower(450);
+            QVERIFY(f.gpx->start());
+            int steps = 0;
+            while (f.gpx->sprintState() != QStringLiteral("done") && steps++ < 4000)
+                f.gpx->advanceClock(250);
+            QCOMPARE(f.gpx->sprintState(), QStringLiteral("done"));
+            QVERIFY(f.gpx->sprintTimeSec() < first);
+            QCOMPARE(f.gpx->sprintAttempts(), 3);
+            f.gpx->finish(false);
+            QCOMPARE(f.gpx->sprintBestSec(), first);
+            QCOMPARE(f.gpx->sprintAttempts(), 2);
+            QCOMPARE(f.gpx->sprintState(), QStringLiteral("void"));
+            QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(),
+                                          sprint::kLengthM), 2);
+        }
         // the same track under another name and folder is the same route
         QVERIFY(QDir(f.dir.path()).mkpath(QStringLiteral("moved")));
         const QString moved = f.dir.filePath(QStringLiteral("moved/renamed.gpx"));
@@ -564,6 +583,24 @@ private slots:
         QCOMPARE(shared, checked);
         for (size_t i = 0; i < r.points.size() && r.points[i].distance < half - 10; ++i)
             QVERIFY(!r.isShared(i));   // the way out is drawn
+        // no jump where the way back joins the way out (after the turnaround)
+        for (size_t i = 1; i < r.points.size(); ++i) {
+            const auto &a = r.points[i - 1], &b = r.points[i];
+            if (a.distance < half)
+                continue;
+            QVERIFY2(std::abs(b.x - a.x) < 0.25 * (b.distance - a.distance) + 0.05,
+                     qPrintable(QStringLiteral("lateral step %1 m at %2 m").arg(b.x - a.x).arg(b.distance)));
+        }
+        // a hairpin on a climb: the legs 5 m apart but 12 m apart in height stay two roads
+        {
+            std::vector<route3d::GeoPoint> climb;
+            for (int i = 0; i <= 200; ++i)
+                climb.push_back({ 55.0 + i * 5.0 / kMPerDegLat, 12.0, 20.0 + i * 0.06 });
+            for (int i = 200; i >= 0; --i)
+                climb.push_back({ 55.0 + i * 5.0 / kMPerDegLat, 12.0 + 5.0 / mPerDegLon, 80.0 + (200 - i) * 0.06 });
+            const route3d::Route h = route3d::Route::fromGeo(climb);
+            QVERIFY(std::none_of(h.shared.begin(), h.shared.end(), [](unsigned char c) { return c != 0; }));
+        }
         // a road that never comes back shares nothing
         const route3d::Route demo = route3d::Route::demo();
         QVERIFY(std::none_of(demo.shared.begin(), demo.shared.end(), [](unsigned char c) { return c != 0; }));

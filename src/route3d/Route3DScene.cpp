@@ -58,9 +58,8 @@ void main(){
         p.x+=sin(time*1.3+p.x*.07+p.z*.05)*.12*w;
         p.z+=cos(time*1.05+p.x*.05-p.z*.04)*.08*w;
     }
-    if(mat==12){ // wind turbine blades: turn around the hub (colour) and the rotor axis (normal)
-        float b=blend,s=1.;if(b>50.){b-=100.;s=-1.;}   // the back face: the opposite axis, the opposite angle
-        float a=s*(time*1.25+b);
+    if(mat==12){ // wind turbine blades: turn around the hub (colour) and the rotor axis (normal); blend = phase
+        float a=time*1.25+blend;
         vec3 k=normalize(normal),h=color+offset,d=p-h;
         p=h+d*cos(a)+cross(k,d)*sin(a)+k*dot(k,d)*(1.-cos(a));
         gl_Position=mvp*vec4(p,1);col=vec3(.90,.91,.92);world=p;norm=normal;edge=0.;return;
@@ -129,7 +128,13 @@ void main(){
     if(mat==2){base=grass(uv)*col;if(edge>.002)base=mix(base,sand(uv),clamp(edge,0.,1.));}
     if(mat==3)base=texture(gravelMap,uv*.75).rgb;
     if(mat==4){float grain=texture(asphaltMap,uv*.8).r;base=col*(.9+grain*.35);}
-    if(mat==9){vec4 t=texture(bannerMap,col.rg);if(t.a<.5)discard;base=t.rgb;}   // (the label: cut out)
+    if(mat==9){
+        vec4 t=texture(bannerMap,col.rg);
+#ifdef CUTOUT
+        if(t.a<.5)discard;   // cut-out letters: only in the gate program (discard costs early depth tests)
+#endif
+        base=t.rgb;
+    }
     if(mat==11){   // polka dots (the KOM arch): col.rg = surface position in dot periods
         vec2 g=col.rg;g.x+=.5*mod(floor(g.y),2.);
         float r=length(fract(g)-.5),w=fwidth(r)*.75+.01;
@@ -143,6 +148,7 @@ void main(){
         base=mix(stone,g,mixValue);
     }
     vec3 n=normalize(norm);
+    if(mat==12&&dot(n,view)>0.)n=-n;   // turbine blades: one face, lit on the side you see
     float ndl=dot(n,sunDir);
     // Foliage uses wrapped diffuse: light scatters through leaves and needles.
     float diffuse=mat==8?clamp((ndl+.45)/1.45,0.,1.):max(ndl,0.);
@@ -435,6 +441,20 @@ bool Route3DScene::initialize(QOpenGLContext *context)
         m_error = QStringLiteral("3D shaders could not be linked: ") + m_shader.log();
         return false;
     }
+    // The same shaders with cut-out letters (discard), only for the gate
+    // buffer: a shader that may discard loses early depth testing on many
+    // GPUs (the Raspberry Pi's among them), so the landscape never uses it.
+    const QByteArray cutoutFs = head + "#define CUTOUT\n" + kFragmentShaderHead + kSkyCommon + kFragmentShaderBody;
+    if (!m_cutoutShader.addShaderFromSourceCode(QOpenGLShader::Vertex, head + kVertexShader)
+        || !m_cutoutShader.addShaderFromSourceCode(QOpenGLShader::Fragment, cutoutFs)) {
+        m_error = QStringLiteral("3D shaders could not be compiled: ") + m_cutoutShader.log();
+        return false;
+    }
+    bindAttributes(m_cutoutShader);
+    if (!m_cutoutShader.link()) {
+        m_error = QStringLiteral("3D shaders could not be linked: ") + m_cutoutShader.log();
+        return false;
+    }
     const QByteArray skyFs = head + kSkyFragmentShaderHead + kSkyCommon + kSkyFragmentShaderBody;
     if (!m_skyShader.addShaderFromSourceCode(QOpenGLShader::Vertex, head + kSkyVertexShader)
         || !m_skyShader.addShaderFromSourceCode(QOpenGLShader::Fragment, skyFs) || !m_skyShader.link()) {
@@ -502,6 +522,7 @@ void Route3DScene::release()
     m_vao.destroy();
     m_skyVao.destroy();
     m_shader.removeAllShaders();
+    m_cutoutShader.removeAllShaders();
     m_skyShader.removeAllShaders();
     m_ready = false;
 }
@@ -1687,9 +1708,19 @@ void Route3DScene::buildTile(int tileX, int tileZ)
     auto contact = [&](double x, double z, QVector3D fwd, float rx, float rz, float strength) {
         shadowDisc(m_buildDecals, QVector3D(float(x), 0, float(z)) + shadowDir * .3f, fwd, rx, rz, strength, ground);
     };
-    for (const auto &a : Animals::scatter(m_terrain, cx, cz, 260, &buildings)) {
+    // animals: the nearest kMaxAnimals (a tile in the middle of a big herd stays cheap)
+    constexpr size_t kMaxAnimals = 150;
+    auto animals = Animals::scatter(m_terrain, cx, cz, 260, &buildings);
+    if (animals.size() > kMaxAnimals) {
+        auto byDistance = [&](const AnimalSpec &p, const AnimalSpec &q) {
+            return std::hypot(p.x - cx, p.z - cz) < std::hypot(q.x - cx, q.z - cz);
+        };
+        std::nth_element(animals.begin(), animals.begin() + kMaxAnimals, animals.end(), byDistance);
+        animals.resize(kMaxAnimals);
+    }
+    for (const auto &a : animals) {
         const double dist = std::hypot(a.x - cx, a.z - cz);
-        animal(a, dist > 130);
+        animal(a, dist > 130, dist > 180);
         const float big = a.kind == Sheep ? .6f : 1.f;
         taken.push_back({ a.x, a.z, 1.4 * big });
         if (dist < 120)
@@ -1884,29 +1915,34 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     // 2. Opaque landscape.
     m_vao.bind();
     m_buffer.bind();
-    m_shader.bind();
-    m_shader.setUniformValue("mvp", projection * view);
-    m_shader.setUniformValue("eye", eye);
-    m_shader.setUniformValue("uvOrigin", uvOrigin);
-    m_shader.setUniformValue("sunDir", m_sun);
-    m_shader.setUniformValue("time", time);
-    m_shader.setUniformValue("offset", QVector3D());
-    m_shader.setUniformValue("opacity", 1.0f);
-    m_shader.setUniformValue("asphaltMap", 0);
-    m_shader.setUniformValue("grassMap", 1);
-    m_shader.setUniformValue("gravelMap", 2);
-    m_shader.setUniformValue("noiseMap", 3);
-    m_shader.setUniformValue("bannerMap", 4);
+    for (QOpenGLShaderProgram *program : { &m_cutoutShader, &m_shader }) {
+        program->bind();
+        program->setUniformValue("mvp", projection * view);
+        program->setUniformValue("eye", eye);
+        program->setUniformValue("uvOrigin", uvOrigin);
+        program->setUniformValue("sunDir", m_sun);
+        program->setUniformValue("time", time);
+        program->setUniformValue("offset", QVector3D());
+        program->setUniformValue("opacity", 1.0f);
+        program->setUniformValue("asphaltMap", 0);
+        program->setUniformValue("grassMap", 1);
+        program->setUniformValue("gravelMap", 2);
+        program->setUniformValue("noiseMap", 3);
+        program->setUniformValue("bannerMap", 4);
+    }
     attributes();
     glDrawArrays(GL_TRIANGLES, 0, m_meshCount);
-    // START / FINISH arch
-    drawGates(distance);
     // 3. Distant hills, centred on the camera like a skybox.
     m_ringBuffer.bind();
     attributes();
     m_shader.setUniformValue("offset", QVector3D(eye.x(), eye.y(), eye.z()));
     glDrawArrays(GL_TRIANGLES, 0, int(m_ring.size()));
     m_shader.setUniformValue("offset", QVector3D());
+    // the arches, signs, road text, km posts and the bike (cut-out letters):
+    // after the other opaque geometry, with the discarding program
+    m_cutoutShader.bind();
+    drawGates(distance);
+    m_shader.bind();
     // 4. Soft contact shadows (blended, no depth writes) and the rider.
     if (!m_runner && !m_riderModelTried) {
         m_riderModelTried = true;

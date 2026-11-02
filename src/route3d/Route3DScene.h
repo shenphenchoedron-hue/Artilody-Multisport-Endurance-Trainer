@@ -97,7 +97,7 @@ private:
                     Water = 10,     // lakes and the sea; blend = water depth (m). Grass: blend = sand (0..1)
                     Polka = 11,     // white with red dots: colour r,g = surface position in dot periods
                     Rotor = 12 };   // wind turbine blades, turned in the vertex shader: colour = hub,
-                                    // normal = rotor axis, blend = phase (+100: the back face)
+                                    // normal = rotor axis, blend = phase (one face, lit from both sides)
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
@@ -131,7 +131,7 @@ private:
                    const std::function<QVector3D(QVector3D)> &color);
     // an open tapered tube from a (radius r0, colour c0) to b (r1, c1), smooth normals
     void taper(QVector3D a, QVector3D b, float r0, float r1, int sides, QVector3D c0, QVector3D c1);
-    void animal(const route3d::AnimalSpec &a, bool far);
+    void animal(const route3d::AnimalSpec &a, bool far, bool legless);
     void bale(const route3d::BaleSpec &b);
     void tractor(const route3d::TractorSpec &t, bool far);
     void turbine(const route3d::TurbineSpec &t, bool far);
@@ -182,6 +182,7 @@ private:
 
     QOpenGLContext *m_context = nullptr;
     QOpenGLShaderProgram m_shader, m_skyShader;
+    QOpenGLShaderProgram m_cutoutShader;   // m_shader with cut-out letters (discard): the gate buffer only
     std::array<std::unique_ptr<QOpenGLTexture>, 4> m_textures;
     std::unique_ptr<QOpenGLTexture> m_bannerTexture;   // START (top half) / FINISH (bottom half)
     QOpenGLBuffer m_gateBuffer { QOpenGLBuffer::VertexBuffer };

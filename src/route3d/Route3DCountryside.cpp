@@ -142,8 +142,9 @@ void Route3DScene::taper(QVector3D a, QVector3D b, float r0, float r1, int sides
 
 // Cows (black-and-white Holstein, red Danish), sheep and horses: rounded
 // bodies and heads (low-poly ellipsoids), tapered legs, the head down when
-// grazing. Far ones are coarser, without ears, horns, tail and udder.
-void Route3DScene::animal(const AnimalSpec &s, bool far)
+// grazing. Far ones are coarser, without ears, horns, tail and udder, with
+// one thin 3-sided leg each; beyond kAnimalLegsM no legs (under a pixel).
+void Route3DScene::animal(const AnimalSpec &s, bool far, bool legless)
 {
     const QVector3D f(std::cos(float(s.heading)), 0, std::sin(float(s.heading)));
     const QVector3D r = QVector3D::crossProduct(kUp, f);
@@ -151,7 +152,7 @@ void Route3DScene::animal(const AnimalSpec &s, bool far)
     const uint32_t seed = s.seed;
     const float size = .92f + .16f * rnd(seed, 1);
     auto P = [&](float x, float y, float z) { return base + (f * x + kUp * y + r * z) * size; };
-    const int rings = far ? 4 : 6, sides = far ? 6 : 9, legSides = far ? 4 : 6;
+    const int rings = far ? 4 : 6, sides = far ? 6 : 9, legSides = far ? 3 : 6;
     auto solid = [](QVector3D c) { return [c](QVector3D) { return c; }; };
     // an ellipsoid along dir (half length), round across (half widths h up, w sideways)
     auto blob = [&](QVector3D c, QVector3D dir, float len, float h, float w, const std::function<QVector3D(QVector3D)> &col,
@@ -163,7 +164,13 @@ void Route3DScene::animal(const AnimalSpec &s, bool far)
         ellipsoid(c, dir * (len * size), up * (h * size), side * (w * size), rg > 0 ? rg : rings, sd > 0 ? sd : sides, col);
     };
     auto leg = [&](float x, float z, float top, float r0, float r1, QVector3D col, QVector3D hoof) {
+        if (legless)
+            return;
         const QVector3D a = P(x, top, z), knee = P(x, .10f, z), g = P(x, -.03f, z);
+        if (far) {   // one piece
+            taper(a, g, r0 * size, r1 * size, legSides, col, hoof);
+            return;
+        }
         taper(a, knee, r0 * size, r1 * size, legSides, col, col * .92f);
         taper(knee, g, r1 * size, r1 * 1.15f * size, legSides, hoof, hoof);
     };
@@ -181,7 +188,9 @@ void Route3DScene::animal(const AnimalSpec &s, bool far)
         const QVector3D head = s.grazing ? P(.70f, .34f, 0) : P(.72f, .82f, 0);
         blob((neck + head) * .5f, head - neck, .2f, .17f, .16f, fleece, far ? 3 : 4, far ? 5 : 7);
         const QVector3D dir = s.grazing ? (f * .5f - kUp).normalized() : (f - kUp * .35f).normalized();
-        blob(head + dir * (.12f * size), dir, .17f, .10f, .085f, solid(dark), far ? 3 : 4, far ? 5 : 7);
+        if (far)
+            return;
+        blob(head + dir * (.12f * size), dir, .17f, .10f, .085f, solid(dark), 4, 7);
         if (!far)
             for (float z : { -1.f, 1.f })
                 blob(head + r * (z * .12f * size) + kUp * (.05f * size), r * z, .08f, .025f, .04f, solid(dark), 3, 5);
@@ -190,21 +199,21 @@ void Route3DScene::animal(const AnimalSpec &s, bool far)
     if (s.kind == Horse) {
         static const QVector3D coats[] = { { .40f, .25f, .14f }, { .55f, .30f, .15f }, { .10f, .09f, .09f }, { .66f, .64f, .61f } };
         const QVector3D coat = coats[int(rnd(seed, 3) * 4) % 4], mane(.08f, .07f, .06f), hoof(.12f, .11f, .10f);
-        blob(P(0, 1.30f, 0), f, .88f, .34f, .29f, solid(coat));
-        blob(P(.50f, 1.30f, 0), f, .42f, .38f, .31f, solid(coat));    // chest
-        blob(P(-.52f, 1.34f, 0), f, .42f, .37f, .32f, solid(coat));   // hindquarters
-        for (float x : { -.62f, .60f })
+        blob(P(0, 1.30f, 0), f, .68f, .34f, .29f, solid(coat));
+        blob(P(.38f, 1.30f, 0), f, .36f, .38f, .31f, solid(coat));    // chest
+        blob(P(-.40f, 1.34f, 0), f, .36f, .37f, .32f, solid(coat));   // hindquarters
+        for (float x : { -.48f, .46f })
             for (float z : { -.17f, .17f })
                 leg(x, z, 1.15f, .085f, .05f, coat * .95f, hoof);
-        const QVector3D neck0 = P(.72f, 1.45f, 0);
-        const QVector3D neck1 = s.grazing ? P(1.15f, .80f, 0) : P(1.08f, 1.98f, 0);
+        const QVector3D neck0 = P(.56f, 1.45f, 0);
+        const QVector3D neck1 = s.grazing ? P(.98f, .80f, 0) : P(.90f, 1.98f, 0);
         taper(neck0, neck1, .22f * size, .13f * size, sides, coat, coat);
         const QVector3D dir = s.grazing ? (f * .35f - kUp).normalized() : (f - kUp * .55f).normalized();
         blob(neck1 + dir * (.24f * size), dir, .32f, .12f, .10f, solid(coat));
-        blob(neck1 + dir * (.50f * size), dir, .10f, .09f, .085f, solid(coat * .55f), far ? 3 : 4, far ? 5 : 7);
         if (!far) {
+            blob(neck1 + dir * (.50f * size), dir, .10f, .09f, .085f, solid(coat * .55f), 4, 7);
             taper(neck0 + kUp * (.17f * size), neck1 + kUp * (.11f * size), .06f * size, .04f * size, 4, mane, mane);
-            taper(P(-.95f, 1.48f, 0), P(-1.08f, .78f, 0), .08f * size, .035f * size, 5, mane, mane);
+            taper(P(-.74f, 1.48f, 0), P(-.88f, .78f, 0), .08f * size, .035f * size, 5, mane, mane);
             for (float z : { -.06f, .06f })
                 taper(neck1 + r * (z * size), neck1 + (r * z + kUp * .16f - f * .05f) * size, .03f * size, .005f * size, 4,
                       coat, coat);
@@ -225,27 +234,27 @@ void Route3DScene::animal(const AnimalSpec &s, bool far)
             return mixColor(white, black, t);
         };
     };
-    blob(P(0, 1.00f, 0), f, 1.05f, .42f, .38f, patches(0));
-    blob(P(.55f, 1.06f, 0), f, .45f, .40f, .36f, patches(5), far ? 3 : 5, sides);   // shoulders
-    for (float x : { -.70f, .72f })
+    blob(P(0, 1.00f, 0), f, .80f, .42f, .38f, patches(0));
+    blob(P(.40f, 1.06f, 0), f, .38f, .40f, .36f, patches(5), far ? 3 : 5, sides);   // shoulders
+    for (float x : { -.54f, .55f })
         for (float z : { -.22f, .22f })
             leg(x, z, .85f, .11f, .07f, holstein ? white : red * .9f, hoof);
-    const QVector3D neck0 = P(.95f, 1.15f, 0);
-    const QVector3D head = s.grazing ? P(1.25f, .45f, 0) : P(1.32f, 1.18f, 0);
+    const QVector3D neck0 = P(.74f, 1.15f, 0);
+    const QVector3D head = s.grazing ? P(1.04f, .45f, 0) : P(1.10f, 1.18f, 0);
     taper(neck0, head, .24f * size, .17f * size, sides, holstein ? white : red, holstein ? black : red);
     const QVector3D dir = s.grazing ? (f * .4f - kUp).normalized() : (f - kUp * .3f).normalized();
     blob(head + dir * (.15f * size), dir, .30f, .17f, .15f, patches(11));
-    blob(head + dir * (.42f * size), dir, .09f, .11f, .13f, solid(QVector3D(.78f, .55f, .52f)), far ? 3 : 4, far ? 5 : 7);
     if (far)
         return;
+    blob(head + dir * (.42f * size), dir, .09f, .11f, .13f, solid(QVector3D(.78f, .55f, .52f)), 4, 7);
     for (float z : { -1.f, 1.f }) {
         blob(head + r * (z * .20f * size) + kUp * (.06f * size), r * z, .10f, .035f, .06f, patches(17), 3, 5);   // ears
         taper(head + (r * (z * .08f) + kUp * .14f) * size, head + (r * (z * .17f) + kUp * .25f) * size, .03f * size,
               .01f * size, 4, QVector3D(.85f, .82f, .70f), QVector3D(.85f, .82f, .70f));   // horns
     }
-    taper(P(-1.0f, 1.30f, 0), P(-1.06f, .55f, 0), .04f * size, .025f * size, 4, holstein ? white : red, holstein ? white : red);
-    blob(P(-1.06f, .50f, 0), kUp, .08f, .04f, .04f, solid(holstein ? black : red * .6f), 3, 5);   // tail tuft
-    blob(P(-.35f, .58f, 0), f, .18f, .10f, .15f, solid(QVector3D(.86f, .62f, .60f)), 3, 6);       // udder
+    taper(P(-.78f, 1.30f, 0), P(-.84f, .55f, 0), .04f * size, .025f * size, 4, holstein ? white : red, holstein ? white : red);
+    blob(P(-.84f, .50f, 0), kUp, .08f, .04f, .04f, solid(holstein ? black : red * .6f), 3, 5);   // tail tuft
+    blob(P(-.27f, .58f, 0), f, .16f, .10f, .15f, solid(QVector3D(.86f, .62f, .60f)), 3, 6);       // udder
 }
 
 void Route3DScene::bale(const BaleSpec &s)
@@ -327,9 +336,8 @@ void Route3DScene::turbine(const TurbineSpec &s, bool far)
         const QVector3D midL = c + u * (rotor * .25f) - w * 1.05f, midR = c + u * (rotor * .25f) + w * .55f;
         const QVector3D tip = c + u * rotor;
         const QVector3D tris[9] = { rootL, rootR, midR, rootL, midR, midL, midL, midR, tip };
-        for (int back = 0; back < 2; ++back)
-            for (const QVector3D &p : tris)
-                put(p, back ? -axis : axis, centre, Rotor, back ? phase + 100.f : phase);
+        for (const QVector3D &p : tris)   // one face: the fragment shader lights the side in view
+            put(p, axis, centre, Rotor, phase);
     }
 }
 
