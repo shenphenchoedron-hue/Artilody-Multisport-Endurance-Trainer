@@ -36,7 +36,9 @@ public:
     //      ant_tests (anaerobic threshold tests per profile)
     //   7  running workouts move into workouts (sport 'running', % of the AnT
     //      speed); run_workouts is copied over and dropped
-    static constexpr int kSchemaVersion = 7;
+    //   8  segment_records (GPX Ride sprint / KOM times per profile and route)
+    //   9  development builds' sprint_records copied into segment_records
+    static constexpr int kSchemaVersion = 9;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -109,6 +111,14 @@ public:
     static QString traceToText(const QVector<TracePoint> &trace);
     static QVector<TracePoint> traceFromText(const QString &text);
 
+    // GPX Ride sprint / KOM times (every attempt). The best is the fastest,
+    // then the oldest, of a profile for a kind on a route (key) and length.
+    qint64 saveSegmentRecord(const SegmentRecord &record);
+    std::optional<SegmentRecord> bestSegment(qint64 profileId, const QString &kind, const QString &routeKey,
+                                             double lengthM) const;
+    int segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double lengthM) const;
+    bool setSegmentRideId(qint64 recordId, qint64 rideId);
+
     // Running workouts are plain workouts of sport "running" (workouts()).
     // Current AnT speed of a profile: newest ant_tests entry, else the default.
     double currentAntKmh(qint64 profileId) const;
@@ -142,6 +152,8 @@ private:
     bool migrateToV5();
     bool migrateToV6();
     bool migrateToV7();
+    bool migrateToV8();
+    bool migrateToV9();
     bool columnNotNull(const QString &table, const QString &column) const;
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);

@@ -1,21 +1,11 @@
 #pragma once
+#include "landuse.h"
 #include "terrain.h"
 #include "world_noise.h"
 #include <vector>
 
 // Ported from the Route3D prototype (0.7). Geometry only: no Qt Widgets / GL.
 namespace route3d {
-
-// Land use shared by vegetation and buildings, so houses never stand in forest.
-namespace Landuse {
-inline double forest(double x,double z){
-    return WorldNoise::smoothstep(.50,.62,WorldNoise::fbm(x/300,z/300,3,11));
-}
-// Hamlets: areas where farms and houses cluster along the road.
-inline double hamlet(double x,double z){
-    return WorldNoise::smoothstep(.50,.64,WorldNoise::fbm(x/650,z/650,3,91));
-}
-}
 
 // Danish countryside buildings: detached houses, farm longhouses with a barn.
 // Placement is a jittered 50 m world grid (deterministic per position), set back
@@ -42,6 +32,7 @@ inline bool place(const Terrain& terrain,Building& b){
         double x=b.x+b.ux()*i*b.length*.5+b.fx*j*b.width*.5,z=b.z+b.uz()*i*b.length*.5+b.fz*j*b.width*.5;
         double h=terrain.surface(x,z);top=std::max(top,h);low=std::min(low,h);
         if((i||j)&&terrain.nearest(x,z).distance<9)return false; // keep clear of asphalt and verge
+        if(terrain.wet(x,z,1.0))return false;                     // not on a beach or a lake shore
     }
     if(top-low>2.4)return false; // too steep for a house
     b.ground=low;b.floor=top+.2;return true;

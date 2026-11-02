@@ -6,14 +6,16 @@ qt_add_library(watt_route3d STATIC
     terrain.h
     world_noise.h
     vegetation.h
+    landuse.h
     settlement.h
+    countryside.h
     ghost_motion.h
     ghost_rider.h
     ghost_vertex.h
     ghost_runner.h
     glb_model.h glb_model.cpp
     materials.h
-    Route3DScene.h Route3DScene.cpp
+    Route3DScene.h Route3DScene.cpp Route3DCountryside.cpp
     Route3DItem.h Route3DItem.cpp
 )
 target_include_directories(watt_route3d PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

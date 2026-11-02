@@ -1040,6 +1040,7 @@ Item {
 
                 // grade badge
                 Rectangle {
+                    id: gradeBadge
                     visible: videoCard.showOverlay
                     anchors.right: parent.right
                     anchors.rightMargin: 16
@@ -1076,6 +1077,142 @@ Item {
                             text: "route " + page.gradeText(page.session.gradePercent)
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: Theme.small(13)
+                        }
+                    }
+                }
+
+                // GPX Ride sprint and KOM: approaching, the running time, then
+                // the result against the best on this route for a while
+                Column {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    anchors.top: gradeBadge.bottom
+                    anchors.topMargin: 10
+                    spacing: 8
+                    visible: videoCard.showOverlay && page.gpx
+                    Repeater {
+                        model: ["sprint", "kom"]
+                        Rectangle {
+                            id: segPanel
+                            readonly property string kind: modelData
+                            readonly property bool kom: kind === "kom"
+                            readonly property var s: page.session
+                            readonly property bool available: kom ? s.komAvailable : s.sprintAvailable
+                            readonly property string sst: kom ? s.komState : s.sprintState
+                            readonly property real startM: kom ? s.komStartM : s.sprintStartM
+                            readonly property real finishM: kom ? s.komFinishM : s.sprintFinishM
+                            readonly property real toStart: startM - s.distanceMeters
+                            readonly property real elapsed: kom ? s.komElapsedSec : s.sprintElapsedSec
+                            readonly property real time: kom ? s.komTimeSec : s.sprintTimeSec
+                            readonly property real best: kom ? s.komBestSec : s.sprintBestSec
+                            readonly property real previousBest: kom ? s.komPreviousBestSec : s.sprintPreviousBestSec
+                            readonly property bool newBest: kom ? s.komNewBest : s.sprintNewBest
+                            readonly property string name: kom ? "KOM" : "Sprint"
+                            property bool showResult: false
+                            readonly property bool approaching: sst === "ahead" && page.st === "running"
+                                                                && toStart <= (kom ? 500 : 400)
+                            readonly property bool timing: sst === "running"
+                            readonly property bool done: sst === "done"
+                            readonly property color tone: newBest && done ? "#ffd23f"
+                                                          : kom ? "#ff5a4f" : timing || approaching ? "#2fd35a" : "#ff8a7a"
+                            visible: available && (approaching || timing || (showResult && done))
+                            width: Math.max(segCol.implicitWidth + 28, 180)
+                            height: segCol.implicitHeight + 16
+                            radius: 12
+                            color: Qt.rgba(0, 0, 0, 0.62)
+                            border.width: 2
+                            border.color: tone
+
+                            function secs(t) {
+                                if (t >= 60) {
+                                    const m = Math.floor(t / 60)
+                                    const r = t - m * 60
+                                    return m + ":" + (r < 10 ? "0" : "") + r.toFixed(kom ? 1 : 2)
+                                }
+                                return t.toFixed(2) + " s"
+                            }
+
+                            Column {
+                                id: segCol
+                                anchors.centerIn: parent
+                                spacing: 2
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: segPanel.approaching ? segPanel.name + " in " + Math.max(0, Math.round(segPanel.toStart)) + " m"
+                                          : segPanel.timing ? segPanel.name.toUpperCase()
+                                          : segPanel.newBest ? "New best " + segPanel.name + "!" : segPanel.name
+                                    color: segPanel.tone
+                                    font.pixelSize: 15
+                                    font.weight: Font.Black
+                                }
+                                Text {
+                                    // the climb ahead: length, average grade, height gain
+                                    visible: segPanel.kom && segPanel.approaching
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: page.session.formatDistance(page.session.komLengthM) + "  ·  "
+                                          + page.session.komGradePercent.toFixed(1) + " %  ·  "
+                                          + Math.round(page.session.komGainM) + " m"
+                                    color: "white"
+                                    font.pixelSize: 17
+                                    font.weight: Font.Bold
+                                }
+                                Text {
+                                    visible: !segPanel.approaching
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: segPanel.secs(segPanel.timing ? segPanel.elapsed : segPanel.time)
+                                    color: "white"
+                                    font.pixelSize: 28
+                                    font.weight: Font.Black
+                                }
+                                Text {
+                                    visible: segPanel.kom && segPanel.timing
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: page.session.formatDistance(Math.max(0, segPanel.finishM - page.session.distanceMeters))
+                                          + " to the top"
+                                    color: "white"
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    // the difference to the best before this time
+                                    visible: segPanel.done && segPanel.previousBest > 0
+                                    readonly property real diff: segPanel.time - segPanel.previousBest
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: (diff <= 0 ? "−" : "+") + Math.abs(diff).toFixed(2) + " s"
+                                    color: diff <= 0 ? "#2fd35a" : "#ff8a7a"
+                                    font.pixelSize: 17
+                                    font.weight: Font.Bold
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    readonly property real shown: segPanel.done ? segPanel.previousBest : segPanel.best
+                                    text: shown > 0 ? (segPanel.done ? "Previous best " : "Best ") + segPanel.secs(shown)
+                                                    : segPanel.done ? "First " + segPanel.name + " on this route" : "No best yet"
+                                    color: Qt.rgba(1, 1, 1, 0.75)
+                                    font.pixelSize: Theme.small(13)
+                                }
+                            }
+                            Timer {
+                                id: segResultTimer
+                                interval: 20000
+                                onTriggered: segPanel.showResult = false
+                            }
+                            Connections {
+                                target: page.session
+                                function onSprintFinished() {
+                                    if (!segPanel.kom) {
+                                        segPanel.showResult = true
+                                        segResultTimer.restart()
+                                    }
+                                }
+                                function onKomFinished() {
+                                    if (segPanel.kom) {
+                                        segPanel.showResult = true
+                                        segResultTimer.restart()
+                                    }
+                                }
+                                function onStarted() { segPanel.showResult = false }
+                            }
                         }
                     }
                 }

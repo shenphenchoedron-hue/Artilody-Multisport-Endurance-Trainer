@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <vector>
 #include <iterator>
+#include <unordered_map>
 
 // Ported from the Route3D prototype (0.7). Geometry only: no Qt Widgets / GL.
 namespace route3d {
@@ -18,6 +19,10 @@ public:
     // drawn road may go on past it (a visual run-out after the finish).
     double finishDistance=-1;
     double finish() const { return finishDistance>=0?std::min(finishDistance,length()):length(); }
+    // Per point: 1 = this part of the road was already ridden earlier on the
+    // route (out-and-back, loops) and lies on it; the earlier pass draws it.
+    std::vector<unsigned char> shared;
+    bool isShared(size_t i) const { return i<shared.size()&&shared[i]; }
     double length() const { return points.empty()?0:points.back().distance; }
     Point at(double distance) const {
         if(points.empty()) return {};
@@ -112,6 +117,7 @@ public:
             for(long long j=-reach;j<=reach;++j){double w=weight[std::abs(j)];sx+=plan[size_t(i+j)].x*w;sz+=plan[size_t(i+j)].z*w;sw+=w;}
             out.points[i].x=sx/sw;out.points[i].z=sz/sw;
         }
+        const std::vector<double> snapped=snapToEarlierPasses(out.points);
         for(size_t i=1;i<out.points.size();++i)
             out.points[i].distance=out.points[i-1].distance+std::hypot(out.points[i].x-out.points[i-1].x,out.points[i].z-out.points[i-1].z);
         // Densify to 2.5 m along the spline, so the drawn road edge is a curve.
@@ -120,6 +126,16 @@ public:
         std::vector<double> fineOut;   // smoothed distance each fine point was taken at
         for(double d=0;d<total;d+=2.5) { fine.points.push_back(out.at(d)); fineOut.push_back(d); }
         fine.points.push_back(out.points.back()); fineOut.push_back(total);
+        {   // shared: between two fully snapped points of out
+            std::vector<double> outD(out.points.size());
+            for(size_t i=0;i<outD.size();++i) outD[i]=out.points[i].distance;
+            fine.shared.resize(fine.points.size(),0);
+            for(size_t k=0;k<fineOut.size();++k){
+                size_t j=size_t(std::upper_bound(outD.begin(),outD.end(),fineOut[k])-outD.begin());
+                size_t i=j>0?j-1:0; j=std::min(j,outD.size()-1);
+                fine.shared[k]=snapped[i]>=1.0&&snapped[j]>=1.0;
+            }
+        }
         for(size_t i=1;i<fine.points.size();++i)
             fine.points[i].distance=fine.points[i-1].distance+std::hypot(fine.points[i].x-fine.points[i-1].x,fine.points[i].z-fine.points[i-1].z);
         if(inputDistance){
@@ -130,8 +146,69 @@ public:
             for(size_t i=0;i<input.size();++i)
                 (*inputDistance)[i]=interpolate(fineOut,fineD,interpolate(outRaw,outD,inputRaw[i]));
         }
-        fine.points.erase(std::unique(fine.points.begin(),fine.points.end(),[](const Point& a,const Point& b){return b.distance-a.distance<1e-6;}),fine.points.end());
+        {   // drop repeated points (and their flags)
+            size_t w=0;
+            for(size_t r=0;r<fine.points.size();++r){
+                if(w>0&&fine.points[r].distance-fine.points[w-1].distance<1e-6) continue;
+                fine.points[w]=fine.points[r];fine.shared[w]=fine.shared[r];++w;
+            }
+            fine.points.resize(w);fine.shared.resize(w);
+        }
         return fine;
+    }
+    // Out-and-back routes and loops come back along roads ridden before; GPS
+    // puts the passes a few metres apart (and a little higher or lower), so
+    // drawn as recorded two roads overlap: double edge lines, asphalt beside
+    // the road. A later point near an earlier, parallel part of the road (at
+    // least kSnapGapM further along) is moved onto it, height included: fully
+    // within kSnapFullM, fading out to kSnapNoneM, so the road joins and leaves
+    // smoothly. Points in order: a third pass snaps onto the snapped second.
+    // Returns the snap weight per point (1 = fully on the earlier road).
+    static constexpr double kSnapFullM=4.5, kSnapNoneM=9.0, kSnapGapM=100.0;
+    static std::vector<double> snapToEarlierPasses(std::vector<Point>& pts){
+        const size_t n=pts.size();
+        std::vector<double> weight(n,0.0);
+        if(n<4) return weight;
+        constexpr double cell=20, minCos=.8;
+        auto key=[](long long x,long long z){return (x<<32)^(z&0xffffffffLL);};
+        auto cellOf=[&](double v){return (long long)std::floor(v/cell);};
+        std::unordered_map<long long,std::vector<size_t>> grid;   // segments j..j+1 by both ends' cells
+        auto insert=[&](size_t j){
+            long long ax=cellOf(pts[j].x),az=cellOf(pts[j].z),bx=cellOf(pts[j+1].x),bz=cellOf(pts[j+1].z);
+            grid[key(ax,az)].push_back(j);
+            if(bx!=ax||bz!=az) grid[key(bx,bz)].push_back(j);
+        };
+        // the resampled points lie ~5 m apart along the raw track
+        const double spacing=std::max(1.0,pts[n-1].distance/double(n-1));
+        const size_t gap=size_t(std::ceil(kSnapGapM/spacing));
+        size_t inserted=0;
+        for(size_t i=1;i+1<n;++i){
+            while(inserted+1<n&&inserted+gap<i) insert(inserted++);
+            if(inserted==0) continue;
+            Point& p=pts[i];
+            double dx=pts[i+1].x-pts[i-1].x,dz=pts[i+1].z-pts[i-1].z,dl=std::hypot(dx,dz);
+            if(dl<1e-9) continue;
+            double best=kSnapNoneM; Point target;
+            long long cx=cellOf(p.x),cz=cellOf(p.z);
+            for(long long gx=cx-1;gx<=cx+1;++gx)for(long long gz=cz-1;gz<=cz+1;++gz){
+                auto it=grid.find(key(gx,gz)); if(it==grid.end()) continue;
+                for(size_t j:it->second){
+                    const Point& a=pts[j]; const Point& b=pts[j+1];
+                    double sx=b.x-a.x,sz=b.z-a.z,sl2=sx*sx+sz*sz;
+                    if(sl2<1e-12) continue;
+                    if(std::abs(sx*dx+sz*dz)<minCos*std::sqrt(sl2)*dl) continue;   // crossing, not along
+                    double t=std::clamp(((p.x-a.x)*sx+(p.z-a.z)*sz)/sl2,0.0,1.0);
+                    double qx=a.x+sx*t,qz=a.z+sz*t,r=std::hypot(p.x-qx,p.z-qz);
+                    if(r<best){best=r;target={qx,a.y+(b.y-a.y)*t,qz,p.distance};}
+                }
+            }
+            if(best>=kSnapNoneM) continue;
+            double u=std::clamp((kSnapNoneM-best)/(kSnapNoneM-kSnapFullM),0.0,1.0);
+            double w=u*u*(3-2*u);
+            p.x+=(target.x-p.x)*w;p.y+=(target.y-p.y)*w;p.z+=(target.z-p.z)*w;
+            weight[i]=w;
+        }
+        return weight;
     }
     // Artificial ~6 km test loop with a realistic profile: rolling start, a
     // 1.2 km climb (avg ~5 %, steepest ~8 %), a summit plateau, a fast descent,

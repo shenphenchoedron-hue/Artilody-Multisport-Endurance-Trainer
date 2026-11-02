@@ -96,7 +96,7 @@ private slots:
                 QVERIFY(w.sport == QStringLiteral("cycling") || w.sport == QStringLiteral("running"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 7);
+        QCOMPARE(Database::kSchemaVersion, 9);
         QVERIFY(columns(path, QStringLiteral("run_workouts")).isEmpty());   // v7: running workouts live in workouts
         QVERIFY(columns(path, QStringLiteral("ant_tests")).contains(QStringLiteral("speed_kmh")));
         for (const char *c : { "kind", "route_path", "route_name", "planned_duration_sec", "options" })
@@ -106,6 +106,9 @@ private slots:
         QVERIFY(columns(path, QStringLiteral("workouts")).contains(QStringLiteral("sport")));
         QVERIFY(columns(path, QStringLiteral("planned_workouts")).contains(QStringLiteral("ride_id")));
         QVERIFY(columns(path, QStringLiteral("rowing_records")).contains(QStringLiteral("trace")));
+        for (const char *c : { "kind", "route_key", "start_m", "length_m", "time_sec", "ride_id" })   // v8
+            QVERIFY(columns(path, QStringLiteral("segment_records")).contains(QString::fromLatin1(c)));
+        QVERIFY(columns(path, QStringLiteral("sprint_records")).isEmpty());
     }
 
     void upgradesV1WithoutDataLoss()
@@ -316,6 +319,42 @@ private slots:
         QCOMPARE(profiles.heightCm(), 181.0);
         QCOMPARE(db.profile(profiles.profileId())->heightCm, 181.0);
         QCOMPARE(db.profile(profiles.profileId())->weightKg, 72.0);
+    }
+
+    void upgradesDevV8SprintRecords()
+    {
+        // a development build's v8: sprint_records (no kind) -> segment_records
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v8.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+        }
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v8"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE segment_records")));
+            QVERIFY(q.exec(QStringLiteral("CREATE TABLE sprint_records (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                                          " profile_id INTEGER NOT NULL, route_key TEXT NOT NULL, route_name TEXT,"
+                                          " start_m REAL NOT NULL, length_m REAL NOT NULL, time_sec REAL NOT NULL,"
+                                          " ride_id INTEGER, created_at TEXT)")));
+            QVERIFY(q.exec(QStringLiteral("INSERT INTO sprint_records (profile_id, route_key, route_name, start_m,"
+                                          " length_m, time_sec) VALUES (1, 'abc', 'r', 500, 200, 21.5)")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 8")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v8"));
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
+        QVERIFY(!db.hasTable(QStringLiteral("sprint_records")));
+        const auto best = db.bestSegment(1, QStringLiteral("sprint"), QStringLiteral("abc"), 200);
+        QVERIFY(best.has_value());
+        QCOMPARE(best->timeSec, 21.5);
+        QVERIFY(!db.bestSegment(1, QStringLiteral("kom"), QStringLiteral("abc"), 200).has_value());
     }
 
     void upgradesV4ToV5PlanKinds()

@@ -129,6 +129,12 @@ endif()
 if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
     list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
 endif()
+# scenery: the display bike on a post beside the START arch (route3d::StaticModel)
+if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/trail-bike.glb)
+    list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/trail-bike.glb)
+else()
+    message(WARNING "assets/models/trail-bike.glb is missing: the 3D view is built without the display bike by the START arch")
+endif()
 qt_add_resources(ArtilodyWattTrainer "models"
     PREFIX "/models"
     BASE ${PROJECT_SOURCE_DIR}/assets/models

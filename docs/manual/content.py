@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.5.0 source code (incl. Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.6.0 source code (incl. GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1779,6 +1779,23 @@ def build(s, env):
         "side to side with the pedal stroke – a little more on climbs steeper than 6 %.",
         "<b>After the finish</b>: on a point-to-point route the road runs on about 50 m past the FINISH arch "
         "(drawn only – the ride ends at the arch).",
+        "<b>Sprint</b>: every route of at least 1 km has a 200 m sprint a quarter into the route. 200 m before "
+        "it the road says <i>SPRINT IN 200 m</i> behind a thin green line; the sprint starts at a thick green "
+        "line with <i>SPRINT</i> on the road and a green sign on the verge, and ends at a red line with a "
+        "<i>SPRINT FINISH</i> sign. A panel shows the distance to the sprint, the running time and, at the "
+        "finish, your time and the difference to your best on this route.",
+        "<b>KOM</b>: the route's longest climb averaging at least 2.5 % is its KOM – a white arch with red "
+        "polka dots at the foot of the climb and a red <i>KOM FINISH</i> arch at the top. The panel shows "
+        "the climb's length, average grade and height gain before it, the running time and the distance to "
+        "the top on the way up, and your time against your best at the top.",
+        "<b>Times are saved</b>: every sprint and KOM you ride all the way is saved for your profile and the "
+        "route (recognised by its track, so a renamed or moved GPX file keeps its times) and linked to the "
+        "saved ride. Paused time never counts; pausing during a sprint or KOM voids that attempt.",
+        "<b>The world</b>: lakes beside the road (some with a jetty and a rowing boat, reeds along the shore), "
+        "coastline with beaches, wild flowers, rocks, fenced pastures with cows, sheep and horses, hay bales, "
+        "tractors, wind turbines with turning blades, benches, a white kilometre post at every kilometre and "
+        "a display bike by the START arch. Where an out-and-back route or a loop comes back along a road "
+        "already ridden, the 3D view draws one road.",
         "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
         "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
         "the page says why the 3D view is not available – the route can still be ridden with the profile.",
@@ -2187,7 +2204,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.5.1",
+  "app": "Artilody Multisport Endurance Trainer 1.6.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

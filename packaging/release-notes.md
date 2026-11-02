@@ -1,6 +1,18 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.5.1
+## What's new in 1.6.0
+
+**GPX Ride: sprint, KOM and a livelier countryside.**
+
+- **Sprint** on every GPX route of at least 1 km: 200 m, a quarter into the route. *SPRINT IN 200 m* and a thin green line on the road, then a thick green start line with *SPRINT* and a green sign, and a red *SPRINT FINISH* line and sign 200 m later.
+- **KOM** on the route's longest climb averaging at least 2.5 %: a white arch with red polka dots at the foot, a red *KOM FINISH* arch at the top.
+- **Your times are saved and compared**: every sprint and KOM ridden all the way is timed to 0.01 s (paused time never counts), saved for your profile and the route – recognised by its track, so a renamed or moved GPX file keeps its times – and linked to the ride. A panel shows the distance to go, the running time, and at the line your time, the difference to your best and *New best!*.
+- **A livelier countryside**: lakes beside the road with reeds, jetties and rowing boats; coastline with beaches; wild flowers and rocks; fenced pastures with cows, sheep and horses; hay bales and tractors; wind turbines with turning blades; benches; a white **kilometre post** at every kilometre; a display bike by the START arch.
+- **Out-and-back routes and loops**: where the route comes back along a road already ridden, the 3D view now draws one road (no double edge lines or asphalt beside the road).
+- **Sharper 3D**: no more flickering windows, doors and dark surfaces in the distance.
+- **Database upgrade**: on first start the database is upgraded automatically to schema 9 (sprint and KOM times); all rides, workouts, profiles, plans and settings are kept – install over 1.5.1 (or older).
+
+## Also included from 1.5.1
 
 **Speed correction for treadmills and foot pods** (Devices → Treadmills).
 

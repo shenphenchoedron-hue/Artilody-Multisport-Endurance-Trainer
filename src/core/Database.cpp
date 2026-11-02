@@ -255,7 +255,8 @@ bool Database::migrate()
     const Step steps[] = { { 1, &Database::createSchemaV1 }, { 2, &Database::migrateToV2 },
                            { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 },
                            { 5, &Database::migrateToV5 }, { 6, &Database::migrateToV6 },
-                           { 7, &Database::migrateToV7 } };
+                           { 7, &Database::migrateToV7 }, { 8, &Database::migrateToV8 },
+                           { 9, &Database::migrateToV9 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -420,6 +421,35 @@ bool Database::migrateToV7()
             return false;
     }
     return true;
+}
+
+bool Database::migrateToV8()
+{
+    // GPX Ride sprints and KOMs: every timed attempt, per profile, kind and
+    // route (the GPX track's fingerprint, so a renamed / moved file keeps its times).
+    return exec(QStringLiteral("CREATE TABLE IF NOT EXISTS segment_records ("
+                               " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                               " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,"
+                               " kind TEXT NOT NULL DEFAULT 'sprint',"
+                               " route_key TEXT NOT NULL, route_name TEXT,"
+                               " start_m REAL NOT NULL, length_m REAL NOT NULL, time_sec REAL NOT NULL,"
+                               " ride_id INTEGER REFERENCES rides(id) ON DELETE SET NULL,"
+                               " created_at TEXT)"))
+        && exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_segment_records"
+                               " ON segment_records(profile_id, kind, route_key, length_m, time_sec)"));
+}
+
+bool Database::migrateToV9()
+{
+    // a development build's v8 had sprint_records (sprints only): moved over
+    if (!migrateToV8())
+        return false;
+    if (!hasTable(QStringLiteral("sprint_records")))
+        return true;
+    return exec(QStringLiteral("INSERT INTO segment_records (profile_id, kind, route_key, route_name, start_m, length_m,"
+                               " time_sec, ride_id, created_at) SELECT profile_id, 'sprint', route_key, route_name,"
+                               " start_m, length_m, time_sec, ride_id, created_at FROM sprint_records ORDER BY id"))
+        && exec(QStringLiteral("DROP TABLE sprint_records"));
 }
 
 bool Database::migrateToV5()
@@ -1107,6 +1137,79 @@ qint64 Database::saveRowingRecord(const RowingRecord &r)
         return -1;
     }
     return q.lastInsertId().toLongLong();
+}
+
+qint64 Database::saveSegmentRecord(const SegmentRecord &r)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("INSERT INTO segment_records (profile_id, kind, route_key, route_name, start_m, length_m,"
+                             " time_sec, ride_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    q.addBindValue(r.profileId);
+    q.addBindValue(r.kind);
+    q.addBindValue(r.routeKey);
+    q.addBindValue(r.routeName);
+    q.addBindValue(r.startM);
+    q.addBindValue(r.lengthM);
+    q.addBindValue(r.timeSec);
+    q.addBindValue(nullableId(r.rideId));
+    q.addBindValue((r.createdAt.isValid() ? r.createdAt : QDateTime::currentDateTime()).toUTC().toString(Qt::ISODate));
+    if (!q.exec()) {
+        setError(QStringLiteral("saveSegmentRecord"), q.lastError().text());
+        return -1;
+    }
+    return q.lastInsertId().toLongLong();
+}
+
+std::optional<SegmentRecord> Database::bestSegment(qint64 profileId, const QString &kind, const QString &routeKey,
+                                                   double lengthM) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT id, profile_id, kind, route_key, route_name, start_m, length_m, time_sec, ride_id,"
+                             " created_at FROM segment_records WHERE profile_id = ? AND kind = ? AND route_key = ?"
+                             " AND abs(length_m - ?) < 0.5 ORDER BY time_sec, id LIMIT 1"));
+    q.addBindValue(profileId);
+    q.addBindValue(kind);
+    q.addBindValue(routeKey);
+    q.addBindValue(lengthM);
+    if (!q.exec() || !q.next())
+        return std::nullopt;
+    SegmentRecord r;
+    r.id = q.value(0).toLongLong();
+    r.profileId = q.value(1).toLongLong();
+    r.kind = q.value(2).toString();
+    r.routeKey = q.value(3).toString();
+    r.routeName = q.value(4).toString();
+    r.startM = q.value(5).toDouble();
+    r.lengthM = q.value(6).toDouble();
+    r.timeSec = q.value(7).toDouble();
+    r.rideId = q.value(8).isNull() ? -1 : q.value(8).toLongLong();
+    r.createdAt = QDateTime::fromString(q.value(9).toString(), Qt::ISODate);
+    return r;
+}
+
+int Database::segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double lengthM) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM segment_records WHERE profile_id = ? AND kind = ? AND route_key = ?"
+                             " AND abs(length_m - ?) < 0.5"));
+    q.addBindValue(profileId);
+    q.addBindValue(kind);
+    q.addBindValue(routeKey);
+    q.addBindValue(lengthM);
+    return q.exec() && q.next() ? q.value(0).toInt() : 0;
+}
+
+bool Database::setSegmentRideId(qint64 recordId, qint64 rideId)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE segment_records SET ride_id = ? WHERE id = ?"));
+    q.addBindValue(nullableId(rideId));
+    q.addBindValue(recordId);
+    if (!q.exec()) {
+        setError(QStringLiteral("setSegmentRideId"), q.lastError().text());
+        return false;
+    }
+    return true;
 }
 
 namespace {

@@ -61,6 +61,18 @@ public:
         if (view->routeVersion() != m_version) {
             m_version = view->routeVersion();
             m_scene.setRoute(view->drawnRoute());
+            Route3DScene::SprintMarks sprint;
+            sprint.valid = view->frameSprintValid();
+            sprint.announce = view->frameSprintAnnounce();
+            sprint.start = view->frameSprintStart();
+            sprint.finish = view->frameSprintFinish();
+            m_scene.setSprint(sprint);
+            Route3DScene::KomMarks kom;
+            kom.valid = view->frameKomValid();
+            kom.start = view->frameKomStart();
+            kom.finish = view->frameKomFinish();
+            m_scene.setKom(kom);
+            m_scene.setKmPosts(view->frameKmPosts());
         }
         m_scene.setStartDistance(view->frameStartDistance());
         m_scene.setRunner(view->frameRunner());
@@ -286,10 +298,25 @@ void Route3DItem::rebuildRoute()
     m_built = Built();
     m_route.reset();
     m_routeError.clear();
+    m_sprintDrawnValid = false;
+    m_komDrawnValid = false;
+    m_kmDrawn.clear();
     if (m_session && m_session->hasRoute()) {
         try {
             m_built = build(m_session->route());
             m_route = m_built.route;
+            const sprint::Segment s = m_session->sprintSegment();
+            m_sprintDrawnValid = s.valid;
+            m_sprintDrawn[0] = s.valid ? mapDistance(m_built, s.announce) : 0;
+            m_sprintDrawn[1] = s.valid ? mapDistance(m_built, s.start) : 0;
+            m_sprintDrawn[2] = s.valid ? mapDistance(m_built, s.finish) : 0;
+            const double total = m_session->route().totalDistance();
+            for (int km = 1; km * 1000.0 < total - 30; ++km)
+                m_kmDrawn.push_back(mapDistance(m_built, km * 1000.0));
+            const climb::Climb k = m_session->komClimb();
+            m_komDrawnValid = k.valid;
+            m_komDrawn[0] = k.valid ? mapDistance(m_built, k.start) : 0;
+            m_komDrawn[1] = k.valid ? mapDistance(m_built, k.finish) : 0;
         } catch (const std::exception &e) {
             m_routeError = QString::fromUtf8(e.what());
             qWarning("Route3D: %s: %s", qPrintable(m_session->routePath()), e.what());

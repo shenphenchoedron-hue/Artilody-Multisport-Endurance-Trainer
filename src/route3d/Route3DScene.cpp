@@ -7,14 +7,17 @@
 #include "settlement.h"
 
 #include <QFont>
+#include <QFontMetrics>
 #include <QGuiApplication>
 #include <QImage>
 #include <QOpenGLContext>
 #include <QPainter>
 #include <QSurfaceFormat>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace route3d;
 
@@ -55,6 +58,13 @@ void main(){
         p.x+=sin(time*1.3+p.x*.07+p.z*.05)*.12*w;
         p.z+=cos(time*1.05+p.x*.05-p.z*.04)*.08*w;
     }
+    if(mat==12){ // wind turbine blades: turn around the hub (colour) and the rotor axis (normal)
+        float b=blend,s=1.;if(b>50.){b-=100.;s=-1.;}   // the back face: the opposite axis, the opposite angle
+        float a=s*(time*1.25+b);
+        vec3 k=normalize(normal),h=color+offset,d=p-h;
+        p=h+d*cos(a)+cross(k,d)*sin(a)+k*dot(k,d)*(1.-cos(a));
+        gl_Position=mvp*vec4(p,1);col=vec3(.90,.91,.92);world=p;norm=normal;edge=0.;return;
+    }
     gl_Position=mvp*vec4(p,1);col=color;world=p;norm=normal;edge=blend;
 }
 )";
@@ -67,7 +77,7 @@ in vec3 col;in vec3 world;in vec3 norm;flat in int mat;in float edge;
 uniform vec3 eye;uniform vec2 uvOrigin;
 uniform sampler2D asphaltMap;uniform sampler2D grassMap;uniform sampler2D gravelMap;uniform sampler2D noiseMap;
 uniform sampler2D bannerMap;
-uniform float opacity;
+uniform float opacity;uniform float time;
 out vec4 frag;
 )";
 
@@ -79,12 +89,34 @@ vec3 grass(vec2 p){
     vec3 g=mix(a,b,.45)*(.80+m.g*.40);
     return mix(g,g*vec3(1.12,1.05,.74),smoothstep(.55,.80,m.r)*.5);
 }
+vec3 sand(vec2 p){
+    vec3 g=texture(gravelMap,p*.35).rgb;
+    float m=texture(noiseMap,p*.02).b;
+    return mix(vec3(.80,.73,.56),g*vec3(1.10,1.06,1.),.35)*(.92+.16*m);
+}
+// Lakes and the sea: animated ripples, sky reflection (Fresnel), sun glitter,
+// shallow water lighter and a pale rim where it meets the shore.
+vec3 water(vec2 p,vec3 view,float dist,float depth){
+    vec3 a=texture(noiseMap,p*.030+vec2(time*.011,time*.006)).rgb;
+    vec3 b=texture(noiseMap,p*.085-vec2(time*.014,-time*.009)).rgb;
+    float calm=1.-smoothstep(60.,260.,dist)*.6;   // ripples fade with distance (no shimmer)
+    vec3 n=normalize(vec3((a.r-b.g)*.30*calm,1.,(a.g-b.r)*.30*calm));
+    vec3 v=view/dist;
+    vec3 sky=skyColor(reflect(v,n));
+    float fresnel=.03+.97*pow(1.-max(dot(-v,n),0.),5.);
+    float d=clamp(depth/2.8,0.,1.);
+    vec3 body=mix(vec3(.19,.33,.30),vec3(.05,.15,.23),d)*(.62+.38*max(dot(n,sunDir),0.));
+    vec3 c=mix(body,sky,clamp(fresnel+.10,0.,1.));
+    c+=vec3(1.,.93,.80)*pow(max(dot(reflect(-sunDir,n),-v),0.),110.)*.9;
+    return mix(c,vec3(.80,.84,.82),(1.-smoothstep(0.,.22,depth))*.40);
+}
 void main(){
     vec3 view=world-eye;float dist=length(view);
     float fog=max(1.-exp(-dist*dist/(290.*290.)),smoothstep(335.,395.,dist));
     if(mat==6){frag=vec4(.03,.05,.07,smoothstep(0.,.38,edge)*.52*(1.-fog));return;}
     vec2 uv=world.xz-uvOrigin;
     vec3 haze=hazeColor(view);
+    if(mat==10){frag=vec4(mix(water(uv,view,max(dist,.01),edge),haze,fog),1.);return;}
     vec3 base=col;
     if(mat==1){
         base=texture(asphaltMap,uv*.8).rgb*1.06;
@@ -94,10 +126,15 @@ void main(){
         base*=1.+.12*smoothstep(.88,1.,lat); // dusty edges
         base*=.90+.20*texture(noiseMap,uv*.018).b; // repair patches
     }
-    if(mat==2)base=grass(uv)*col;
+    if(mat==2){base=grass(uv)*col;if(edge>.002)base=mix(base,sand(uv),clamp(edge,0.,1.));}
     if(mat==3)base=texture(gravelMap,uv*.75).rgb;
     if(mat==4){float grain=texture(asphaltMap,uv*.8).r;base=col*(.9+grain*.35);}
-    if(mat==9)base=texture(bannerMap,col.rg).rgb;
+    if(mat==9){vec4 t=texture(bannerMap,col.rg);if(t.a<.5)discard;base=t.rgb;}   // (the label: cut out)
+    if(mat==11){   // polka dots (the KOM arch): col.rg = surface position in dot periods
+        vec2 g=col.rg;g.x+=.5*mod(floor(g.y),2.);
+        float r=length(fract(g)-.5),w=fwidth(r)*.75+.01;
+        base=mix(vec3(.80,.10,.09),vec3(.95,.94,.91),smoothstep(.27-w,.27+w,r));
+    }
     if(mat==5){
         vec3 g=grass(uv);
         vec3 stone=texture(gravelMap,uv*.75).rgb;
@@ -155,21 +192,93 @@ constexpr double kTextureRepeatM = 5000.0;   // every texture scale above repeat
 // START / FINISH arches (inflatable, like at a race)
 const QVector3D kStartGreen(.10f, .62f, .24f);
 const QVector3D kFinishRed(.80f, .12f, .10f);
-constexpr float kArchHalfSpan = 4.4f;   // tube centre beside the road (gravel ends at 3.6 m)
+// The road's cross section (from the centre line): gravel shoulder to
+// kGravelEdgeM, then the sloping verge down to the terrain at kVergeEdgeM.
+constexpr float kGravelEdgeM = 3.6f, kVergeEdgeM = 6.5f;
+constexpr float kArchHalfSpan = 4.4f;   // tube centre beside the road (beyond the gravel)
 constexpr float kArchLegHeight = 3.0f;  // straight legs, then a half circle
 constexpr float kArchTube = .48f;       // inflated tube radius
-constexpr float kBannerHalfWidth = 2.6f, kBannerHeight = 1.3f;   // 4:1 like the texture halves
+constexpr float kBannerHalfWidth = 2.6f;   // banner height: from its printed face (arch())
+constexpr double kArchClearM = 10.0;       // a KOM arch this close to START / FINISH is left out
 
-// White bold "START" on green (top half) and "FINISH" on red (bottom half).
+// The one banner texture (1024 x 1024 RGBA, mipmapped) holds every printed
+// face, so the arches, the bike's label, the sprint and the KOM add no
+// texture memory:
+//   rows   0..255  "START" white on green               (arch banner)
+//   rows 256..511  "FINISH" white on red (the red runs on to row 527, so its
+//                  edge filters red)                       (arch banner)
+//   rows 528..639  sprint signs: green "SPRINT" (x 0..511) and red
+//                  "SPRINT FINISH" (x 512..1023)
+//   rows 640..751  KOM banners: red "KOM" on white with red dots (x 0..511)
+//                  and "KOM FINISH" white on red (x 512..1023)
+//                  (each 512 x 112 cell is sampled 12 px inside its colour)
+//   rows 752..783  digits 0..9 for the kilometre posts: black on opaque
+//                  white (no cut-out: far away they blur to grey instead of
+//                  vanishing), 40 px apart (kDigit())
+//   rows 816..919  road text "SPRINT IN 200 m"          (kRoadAnnounce)
+//   rows 920..1023 road text "SPRINT" (x 0..511)         (kRoadSprint)
+//                  and the bike's brand label (x 512..1023, kLabel)
+// The KOM arch's polka-dot tube is drawn by the shader (material Polka).
+// Road text and the label are white letters on transparent (cut out in the
+// shader); transparent rows keep them apart from the opaque faces, whose
+// colour would bleed in at the coarse mip levels small faces sample.
+struct TexRect { float u0, v0, u1, v1; };
+constexpr TexRect texPixels(int x, int y, int w, int h)
+{
+    return { x / 1024.f, y / 1024.f, (x + w) / 1024.f, (y + h) / 1024.f };
+}
+constexpr int kCellRows = 112, kCellInset = 12;   // sign / KOM banner cells: 512 x 112
+constexpr int kSprintCellRow = 528, kKomCellRow = 640;
+constexpr int kDigitRow = 752, kDigitCell = 40;
+constexpr TexRect kDigit(int digit)
+{
+    return texPixels(digit * kDigitCell + 5, kDigitRow + 1, kDigitCell - 10, 30);
+}
+constexpr TexRect cellFace(int x, int row)
+{
+    return texPixels(x + kCellInset, row + kCellInset, 512 - 2 * kCellInset, kCellRows - 2 * kCellInset);
+}
+constexpr TexRect kStartBanner = texPixels(0, 0, 1024, 256);
+constexpr TexRect kFinishBanner = texPixels(0, 256, 1024, 256);
+constexpr TexRect kSprintSign = cellFace(0, kSprintCellRow);
+constexpr TexRect kSprintFinishSign = cellFace(512, kSprintCellRow);
+constexpr TexRect kKomBanner = cellFace(0, kKomCellRow);
+constexpr TexRect kKomFinishBanner = cellFace(512, kKomCellRow);
+constexpr TexRect kRoadAnnounce = texPixels(0, 816, 1024, 104);
+constexpr TexRect kRoadSprint = texPixels(0, 920, 512, 104);
+constexpr TexRect kLabel = texPixels(512, 920, 512, 104);
+const QString kBikeBrand = QStringLiteral("Artilody");
+
+// The largest bold font (up to maxPx) that fits `text` (one line per '\n') in r.
+QFont fittedFont(const QString &text, const QRect &r, int maxPx, bool italic = false)
+{
+    QFont f = QGuiApplication::font();
+    f.setWeight(QFont::Black);
+    f.setItalic(italic);
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (int px = maxPx; px > 8; px -= 2) {
+        f.setPixelSize(px);
+        const QFontMetrics m(f);
+        int widest = 0;
+        for (const QString &l : lines)
+            widest = std::max(widest, m.horizontalAdvance(l));
+        if (widest <= r.width() * .92 && m.height() * lines.size() <= r.height() * 1.02)
+            break;
+    }
+    return f;
+}
+
 QImage bannerImage()
 {
-    QImage img(1024, 512, QImage::Format_RGBA8888);
+    QImage img(1024, 1024, QImage::Format_RGBA8888);
+    img.fill(QColor(255, 255, 255, 0));
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
+    auto rgb = [](QVector3D c) { return QColor::fromRgbF(c.x(), c.y(), c.z()); };
     auto half = [&](int y, QVector3D c, const QString &text) {
         const QRect r(0, y, 1024, 256);
-        p.fillRect(r, QColor::fromRgbF(c.x(), c.y(), c.z()));
+        p.fillRect(r, rgb(c));
         p.setPen(QPen(QColor(255, 255, 255, 230), 10));
         p.drawRect(r.adjusted(10, 10, -10, -10));
         QFont f = QGuiApplication::font();
@@ -181,7 +290,53 @@ QImage bannerImage()
         p.drawText(r, Qt::AlignCenter, text);
     };
     half(0, kStartGreen * 1.1f, QStringLiteral("START"));
+    p.fillRect(QRect(0, 512, 1024, 16), rgb(kFinishRed * 1.1f));
     half(256, kFinishRed * 1.1f, QStringLiteral("FINISH"));
+    // sign / KOM banner cells: the colour fills the whole cell, the face is sampled inside it
+    auto cell = [&](int x, int row, QVector3D c, const QString &text, bool dots = false) {
+        const QRect all(x, row, 512, kCellRows);
+        const QRect face = all.adjusted(kCellInset, kCellInset, -kCellInset, -kCellInset);
+        const QColor ink = dots ? rgb(kFinishRed) : QColor(Qt::white);
+        p.fillRect(all, dots ? QColor(242, 240, 233) : rgb(c));
+        if (dots) {   // the polka-dot jersey of the best climber
+            p.setPen(Qt::NoPen);
+            p.setBrush(rgb(kFinishRed));
+            for (int y = 0; y * 26 < kCellRows + 26; ++y)
+                for (int k = -1; k * 26 < 512 + 26; ++k)
+                    p.drawEllipse(QPointF(x + k * 26 + (y % 2) * 13, row + y * 26), 6.5, 6.5);
+            p.setBrush(QColor(242, 240, 233));
+            p.drawRoundedRect(face.adjusted(70, 10, -70, -10), 14, 14);
+            p.setBrush(Qt::NoBrush);
+        }
+        p.setPen(QPen(ink, 5));
+        p.drawRect(face.adjusted(6, 6, -6, -6));
+        const QRect inner = face.adjusted(dots ? 80 : 16, 12, dots ? -80 : -16, -12);
+        p.setFont(fittedFont(text, inner, 96));
+        p.setPen(ink);
+        p.drawText(inner, Qt::AlignCenter, text);
+    };
+    cell(0, kSprintCellRow, kStartGreen * 1.1f, QStringLiteral("SPRINT"));
+    cell(512, kSprintCellRow, kFinishRed * 1.1f, QStringLiteral("SPRINT\nFINISH"));
+    cell(0, kKomCellRow, kFinishRed, QStringLiteral("KOM"), true);
+    cell(512, kKomCellRow, kFinishRed * 1.1f, QStringLiteral("KOM FINISH"));
+    // white letters on transparent: road text and the bike's label
+    auto cutOut = [&](const QRect &r, const QString &text, bool italic) {
+        const QRect inner = r.adjusted(0, 4, 0, -4);
+        p.setFont(fittedFont(text, inner, 104, italic));
+        p.setPen(Qt::white);
+        p.drawText(inner, Qt::AlignCenter, text);
+    };
+    {   // kilometre post digits: black on white
+        p.fillRect(QRect(0, kDigitRow, 10 * kDigitCell, 32), Qt::white);
+        const QFont f = fittedFont(QStringLiteral("0"), QRect(0, 0, kDigitCell - 16, 27), 34);
+        p.setFont(f);
+        p.setPen(QColor(18, 18, 18));
+        for (int k = 0; k < 10; ++k)
+            p.drawText(QRect(k * kDigitCell, kDigitRow, kDigitCell, 32), Qt::AlignCenter, QString::number(k));
+    }
+    cutOut(QRect(0, 816, 1024, 104), QStringLiteral("SPRINT IN 200 m"), false);
+    cutOut(QRect(0, 920, 512, 104), QStringLiteral("SPRINT"), false);
+    cutOut(QRect(512, 920, 512, 104), kBikeBrand, true);
     p.end();
     return img;
 }
@@ -306,6 +461,11 @@ bool Route3DScene::initialize(QOpenGLContext *context)
     m_bannerTexture->setWrapMode(QOpenGLTexture::ClampToEdge);
     m_bannerTexture->setMinificationFilter(QOpenGLTexture::LinearMipMapLinear);
     m_bannerTexture->setMagnificationFilter(QOpenGLTexture::Linear);
+    if (context->hasExtension(QByteArrayLiteral("GL_EXT_texture_filter_anisotropic"))) {
+        GLfloat limit = 1;   // road text is seen at a grazing angle: keep it sharp
+        glGetFloatv(0x84FF, &limit);
+        m_bannerTexture->setMaximumAnisotropy(std::min(8.f, limit));
+    }
     m_gateBuffer.create();
     m_gateBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
     m_gatesDirty = true;
@@ -355,6 +515,8 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
     else
         m_terrain = Terrain();
     indexRoute();
+    m_benches = m_route ? Benches::along(m_terrain, *m_route) : std::vector<BenchSpec>();
+    placeDisplayBike();
     m_meshX = m_meshZ = INT_MAX;
     m_build.clear();
     m_buildDecals.clear();
@@ -437,14 +599,16 @@ void Route3DScene::setStartDistance(double drawnMetres)
 {
     if (drawnMetres == m_startDistance)
         return;
+    // applied in scene() when no tile job runs (the job reads the bike's spot
+    // and the terrain; the arches read the terrain too)
     m_startDistance = drawnMetres;
-    m_gatesDirty = true;
+    m_startDirty = true;
 }
 
 // An inflatable arch: a fat tube up one side, over the road in a half circle
 // and down the other, in light/dark segments like the sewn panels of a real
 // one, with a printed banner on both faces (readable from either side).
-void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
+void Route3DScene::arch(std::vector<Vertex> &out, double d, ArchStyle style)
 {
     const Route &route = *m_route;
     d = std::clamp(d, 0.0, route.length());
@@ -456,7 +620,16 @@ void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
     const QVector3D s(-f.z(), 0, f.x()), up(0, 1, 0);   // s: the rider's right
     const QVector3D c = v(route.at(d));
     const float road = c.y();
-    const QVector3D color = finish ? kFinishRed : kStartGreen;
+    const bool polka = style == KomStartArch;
+    const QVector3D color = style == StartArch ? kStartGreen : kFinishRed;
+    const TexRect banner = style == StartArch ? kStartBanner
+                           : style == FinishArch ? kFinishBanner
+                           : style == KomStartArch ? kKomBanner : kKomFinishBanner;
+    // the banner keeps the printed face's proportions (square texture)
+    const float bannerHeight = 2 * kBannerHalfWidth * (banner.v1 - banner.v0) / (banner.u1 - banner.u0);
+    // polka dots: whole periods around the tube (no seam), about as long along it
+    constexpr int dotsAround = 6;
+    const float dotPeriod = float(2 * 3.14159265 * kArchTube / dotsAround);
     // centre line in the arch plane: (lateral, height); legs reach into the ground
     auto groundAt = [&](float lateral) {
         const QVector3D q = c + s * lateral;
@@ -480,6 +653,7 @@ void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
         const QVector3D t = (b - a).normalized();
         // ring frame: f (along the road) and the in-plane normal
         const QVector3D n = QVector3D::crossProduct(f, t).normalized();
+        const float alongA = along;
         along += (b - a).length();
         const bool seam = int(along / 1.3f) % 2 == 0;
         const QVector3D col = color * (seam ? 1.0f : .86f);
@@ -489,6 +663,17 @@ void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
             const QVector3D r0 = n * std::cos(a0) + f * std::sin(a0), r1 = n * std::cos(a1) + f * std::sin(a1);
             const QVector3D p00 = a + r0 * kArchTube, p01 = a + r1 * kArchTube, p10 = b + r0 * kArchTube,
                             p11 = b + r1 * kArchTube;
+            if (polka) {
+                const float ua = alongA / dotPeriod, ub = along / dotPeriod;
+                const float v0 = float(k) * dotsAround / sides, v1 = float(k + 1) * dotsAround / sides;
+                put(out, p00, r0, QVector3D(ua, v0, 0), Polka, 0);
+                put(out, p10, r0, QVector3D(ub, v0, 0), Polka, 0);
+                put(out, p11, r1, QVector3D(ub, v1, 0), Polka, 0);
+                put(out, p00, r0, QVector3D(ua, v0, 0), Polka, 0);
+                put(out, p11, r1, QVector3D(ub, v1, 0), Polka, 0);
+                put(out, p01, r1, QVector3D(ua, v1, 0), Polka, 0);
+                continue;
+            }
             put(out, p00, r0, col, Solid, 0);
             put(out, p10, r0, col, Solid, 0);
             put(out, p11, r1, col, Solid, 0);
@@ -498,15 +683,14 @@ void Route3DScene::arch(std::vector<Vertex> &out, double d, bool finish)
         }
     }
     // banner on the front (towards the approaching rider) and on the back
-    const float v0 = finish ? .5f : 0.f, v1 = v0 + .5f;
-    const float by1 = top + kArchHalfSpan - .25f, by0 = by1 - kBannerHeight;
+    const float by1 = top + kArchHalfSpan - .25f, by0 = by1 - bannerHeight;
     for (float side : { -1.f, 1.f }) {   // -1: front (faces -f)
         const QVector3D off = f * (side * (kArchTube + .03f));
         const QVector3D n = f * side;
         auto P = [&](float lateral, float y) { return QVector3D(c.x(), y, c.z()) + s * lateral + off; };
         // front: left edge (-s) = u 0; back: seen from behind, left edge is +s
-        const float uL = side < 0 ? 0.f : 1.f, uR = 1.f - uL;
-        const QVector3D tl(uL, v0, 0), tr(uR, v0, 0), bl(uL, v1, 0), br(uR, v1, 0);
+        const float uL = side < 0 ? banner.u0 : banner.u1, uR = side < 0 ? banner.u1 : banner.u0;
+        const QVector3D tl(uL, banner.v0, 0), tr(uR, banner.v0, 0), bl(uL, banner.v1, 0), br(uR, banner.v1, 0);
         put(out, P(-kBannerHalfWidth, by1), n, tl, Banner, 0);
         put(out, P(kBannerHalfWidth, by1), n, tr, Banner, 0);
         put(out, P(kBannerHalfWidth, by0), n, br, Banner, 0);
@@ -521,30 +705,349 @@ double Route3DScene::startGate(double length) const
     return std::min(length, m_startDistance + 25.0);
 }
 
+// The arches and the display bike -> m_gateBuffer. Only while no tile job
+// runs (scene()): arch() reads the terrain, whose cache the job writes.
+void Route3DScene::buildGates()
+{
+    const double length = m_route->length();
+    m_gateVertices.clear();
+    // START ahead of the start point (seen whole before you ride through
+    // it), FINISH just before the end (you finish under it)
+    m_builtStartGate = startGate(length);
+    arch(m_gateVertices, m_builtStartGate, StartArch);
+    m_startGateCount = int(m_gateVertices.size());
+    const double finishArch = std::max(0.0, m_route->finish() - 1.0);
+    arch(m_gateVertices, finishArch, FinishArch);
+    m_finishGateEnd = int(m_gateVertices.size());
+    displayBike(m_gateVertices);
+    sprintMarks(m_gateVertices);
+    // the KOM: polka-dot arch at the foot of the climb, red at the top (not
+    // into the START / FINISH arch when the climb begins or ends there)
+    if (m_kom.valid) {
+        if (std::abs(m_kom.start - m_builtStartGate) > kArchClearM && std::abs(m_kom.start - finishArch) > kArchClearM)
+            arch(m_gateVertices, m_kom.start, KomStartArch);
+        if (std::abs(m_kom.finish - m_builtStartGate) > kArchClearM && std::abs(m_kom.finish - finishArch) > kArchClearM)
+            arch(m_gateVertices, m_kom.finish, KomFinishArch);
+    }
+    // kilometre posts (the short put() writes here meanwhile)
+    m_target = &m_gateVertices;
+    kmPosts();
+    m_target = &m_build;
+    m_gateBuffer.bind();
+    m_gateBuffer.allocate(m_gateVertices.data(), int(m_gateVertices.size() * sizeof(Vertex)));
+    m_gatesDirty = false;
+}
+
 void Route3DScene::drawGates(double distance)
 {
-    if (!m_route)
+    if (!m_route || m_gateVertices.empty())
         return;
-    const double length = m_route->length();
-    if (m_gatesDirty) {
-        m_gateVertices.clear();
-        // START ahead of the start point (seen whole before you ride through
-        // it), FINISH just before the end (you finish under it)
-        arch(m_gateVertices, startGate(length), false);
-        m_startGateCount = int(m_gateVertices.size());
-        arch(m_gateVertices, std::max(0.0, m_route->finish() - 1.0), true);
-        m_gateBuffer.bind();
-        m_gateBuffer.allocate(m_gateVertices.data(), int(m_gateVertices.size() * sizeof(Vertex)));
-        m_gatesDirty = false;
-    }
     // START until you have ridden through it, then FINISH (a loop has both at one place)
-    const bool finishHalf = distance > startGate(length) + 2.0;
+    const bool finishHalf = distance > m_builtStartGate + 2.0;
     m_gateBuffer.bind();
     attributes();
     if (finishHalf)
-        glDrawArrays(GL_TRIANGLES, m_startGateCount, int(m_gateVertices.size()) - m_startGateCount);
+        glDrawArrays(GL_TRIANGLES, m_startGateCount, m_finishGateEnd - m_startGateCount);
     else
         glDrawArrays(GL_TRIANGLES, 0, m_startGateCount);
+    if (int(m_gateVertices.size()) > m_finishGateEnd)
+        glDrawArrays(GL_TRIANGLES, m_finishGateEnd, int(m_gateVertices.size()) - m_finishGateEnd);
+}
+
+namespace {
+// The display bike (:/models/trail-bike.glb, or WATT_TRAIL_BIKE_GLB=<file>,
+// =none for no bike). Loaded once per process; null when missing / unusable.
+std::shared_ptr<const route3d::StaticModel> trailBikeModel()
+{
+    static const std::shared_ptr<const route3d::StaticModel> model = []() -> std::shared_ptr<const route3d::StaticModel> {
+        const QString override = qEnvironmentVariable("WATT_TRAIL_BIKE_GLB");
+        if (override == QLatin1String("none"))
+            return {};
+        const QString path = override.isEmpty() ? QStringLiteral(":/models/trail-bike.glb") : override;
+        if (!QFile::exists(path))
+            return {};
+        auto m = std::make_shared<route3d::StaticModel>();
+        QString error;
+        if (!m->loadFile(path, &error)) {
+            qWarning("Route3D: display bike %s not used: %s", qPrintable(path), qPrintable(error));
+            return {};
+        }
+        return m;
+    }();
+    return model;
+}
+
+constexpr double kBikeBeforeGateM = 6.0;   // along the road, before the START arch
+constexpr float kBikeLateralM = 5.6f;      // from the road's centre line, on the verge
+constexpr float kBikeTurnDeg = 35.f;       // turned towards the approaching rider
+} // namespace
+
+float Route3DScene::DisplaySpot::groundAt(QVector3D q) const
+{
+    const float lat = lateral + QVector3D::dotProduct(q - pos, roadSide);
+    const float t = std::clamp((lat - kGravelEdgeM) / (kVergeEdgeM - kGravelEdgeM), 0.f, 1.f);
+    return roadY + (outerY - roadY) * t;
+}
+
+void Route3DScene::placeDisplayBike()
+{
+    m_bikeSpot = DisplaySpot();
+    if (!m_route || m_route->points.size() < 2 || !trailBikeModel())
+        return;
+    const Route &route = *m_route;
+    const double d = std::max(0.0, startGate(route.length()) - kBikeBeforeGateM);
+    QVector3D f = v(route.at(std::min(route.length(), d + 3))) - v(route.at(std::max(0.0, d - 3)));
+    f.setY(0);
+    if (f.lengthSquared() < 1e-6f)
+        f = QVector3D(0, 0, -1);
+    f.normalize();
+    const QVector3D right(-f.z(), 0, f.x()), up(0, 1, 0);
+    const QVector3D road = v(route.at(d));
+    DisplaySpot &b = m_bikeSpot;
+    b.roadSide = right;
+    b.lateral = kBikeLateralM;
+    b.roadY = road.y();
+    const QVector3D outer = road + right * kVergeEdgeM;
+    b.outerY = float(m_terrain.surface(outer.x(), outer.z())) + .03f;
+    b.pos = road + right * kBikeLateralM;
+    b.pos.setY(b.groundAt(b.pos) - .04f);   // the post a little into the ground
+    // its decal side (+z) faces the road and the rider coming up to it
+    const float a = qDegreesToRadians(kBikeTurnDeg);
+    b.z = (-right * std::cos(a) - f * std::sin(a)).normalized();
+    b.x = QVector3D::crossProduct(up, b.z);
+    b.valid = true;
+}
+
+void Route3DScene::displayBike(std::vector<Vertex> &out)
+{
+    const auto model = trailBikeModel();
+    if (!m_bikeSpot.valid || !model)
+        return;
+    const DisplaySpot &b = m_bikeSpot;
+    const QVector3D up(0, 1, 0);
+    auto at = [&](QVector3D p) { return b.pos + b.x * p.x() + up * p.y() + b.z * p.z(); };
+    auto dir = [&](QVector3D n) { return (b.x * n.x() + up * n.y() + b.z * n.z()).normalized(); };
+    out.reserve(out.size() + model->triangles().size() + 6 * model->decals().size());
+    for (const auto &t : model->triangles())
+        put(out, at(t.position), dir(t.normal), t.color, Solid, 0);
+    // the brand name on the frame (the model's decal places), from the banner texture
+    for (const auto &d : model->decals()) {
+        const QVector3D n = d.normal, u = d.up, r = QVector3D::crossProduct(u, n).normalized();
+        const QVector3D c = d.at + n * .008f;   // just off the tube
+        const float w = d.width * .5f, h = d.height * .5f;
+        const QVector3D wn = dir(n);
+        const QVector3D tl(kLabel.u0, kLabel.v0, 0), tr(kLabel.u1, kLabel.v0, 0), bl(kLabel.u0, kLabel.v1, 0),
+                        br(kLabel.u1, kLabel.v1, 0);
+        const QVector3D pTL = at(c - r * w + u * h), pTR = at(c + r * w + u * h), pBL = at(c - r * w - u * h),
+                        pBR = at(c + r * w - u * h);
+        put(out, pTL, wn, tl, Banner, 0);
+        put(out, pTR, wn, tr, Banner, 0);
+        put(out, pBR, wn, br, Banner, 0);
+        put(out, pTL, wn, tl, Banner, 0);
+        put(out, pBR, wn, br, Banner, 0);
+        put(out, pBL, wn, bl, Banner, 0);
+    }
+}
+
+void Route3DScene::setKmPosts(const std::vector<double> &drawnMetres)
+{
+    if (drawnMetres == m_kmPosts)
+        return;
+    m_kmPosts = drawnMetres;
+    m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
+}
+
+float Route3DScene::vergeHeight(double d, float lateral) const
+{
+    const Route &route = *m_route;
+    d = std::clamp(d, 0.0, route.length());
+    const QVector3D road = v(route.at(d));
+    const QVector3D s = side(d);
+    const float lat = std::abs(lateral), sign = lateral < 0 ? -1.f : 1.f;
+    if (lat <= kGravelEdgeM)
+        return road.y();
+    if (lat >= kVergeEdgeM) {
+        const QVector3D q = road + s * (sign * lat);
+        return float(m_terrain.surface(q.x(), q.z()));
+    }
+    const QVector3D outer = road + s * (sign * kVergeEdgeM);
+    const float outerY = float(m_terrain.surface(outer.x(), outer.z())) + .03f;
+    return road.y() + (outerY - road.y()) * (lat - kGravelEdgeM) / (kVergeEdgeM - kGravelEdgeM);
+}
+
+// Kilometre posts: a short white post on the right-hand verge with a small
+// plate showing the kilometre (digits from the banner texture).
+void Route3DScene::kmPosts()
+{
+    const Route &route = *m_route;
+    const double length = route.length();
+    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateWhite(1, 1, 1);
+    for (size_t i = 0; i < m_kmPosts.size(); ++i) {
+        double d = m_kmPosts[i];
+        // not into a sign or an arch
+        for (double busy : { m_sprint.valid ? m_sprint.start : -1e9, m_sprint.valid ? m_sprint.finish : -1e9, m_builtStartGate,
+                             m_kom.valid ? m_kom.start : -1e9, m_kom.valid ? m_kom.finish : -1e9 })
+            if (std::abs(d - busy) < 4)
+                d = busy + 6;
+        if (d < 1 || d > length - 1)
+            continue;
+        const float lat = kGravelEdgeM + .55f;
+        QVector3D f = v(route.at(std::min(length, d + 3))) - v(route.at(std::max(0.0, d - 3)));
+        f.setY(0);
+        f = f.lengthSquared() > 1e-6f ? f.normalized() : QVector3D(0, 0, -1);
+        const QVector3D right = side(d), up(0, 1, 0);
+        QVector3D foot = v(route.at(d)) + right * lat;
+        foot.setY(vergeHeight(d, lat));
+        const QVector3D n = (-f * std::cos(qDegreesToRadians(20.f)) - right * std::sin(qDegreesToRadians(20.f))).normalized();
+        const QVector3D r = QVector3D::crossProduct(up, n);
+        box(foot + up * .45f, r * .07f, up * .70f, n * .07f, white);
+        box(foot + up * 1.10f, r * .073f, up * .05f, n * .073f, black);
+        // the plate: big digits (read from the saddle while riding past)
+        const QString number = QString::number(int(i) + 1);
+        const float dh = .40f, dw = dh * (kDigit(0).u1 - kDigit(0).u0) / (kDigit(0).v1 - kDigit(0).v0);
+        const float pw = (number.size() * dw + .12f) * .5f, ph = dh * .5f + .05f;
+        const QVector3D plate = foot + up * (1.15f + ph) + n * .07f;
+        box(plate - n * .045f, r * (pw + .02f), up * (ph + .02f), n * .015f, black);   // dark rim and back (well behind the face: no depth fighting)
+        const QVector3D front = plate + n * .001f;
+        face(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, n, plateWhite);
+        float x = -number.size() * dw * .5f;
+        for (const QChar ch : number) {
+            const TexRect t = kDigit(ch.digitValue());
+            const QVector3D c0 = front + n * .025f + r * x - up * (dh * .5f), c1 = c0 + r * dw, c2 = c1 + up * dh, c3 = c0 + up * dh;
+            const QVector3D tl(t.u0, t.v0, 0), tr(t.u1, t.v0, 0), bl(t.u0, t.v1, 0), br(t.u1, t.v1, 0);
+            put(c0, n, bl, Banner, 0);
+            put(c1, n, br, Banner, 0);
+            put(c2, n, tr, Banner, 0);
+            put(c0, n, bl, Banner, 0);
+            put(c2, n, tr, Banner, 0);
+            put(c3, n, tl, Banner, 0);
+            x += dw;
+        }
+    }
+}
+
+void Route3DScene::setKom(const KomMarks &marks)
+{
+    if (marks.valid == m_kom.valid && marks.start == m_kom.start && marks.finish == m_kom.finish)
+        return;
+    m_kom = marks;
+    m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
+}
+
+void Route3DScene::setSprint(const SprintMarks &marks)
+{
+    if (marks.valid == m_sprint.valid && marks.announce == m_sprint.announce && marks.start == m_sprint.start
+        && marks.finish == m_sprint.finish)
+        return;
+    m_sprint = marks;
+    m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
+}
+
+namespace {
+constexpr float kRoadMarkLift = .07f;      // over the road centre line (asphalt +.025, paint +.045)
+constexpr float kRoadTextLengthM = 6.f;    // road text: stretched along the road (read from the saddle)
+constexpr float kSignLateralM = kGravelEdgeM + .9f;   // sprint signs on the right-hand verge
+constexpr float kSignWidthM = 1.3f;
+constexpr float kSignHeightM = kSignWidthM * (kSprintSign.v1 - kSprintSign.v0) / (kSprintSign.u1 - kSprintSign.u0);
+constexpr float kSignBottomM = 1.15f;      // board's lower edge over the ground
+constexpr float kSignTurnDeg = 20.f;       // turned towards the road
+} // namespace
+
+// The sprint on the road (GPX Ride): painted lines across the asphalt, road
+// text before the first two and a small sign on the verge at the start and
+// the finish line. All in the gate buffer (static, ~400 vertices).
+void Route3DScene::sprintMarks(std::vector<Vertex> &out)
+{
+    if (!m_sprint.valid || !m_route)
+        return;
+    const Route &route = *m_route;
+    const float length = float(route.length());
+    const QVector3D up(0, 1, 0);
+    auto centre = [&](double d) {
+        QVector3D c = v(route.at(std::clamp(d, 0.0, double(length))));
+        c.setY(c.y() + kRoadMarkLift);
+        return c;
+    };
+    auto quadOut = [&](QVector3D a, QVector3D b, QVector3D c, QVector3D d, QVector3D n, QVector3D ca, QVector3D cb,
+                       QVector3D cc, QVector3D cd, int material) {
+        put(out, a, n, ca, material, 0);
+        put(out, b, n, cb, material, 0);
+        put(out, c, n, cc, material, 0);
+        put(out, a, n, ca, material, 0);
+        put(out, c, n, cc, material, 0);
+        put(out, d, n, cd, material, 0);
+    };
+    // a painted line across the road, `width` metres along it
+    auto line = [&](double d, float width, QVector3D color) {
+        const double d0 = d - width * .5, d1 = d + width * .5;
+        const QVector3D c0 = centre(d0), c1 = centre(d1), s0 = side(d0), s1 = side(d1);
+        const float half = 3.f;   // the asphalt's width
+        quadOut(c0 - s0 * half, c0 + s0 * half, c1 + s1 * half, c1 - s1 * half, up, color, color, color, color, Paint);
+    };
+    // road text from d0 (near: the letters' foot) to d1, following the road
+    auto text = [&](double d0, double d1, float halfWidth, const TexRect &r) {
+        constexpr int steps = 6;
+        for (int k = 0; k < steps; ++k) {
+            const double a = d0 + (d1 - d0) * k / steps, b = d0 + (d1 - d0) * (k + 1) / steps;
+            const float va = r.v1 + (r.v0 - r.v1) * float(k) / steps, vb = r.v1 + (r.v0 - r.v1) * float(k + 1) / steps;
+            const QVector3D ca = centre(a), cb = centre(b), sa = side(a), sb = side(b);
+            quadOut(ca - sa * halfWidth, ca + sa * halfWidth, cb + sb * halfWidth, cb - sb * halfWidth, up,
+                    QVector3D(r.u0, va, 0), QVector3D(r.u1, va, 0), QVector3D(r.u1, vb, 0), QVector3D(r.u0, vb, 0), Banner);
+        }
+    };
+    // a sign on a post on the right-hand verge, facing the approaching rider
+    auto sign = [&](double d, const TexRect &face, QVector3D color) {
+        const QVector3D road = v(route.at(std::clamp(d, 0.0, double(length))));
+        QVector3D f = v(route.at(std::min(double(length), d + 3))) - v(route.at(std::max(0.0, d - 3)));
+        f.setY(0);
+        f = f.lengthSquared() > 1e-6f ? f.normalized() : QVector3D(0, 0, -1);
+        const QVector3D right(-f.z(), 0, f.x());
+        const QVector3D outer = road + right * kVergeEdgeM;
+        const float outerY = float(m_terrain.surface(outer.x(), outer.z())) + .03f;
+        const float t = (kSignLateralM - kGravelEdgeM) / (kVergeEdgeM - kGravelEdgeM);
+        QVector3D foot = road + right * kSignLateralM;
+        foot.setY(road.y() + (outerY - road.y()) * t);
+        const float turn = qDegreesToRadians(kSignTurnDeg);
+        const QVector3D n = (-f * std::cos(turn) - right * std::sin(turn)).normalized();   // the face's normal
+        const QVector3D r = QVector3D::crossProduct(up, n);                               // the face's right
+        const QVector3D grey(.52f, .53f, .55f);
+        // post (square, behind the board)
+        const float pw = .035f, top = kSignBottomM + kSignHeightM - .04f;
+        const QVector3D p0 = foot - up * .2f, p1 = foot + up * top;
+        const QVector3D px = r * pw, pz = n * pw;
+        const QVector3D corners[4] = { -px - pz, px - pz, px + pz, -px + pz };
+        for (int k = 0; k < 4; ++k) {
+            const QVector3D a = corners[k], b = corners[(k + 1) % 4];
+            const QVector3D sn = (a + b).normalized();
+            quadOut(p0 + a, p0 + b, p1 + b, p1 + a, sn, grey, grey, grey, grey, Solid);
+        }
+        // board: printed front, grey back, coloured edges
+        const float hw = kSignWidthM * .5f, depth = .015f;
+        const QVector3D mid = foot + up * (kSignBottomM + kSignHeightM * .5f) + n * (pw + depth);
+        const QVector3D hx = r * hw, hy = up * (kSignHeightM * .5f), hz = n * depth;
+        const QVector3D fTL = mid - hx + hy + hz, fTR = mid + hx + hy + hz, fBR = mid + hx - hy + hz, fBL = mid - hx - hy + hz;
+        const QVector3D bTL = fTL - hz * 2, bTR = fTR - hz * 2, bBR = fBR - hz * 2, bBL = fBL - hz * 2;
+        quadOut(fTL, fTR, fBR, fBL, n, QVector3D(face.u0, face.v0, 0), QVector3D(face.u1, face.v0, 0),
+                QVector3D(face.u1, face.v1, 0), QVector3D(face.u0, face.v1, 0), Banner);
+        quadOut(bTR, bTL, bBL, bBR, -n, grey, grey, grey, grey, Solid);
+        quadOut(bTL, bTR, fTR, fTL, up, color, color, color, color, Solid);
+        quadOut(fBL, fBR, bBR, bBL, -up, color, color, color, color, Solid);
+        quadOut(bTL, fTL, fBL, bBL, -r, color, color, color, color, Solid);
+        quadOut(fTR, bTR, bBR, fBR, r, color, color, color, color, Solid);
+    };
+    // painted lines a little brighter than the arches (paint on dark asphalt)
+    const QVector3D green = kStartGreen, red = kFinishRed;
+    const QVector3D paintGreen(.20f, .85f, .32f), paintRed(.95f, .18f, .14f);
+    // "SPRINT IN 200 m", a thin green line
+    text(m_sprint.announce - 1 - kRoadTextLengthM, m_sprint.announce - 1, 2.6f, kRoadAnnounce);
+    line(m_sprint.announce, .45f, paintGreen);
+    // "SPRINT", the thick green start line and its sign
+    text(m_sprint.start - 1 - kRoadTextLengthM, m_sprint.start - 1, 2.2f, kRoadSprint);
+    line(m_sprint.start, 1.4f, paintGreen);
+    sign(m_sprint.start, kSprintSign, green);
+    // the red finish line and its sign
+    line(m_sprint.finish, 1.4f, paintRed);
+    sign(m_sprint.finish, kSprintFinishSign, red);
 }
 
 // --- geometry (unchanged from the prototype) -----------------------------------------------
@@ -707,6 +1210,115 @@ void Route3DScene::bush(const TreeSpec &t)
     blob(c, c, float(t.radius), green, .75f, t.seed, 4, 7, base.y(), h * 2.5f);
 }
 
+// A clump of wild flowers: each a thin stem and a small cup-shaped head
+// (5 petals around a darker heart), swaying gently with the trees.
+void Route3DScene::flowers(const FlowerClump &f)
+{
+    static const QVector3D petals[Flowers::colors] = {
+        { .86f, .10f, .08f },   // poppy red
+        { .98f, .82f, .12f },   // buttercup yellow
+        { .96f, .96f, .92f },   // daisy white
+        { .30f, .42f, .92f },   // cornflower blue
+        { .93f, .45f, .70f },   // pink
+        { .98f, .55f, .12f },   // orange
+        { .62f, .32f, .82f },   // violet
+    };
+    static const QVector3D hearts[Flowers::colors] = {
+        { .08f, .06f, .05f }, { .85f, .60f, .08f }, { .95f, .75f, .10f }, { .20f, .24f, .55f },
+        { .95f, .85f, .30f }, { .55f, .25f, .05f }, { .95f, .85f, .30f },
+    };
+    const QVector3D stemGreen(.20f, .38f, .12f);
+    const float size = float(f.size);
+    for (int k = 0; k < f.count; ++k) {
+        const float a = rnd(f.seed, k * 7) * 6.283f;
+        const float d = (k == 0 ? 0.f : .12f + .38f * rnd(f.seed, k * 7 + 1)) * size;
+        const QVector3D foot(float(f.x) + std::cos(a) * d, float(f.y) - .05f, float(f.z) + std::sin(a) * d);
+        const float h = (.20f + .22f * rnd(f.seed, k * 7 + 2)) * size;
+        const float r = (.055f + .035f * rnd(f.seed, k * 7 + 3)) * size;
+        const float lean = rnd(f.seed, k * 7 + 4) * 6.283f;
+        const QVector3D head = foot + QVector3D(std::cos(lean) * h * .12f, h, std::sin(lean) * h * .12f);
+        const float wh = std::min(1.f, h / 1.2f);   // sway weight at the head
+        // stem: one thin triangle, facing a random way
+        const QVector3D across(std::cos(lean + 1.57f) * .012f, 0, std::sin(lean + 1.57f) * .012f);
+        const QVector3D sn = QVector3D(std::cos(lean), .3f, std::sin(lean)).normalized();
+        put(foot - across, sn, stemGreen * .8f, Foliage, 0);
+        put(foot + across, sn, stemGreen * .8f, Foliage, 0);
+        put(head, sn, stemGreen, Foliage, wh);
+        // head
+        const QVector3D petal = petals[size_t(f.color % Flowers::colors)] * (.92f + .16f * rnd(f.seed, k * 7 + 5));
+        const QVector3D heart = hearts[size_t(f.color % Flowers::colors)];
+        // the head faces up and a little sideways (seen from the road, not edge-on)
+        const float face = rnd(f.seed, k * 7 + 6) * 6.283f;
+        const QVector3D up = QVector3D(std::cos(face) * .85f, 1.f, std::sin(face) * .85f).normalized();
+        const QVector3D u = QVector3D::crossProduct(up, QVector3D(0, 0, 1)).normalized();
+        const QVector3D w = QVector3D::crossProduct(up, u);
+        const QVector3D centre = head - up * (r * .25f);   // a shallow cup
+        auto rim = [&](int i) {
+            const float t = face + float(i) * 6.283185f / 5.f;
+            return head + (u * std::cos(t) + w * std::sin(t)) * r;
+        };
+        for (int i = 0; i < 5; ++i) {
+            const QVector3D p = rim(i), q = rim(i + 1);
+            put(centre, up, heart, Foliage, wh);
+            put(p, (up * 1.5f + (p - head) / r).normalized(), petal, Foliage, wh);
+            put(q, (up * 1.5f + (q - head) / r).normalized(), petal, Foliage, wh);
+        }
+    }
+}
+
+// A weathered stone: a noise-displaced, squashed ellipsoid with flat-shaded
+// facets, grey with a warm or cool cast and some moss on the top faces.
+void Route3DScene::rock(const RockSpec &s, bool far)
+{
+    const int rings = far ? 4 : 5, sides = far ? 6 : 8;
+    const float size = float(s.size);
+    const float rx = size * (.75f + .45f * rnd(s.seed, 1)), ry = size * (.60f + .30f * rnd(s.seed, 2)),
+                rz = size * (.70f + .40f * rnd(s.seed, 3));
+    const float spin = rnd(s.seed, 4) * 6.283f;
+    const float cs = std::cos(spin), sn = std::sin(spin);
+    const QVector3D centre(float(s.x), float(s.y) + ry * .45f, float(s.z));
+    const float tone = .38f + .16f * rnd(s.seed, 5);
+    const QVector3D grey = rnd(s.seed, 6) < .5f ? QVector3D(tone * 1.05f, tone, tone * .92f)    // warm granite
+                                                 : QVector3D(tone * .95f, tone, tone * 1.04f);  // cool
+    const float moss = rnd(s.seed, 7) * .6f;
+    const QVector3D mossGreen(.27f, .34f, .16f);
+    std::vector<QVector3D> pts;
+    pts.reserve(size_t((rings + 1) * sides));
+    for (int i = 0; i <= rings; ++i)
+        for (int k = 0; k < sides; ++k) {
+            const double a = 3.141592654 * i / rings, t = 6.283185307 * k / sides + (i % 2) * 3.14159 / sides;
+            QVector3D d(float(std::sin(a) * std::cos(t)), float(std::cos(a)), float(std::sin(a) * std::sin(t)));
+            const float n = float(.78 + .42 * WorldNoise::value(d.x() * 1.7 + s.seed % 89, d.z() * 1.7 + d.y() * 1.3, s.seed));
+            QVector3D p(d.x() * rx * n, d.y() * ry * n, d.z() * rz * n);
+            if (i == 0)
+                p.setY(p.y() * .7f);   // flattish top
+            pts.push_back(centre + QVector3D(p.x() * cs - p.z() * sn, p.y(), p.x() * sn + p.z() * cs));
+        }
+    auto P = [&](int i, int k) { return pts[size_t(i * sides + (k % sides))]; };
+    int facet = 0;
+    auto face3 = [&](QVector3D a, QVector3D b, QVector3D c) {
+        QVector3D n = QVector3D::crossProduct(b - a, c - a);
+        if (n.lengthSquared() < 1e-10f)
+            return;
+        n.normalize();
+        if (QVector3D::dotProduct(n, (a + b + c) / 3.f - centre) < 0)
+            n = -n;
+        QVector3D col = grey * (.88f + .24f * rnd(s.seed, 20 + facet++));
+        const float m = moss * std::clamp((n.y() - .55f) * 2.5f, 0.f, 1.f);
+        col = col * (1 - m) + mossGreen * m;
+        put(a, n, col, Solid, 0);
+        put(b, n, col, Solid, 0);
+        put(c, n, col, Solid, 0);
+    };
+    for (int i = 0; i < rings; ++i)
+        for (int k = 0; k < sides; ++k) {
+            if (i > 0)
+                face3(P(i, k), P(i, k + 1), P(i + 1, k + 1));
+            if (i < rings - 1)
+                face3(P(i, k), P(i + 1, k + 1), P(i + 1, k));
+        }
+}
+
 // Flat quad with an explicit normal (tri() forces normals upwards: wrong for walls).
 void Route3DScene::face(QVector3D a, QVector3D b, QVector3D c, QVector3D d, QVector3D n, QVector3D col)
 {
@@ -778,11 +1390,11 @@ void Route3DScene::building(const Building &b, bool far)
     QVector3D frame(.88f, .88f, .86f), glass(.12f, .15f, .19f);
     auto window = [&](float a, float s, float y, float w, float h, bool gableEnd) {
         QVector3D n = gableEnd ? u * s : f * s, along = gableEnd ? f : u;
-        QVector3D p = gableEnd ? P(s * (L + .03f), a, y) : P(a, s * (W + .03f), y);
+        QVector3D p = gableEnd ? P(s * (L + .06f), a, y) : P(a, s * (W + .06f), y);
         auto q = [&](float dx, float dy, float out) { return p + along * dx + QVector3D(0, dy, 0) + n * out; };
         face(q(-w * .5f - .07f, -.07f, 0), q(w * .5f + .07f, -.07f, 0), q(w * .5f + .07f, h + .07f, 0),
              q(-w * .5f - .07f, h + .07f, 0), n, frame);
-        face(q(-w * .5f, 0, .02f), q(w * .5f, 0, .02f), q(w * .5f, h, .02f), q(-w * .5f, h, .02f), n, glass);
+        face(q(-w * .5f, 0, .05f), q(w * .5f, 0, .05f), q(w * .5f, h, .05f), q(-w * .5f, h, .05f), n, glass);
     };
     if (b.kind == Barn) {
         for (float a = -L + 2.f; a < L - 1.5f; a += 3.f)
@@ -799,10 +1411,10 @@ void Route3DScene::building(const Building &b, bool far)
             if (s > 0 && i == door) {   // front door facing the road
                 QVector3D n = f;
                 auto q = [&](float dx, float dy, float out) {
-                    return P(a, W + .03f, fl) + u * dx + QVector3D(0, dy, 0) + n * out;
+                    return P(a, W + .06f, fl) + u * dx + QVector3D(0, dy, 0) + n * out;
                 };
                 face(q(-.6f, 0, 0), q(.6f, 0, 0), q(.6f, 2.2f, 0), q(-.6f, 2.2f, 0), n, frame);
-                face(q(-.48f, 0, .02f), q(.48f, 0, .02f), q(.48f, 2.08f, .02f), q(-.48f, 2.08f, .02f), n, doorColor);
+                face(q(-.48f, 0, .05f), q(.48f, 0, .05f), q(.48f, 2.08f, .05f), q(-.48f, 2.08f, .05f), n, doorColor);
                 continue;
             }
             window(a, s, fl + .85f, ww, wh, false);
@@ -903,6 +1515,23 @@ void Route3DScene::scene(double distance)
         }
         m_jobX = m_jobZ = INT_MAX;
     }
+    if (!m_tileJob.valid()) {   // nothing reads the terrain / the bike's spot meanwhile
+        if (m_startDirty) {
+            m_startDirty = false;
+            const DisplaySpot old = m_bikeSpot;
+            placeDisplayBike();
+            // rebuild the tile when its trees / rocks / flowers may change (the old or new spot is in reach)
+            const QVector3D tile(float(m_meshX * 32.0 + 16), 0, float(m_meshZ * 32.0 + 16));
+            auto near = [&](const DisplaySpot &b) {
+                return b.valid && std::hypot(b.pos.x() - tile.x(), b.pos.z() - tile.z()) < 420.f;
+            };
+            if (m_meshX != INT_MAX && (near(old) || near(m_bikeSpot)))
+                m_meshX = m_meshZ = INT_MAX;
+            m_gatesDirty = true;
+        }
+        if (m_gatesDirty)
+            buildGates();
+    }
     auto center = m_route->at(distance);
     const int tileX = int(std::floor(center.x / 32)), tileZ = int(std::floor(center.z / 32));
     if ((tileX == m_meshX && tileZ == m_meshZ) || m_tileJob.valid())
@@ -929,12 +1558,16 @@ void Route3DScene::buildTile(int tileX, int tileZ)
     int nx = tileX * 4 - radius, nz = tileZ * 4 - radius;
     // Terrain: compute each grid node once (position, smooth normal, tint).
     std::vector<QVector3D> pos(n * n), nor(n * n), col(n * n);
+    std::vector<float> water(n * n), sand(n * n);   // water level (NaN: none), sand 0..1
     auto h = [&](int ix, int iz) { return float(m_terrain.node(ix, iz)); };
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) {
             int ix = nx + i, iz = nz + j;
             float x = float(ix * Terrain::spacing), z = float(iz * Terrain::spacing);
-            pos[i * n + j] = QVector3D(x, h(ix, iz), z);
+            const auto data = m_terrain.nodeData(ix, iz);
+            water[i * n + j] = float(data.water);
+            sand[i * n + j] = data.sand;
+            pos[i * n + j] = QVector3D(x, float(data.height), z);
             nor[i * n + j] = QVector3D(h(ix - 1, iz) - h(ix + 1, iz), float(2 * Terrain::spacing), h(ix, iz - 1) - h(ix, iz + 1)).normalized();
             col[i * n + j] = groundTint(x, z);
         }
@@ -956,7 +1589,26 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             // Same diagonal as Terrain::surface(), so objects sit on the drawn surface.
             int a = i * n + j, b = (i + 1) * n + j, c = (i + 1) * n + j + 1, d = i * n + j + 1;
             for (int k : { a, b, c, a, c, d })
-                put(pos[k], nor[k], col[k], Grass, 0);
+                put(pos[k], nor[k], col[k], Grass, sand[k]);
+        }
+    // Water: a flat sheet over every cell with a corner under a lake or the sea;
+    // the banks above the water level hide its edges (depth test).
+    for (int i = 0; i + 1 < n; i++)
+        for (int j = 0; j + 1 < n; j++) {
+            const int corners[4] = { i * n + j, (i + 1) * n + j, (i + 1) * n + j + 1, i * n + j + 1 };
+            float level = std::numeric_limits<float>::quiet_NaN();
+            for (int k : corners)
+                if (std::isfinite(water[k]) && pos[k].y() < water[k])
+                    level = std::isfinite(level) ? std::max(level, water[k]) : water[k];
+            if (!std::isfinite(level))
+                continue;
+            auto at = [&](int k) {
+                QVector3D p = pos[k];
+                p.setY(std::isfinite(water[k]) ? water[k] : level);
+                return p;
+            };
+            for (int k : { corners[0], corners[1], corners[2], corners[0], corners[2], corners[3] })
+                put(at(k), QVector3D(0, 1, 0), QVector3D(1, 1, 1), Water, at(k).y() - pos[k].y());
         }
     // Draw all nearby sections, including the other side of a hairpin (route
     // points of the cells within 400 m, in route order).
@@ -975,16 +1627,20 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         auto p = route.points[i];
         if (std::abs(p.x - tileX * 32) > 400 || std::abs(p.z - tileZ * 32) > 400)
             continue;
+        // ridden earlier on the route (out-and-back, loops): that pass draws it
+        if (route.isShared(i) && route.isShared(i + 1))
+            continue;
         double d = p.distance, e = route.points[i + 1].distance;
         auto a = v(p), b = v(route.points[i + 1]), sa = side(d), sb = side(e);
-        auto leftA = a - sa * 3.6f, leftB = b - sb * 3.6f, rightA = a + sa * 3.6f, rightB = b + sb * 3.6f;
+        auto leftA = a - sa * kGravelEdgeM, leftB = b - sb * kGravelEdgeM, rightA = a + sa * kGravelEdgeM,
+             rightB = b + sb * kGravelEdgeM;
         auto below = [&](QVector3D q) {
             q.setY(float(m_terrain.surface(q.x(), q.z())));
             return q;
         };
         // A sloping gravel-to-grass verge rather than a vertical painted wall.
-        auto outerLA = below(a - sa * 6.5f), outerLB = below(b - sb * 6.5f);
-        auto outerRA = below(a + sa * 6.5f), outerRB = below(b + sb * 6.5f);
+        auto outerLA = below(a - sa * kVergeEdgeM), outerLB = below(b - sb * kVergeEdgeM);
+        auto outerRA = below(a + sa * kVergeEdgeM), outerRB = below(b + sb * kVergeEdgeM);
         outerLA.setY(outerLA.y() + .03f);
         outerLB.setY(outerLB.y() + .03f);
         outerRA.setY(outerRA.y() + .03f);
@@ -1020,8 +1676,101 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             shadowDisc(m_buildDecals, c, u, float(b.width * .5 + 1.6), float(b.length * .5 + 1.6), .40f, ground);
         }
     }
+    // The countryside (countryside.h): its objects keep trees, rocks and
+    // flowers off their spots.
+    struct Spot { double x, z, r; };
+    std::vector<Spot> taken;
+    auto takenAt = [&](double x, double z, double reach) {
+        return std::any_of(taken.begin(), taken.end(),
+                           [&](const Spot &s) { return std::hypot(x - s.x, z - s.z) < s.r + reach; });
+    };
+    auto contact = [&](double x, double z, QVector3D fwd, float rx, float rz, float strength) {
+        shadowDisc(m_buildDecals, QVector3D(float(x), 0, float(z)) + shadowDir * .3f, fwd, rx, rz, strength, ground);
+    };
+    for (const auto &a : Animals::scatter(m_terrain, cx, cz, 260, &buildings)) {
+        const double dist = std::hypot(a.x - cx, a.z - cz);
+        animal(a, dist > 130);
+        const float big = a.kind == Sheep ? .6f : 1.f;
+        taken.push_back({ a.x, a.z, 1.4 * big });
+        if (dist < 120)
+            contact(a.x, a.z, QVector3D(std::cos(float(a.heading)), 0, std::sin(float(a.heading))), .45f * big, 1.15f * big, .32f);
+    }
+    for (const auto &b : Bales::scatter(m_terrain, cx, cz, 260, &buildings)) {
+        bale(b);
+        taken.push_back({ b.x, b.z, 1.1 });
+        if (std::hypot(b.x - cx, b.z - cz) < 120)
+            contact(b.x, b.z, QVector3D(std::cos(float(b.heading)), 0, std::sin(float(b.heading))), .75f, .85f, .38f);
+    }
+    for (const auto &t : Tractors::scatter(m_terrain, cx, cz, 300, &buildings)) {
+        const double dist = std::hypot(t.x - cx, t.z - cz);
+        tractor(t, dist > 130);
+        taken.push_back({ t.x, t.z, 3.0 });
+        if (dist < 150)
+            contact(t.x, t.z, QVector3D(std::cos(float(t.heading)), 0, std::sin(float(t.heading))), 1.3f, 2.2f, .40f);
+    }
+    for (const auto &t : Turbines::scatter(m_terrain, cx, cz, 430, &buildings)) {
+        turbine(t, std::hypot(t.x - cx, t.z - cz) > 250);
+        taken.push_back({ t.x, t.z, 6.0 });
+    }
+    for (const auto &b : m_benches) {
+        if (std::hypot(b.x - cx, b.z - cz) > 230)
+            continue;
+        bench(b);
+        taken.push_back({ b.x, b.z, 1.4 });
+    }
+    for (const auto &l : m_terrain.lakesNear(cx, cz, 330)) {
+        const JettySpec j = LakeLife::jetty(m_terrain, l);
+        if (j.valid && std::hypot(j.x0 - cx, j.z0 - cz) < 320)
+            jetty(j);
+        if (std::hypot(l.x - cx, l.z - cz) < 170 + l.radius)
+            for (const auto &r : LakeLife::reeds(m_terrain, l, j))
+                if (std::hypot(r.x - cx, r.z - cz) < 170)
+                    reeds(r);
+        if (j.valid)
+            taken.push_back({ (j.x0 + j.x1) * .5, (j.z0 + j.z1) * .5, std::hypot(j.x1 - j.x0, j.z1 - j.z0) * .5 + 1.5 });
+    }
+    // Fences along the road where a pasture borders it (posts every second
+    // road point, 5 m; now and then a field gate), only near the camera.
+    for (const uint32_t idx : nearby) {
+        const size_t i = idx;
+        if (i % 2 || i + 2 >= route.points.size() || route.isShared(i))
+            continue;
+        const auto &p = route.points[i];
+        if (std::hypot(p.x - cx, p.z - cz) > 170)
+            continue;
+        const double d = p.distance, e = route.points[i + 2].distance;
+        const QVector3D sa = side(d), sb = side(e), a = v(p), b = v(route.points[i + 2]);
+        for (float s : { -1.f, 1.f }) {
+            constexpr float lateral = 11.5f;
+            const QVector3D field = a + sa * (s * (lateral + 12));
+            if (Landuse::pasture(field.x(), field.z()) < .5 || Landuse::forest(field.x(), field.z()) > .2)
+                continue;
+            QVector3D pa = a + sa * (s * lateral), pb = b + sb * (s * lateral);
+            if (m_terrain.nearest(pa.x(), pa.z()).distance < lateral - .5 || m_terrain.wet(pa.x(), pa.z(), 1.0)
+                || Settlement::blocked(buildings, pa.x(), pa.z(), .3, 1))
+                continue;
+            pa.setY(float(m_terrain.surface(pa.x(), pa.z())));
+            pb.setY(float(m_terrain.surface(pb.x(), pb.z())));
+            const int stretch = int(std::floor(d / 400));
+            const float pick = rnd(WorldNoise::hash(stretch, s > 0 ? 1 : 2, 1301), 1);
+            const int type = pick < .5f ? 0 : pick < .8f ? 1 : 2;
+            const bool gate = WorldNoise::hash(int(d / 5), s > 0 ? 3 : 4, 1303) % 31 == 0;
+            fenceSegment(pa, pb, sa * s, type, gate);
+        }
+    }
+    // The display bike's spot stays clear (no tree, rock or flowers on it).
+    const DisplaySpot &bike = m_bikeSpot;
+    auto atBike = [&](double x, double z, double reach) {
+        return bike.valid && std::hypot(x - bike.pos.x(), z - bike.pos.z()) < reach;
+    };
+    if (bike.valid && std::hypot(bike.pos.x() - cx, bike.pos.z() - cz) < 170) {
+        const QVector3D c = bike.pos + shadowDir * .25f;
+        shadowDisc(m_buildDecals, c, -bike.x, .42f, 1.05f, .40f, [&](QVector3D q) { return bike.groundAt(q) + .05f; });
+    }
     // Trees: detailed models near the road, simple ones further out (fog hides the rest).
     for (const auto &t : Vegetation::scatter(m_terrain, cx, cz, 300, &buildings)) {
+        if (atBike(t.x, t.z, 2.5 + t.radius) || takenAt(t.x, t.z, t.radius * (t.kind == Bush ? .6 : .3)))
+            continue;
         double dist = std::hypot(t.x - cx, t.z - cz);
         bool far = dist > 115;
         if (t.kind == Spruce)
@@ -1036,6 +1785,21 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             shadowDisc(m_buildDecals, c, shadowDir, r, r * 1.25f, t.kind == Bush ? .30f : .42f, ground);
         }
     }
+    // Rocks and boulders (simpler further out), wild flowers close by (they are small).
+    for (const auto &s : Rocks::scatter(m_terrain, cx, cz, 240, &buildings)) {
+        if (atBike(s.x, s.z, 2.0 + 1.5 * s.size) || takenAt(s.x, s.z, s.size))
+            continue;
+        const double dist = std::hypot(s.x - cx, s.z - cz);
+        rock(s, dist > 90);
+        if (dist < 120 && s.size > .35) {
+            QVector3D c = QVector3D(float(s.x), 0, float(s.z)) + shadowDir * float(s.size * .25);
+            const float r = float(s.size) * 1.05f;
+            shadowDisc(m_buildDecals, c, shadowDir, r, r * 1.2f, .32f, ground);
+        }
+    }
+    for (const auto &f : Flowers::scatter(m_terrain, cx, cz, 75, &buildings))
+        if (!atBike(f.x, f.z, 1.6) && !takenAt(f.x, f.z, .4))
+            flowers(f);
 }
 
 void Route3DScene::attributes()
@@ -1091,7 +1855,10 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     auto target = eye + flat * 35;
     target.setY(target.y() - 1.2f + 35 * slope * .4f);
     QMatrix4x4 projection, view;
-    projection.perspective(66, float(pixelSize.width()) / float(std::max(1, pixelSize.height())), .15f, 2500);
+    // near plane .5 m (the closest thing in view is the road a few metres
+    // ahead and the rider 3 m ahead): the depth buffer's precision grows with
+    // it, so faces just in front of others (windows, doors, plates) do not flicker
+    projection.perspective(66, float(pixelSize.width()) / float(std::max(1, pixelSize.height())), kNearPlaneM, 2500);
     view.lookAt(eye, target, QVector3D(0, 1, 0));
     const QVector2D uvOrigin(float(std::floor(eye.x() / kTextureRepeatM) * kTextureRepeatM),
                              float(std::floor(eye.z() / kTextureRepeatM) * kTextureRepeatM));

@@ -63,4 +63,20 @@ struct RowingRecord
     QVector<TracePoint> trace;
 };
 
+// One timed segment of a GPX Ride (kind "sprint": sprint::Segment, "kom":
+// climb::longest()): every attempt is kept.
+struct SegmentRecord
+{
+    qint64 id = -1;
+    qint64 profileId = -1;
+    QString kind;          // "sprint" / "kom"
+    QString routeKey;      // sprint::routeKey(): the GPX track's fingerprint
+    QString routeName;
+    double startM = 0;     // where the segment starts on the route (m)
+    double lengthM = 0;
+    double timeSec = 0;
+    qint64 rideId = -1;    // the saved ride it was part of (-1 = none)
+    QDateTime createdAt;
+};
+
 } // namespace watt

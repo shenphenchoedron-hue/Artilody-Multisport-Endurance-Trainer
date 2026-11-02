@@ -97,6 +97,11 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     // the attached workout's watts follow the rider's FTP (not during a ride:
     // the ride keeps the FTP of its start)
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
+        if (!active()) {   // the sprint / KOM bests of the new rider
+            loadBests(m_profiles->profileId());
+            emit sprintChanged();
+            emit komChanged();
+        }
         if (!m_hasWorkout || active())
             return;
         m_workout.setFtp(m_profiles->current().ftpFor(sport::cycling()));
@@ -424,6 +429,7 @@ bool RlvSession::selectPath(const QString &pathIn)
     m_speed = 0;
     if (m_state == State::Finished)
         setState(State::Idle);
+    segmentsRouteChanged();
     emit routeChanged();
     emit positionChanged();
     updateInformation();
@@ -445,6 +451,7 @@ void RlvSession::clearRoute()
     m_completed = false;
     if (m_state == State::Finished)
         setState(State::Idle);
+    segmentsRouteChanged();
     emit routeChanged();
     emit positionChanged();
     updateInformation();
@@ -787,6 +794,8 @@ bool RlvSession::start()
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
     clearRecording();
+    loadBests(m_rideProfile.id);
+    resetSegments();
     m_completed = false;
     resetLastRideId();
     m_startedAt = QDateTime::currentDateTime();
@@ -828,6 +837,7 @@ void RlvSession::pause()
     if (!running())
         return;   // the route ended in that step
     m_workout.pause();
+    voidSegments();   // a sprint / KOM must be ridden in one go
     setState(State::Paused);
     releaseTrainer();
     m_shouldPlay = false;
@@ -873,6 +883,7 @@ qint64 RlvSession::finish(bool save)
     releaseTrainer();
     m_shouldPlay = false;
     emit videoChanged();
+    voidSegments();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
     if (!save)
@@ -892,6 +903,7 @@ void RlvSession::reset()
     m_completed = false;
     m_distance = m_startDistance;
     resetLastRideId();
+    resetSegments();
     if (m_hasWorkout) {
         const int intensity = m_workout.intensityOffset();
         m_workout.reset();
@@ -920,6 +932,7 @@ bool RlvSession::seekToDistance(double meters)
         m_completed = false;
         setState(State::Idle);
     }
+    resetSegments();
     emit positionChanged();
     updateInformation();
     requestSeek();
@@ -1018,9 +1031,12 @@ void RlvSession::process(int ms)
     const double dt = ms / 1000.0;
     updateModel(dt);
     if (running()) {
+        const double d0 = m_distance;
+        const qint64 t0 = m_activeMs;
         m_activeMs += ms;
         const double total = totalDistanceM();
         m_distance = std::min(total, m_distance + m_speed * dt);
+        updateSegments(d0, t0);
         m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
         advanceWorkout(ms);
@@ -1146,11 +1162,158 @@ qint64 RlvSession::saveRide()
     r.distanceM = riddenMeters();
     analysis::applyStats(r, analysis::analyze(m_samples, r.ftp, p.zones));
     m_lastRideId = m_db->saveRide(r, m_samples);
+    for (const TimedSegment *seg : { &m_sprint, &m_kom })
+        if (m_lastRideId >= 0 && seg->recordId >= 0)
+            m_db->setSegmentRideId(seg->recordId, m_lastRideId);
     if (m_lastRideId >= 0) {
         emit lastRideIdChanged();
         emit rideSaved(m_lastRideId);
     }
     return m_lastRideId;
+}
+
+// --- sprint and KOM -------------------------------------------------------------
+
+void RlvSession::segmentsRouteChanged()
+{
+    const bool gpx = isGpx() && hasRoute();
+    m_sprintSeg = gpx ? sprint::forRoute(totalDistanceM()) : sprint::Segment();
+    m_komClimb = gpx ? climb::longest(m_route) : climb::Climb();
+    const QString key = m_sprintSeg.valid || m_komClimb.valid ? sprint::routeKey(m_route) : QString();
+    m_sprint.key = m_sprintSeg.valid ? key : QString();
+    m_sprint.start = m_sprintSeg.start;
+    m_sprint.finish = m_sprintSeg.finish;
+    m_kom.key = m_komClimb.valid ? key : QString();
+    m_kom.start = m_komClimb.start;
+    m_kom.finish = m_komClimb.finish;
+    loadBests(m_profiles->profileId());
+    resetSegments();
+}
+
+void RlvSession::loadBest(TimedSegment &seg, qint64 profileId)
+{
+    seg.best = 0;
+    seg.attempts = 0;
+    if (!seg.valid() || profileId < 0)
+        return;
+    if (const auto best = m_db->bestSegment(profileId, seg.kind, seg.key, seg.length()))
+        seg.best = best->timeSec;
+    seg.attempts = m_db->segmentAttempts(profileId, seg.kind, seg.key, seg.length());
+}
+
+void RlvSession::loadBests(qint64 profileId)
+{
+    loadBest(m_sprint, profileId);
+    loadBest(m_kom, profileId);
+}
+
+void RlvSession::resetTimed(TimedSegment &seg)
+{
+    seg.phase = SegmentPhase::Idle;
+    seg.startMs = 0;
+    seg.time = 0;
+    seg.previousBest = seg.best;
+    seg.newBest = false;
+    seg.recordId = -1;
+}
+
+void RlvSession::resetSegments()
+{
+    resetTimed(m_sprint);
+    resetTimed(m_kom);
+    emit sprintChanged();
+    emit komChanged();
+}
+
+void RlvSession::voidSegments()
+{
+    if (m_sprint.phase == SegmentPhase::Running) {
+        m_sprint.phase = SegmentPhase::Void;
+        emit sprintChanged();
+    }
+    if (m_kom.phase == SegmentPhase::Running) {
+        m_kom.phase = SegmentPhase::Void;
+        emit komChanged();
+    }
+}
+
+QString RlvSession::timedState(const TimedSegment &seg) const
+{
+    if (!seg.valid())
+        return QStringLiteral("none");
+    switch (seg.phase) {
+    case SegmentPhase::Running: return QStringLiteral("running");
+    case SegmentPhase::Done: return QStringLiteral("done");
+    case SegmentPhase::Void: return QStringLiteral("void");
+    case SegmentPhase::Idle: break;
+    }
+    // (the start line is crossed coming from before it: a ride starting on it is too late)
+    return m_distance < seg.start ? QStringLiteral("ahead") : QStringLiteral("passed");
+}
+
+double RlvSession::timedElapsed(const TimedSegment &seg) const
+{
+    if (seg.phase == SegmentPhase::Done)
+        return seg.time;
+    if (seg.phase != SegmentPhase::Running)
+        return 0.0;
+    return std::max(0.0, (double(m_activeMs) - seg.startMs) / 1000.0);
+}
+
+bool RlvSession::stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished)
+{
+    finished = false;
+    if (!seg.valid())
+        return false;
+    const double d1 = m_distance, t1 = double(m_activeMs);
+    if (seg.phase == SegmentPhase::Idle) {
+        const double at = sprint::crossingMs(d0, d1, double(t0), t1, seg.start);
+        if (!std::isfinite(at))
+            return false;
+        seg.phase = SegmentPhase::Running;
+        seg.startMs = at;
+    }
+    if (seg.phase != SegmentPhase::Running)
+        return false;
+    const double end = sprint::crossingMs(d0, d1, double(t0), t1, seg.finish);
+    if (!std::isfinite(end))
+        return true;   // the running time
+    const double time = std::round((end - seg.startMs) / 10.0) / 100.0;   // 0.01 s
+    seg.phase = SegmentPhase::Done;
+    seg.time = time;
+    seg.previousBest = seg.best;
+    seg.newBest = seg.best <= 0 || time < seg.best;
+    SegmentRecord r;
+    r.profileId = m_rideProfile.id;
+    r.kind = seg.kind;
+    r.routeKey = seg.key;
+    r.routeName = m_route.name();
+    r.startM = seg.start;
+    r.lengthM = seg.length();
+    r.timeSec = time;
+    r.createdAt = QDateTime::currentDateTime();
+    seg.recordId = r.profileId >= 0 ? m_db->saveSegmentRecord(r) : -1;
+    if (seg.recordId >= 0)
+        ++seg.attempts;
+    if (seg.newBest)
+        seg.best = time;
+    finished = true;
+    return true;
+}
+
+void RlvSession::updateSegments(double d0, qint64 t0)
+{
+    bool finished = false;
+    if (stepTimed(m_sprint, d0, t0, finished)) {
+        emit sprintChanged();
+        if (finished)
+            emit sprintFinished(m_sprint.time, m_sprint.previousBest, m_sprint.newBest);
+    }
+    if (stepTimed(m_kom, d0, t0, finished)) {
+        emit komChanged();
+        if (finished)
+            emit komFinished(m_kom.time, m_kom.previousBest, m_kom.newBest);
+    }
 }
 
 // --- workout during the ride ------------------------------------------------------

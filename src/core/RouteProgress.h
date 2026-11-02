@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Climb.h"
+#include "Sprint.h"
+
 #include <QString>
 
 namespace watt {
@@ -26,6 +29,10 @@ public:
     virtual bool runnerFigure() const { return false; }
     // Runner: the athlete's walk -> run speed (km/h), see RunLibrary::walkRunKmh.
     virtual double walkRunKmh() const { return 6.25; }
+    // The route's sprint (GPX Ride; the 3D view paints its lines): none by default.
+    virtual sprint::Segment sprintSegment() const { return {}; }
+    // The route's KOM climb (GPX Ride; the 3D view draws its arches): none by default.
+    virtual climb::Climb komClimb() const { return {}; }
 };
 
 } // namespace watt

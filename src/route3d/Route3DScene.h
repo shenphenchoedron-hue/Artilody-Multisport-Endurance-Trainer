@@ -2,6 +2,7 @@
 
 #include "ghost_rider.h"
 #include "ghost_runner.h"
+#include "countryside.h"
 #include "terrain.h"
 #include "vegetation.h"
 
@@ -46,6 +47,7 @@ class Route3DScene : protected QOpenGLFunctions
 {
 public:
     static constexpr float kCameraHeightM = 1.7f;
+    static constexpr float kNearPlaneM = .5f;
 
     Route3DScene();
     ~Route3DScene();
@@ -64,6 +66,17 @@ public:
     // START is shown until you have ridden through it, then FINISH - so on a
     // loop (both at one place) you start under green and finish under red.
     void setStartDistance(double drawnMetres);
+    // The GPX Ride's sprint (drawn metres): lines across the road, road text
+    // and signs (see sprintMarks()). Not valid: none.
+    struct SprintMarks { bool valid = false; double announce = 0, start = 0, finish = 0; };
+    void setSprint(const SprintMarks &marks);
+    // The GPX Ride's KOM climb (drawn metres): a polka-dot arch at its foot,
+    // a red one at its top. Not valid: none.
+    struct KomMarks { bool valid = false; double start = 0, finish = 0; };
+    void setKom(const KomMarks &marks);
+    // A small white kilometre post at each whole kilometre of the ride
+    // (drawn metres of km 1, 2, ...), on the right-hand verge.
+    void setKmPosts(const std::vector<double> &drawnMetres);
     // Draw a runner (Treadmill Run) instead of the cyclist. In render(),
     // crank is then the stride phase (one turn = a left and a right step).
     void setRunner(bool on);
@@ -80,13 +93,18 @@ public:
 
 private:
     enum Material { Solid = 0, Asphalt = 1, Grass = 2, Gravel = 3, Paint = 4, Verge = 5, Shadow = 6, Distant = 7, Foliage = 8,
-                    Banner = 9 };   // Banner: colour r,g = texture coordinates in the START / FINISH banner
+                    Banner = 9,     // Banner: colour r,g = texture coordinates in the START / FINISH banner
+                    Water = 10,     // lakes and the sea; blend = water depth (m). Grass: blend = sand (0..1)
+                    Polka = 11,     // white with red dots: colour r,g = surface position in dot periods
+                    Rotor = 12 };   // wind turbine blades, turned in the vertex shader: colour = hub,
+                                    // normal = rotor axis, blend = phase (+100: the back face)
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
     static float rnd(uint32_t seed, int k);
     void put(std::vector<Vertex> &out, QVector3D p, QVector3D n, QVector3D c, int m, float b);
-    void put(QVector3D p, QVector3D n, QVector3D c, int m, float b) { put(m_build, p, n, c, m, b); }
+    // (the short form writes to m_target: the tile, or the gate buffer while buildGates() runs)
+    void put(QVector3D p, QVector3D n, QVector3D c, int m, float b) { put(*m_target, p, n, c, m, b); }
     void tri(QVector3D a, QVector3D b, QVector3D c, QVector3D color, int material = Solid, float ba = 0, float bb = 0, float bc = 0);
     void quad(QVector3D a, QVector3D b, QVector3D c, QVector3D d, QVector3D color, int material = Solid, float ba = 0,
               float bb = 0, float bc = 0, float bd = 0);
@@ -98,15 +116,58 @@ private:
               int sides, float baseY, float height);
     void broadleaf(const route3d::TreeSpec &t, bool far);
     void bush(const route3d::TreeSpec &t);
+    void flowers(const route3d::FlowerClump &f);
+    void rock(const route3d::RockSpec &s, bool far);
     void face(QVector3D a, QVector3D b, QVector3D c, QVector3D d, QVector3D n, QVector3D col);
+    // countryside (Route3DCountryside.cpp)
+    // a box: centre, half axes (orthogonal); blend lo at -hy, hi at +hy (Foliage sway)
+    void box(QVector3D c, QVector3D hx, QVector3D hy, QVector3D hz, QVector3D col, int material = Solid, float blendLo = 0,
+             float blendHi = 0);
+    // a square bar from a to b (half thickness)
+    void limb(QVector3D a, QVector3D b, float half, QVector3D col, int material = Solid, float blendA = 0, float blendB = 0);
+    void cylinder(QVector3D a, QVector3D b, float r, int sides, QVector3D side, QVector3D cap);
+    // a low-poly ellipsoid (smooth normals): centre, half axes; colour per unit direction
+    void ellipsoid(QVector3D c, QVector3D ax, QVector3D ay, QVector3D az, int rings, int sides,
+                   const std::function<QVector3D(QVector3D)> &color);
+    // an open tapered tube from a (radius r0, colour c0) to b (r1, c1), smooth normals
+    void taper(QVector3D a, QVector3D b, float r0, float r1, int sides, QVector3D c0, QVector3D c1);
+    void animal(const route3d::AnimalSpec &a, bool far);
+    void bale(const route3d::BaleSpec &b);
+    void tractor(const route3d::TractorSpec &t, bool far);
+    void turbine(const route3d::TurbineSpec &t, bool far);
+    void bench(const route3d::BenchSpec &b);
+    // one fence panel from post a to post b (ground points); out: away from the road
+    // type 0 wooden rails, 1 electric tape, 2 wire; gate: a steel field gate instead
+    void fenceSegment(QVector3D a, QVector3D b, QVector3D out, int type, bool gate);
+    void reeds(const route3d::ReedClump &r);
+    void jetty(const route3d::JettySpec &j);
+    void boat(QVector3D c, float heading, int color, uint32_t seed);
     void building(const route3d::Building &b, bool far);
     void shadowDisc(std::vector<Vertex> &out, QVector3D c, QVector3D fwd, float rx, float rz, float strength,
                     const std::function<float(QVector3D)> &height);
     void buildRing();
     // one inflatable arch across the road at drawn distance d (finish: red)
-    void arch(std::vector<Vertex> &out, double d, bool finish);
+    enum ArchStyle { StartArch, FinishArch, KomStartArch, KomFinishArch };
+    void arch(std::vector<Vertex> &out, double d, ArchStyle style);
+    void buildGates();   // arches + display bike -> m_gateBuffer (no tile job running)
     void drawGates(double distance);
     double startGate(double length) const;   // drawn metres of the START arch
+    // The display bike on its post beside the road before the START arch
+    // (trail-bike.glb, route3d::StaticModel): placed in setRoute() /
+    // setStartDistance(), drawn with the arches; tiles keep its spot clear.
+    struct DisplaySpot {
+        bool valid = false;
+        QVector3D pos;            // the foot of the post, on the verge
+        QVector3D x, z;           // the model's x / z axes in the world (y is up)
+        QVector3D roadSide;       // unit vector from the road towards the spot
+        float roadY = 0, outerY = 0, lateral = 0;   // the verge: road edge / outer edge heights
+        float groundAt(QVector3D q) const;          // the verge's height under q
+    };
+    void placeDisplayBike();
+    void displayBike(std::vector<Vertex> &out);
+    void sprintMarks(std::vector<Vertex> &out);
+    void kmPosts();                                   // -> m_target (buildGates)
+    float vergeHeight(double d, float lateral) const;  // the ground beside the road (gravel, verge, terrain)
     // The landscape around the camera: rebuilt when the camera enters another
     // 32 m tile. The first tile of a route is built in the frame; later ones
     // on a worker thread (the old tile is drawn meanwhile) and only uploaded
@@ -126,7 +187,16 @@ private:
     QOpenGLBuffer m_gateBuffer { QOpenGLBuffer::VertexBuffer };
     std::vector<Vertex> m_gateVertices;
     int m_startGateCount = 0;     // first vertices: the START arch, then the FINISH arch
+    int m_finishGateEnd = 0;      // then the display bike (always drawn) up to the end
+    DisplaySpot m_bikeSpot;       // read by the tile job: changed only after waitForTile()
+    SprintMarks m_sprint;         // drawn with the arches (m_gateBuffer)
+    KomMarks m_kom;
+    std::vector<double> m_kmPosts;           // drawn metres of km 1, 2, ...
+    std::vector<route3d::BenchSpec> m_benches;   // per route (setRoute), read by the tile job
+    std::vector<Vertex> *m_target = &m_build;
     double m_startDistance = 0;
+    double m_builtStartGate = 0;  // drawn metres of the START arch in m_gateBuffer
+    bool m_startDirty = false;    // m_startDistance changed: bike / gates follow in scene()
     bool m_gatesDirty = true;
     QOpenGLBuffer m_buffer { QOpenGLBuffer::VertexBuffer };
     QOpenGLBuffer m_ghostBuffer { QOpenGLBuffer::VertexBuffer };

@@ -50,9 +50,37 @@ int componentSize(int ct)
 }
 
 // Reads an accessor as floats (normalised integers are scaled to 0..1).
+// Every offset, stride and count from the file is checked against the BIN
+// chunk before it is read (the file may be any .glb).
 struct Reader {
     QJsonObject json;
     QByteArray bin;
+    static constexpr qint64 kMaxCount = 1 << 24;   // elements per accessor
+
+    // The accessor's start and stride in bin; false unless all `count`
+    // elements of `element` bytes lie inside its buffer view and the BIN chunk.
+    bool view(const QJsonObject& a, qint64 element, qint64 count, qint64& offset, qint64& stride) const
+    {
+        const QJsonArray views = json.value(QStringLiteral("bufferViews")).toArray();
+        const int vi = a.value(QStringLiteral("bufferView")).toInt(-1);
+        if (vi < 0 || vi >= views.size())
+            return false;
+        const QJsonObject bv = views.at(vi).toObject();
+        if (bv.value(QStringLiteral("buffer")).toInt() != 0)
+            return false;
+        const qint64 viewOffset = bv.value(QStringLiteral("byteOffset")).toInteger();
+        const qint64 viewLength = bv.value(QStringLiteral("byteLength")).toInteger(-1);
+        const qint64 accOffset = a.value(QStringLiteral("byteOffset")).toInteger();
+        stride = bv.contains(QStringLiteral("byteStride")) ? bv.value(QStringLiteral("byteStride")).toInteger() : element;
+        if (viewOffset < 0 || viewLength < 0 || accOffset < 0 || viewOffset > bin.size()
+            || viewLength > bin.size() - viewOffset || stride < element || stride > 256)
+            return false;
+        offset = viewOffset + accOffset;
+        // all values below 2^31 (bin) and 2^24 * 256: no overflow
+        if (count > 0 && accOffset + (count - 1) * stride + element > viewLength)
+            return false;
+        return true;
+    }
 
     bool read(int index, std::vector<float>& out, int* comps = nullptr) const
     {
@@ -64,22 +92,19 @@ struct Reader {
         const int ct = a.value(QStringLiteral("componentType")).toInt();
         const int cs = componentSize(ct);
         const qint64 count = a.value(QStringLiteral("count")).toInteger();
-        if (n == 0 || cs == 0 || count < 0)
+        if (n == 0 || cs == 0 || count < 0 || count > kMaxCount)
             return false;
         if (comps)
             *comps = n;
-        out.assign(size_t(count) * size_t(n), 0.f);
-        if (!a.contains(QStringLiteral("bufferView")))
+        if (!a.contains(QStringLiteral("bufferView"))) {
+            out.assign(size_t(count) * size_t(n), 0.f);
             return true;   // all zeros (sparse accessors are not supported)
-        const QJsonObject bv = json.value(QStringLiteral("bufferViews")).toArray()
-                                   .at(a.value(QStringLiteral("bufferView")).toInt()).toObject();
-        if (bv.value(QStringLiteral("buffer")).toInt() != 0)
+        }
+        qint64 offset = 0, stride = 0;
+        if (!view(a, qint64(n) * cs, count, offset, stride))
             return false;
-        const qint64 offset = bv.value(QStringLiteral("byteOffset")).toInteger() + a.value(QStringLiteral("byteOffset")).toInteger();
-        const qint64 stride = bv.contains(QStringLiteral("byteStride")) ? bv.value(QStringLiteral("byteStride")).toInteger() : qint64(n) * cs;
+        out.assign(size_t(count) * size_t(n), 0.f);
         const bool normalized = a.value(QStringLiteral("normalized")).toBool();
-        if (count > 0 && offset + (count - 1) * stride + qint64(n) * cs > bin.size())
-            return false;
         const char* base = bin.constData() + offset;
         for (qint64 i = 0; i < count; ++i) {
             const char* e = base + i * stride;
@@ -110,13 +135,11 @@ struct Reader {
         const int ct = a.value(QStringLiteral("componentType")).toInt();
         const int cs = componentSize(ct);
         const qint64 count = a.value(QStringLiteral("count")).toInteger();
-        if ((ct != 5121 && ct != 5123 && ct != 5125) || !a.contains(QStringLiteral("bufferView")))
+        if ((ct != 5121 && ct != 5123 && ct != 5125) || !a.contains(QStringLiteral("bufferView")) || count < 0
+            || count > kMaxCount)
             return false;
-        const QJsonObject bv = json.value(QStringLiteral("bufferViews")).toArray()
-                                   .at(a.value(QStringLiteral("bufferView")).toInt()).toObject();
-        const qint64 offset = bv.value(QStringLiteral("byteOffset")).toInteger() + a.value(QStringLiteral("byteOffset")).toInteger();
-        const qint64 stride = bv.contains(QStringLiteral("byteStride")) ? bv.value(QStringLiteral("byteStride")).toInteger() : cs;
-        if (count > 0 && offset + (count - 1) * stride + cs > bin.size())
+        qint64 offset = 0, stride = 0;
+        if (!view(a, cs, count, offset, stride))
             return false;
         out.resize(size_t(count));
         for (qint64 i = 0; i < count; ++i) {
@@ -126,6 +149,31 @@ struct Reader {
         return true;
     }
 };
+
+// Splits a .glb into its JSON and BIN chunks.
+bool parseGlb(const QByteArray& glb, Reader& r, QString* error)
+{
+    if (glb.size() < 20 || qFromLittleEndian<quint32>(glb.constData()) != kMagic)
+        return fail(error, QStringLiteral("not a binary glTF (.glb) file"));
+    if (qFromLittleEndian<quint32>(glb.constData() + 4) != 2)
+        return fail(error, QStringLiteral("only glTF 2.0 is supported"));
+    qint64 pos = 12;
+    while (pos + 8 <= glb.size()) {
+        const quint32 len = qFromLittleEndian<quint32>(glb.constData() + pos);
+        const quint32 type = qFromLittleEndian<quint32>(glb.constData() + pos + 4);
+        if (pos + 8 + qint64(len) > glb.size())
+            return fail(error, QStringLiteral("truncated .glb chunk"));
+        const QByteArray data = glb.mid(int(pos + 8), int(len));
+        if (type == kChunkJson)
+            r.json = QJsonDocument::fromJson(data).object();
+        else if (type == kChunkBin && r.bin.isEmpty())
+            r.bin = data;
+        pos += 8 + qint64(len);
+    }
+    if (r.json.isEmpty())
+        return fail(error, QStringLiteral("no glTF JSON chunk"));
+    return true;
+}
 
 QString shortName(QString n)
 {
@@ -149,26 +197,9 @@ bool GlbModel::load(const QByteArray& glb, QString* error, Outfit outfit)
 {
     *this = GlbModel();
     m_outfit = outfit;
-    if (glb.size() < 20 || qFromLittleEndian<quint32>(glb.constData()) != kMagic)
-        return fail(error, QStringLiteral("not a binary glTF (.glb) file"));
-    if (qFromLittleEndian<quint32>(glb.constData() + 4) != 2)
-        return fail(error, QStringLiteral("only glTF 2.0 is supported"));
     Reader r;
-    qint64 pos = 12;
-    while (pos + 8 <= glb.size()) {
-        const quint32 len = qFromLittleEndian<quint32>(glb.constData() + pos);
-        const quint32 type = qFromLittleEndian<quint32>(glb.constData() + pos + 4);
-        if (pos + 8 + qint64(len) > glb.size())
-            return fail(error, QStringLiteral("truncated .glb chunk"));
-        const QByteArray data = glb.mid(int(pos + 8), int(len));
-        if (type == kChunkJson)
-            r.json = QJsonDocument::fromJson(data).object();
-        else if (type == kChunkBin && r.bin.isEmpty())
-            r.bin = data;
-        pos += 8 + qint64(len);
-    }
-    if (r.json.isEmpty())
-        return fail(error, QStringLiteral("no glTF JSON chunk"));
+    if (!parseGlb(glb, r, error))
+        return false;
 
     // nodes
     const QJsonArray nodes = r.json.value(QStringLiteral("nodes")).toArray();
@@ -1117,6 +1148,182 @@ void GlbModel::poseOnBike(const BikeFit& fit, std::vector<GhostVertex>& out, Hea
         head->up = qh.rotatedVector(QVector3D(0, 1, 0));
         head->forward = qh.rotatedVector(QVector3D(0, 0, 1));
     }
+}
+
+// --- StaticModel -------------------------------------------------------------------------------
+
+namespace {
+
+QVector3D vec3(const QJsonValue& v, QVector3D fallback = QVector3D())
+{
+    const QJsonArray a = v.toArray();
+    if (a.size() < 3)
+        return fallback;
+    return QVector3D(float(a[0].toDouble()), float(a[1].toDouble()), float(a[2].toDouble()));
+}
+
+// linear (glTF) -> the display colours the 3D view's shader works in
+float toDisplay(float c)
+{
+    return std::pow(std::clamp(c, 0.f, 1.f), 1.f / 2.2f);
+}
+
+} // namespace
+
+bool StaticModel::loadFile(const QString& path, QString* error)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return fail(error, QStringLiteral("cannot open %1").arg(path));
+    return load(f.readAll(), error);
+}
+
+bool StaticModel::load(const QByteArray& glb, QString* error)
+{
+    *this = StaticModel();
+    Reader r;
+    if (!parseGlb(glb, r, error))
+        return false;
+
+    const QJsonArray nodes = r.json.value(QStringLiteral("nodes")).toArray();
+    const QJsonArray meshes = r.json.value(QStringLiteral("meshes")).toArray();
+    const QJsonArray materials = r.json.value(QStringLiteral("materials")).toArray();
+    // the scene's root nodes (else every node without a parent)
+    std::vector<int> roots;
+    {
+        const QJsonArray scenes = r.json.value(QStringLiteral("scenes")).toArray();
+        const int scene = r.json.value(QStringLiteral("scene")).toInt(0);
+        if (scene >= 0 && scene < scenes.size())
+            for (const QJsonValue v : scenes.at(scene).toObject().value(QStringLiteral("nodes")).toArray())
+                roots.push_back(v.toInt(-1));
+        if (roots.empty()) {
+            std::vector<bool> child(size_t(nodes.size()), false);
+            for (const QJsonValue n : nodes)
+                for (const QJsonValue c : n.toObject().value(QStringLiteral("children")).toArray())
+                    if (c.toInt(-1) >= 0 && c.toInt(-1) < nodes.size())
+                        child[size_t(c.toInt())] = true;
+            for (int i = 0; i < nodes.size(); ++i)
+                if (!child[size_t(i)])
+                    roots.push_back(i);
+        }
+    }
+    auto local = [&](const QJsonObject& n) {
+        QMatrix4x4 m;
+        const QJsonArray a = n.value(QStringLiteral("matrix")).toArray();
+        if (a.size() == 16) {
+            float v[16];
+            for (int k = 0; k < 16; ++k)
+                v[k] = float(a[k].toDouble());
+            return QMatrix4x4(v).transposed();   // glTF: column-major
+        }
+        m.translate(vec3(n.value(QStringLiteral("translation"))));
+        const QJsonArray q = n.value(QStringLiteral("rotation")).toArray();
+        if (q.size() == 4)
+            m.rotate(QQuaternion(float(q[3].toDouble()), float(q[0].toDouble()), float(q[1].toDouble()), float(q[2].toDouble())));
+        m.scale(vec3(n.value(QStringLiteral("scale")), QVector3D(1, 1, 1)));
+        return m;
+    };
+    QString problem;
+    std::vector<int> visited(size_t(nodes.size()), 0);
+    constexpr int kMaxDepth = 64;   // scenery is shallow; bounds the recursion
+    std::function<void(int, const QMatrix4x4&, int)> walk = [&](int index, const QMatrix4x4& parent, int depth) {
+        if (index < 0 || index >= nodes.size() || visited[size_t(index)]++ || depth > kMaxDepth) {
+            problem = QStringLiteral("invalid node hierarchy");
+            return;
+        }
+        const QJsonObject n = nodes.at(index).toObject();
+        const QMatrix4x4 world = parent * local(n);
+        const QMatrix4x4 normalMatrix = world.inverted().transposed();
+        const bool mirrored = world.determinant() < 0;
+        for (const QJsonValue d : n.value(QStringLiteral("extras")).toObject().value(QStringLiteral("decals")).toArray()) {
+            const QJsonObject o = d.toObject();
+            const QJsonArray size = o.value(QStringLiteral("size")).toArray();
+            Decal decal;
+            decal.width = size.size() >= 2 ? float(size[0].toDouble()) : 0.f;
+            decal.height = size.size() >= 2 ? float(size[1].toDouble()) : 0.f;
+            decal.at = world.map(vec3(o.value(QStringLiteral("at"))));
+            decal.normal = normalMatrix.mapVector(vec3(o.value(QStringLiteral("normal")), QVector3D(0, 0, 1))).normalized();
+            decal.up = world.mapVector(vec3(o.value(QStringLiteral("up")), QVector3D(0, 1, 0))).normalized();
+            if (decal.width > 0 && decal.height > 0)
+                m_decals.push_back(decal);
+        }
+        const int meshIndex = n.value(QStringLiteral("mesh")).toInt(-1);
+        if (meshIndex >= 0 && meshIndex < meshes.size()) {
+            for (const QJsonValue pv : meshes.at(meshIndex).toObject().value(QStringLiteral("primitives")).toArray()) {
+                const QJsonObject prim = pv.toObject();
+                if (prim.value(QStringLiteral("mode")).toInt(4) != 4)
+                    continue;   // triangles only
+                const QJsonObject attr = prim.value(QStringLiteral("attributes")).toObject();
+                std::vector<float> P, N, C;
+                int pc = 0, nc = 0, cc = 0;
+                if (!r.read(attr.value(QStringLiteral("POSITION")).toInt(-1), P, &pc) || pc != 3) {
+                    problem = QStringLiteral("a mesh without positions");
+                    continue;
+                }
+                const size_t count = P.size() / 3;
+                const bool hasN = attr.contains(QStringLiteral("NORMAL"))
+                                  && r.read(attr.value(QStringLiteral("NORMAL")).toInt(), N, &nc) && nc == 3 && N.size() == P.size();
+                const bool hasC = attr.contains(QStringLiteral("COLOR_0"))
+                                  && r.read(attr.value(QStringLiteral("COLOR_0")).toInt(), C, &cc) && (cc == 3 || cc == 4)
+                                  && C.size() == count * size_t(cc);
+                QVector3D factor(1, 1, 1);
+                const int mi = prim.value(QStringLiteral("material")).toInt(-1);
+                if (mi >= 0 && mi < materials.size()) {
+                    const QJsonArray f = materials.at(mi).toObject().value(QStringLiteral("pbrMetallicRoughness"))
+                                             .toObject().value(QStringLiteral("baseColorFactor")).toArray();
+                    if (f.size() >= 3)
+                        factor = QVector3D(float(f[0].toDouble()), float(f[1].toDouble()), float(f[2].toDouble()));
+                }
+                std::vector<uint32_t> idx;
+                if (prim.contains(QStringLiteral("indices"))) {
+                    if (!r.readIndices(prim.value(QStringLiteral("indices")).toInt(), idx)) {
+                        problem = QStringLiteral("unreadable indices");
+                        continue;
+                    }
+                } else {
+                    idx.resize(count);
+                    for (size_t i = 0; i < count; ++i)
+                        idx[i] = uint32_t(i);
+                }
+                for (size_t t = 0; t + 2 < idx.size(); t += 3) {
+                    uint32_t k[3] = { idx[t], idx[t + 1], idx[t + 2] };
+                    if (k[0] >= count || k[1] >= count || k[2] >= count)
+                        continue;
+                    if (mirrored)
+                        std::swap(k[1], k[2]);
+                    Vertex v[3];
+                    for (int c = 0; c < 3; ++c) {
+                        const size_t i = k[c];
+                        v[c].position = world.map(QVector3D(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]));
+                        if (hasN)
+                            v[c].normal = normalMatrix.mapVector(QVector3D(N[i * 3], N[i * 3 + 1], N[i * 3 + 2])).normalized();
+                        QVector3D col = factor;
+                        if (hasC)
+                            col *= QVector3D(C[i * cc], C[i * cc + 1], C[i * cc + 2]);
+                        v[c].color = QVector3D(toDisplay(col.x()), toDisplay(col.y()), toDisplay(col.z()));
+                    }
+                    if (!hasN) {
+                        const QVector3D fn = QVector3D::normal(v[0].position, v[1].position, v[2].position);
+                        for (auto& x : v)
+                            x.normal = fn;
+                    }
+                    for (const auto& x : v)
+                        m_triangles.push_back(x);
+                }
+            }
+        }
+        for (const QJsonValue c : n.value(QStringLiteral("children")).toArray())
+            if (problem.isEmpty())
+                walk(c.toInt(-1), world, depth + 1);
+    };
+    for (int root : roots)
+        if (problem.isEmpty())
+            walk(root, QMatrix4x4(), 0);
+    if (!problem.isEmpty())
+        return fail(error, problem);
+    if (m_triangles.empty())
+        return fail(error, QStringLiteral("no triangles"));
+    return true;
 }
 
 } // namespace route3d

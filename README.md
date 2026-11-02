@@ -42,9 +42,23 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.5.1
+## What's new in 1.6.0
+
+**GPX Ride: sprint, KOM and a livelier countryside.**
+
+- **Sprint** – every GPX route of at least 1 km has a 200 m sprint a quarter into the route: *SPRINT IN 200 m* and a thin green line on the road, a thick green start line with *SPRINT* and a green sign, and a red *SPRINT FINISH* line and sign.
+- **KOM** – the route's longest climb averaging at least 2.5 % gets a white arch with red polka dots at its foot and a red *KOM FINISH* arch at the top.
+- **Your times are saved and compared** – every sprint and KOM you ride all the way is timed to 0.01 s (paused time never counts), saved for your profile and the route (recognised by its track, so renamed or moved GPX files keep their times) and compared with your best. A panel shows the distance to go, the running time and, at the line, your time and the difference to your best.
+- **A livelier countryside** – lakes with reeds, jetties and rowing boats; coastline and beaches; wild flowers and rocks; fenced pastures with cows, sheep and horses; hay bales and tractors; wind turbines with turning blades; benches; a white **kilometre post** at every kilometre; a display bike by the START arch.
+- **One road on out-and-back routes and loops** – no more double edge lines where a route comes back along a road already ridden; no more flickering windows and dark surfaces.
+- **Database upgrade** – on first start the database is upgraded automatically to schema version 9 (sprint and KOM times); all your data is kept. See the [1.6.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.6.0).
+
+<details>
+<summary><b>What's new in 1.5.1</b> – speed correction for treadmills and foot pods</summary>
 
 **Speed correction for treadmills and foot pods** – when a treadmill or foot pod (e.g. **Runn**) is connected, **Devices → Treadmills** shows a **Speed correction** tile: compare with your watch and press **−** / **+** in 0.1 km/h steps (±3 km/h) until they agree. The corrected speed is used everywhere (Treadmill Run, distance, pace, AnT test, History, FIT) and remembered per device. No database change – see the [1.5.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.5.1).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.5.0</b> – new name, Treadmill Run, running workouts, new 3D cyclist</summary>
@@ -259,7 +273,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.5.1](#whats-new-in-151)
+- [What's new in 1.6.0](#whats-new-in-160)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -358,6 +372,10 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **START and FINISH**: a green inflatable START arch stands just ahead of where you start (also when you start part-way) and a red FINISH arch at the end; the START arch is shown until you have ridden through it, then the FINISH arch – on a loop you start under green and finish under red.
 - **The rider is you**: a 3D cyclist (blue jersey, black bibs, red helmet) whose feet follow the pedals at your real cadence and stand still when you coast, pause or have no cadence; he rocks gently from side to side with the pedal stroke – more on climbs over 6 %. The wheels roll on with your speed.
 - **Run-out after the finish**: on point-to-point routes the road continues 50 m past the FINISH arch.
+- **Sprint**: a 200 m sprint a quarter into every route of at least 1 km – *SPRINT IN 200 m* on the road, a green start line and sign, a red *SPRINT FINISH* line and sign.
+- **KOM**: the route's longest climb averaging at least 2.5 %, from a white polka-dot arch at its foot to a red *KOM FINISH* arch at the top.
+- **Sprint and KOM times**: timed to 0.01 s on the ride's clock (pauses never count; pausing during one voids it), saved per profile and route (recognised by the track, so renamed or moved files keep their times) and compared with your best in a panel on the 3D view.
+- **The world**: lakes with reeds, jetties and rowing boats, coastline and beaches, wild flowers, rocks, fenced pastures with cows, sheep and horses, hay bales, tractors, wind turbines, benches, a kilometre post at every kilometre and a display bike by the START arch. Out-and-back routes and loops are drawn as one road where they come back along it.
 - Rides are saved to History as *GPX: <route>* and can be exported as FIT/CSV.
 - **Graphics**: the 3D view needs OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi; a Pi 4 or 5 is recommended). Without it, the page says so and you can still ride the route with the profile.
 
@@ -496,18 +514,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.5.1**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
+The current version is **1.6.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.5.1-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/ArtilodyMultisportEnduranceTrainer-1.5.1-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.5.1-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/ArtilodyMultisportEnduranceTrainer-1.5.1-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.5.1-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/ArtilodyMultisportEnduranceTrainer-1.5.1-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.5.1_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/artilody-watts-trainer_1.5.1_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.5.1_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/artilody-watts-trainer_1.5.1_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.5.1_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/artilody-watts-trainer_1.5.1_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.5.1/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.6.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/ArtilodyMultisportEnduranceTrainer-1.6.0-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.6.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/ArtilodyMultisportEnduranceTrainer-1.6.0-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.6.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/ArtilodyMultisportEnduranceTrainer-1.6.0-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.6.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/artilody-watts-trainer_1.6.0_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.6.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/artilody-watts-trainer_1.6.0_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.6.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/artilody-watts-trainer_1.6.0_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.6.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -517,7 +535,7 @@ The current version is **1.5.1**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyMultisportEnduranceTrainer-1.5.1-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyMultisportEnduranceTrainer-1.6.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Multisport Endurance Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -543,8 +561,8 @@ The current version is **1.5.1**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.5.1_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.5.1_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.6.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.6.0_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Multisport Endurance Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -560,7 +578,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.5.1_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.6.0_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -604,7 +622,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.5.1",
+  "app": "Artilody Multisport Endurance Trainer 1.6.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

@@ -150,4 +150,31 @@ private:
     std::vector<QVector3D> m_rootXZ;            // per sampled phase: horizontal root drift
 };
 
+// A static (not skinned, not animated) glTF 2.0 binary model: scenery such as
+// the display bike by the START arch. The node hierarchy is flattened into
+// plain triangles in the model's frame (metres, y up, as authored).
+//
+// Supported: triangle meshes with POSITION (+ NORMAL, COLOR_0, indices), node
+// TRS / matrix transforms, a material's baseColorFactor. Colours are linear in
+// glTF and converted to the display (sRGB-like) colours the 3D view uses.
+// Textures are ignored. Decals: node "extras": {"decals": [{name, size [w,h],
+// at, normal, up}]} - a place for a printed label, e.g. a brand name.
+class StaticModel {
+public:
+    struct Vertex { QVector3D position, normal, color; };
+    struct Decal {
+        float width = 0, height = 0;   // metres
+        QVector3D at, normal, up;      // model frame (unit normal / up)
+    };
+    bool load(const QByteArray& glb, QString* error = nullptr);
+    bool loadFile(const QString& path, QString* error = nullptr);
+    // three vertices per triangle
+    const std::vector<Vertex>& triangles() const { return m_triangles; }
+    const std::vector<Decal>& decals() const { return m_decals; }
+
+private:
+    std::vector<Vertex> m_triangles;
+    std::vector<Decal> m_decals;
+};
+
 } // namespace route3d

@@ -35,6 +35,8 @@ qt_add_library(watt_core STATIC
     RlvLibrary.h RlvLibrary.cpp
     RlvSession.h RlvSession.cpp
     RouteProgress.h
+    Sprint.h
+    Climb.h
     RunWorkout.h RunWorkout.cpp
     RunRoutes.h RunRoutes.cpp
     RunLibrary.h RunLibrary.cpp

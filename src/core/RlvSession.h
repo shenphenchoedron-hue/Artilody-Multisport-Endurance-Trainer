@@ -6,6 +6,8 @@
 #include "RideResistance.h"
 #include "RlvRoute.h"
 #include "RouteProgress.h"
+#include "Climb.h"
+#include "Sprint.h"
 #include "WorkoutEngine.h"
 
 #include <QDateTime>
@@ -137,6 +139,19 @@ class VirtualGears;
 // physics and trainer control on a plain .gpx track without a video (the
 // page shows the route in 3D instead, Route3DItem). Only the names, the
 // settings keys and the route files accepted differ - never the physics.
+//
+// Sprint (GPX Ride only, routes of at least sprint::kMinRouteM): a fixed
+// sprint::kLengthM stretch sprint::kPositionShare into the route
+// (sprint::forRoute()). Timed on the ride's clock from the green start line
+// to the red finish line, the crossings interpolated within a tick (paused
+// time never counts; a pause during the sprint voids it). Every finished
+// sprint is saved (Database::saveSegmentRecord, kind "sprint", profile + the
+// route's fingerprint sprint::routeKey(), linked to the ride when it is
+// saved) and compared with the profile's best on that route.
+//
+// KOM (GPX Ride only): the route's longest climb (climb::longest()), timed
+// and saved the same way (kind "kom") from the polka-dot arch at its foot to
+// the red arch at its top.
 class RlvSession : public QObject, public RouteProgressSource
 {
     Q_OBJECT
@@ -249,6 +264,39 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(bool workoutErgActive READ workoutErgActive NOTIFY workoutErgChanged)
     Q_PROPERTY(bool workoutFinished READ workoutFinished NOTIFY workoutErgChanged)
     Q_PROPERTY(int intensityPercent READ intensityPercent WRITE setIntensityPercent NOTIFY workoutTargetChanged)
+
+    // sprint (see the class comment); metres along the route
+    Q_PROPERTY(bool sprintAvailable READ sprintAvailable NOTIFY routeChanged)
+    Q_PROPERTY(double sprintAnnounceM READ sprintAnnounceM NOTIFY routeChanged)
+    Q_PROPERTY(double sprintStartM READ sprintStartM NOTIFY routeChanged)
+    Q_PROPERTY(double sprintFinishM READ sprintFinishM NOTIFY routeChanged)
+    Q_PROPERTY(double sprintLengthM READ sprintLengthM CONSTANT)
+    // "none" (no sprint on this route), "ahead" (still to come), "running",
+    // "done" (timed this ride), "void" (paused / stopped during it),
+    // "passed" (the ride started beyond its start line)
+    Q_PROPERTY(QString sprintState READ sprintState NOTIFY sprintChanged)
+    Q_PROPERTY(double sprintElapsedSec READ sprintElapsedSec NOTIFY sprintChanged)   // while running
+    Q_PROPERTY(double sprintTimeSec READ sprintTimeSec NOTIFY sprintChanged)         // this ride's time, 0 = none
+    Q_PROPERTY(double sprintBestSec READ sprintBestSec NOTIFY sprintChanged)         // best on the route, 0 = none
+    // the best before this ride's sprint (0 = it was the first)
+    Q_PROPERTY(double sprintPreviousBestSec READ sprintPreviousBestSec NOTIFY sprintChanged)
+    Q_PROPERTY(bool sprintNewBest READ sprintNewBest NOTIFY sprintChanged)
+    Q_PROPERTY(int sprintAttempts READ sprintAttempts NOTIFY sprintChanged)          // saved, incl. this ride
+
+    // KOM: the same for the route's longest climb (komState as sprintState)
+    Q_PROPERTY(bool komAvailable READ komAvailable NOTIFY routeChanged)
+    Q_PROPERTY(double komStartM READ komStartM NOTIFY routeChanged)
+    Q_PROPERTY(double komFinishM READ komFinishM NOTIFY routeChanged)
+    Q_PROPERTY(double komLengthM READ komLengthM NOTIFY routeChanged)
+    Q_PROPERTY(double komGainM READ komGainM NOTIFY routeChanged)
+    Q_PROPERTY(double komGradePercent READ komGradePercent NOTIFY routeChanged)
+    Q_PROPERTY(QString komState READ komState NOTIFY komChanged)
+    Q_PROPERTY(double komElapsedSec READ komElapsedSec NOTIFY komChanged)
+    Q_PROPERTY(double komTimeSec READ komTimeSec NOTIFY komChanged)
+    Q_PROPERTY(double komBestSec READ komBestSec NOTIFY komChanged)
+    Q_PROPERTY(double komPreviousBestSec READ komPreviousBestSec NOTIFY komChanged)
+    Q_PROPERTY(bool komNewBest READ komNewBest NOTIFY komChanged)
+    Q_PROPERTY(int komAttempts READ komAttempts NOTIFY komChanged)
 
 public:
     enum class Mode { Sim, Erg };
@@ -508,6 +556,40 @@ public:
     int intensityPercent() const { return m_workout.intensityOffset(); }
     void setIntensityPercent(int percent);
     const WorkoutEngine &workoutEngine() const { return m_workout; }
+
+    // timed segments: the sprint and the KOM
+    enum class SegmentPhase { Idle, Running, Done, Void };
+    sprint::Segment sprintSegment() const override { return m_sprintSeg; }
+    climb::Climb komClimb() const override { return m_komClimb; }
+    QString sprintKey() const { return m_sprint.key; }   // sprint::routeKey() of the route ("" = no sprint)
+    SegmentPhase sprintPhase() const { return m_sprint.phase; }
+    bool sprintAvailable() const { return m_sprint.valid(); }
+    double sprintAnnounceM() const { return m_sprintSeg.announce; }
+    double sprintStartM() const { return m_sprint.start; }
+    double sprintFinishM() const { return m_sprint.finish; }
+    double sprintLengthM() const { return sprint::kLengthM; }
+    QString sprintState() const { return timedState(m_sprint); }
+    double sprintElapsedSec() const { return timedElapsed(m_sprint); }
+    double sprintTimeSec() const { return m_sprint.time; }
+    double sprintBestSec() const { return m_sprint.best; }
+    double sprintPreviousBestSec() const { return m_sprint.previousBest; }
+    bool sprintNewBest() const { return m_sprint.newBest; }
+    int sprintAttempts() const { return m_sprint.attempts; }
+
+    QString komKey() const { return m_kom.key; }
+    bool komAvailable() const { return m_kom.valid(); }
+    double komStartM() const { return m_kom.start; }
+    double komFinishM() const { return m_kom.finish; }
+    double komLengthM() const { return m_kom.length(); }
+    double komGainM() const { return m_komClimb.gainM; }
+    double komGradePercent() const { return m_komClimb.gradePercent(); }
+    QString komState() const { return timedState(m_kom); }
+    double komElapsedSec() const { return timedElapsed(m_kom); }
+    double komTimeSec() const { return m_kom.time; }
+    double komBestSec() const { return m_kom.best; }
+    double komPreviousBestSec() const { return m_kom.previousBest; }
+    bool komNewBest() const { return m_kom.newBest; }
+    int komAttempts() const { return m_kom.attempts; }
     // ERG now: mode "erg" or the workout ERG.
     bool ergNow() const { return m_mode == Mode::Erg || workoutErgActive(); }
     // Watts the Erg path holds: the workout target (workout ERG) or targetWatts.
@@ -544,6 +626,11 @@ signals:
     void workoutTargetChanged();
     void workoutErgChanged();
     void workoutCompleted();       // the attached workout ran to its end during the ride
+    void sprintChanged();
+    // a sprint was timed (and saved); previousBestSec 0 = the first on this route
+    void sprintFinished(double timeSec, double previousBestSec, bool newBest);
+    void komChanged();
+    void komFinished(double timeSec, double previousBestSec, bool newBest);
 
 private:
     void setState(State s);
@@ -580,6 +667,34 @@ private:
     QString settingKey(const char *name) const;   // "rlv/<name>" / "gpx/<name>"
     QString rideWhat() const;                     // "video ride" / "GPX ride"
     QString routeWhat() const;                    // "video" / "route"
+    // One timed stretch of the route (the sprint, the KOM): where it lies,
+    // this ride's timing and the profile's saved times on the route.
+    struct TimedSegment
+    {
+        QString kind;               // Database segment kind: "sprint" / "kom"
+        double start = 0, finish = 0;
+        QString key;                // sprint::routeKey() ("" = no such segment)
+        SegmentPhase phase = SegmentPhase::Idle;
+        double startMs = 0;         // m_activeMs at the start line (interpolated)
+        double time = 0;            // this ride's time (s), 0 = none
+        double best = 0, previousBest = 0;
+        bool newBest = false;
+        int attempts = 0;
+        qint64 recordId = -1;       // this ride's saved time (linked to the ride on save)
+        bool valid() const { return !key.isEmpty(); }
+        double length() const { return finish - start; }
+    };
+    void segmentsRouteChanged();                       // new route: where, key, best
+    void loadBest(TimedSegment &seg, qint64 profileId);
+    void loadBests(qint64 profileId);
+    void resetTimed(TimedSegment &seg);                // a new ride: nothing timed yet
+    void resetSegments();
+    void voidSegments();                               // paused / stopped: a running one is void
+    // one riding step from (d0, t0): true when seg changed; finished = timed now
+    bool stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished);
+    void updateSegments(double d0, qint64 t0);
+    QString timedState(const TimedSegment &seg) const;
+    double timedElapsed(const TimedSegment &seg) const;
 
     const Kind m_kind = Kind::Video;
     Database *m_db;
@@ -644,6 +759,12 @@ private:
     int m_workoutLastTarget = -1;
     int m_complianceSec = 0;       // recorded workout seconds with a target
     int m_compliantSec = 0;        // ... within ±kComplianceTolerance
+
+    // timed segments
+    sprint::Segment m_sprintSeg;
+    climb::Climb m_komClimb;
+    TimedSegment m_sprint { QStringLiteral("sprint") };
+    TimedSegment m_kom { QStringLiteral("kom") };
 };
 
 } // namespace watt
