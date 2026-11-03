@@ -505,6 +505,7 @@ private slots:
         QFile after(path);
         QVERIFY(after.open(QIODevice::ReadOnly));
         const QByteArray now = after.readAll();
+        after.close();   // (Windows: an open file cannot be replaced)
         QVERIFY(now.startsWith(before.left(before.lastIndexOf("</gpx>"))));   // the track as it was
         // written again: replaced, not added; an empty list removes them
         QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 1000, 1300) }));
@@ -516,6 +517,7 @@ private slots:
         QFile clean(path);
         QVERIFY(clean.open(QIODevice::ReadOnly));
         QCOMPARE(clean.readAll(), before);
+        clean.close();
         // a file with its own root <extensions>: ours go inside it, and out again
         QByteArray own = before;
         own.replace("</gpx>", "<extensions>\n<x:y xmlns:x=\"urn:x\">1</x:y>\n</extensions>\n</gpx>");
