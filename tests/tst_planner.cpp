@@ -10,6 +10,9 @@
 #include "WorkoutPlanner.h"
 
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTimeZone>
@@ -341,6 +344,136 @@ private slots:
         const qint64 otherEntry = db.addPlannedWorkout(other, today, w1);
         QCOMPARE(planner.markCompletedForWorkout(w1, QVariant(), -1, other), otherEntry);
         QVERIFY(db.plannedWorkout(otherEntry)->completed);
+    }
+
+    void trainingPlanExportImport()
+    {
+        // the rider who shares a plan
+        Sessions a;
+        QVERIFY(a.init());
+        WorkoutPlanner &pa = *a.planner;
+        RlvLibrary gpxA(&a.db, RlvLibrary::Kind::Gpx);
+        gpxA.setLibraryFolder(a.dir.filePath(QStringLiteral("gpxlib")));
+        pa.setGpx(nullptr, &gpxA);
+        QVERIFY(!a.addRoute(QStringLiteral("alpe"), 3000).isEmpty());
+        const QString videoPath = a.videos->entries().first().path;
+        // a GPX route (with a workshop segment inside: travels with the file)
+        QVERIFY(QDir().mkpath(gpxA.libraryFolder()));
+        const QString gpxFile = QDir(gpxA.libraryFolder()).filePath(QStringLiteral("Hill loop.gpx"));
+        {
+            QByteArray g = "<?xml version=\"1.0\"?>\n<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><name>Hill loop</name><trkseg>\n";
+            for (int i = 0; i <= 200; ++i)
+                g += QStringLiteral("<trkpt lat=\"%1\" lon=\"12.0\"><ele>%2</ele></trkpt>\n")
+                         .arg(55.0 + i * 10.0 / 111195.0, 0, 'f', 8).arg(10 + i * 0.05, 0, 'f', 2).toUtf8();
+            g += "</trkseg></trk></gpx>\n";
+            QFile f(gpxFile);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(g);
+        }
+        gpxA.rescanNow();
+        Workout w;
+        w.name = QStringLiteral("My Intervals");
+        w.sport = sport::cycling();
+        Interval i;
+        i.durationSec = 600;
+        i.startPercent = i.endPercent = 0.9;
+        w.intervals << i << i;
+        const qint64 mine = a.db.saveWorkout(w);
+        QVERIFY(mine > 0);
+        QVERIFY(pa.addWorkout(QStringLiteral("2026-11-02"), mine, QStringLiteral("go hard")) > 0);
+        QVERIFY(pa.addFreeRide(QStringLiteral("2026-11-04"), 45, { { QStringLiteral("mode"), QStringLiteral("erg") },
+                                                                   { QStringLiteral("ergWatts"), 160 } }) > 0);
+        QVERIFY(pa.addVideoRide(QStringLiteral("2026-11-05"), videoPath, { { QStringLiteral("workoutId"), mine } }) > 0);
+        QVERIFY2(pa.addGpxRide(QStringLiteral("2026-11-07"), gpxFile) > 0, qPrintable(pa.lastError()));
+        QVERIFY(pa.addFreeSession(QStringLiteral("2026-11-09"), QStringLiteral("row"), 30) > 0);
+        QVERIFY(pa.addFreeSession(QStringLiteral("2026-11-10"), QStringLiteral("run"), 0) > 0);
+        QVERIFY(pa.addWorkout(QStringLiteral("2026-11-16"), mine) > 0);   // week 3: not in the plan
+        QCOMPARE(pa.entry(pa.addFreeSession(QStringLiteral("2026-11-11"), QStringLiteral("row"), 20)).value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Free Row · 20 min"));
+        QCOMPARE(pa.addFreeSession(QStringLiteral("2026-11-11"), QStringLiteral("swim"), 20), qint64(-1));
+
+        const QString file = a.dir.filePath(QStringLiteral("Back to fitness.awplan"));
+        QVERIFY(!pa.exportPlan(QStringLiteral("2027-03-01"), 2, QStringLiteral("x"), QString(), file));   // nothing planned
+        QVERIFY2(pa.exportPlan(QStringLiteral("2026-11-04"), 2, QStringLiteral("Back to fitness"),
+                               QStringLiteral("Two easy weeks"), QUrl::fromLocalFile(file).toString()),
+                 qPrintable(pa.lastError()));
+        if (!qEnvironmentVariableIsEmpty("WATT_PLAN_OUT"))   // (a sample plan for screenshots)
+            QFile::copy(file, qEnvironmentVariable("WATT_PLAN_OUT"));
+        const QVariantMap info = pa.planInfo(file);
+        QVERIFY(info.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(info.value(QStringLiteral("name")).toString(), QStringLiteral("Back to fitness"));
+        QCOMPARE(info.value(QStringLiteral("weeks")).toInt(), 2);
+        QCOMPARE(info.value(QStringLiteral("entries")).toInt(), 7);
+        QCOMPARE(info.value(QStringLiteral("workouts")).toInt(), 1);
+        QCOMPARE(info.value(QStringLiteral("gpxRoutes")).toInt(), 1);
+        QCOMPARE(info.value(QStringLiteral("videos")).toInt(), 1);
+        QVERIFY(!pa.planInfo(gpxFile).value(QStringLiteral("ok")).toBool());
+
+        // another rider: no such workout, no videos, an empty GPX library
+        Sessions b;
+        QVERIFY(b.init());
+        WorkoutPlanner &pb = *b.planner;
+        RlvLibrary gpxB(&b.db, RlvLibrary::Kind::Gpx);
+        gpxB.setLibraryFolder(b.dir.filePath(QStringLiteral("gpxlib")));
+        pb.setGpx(nullptr, &gpxB);
+        QSignalSpy imported(&pb, &WorkoutPlanner::workoutsImported);
+        QCOMPARE(pb.importPlan(file, QStringLiteral("2026-12-03")), 7);
+        QCOMPARE(imported.count(), 1);
+        QVERIFY(pb.lastMessage().contains(QStringLiteral("need your video")));
+        const QVariantList day1 = pb.entriesForDate(QStringLiteral("2026-12-03"));
+        QCOMPARE(day1.size(), 1);
+        QCOMPARE(day1.first().toMap().value(QStringLiteral("name")).toString(), QStringLiteral("My Intervals"));
+        QCOMPARE(day1.first().toMap().value(QStringLiteral("notes")).toString(), QStringLiteral("go hard"));
+        const QVariantMap fr = pb.entriesForDate(QStringLiteral("2026-12-05")).first().toMap();
+        QCOMPARE(fr.value(QStringLiteral("options")).toMap().value(QStringLiteral("ergWatts")).toInt(), 160);
+        const QVariantMap video = pb.entriesForDate(QStringLiteral("2026-12-06")).first().toMap();
+        QCOMPARE(video.value(QStringLiteral("kind")).toString(), QStringLiteral("rlv"));
+        QVERIFY(video.value(QStringLiteral("routePath")).toString().isEmpty());
+        QVERIFY(video.value(QStringLiteral("name")).toString().contains(QStringLiteral("choose video")));
+        QCOMPARE(video.value(QStringLiteral("workoutName")).toString(), QStringLiteral("My Intervals"));   // attached
+        QVERIFY(pb.startEntry(video).isEmpty());   // no video yet
+        const QVariantMap gpx = pb.entriesForDate(QStringLiteral("2026-12-08")).first().toMap();
+        QCOMPARE(gpx.value(QStringLiteral("kind")).toString(), QStringLiteral("gpx"));
+        QVERIFY(QFileInfo::exists(gpx.value(QStringLiteral("routePath")).toString()));
+        QVERIFY(gpx.value(QStringLiteral("routePath")).toString().startsWith(gpxB.libraryFolder()));
+        QCOMPARE(pb.entriesForDate(QStringLiteral("2026-12-10")).first().toMap().value(QStringLiteral("sport")).toString(),
+                 QStringLiteral("rowing"));
+        QCOMPARE(pb.entriesForDate(QStringLiteral("2026-12-11")).first().toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Free Run"));
+        QVERIFY(pb.entriesForDate(QStringLiteral("2026-12-17")).isEmpty());
+
+        // a plan with an extra workout no entry uses: not added
+        {
+            QFile pf(file);
+            QVERIFY(pf.open(QIODevice::ReadOnly));
+            QJsonObject root = QJsonDocument::fromJson(pf.readAll()).object();
+            pf.close();
+            QJsonArray ws = root.value(QStringLiteral("workouts")).toArray();
+            QJsonObject extra = ws.first().toObject();
+            extra.insert(QStringLiteral("key"), QStringLiteral("unused"));
+            extra.insert(QStringLiteral("name"), QStringLiteral("Sneaky extra"));
+            ws.append(extra);
+            root.insert(QStringLiteral("workouts"), ws);
+            const QString extraFile = b.dir.filePath(QStringLiteral("extra.awplan"));
+            QFile out(extraFile);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(root).toJson());
+            out.close();
+            QVERIFY(pb.importPlan(extraFile, QStringLiteral("2027-06-07")) > 0);
+            for (const Workout &x : b.db.workouts())
+                QVERIFY(x.name != QStringLiteral("Sneaky extra"));
+        }
+        // imported again with the video in the library: workouts and the GPX file reused, the video linked
+        QVERIFY(!b.addRoute(QStringLiteral("alpe"), 3000).isEmpty());
+        QCOMPARE(pb.importPlan(file, QStringLiteral("2027-01-04")), 7);
+        int named = 0;
+        for (const Workout &x : b.db.workouts())
+            named += x.name.startsWith(QStringLiteral("My Intervals"));
+        QCOMPARE(named, 1);
+        QCOMPARE(QDir(gpxB.libraryFolder()).entryList({ QStringLiteral("*.gpx") }).size(), 1);
+        const QVariantMap linked = pb.entriesForDate(QStringLiteral("2027-01-07")).first().toMap();
+        QCOMPARE(linked.value(QStringLiteral("routePath")).toString(), b.videos->entries().first().path);
+        QVERIFY(pb.lastMessage().contains(QStringLiteral("linked")));
     }
 
     void freeRideAndVideoEntries()

@@ -12,6 +12,9 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/PageHeader.qml
     ${QML_ROOT}/components/AppButton.qml
     ${QML_ROOT}/components/IconButton.qml
+    ${QML_ROOT}/components/RideHud.qml
+    ${QML_ROOT}/components/FullscreenControls.qml
+    ${QML_ROOT}/components/FullscreenTapLayer.qml
     ${QML_ROOT}/components/ToggleSwitch.qml
     ${QML_ROOT}/components/AppTextField.qml
     ${QML_ROOT}/components/AppComboBox.qml
@@ -69,6 +72,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/pages/WorkoutsPage.qml
     ${QML_ROOT}/pages/CalendarPage.qml
     ${QML_ROOT}/pages/BuilderPage.qml
+    ${QML_ROOT}/pages/GpxWorkshopPage.qml
     ${QML_ROOT}/pages/RowingPage.qml
     ${QML_ROOT}/pages/HistoryPage.qml
     ${QML_ROOT}/pages/DevicesPage.qml
@@ -129,6 +133,12 @@ endif()
 if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
     list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
 endif()
+# the Rowing page's 3D view: the rower (Mixamo rig, posed by the app)
+foreach(m rower)
+    if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
+        list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
+    endif()
+endforeach()
 # scenery: the display bike on a post beside the START arch (route3d::StaticModel)
 if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/trail-bike.glb)
     list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/trail-bike.glb)

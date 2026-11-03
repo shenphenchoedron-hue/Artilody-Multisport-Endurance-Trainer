@@ -17,6 +17,7 @@ qt_add_library(watt_route3d STATIC
     materials.h
     Route3DScene.h Route3DScene.cpp Route3DCountryside.cpp
     Route3DItem.h Route3DItem.cpp
+    Rowing3DItem.h Rowing3DItem.cpp
 )
 target_include_directories(watt_route3d PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(watt_route3d PUBLIC watt_core Qt6::Gui Qt6::OpenGL Qt6::Quick)

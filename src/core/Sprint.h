@@ -9,35 +9,9 @@
 
 namespace watt::sprint {
 
-// The sprint of a GPX Ride: a fixed stretch of every route long enough for
-// it, at the same place on every ride of that route, so times compare.
-//
-//   announce ("Sprint in 200 m")  start ("SPRINT")  finish (red line)
-//   |<------- kAnnounceM -------->|<--- kLengthM --->|
-//
-// start lies kPositionShare into the route (app metres, RlvPoint::distance).
-constexpr double kPositionShare = 0.25;
-constexpr double kLengthM = 200.0;
-constexpr double kAnnounceM = 200.0;
-constexpr double kMinRouteM = 1000.0;   // shorter routes have no sprint
-
-struct Segment
-{
-    bool valid = false;
-    double announce = 0, start = 0, finish = 0;   // metres along the route
-};
-
-inline Segment forRoute(double totalM)
-{
-    Segment s;
-    if (!std::isfinite(totalM) || totalM < kMinRouteM)
-        return s;
-    s.start = totalM * kPositionShare;
-    s.finish = s.start + kLengthM;
-    s.announce = s.start - kAnnounceM;
-    s.valid = s.announce >= 0 && s.finish < totalM;
-    return s;
-}
+// Helpers for the timed segments of a GPX Ride (sprints and KOMs, placed in
+// the GPX Workshop: RouteSegment).
+constexpr double kAnnounceM = 200.0;   // "SPRINT IN 200 m" before a sprint's start line
 
 // When a line at `line` metres was crossed in a step from (d0, t0) to (d1, t1),
 // interpolated (ms); NaN when the step does not cross it (d0 < line <= d1).
@@ -48,7 +22,7 @@ inline double crossingMs(double d0, double d1, double t0, double t1, double line
     return t0 + (t1 - t0) * (line - d0) / (d1 - d0);
 }
 
-// The route's identity for its sprint times: a fingerprint of the GPX
+// The route's identity for its sprint / KOM times: a fingerprint of the GPX
 // track's points (position to ~1 cm, elevation to 1 cm). The same track
 // stays the same route when the file is renamed or moved; an edited track
 // is a new route (its sprint lies elsewhere).

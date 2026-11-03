@@ -13,8 +13,10 @@
 #include "MusicPlayer.h"
 #include "ProfileManager.h"
 #include "RlvLibrary.h"
+#include "GpxWorkshop.h"
 #include "RlvSession.h"
 #include "Route3DItem.h"
+#include "Rowing3DItem.h"
 #include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
@@ -354,6 +356,10 @@ int main(int argc, char *argv[])
         gpxRoutes.addTemporaryFolder(dir);
     gpxRoutes.rescan();
     RlvSession gpx(&db, &profiles, &hub, &gears, &gpxRoutes, RlvSession::Kind::Gpx);
+    GpxWorkshop gpxWorkshop(&gpxRoutes, &gpx);   // sprints / KOMs placed on GPX routes
+    // Screenshot aid: WATT_SCREENSHOT_WORKSHOP=<file.gpx> opens it in the GPX Workshop
+    if (!shotDir.isEmpty() && !qEnvironmentVariableIsEmpty("WATT_SCREENSHOT_WORKSHOP"))
+        gpxWorkshop.open(qEnvironmentVariable("WATT_SCREENSHOT_WORKSHOP"));
     gpx.setFreeRideSession(&freeRide);
     gpx.setTrainingSession(&training);
     // Only one session at a time, without trapping the rider: a session in
@@ -404,9 +410,29 @@ int main(int argc, char *argv[])
     planner.setSessions(&training, &freeRide, &rlv, &videos);
     planner.setRowingStarter([&rowing](qint64 workoutId) { return rowing.setupPlan(workoutId); });
     planner.setRunningStarter([&run](qint64 workoutId) { return !run.active() && run.attachWorkout(workoutId); });
+    planner.setGpx(&gpx, &gpxRoutes);
+    planner.setFreeRowStarter([&rowing] { return !rowing.active() && rowing.setupSolo(0); });
+    planner.setFreeRunStarter([&run] {
+        if (run.active())
+            return false;
+        run.detachWorkout();
+        return true;
+    });
+    QObject::connect(&planner, &WorkoutPlanner::workoutsImported, &library, &WorkoutLibrary::reload);
+    // a saved free row / free run ticks off its plan entry (like a Free Ride)
+    QObject::connect(&rowing, &RowingSession::rideSaved, &planner, [&](qint64 rideId) {
+        // (a rowing workout completes its own entry: RowingSession -> completeForRide)
+        if (const auto ride = db.ride(rideId); ride && ride->workoutId < 0)
+            planner.completeFreeSession(QStringLiteral("row"), rideId, ride->durationSec, ride->profileId);
+    });
     // a run that finished its workout ticks off the plan entry (like a ride)
     QObject::connect(&run, &RunSession::rideSaved, &planner, [&](qint64 rideId) {
-        if (run.workoutId() < 0 || !run.workoutFinished())
+        if (run.workoutId() < 0) {   // a free run
+            if (const auto ride = db.ride(rideId))
+                planner.completeFreeSession(QStringLiteral("run"), rideId, ride->durationSec, ride->profileId);
+            return;
+        }
+        if (!run.workoutFinished())
             return;
         if (const auto ride = db.ride(rideId))
             planner.completeForRide(run.workoutId(), ride->startedAt.date(), rideId, ride->profileId);
@@ -426,6 +452,12 @@ int main(int argc, char *argv[])
         const double share = total > 0 ? rlv.riddenMeters() / total : 0.0;
         if (const auto ride = db.ride(rideId))
             planner.completeVideoRide(rideId, rlv.routePath(), rlv.completed(), share, ride->profileId);
+    });
+    QObject::connect(&gpx, &RlvSession::rideSaved, &planner, [&](qint64 rideId) {
+        const double total = gpx.totalDistanceM();
+        const double share = total > 0 ? gpx.riddenMeters() / total : 0.0;
+        if (const auto ride = db.ride(rideId))
+            planner.completeGpxRide(rideId, gpx.routePath(), gpx.completed(), share, ride->profileId);
     });
 
     // Zwift Click buttons: always routed by VirtualGears::controllerShift()
@@ -741,11 +773,13 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Rlv", &rlv);
     qmlRegisterSingletonInstance(uri, 1, 0, "GpxRoutes", &gpxRoutes);
     qmlRegisterSingletonInstance(uri, 1, 0, "Gpx", &gpx);
+    qmlRegisterSingletonInstance(uri, 1, 0, "GpxWorkshop", &gpxWorkshop);
     qmlRegisterSingletonInstance(uri, 1, 0, "Sessions", &sessions);
     qmlRegisterSingletonInstance(uri, 1, 0, "RunLibrary", &runLibrary);
     qmlRegisterSingletonInstance(uri, 1, 0, "Running", &run);
     qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
     qmlRegisterType<Route3DItem>(uri, 1, 0, "Route3DView");
+    qmlRegisterType<Rowing3DItem>(uri, 1, 0, "Rowing3DView");
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));
@@ -851,6 +885,8 @@ int main(int argc, char *argv[])
     if (shotWindow) {
         QQuickWindow *window = shotWindow;
         QDir().mkpath(shotDir);
+        // WATT_SCREENSHOT_PLAN=<file.awplan>: the plan the "calendar-import" menu shows
+        window->setProperty("screenshotPlan", QUrl::fromLocalFile(qEnvironmentVariable("WATT_SCREENSHOT_PLAN")).toString());
         QSize shotSize(1584, 992);
         const QStringList sz = qEnvironmentVariable("WATT_SCREENSHOT_SIZE").split(QLatin1Char('x'));
         if (sz.size() == 2 && sz.at(0).toInt() > 0 && sz.at(1).toInt() > 0)
@@ -1242,6 +1278,28 @@ int main(int argc, char *argv[])
             } else if (!blocker.isEmpty() && name == livePage && *blockerPhase == 1) {
                 probeVideo("after the fix");
                 *blockerPhase = 2;
+            }
+            // WATT_SCREENSHOT_FULLSCREEN=1: the live page's picture full screen (+ HUD), captured
+            // as <page>-fullscreen.png after the normal capture
+            static bool fullDone = false;
+            if (shotLive && name == livePage && !fullDone && qEnvironmentVariableIntValue("WATT_SCREENSHOT_FULLSCREEN") > 0) {
+                static int fullPhase = 0;
+                QObject *pg = window->property("fullscreenPage").value<QObject *>();
+                if (pg && fullPhase == 0) {
+                    window->grabWindow().save(QDir(shotDir).filePath(name + QStringLiteral(".png")));
+                    pg->setProperty("fullscreen", true);
+                    fullPhase = 1;
+                    --(*step);
+                    return;
+                }
+                if (pg && fullPhase == 1) {
+                    fullDone = true;
+                    window->grabWindow().save(QDir(shotDir).filePath(name + QStringLiteral("-fullscreen.png")));
+                    pg->setProperty("fullscreen", false);
+                    if (k + 1 >= order.size())
+                        QCoreApplication::quit();
+                    return;
+                }
             }
             const QImage img = window->grabWindow();
             img.save(QDir(shotDir).filePath(name + QStringLiteral(".png")));

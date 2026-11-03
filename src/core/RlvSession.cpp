@@ -99,8 +99,9 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
         if (!active()) {   // the sprint / KOM bests of the new rider
             loadBests(m_profiles->profileId());
-            emit sprintChanged();
-            emit komChanged();
+            for (TimedSegment &seg : m_segments)
+                seg.previousBest = seg.best;
+            emitSegments(true, true);
         }
         if (!m_hasWorkout || active())
             return;
@@ -1164,9 +1165,9 @@ qint64 RlvSession::saveRide()
     r.distanceM = riddenMeters();
     analysis::applyStats(r, analysis::analyze(m_samples, r.ftp, p.zones));
     m_lastRideId = m_db->saveRide(r, m_samples);
-    for (const TimedSegment *seg : { &m_sprint, &m_kom })
-        if (m_lastRideId >= 0 && seg->recordId >= 0)
-            m_db->setSegmentRideId(seg->recordId, m_lastRideId);
+    for (const TimedSegment &seg : m_segments)
+        if (m_lastRideId >= 0 && seg.recordId >= 0)
+            m_db->setSegmentRideId(seg.recordId, m_lastRideId);
     if (m_lastRideId >= 0) {
         emit lastRideIdChanged();
         emit rideSaved(m_lastRideId);
@@ -1174,20 +1175,26 @@ qint64 RlvSession::saveRide()
     return m_lastRideId;
 }
 
-// --- sprint and KOM -------------------------------------------------------------
+// --- sprints and KOMs ------------------------------------------------------------
 
 void RlvSession::segmentsRouteChanged()
 {
-    const bool gpx = isGpx() && hasRoute();
-    m_sprintSeg = gpx ? sprint::forRoute(totalDistanceM()) : sprint::Segment();
-    m_komClimb = gpx ? climb::longest(m_route) : climb::Climb();
-    const QString key = m_sprintSeg.valid || m_komClimb.valid ? sprint::routeKey(m_route) : QString();
-    m_sprint.key = m_sprintSeg.valid ? key : QString();
-    m_sprint.start = m_sprintSeg.start;
-    m_sprint.finish = m_sprintSeg.finish;
-    m_kom.key = m_komClimb.valid ? key : QString();
-    m_kom.start = m_komClimb.start;
-    m_kom.finish = m_komClimb.finish;
+    m_segments.clear();
+    m_segmentKey.clear();
+    if (isGpx() && hasRoute() && !m_route.segments().isEmpty()) {
+        m_segmentKey = sprint::routeKey(m_route);
+        int numbers[2] = { 0, 0 };
+        for (const RouteSegment &r : m_route.segments()) {
+            TimedSegment t;
+            t.kindId = r.kind;
+            t.kind = r.kindName();
+            t.name = r.displayName(++numbers[r.kind]);
+            t.start = r.start;
+            t.finish = r.finish;
+            t.key = m_segmentKey;
+            m_segments.append(t);
+        }
+    }
     loadBests(m_profiles->profileId());
     resetSegments();
 }
@@ -1198,15 +1205,81 @@ void RlvSession::loadBest(TimedSegment &seg, qint64 profileId)
     seg.attempts = 0;
     if (!seg.valid() || profileId < 0)
         return;
-    if (const auto best = m_db->bestSegment(profileId, seg.kind, seg.key, seg.length()))
+    if (const auto best = m_db->bestSegment(profileId, seg.kind, seg.key, seg.start, seg.length()))
         seg.best = best->timeSec;
-    seg.attempts = m_db->segmentAttempts(profileId, seg.kind, seg.key, seg.length());
+    seg.attempts = m_db->segmentAttempts(profileId, seg.kind, seg.key, seg.start, seg.length());
 }
 
 void RlvSession::loadBests(qint64 profileId)
 {
-    loadBest(m_sprint, profileId);
-    loadBest(m_kom, profileId);
+    for (TimedSegment &seg : m_segments)
+        loadBest(seg, profileId);
+}
+
+QVariantList RlvSession::segmentMarkers() const
+{
+    QVariantList out;
+    for (const TimedSegment &t : m_segments)
+        out.append(QVariantMap { { QStringLiteral("kind"), t.kind }, { QStringLiteral("start"), t.start },
+                                 { QStringLiteral("finish"), t.finish }, { QStringLiteral("name"), t.name } });
+    return out;
+}
+
+int RlvSession::countOf(RouteSegment::Kind kind) const
+{
+    return int(std::count_if(m_segments.begin(), m_segments.end(), [kind](const TimedSegment &t) { return t.kindId == kind; }));
+}
+
+int RlvSession::focusIndex(RouteSegment::Kind kind) const
+{
+    int next = -1, last = -1;
+    for (int i = 0; i < m_segments.size(); ++i) {
+        const TimedSegment &t = m_segments.at(i);
+        if (t.kindId != kind)
+            continue;
+        if (t.phase == SegmentPhase::Running)
+            return i;
+        if (m_distance < t.start) {
+            if (next < 0)
+                next = i;
+        } else {
+            last = i;
+        }
+    }
+    const int k = kind;
+    const int finished = m_lastFinished[k];
+    if (finished >= 0 && m_activeMs - m_lastFinishedMs[k] < kResultShowMs) {
+        const double approach = kind == RouteSegment::Kom ? 500.0 : 400.0;
+        if (next < 0 || m_segments.at(next).start - m_distance > approach)
+            return finished;
+    }
+    return next >= 0 ? next : last;
+}
+
+const RlvSession::TimedSegment &RlvSession::focusSeg(RouteSegment::Kind kind) const
+{
+    const int i = focusIndex(kind);
+    return i >= 0 ? m_segments.at(i) : m_noSegment;
+}
+
+double RlvSession::komGainM() const
+{
+    const TimedSegment &t = focusSeg(RouteSegment::Kom);
+    if (!t.valid())
+        return 0.0;
+    return m_route.elevationAtDistance(t.finish) - m_route.elevationAtDistance(t.start);
+}
+
+void RlvSession::emitSegments(bool sprints, bool koms)
+{
+    if (sprints) {
+        m_focusSeen[RouteSegment::Sprint] = focusIndex(RouteSegment::Sprint);
+        emit sprintChanged();
+    }
+    if (koms) {
+        m_focusSeen[RouteSegment::Kom] = focusIndex(RouteSegment::Kom);
+        emit komChanged();
+    }
 }
 
 void RlvSession::resetTimed(TimedSegment &seg)
@@ -1221,38 +1294,39 @@ void RlvSession::resetTimed(TimedSegment &seg)
 
 void RlvSession::resetSegments()
 {
-    resetTimed(m_sprint);
-    resetTimed(m_kom);
-    emit sprintChanged();
-    emit komChanged();
-}
-
-void RlvSession::discardSegments()
-{
-    for (TimedSegment *seg : { &m_sprint, &m_kom }) {
-        if (seg->recordId < 0)
-            continue;
-        m_db->deleteSegmentRecord(seg->recordId);
-        seg->recordId = -1;
-        seg->phase = SegmentPhase::Void;
-        seg->time = 0;
-        seg->newBest = false;
-        loadBest(*seg, m_rideProfile.id);
-        seg->previousBest = seg->best;
-        emit seg == &m_sprint ? sprintChanged() : komChanged();
-    }
+    for (TimedSegment &seg : m_segments)
+        resetTimed(seg);
+    m_lastFinished[0] = m_lastFinished[1] = -1;
+    emitSegments(true, true);
 }
 
 void RlvSession::voidSegments()
 {
-    if (m_sprint.phase == SegmentPhase::Running) {
-        m_sprint.phase = SegmentPhase::Void;
-        emit sprintChanged();
+    bool sprints = false, koms = false;
+    for (TimedSegment &seg : m_segments)
+        if (seg.phase == SegmentPhase::Running) {
+            seg.phase = SegmentPhase::Void;
+            (seg.kindId == RouteSegment::Kom ? koms : sprints) = true;
+        }
+    emitSegments(sprints, koms);
+}
+
+void RlvSession::discardSegments()
+{
+    bool sprints = false, koms = false;
+    for (TimedSegment &seg : m_segments) {
+        if (seg.recordId < 0)
+            continue;
+        m_db->deleteSegmentRecord(seg.recordId);
+        seg.recordId = -1;
+        seg.phase = SegmentPhase::Void;
+        seg.time = 0;
+        seg.newBest = false;
+        loadBest(seg, m_rideProfile.id);
+        seg.previousBest = seg.best;
+        (seg.kindId == RouteSegment::Kom ? koms : sprints) = true;
     }
-    if (m_kom.phase == SegmentPhase::Running) {
-        m_kom.phase = SegmentPhase::Void;
-        emit komChanged();
-    }
+    emitSegments(sprints, koms);
 }
 
 QString RlvSession::timedState(const TimedSegment &seg) const
@@ -1321,16 +1395,32 @@ bool RlvSession::stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finish
 
 void RlvSession::updateSegments(double d0, qint64 t0)
 {
-    bool finished = false;
-    if (stepTimed(m_sprint, d0, t0, finished)) {
-        emit sprintChanged();
-        if (finished)
-            emit sprintFinished(m_sprint.time, m_sprint.previousBest, m_sprint.newBest);
+    bool changed[2] = { false, false };
+    int finishedIndex[2] = { -1, -1 };
+    for (int i = 0; i < m_segments.size(); ++i) {
+        TimedSegment &seg = m_segments[i];
+        bool finished = false;
+        if (stepTimed(seg, d0, t0, finished)) {
+            changed[seg.kindId] = true;
+            if (finished) {
+                finishedIndex[seg.kindId] = i;
+                m_lastFinished[seg.kindId] = i;
+                m_lastFinishedMs[seg.kindId] = m_activeMs;
+            }
+        }
     }
-    if (stepTimed(m_kom, d0, t0, finished)) {
-        emit komChanged();
-        if (finished)
-            emit komFinished(m_kom.time, m_kom.previousBest, m_kom.newBest);
+    // the focus moves on (a line passed, a result shown long enough)
+    for (int k = 0; k < 2; ++k)
+        if (focusIndex(RouteSegment::Kind(k)) != m_focusSeen[k])
+            changed[k] = true;
+    emitSegments(changed[RouteSegment::Sprint], changed[RouteSegment::Kom]);
+    if (finishedIndex[RouteSegment::Sprint] >= 0) {
+        const TimedSegment &s = m_segments.at(finishedIndex[RouteSegment::Sprint]);
+        emit sprintFinished(s.time, s.previousBest, s.newBest);
+    }
+    if (finishedIndex[RouteSegment::Kom] >= 0) {
+        const TimedSegment &s = m_segments.at(finishedIndex[RouteSegment::Kom]);
+        emit komFinished(s.time, s.previousBest, s.newBest);
     }
 }
 

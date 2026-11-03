@@ -66,14 +66,22 @@ public:
     // START is shown until you have ridden through it, then FINISH - so on a
     // loop (both at one place) you start under green and finish under red.
     void setStartDistance(double drawnMetres);
-    // The GPX Ride's sprint (drawn metres): lines across the road, road text
-    // and signs (see sprintMarks()). Not valid: none.
-    struct SprintMarks { bool valid = false; double announce = 0, start = 0, finish = 0; };
-    void setSprint(const SprintMarks &marks);
-    // The GPX Ride's KOM climb (drawn metres): a polka-dot arch at its foot,
-    // a red one at its top. Not valid: none.
-    struct KomMarks { bool valid = false; double start = 0, finish = 0; };
-    void setKom(const KomMarks &marks);
+    // The GPX Ride's sprints (drawn metres): lines across the road, road text
+    // and signs (see sprintMarks()); announce < 0: no "SPRINT IN 200 m".
+    struct SprintMarks
+    {
+        double announce = -1, start = 0, finish = 0;
+        bool operator==(const SprintMarks &o) const { return announce == o.announce && start == o.start && finish == o.finish; }
+    };
+    void setSprints(const std::vector<SprintMarks> &marks);
+    // The GPX Ride's KOMs (drawn metres): a polka-dot arch at the foot, a red
+    // one at the top.
+    struct KomMarks
+    {
+        double start = 0, finish = 0;
+        bool operator==(const KomMarks &o) const { return start == o.start && finish == o.finish; }
+    };
+    void setKoms(const std::vector<KomMarks> &marks);
     // A small white kilometre post at each whole kilometre of the ride
     // (drawn metres of km 1, 2, ...), on the right-hand verge.
     void setKmPosts(const std::vector<double> &drawnMetres);
@@ -90,6 +98,12 @@ public:
 
     // Releases the GL objects (context current).
     void release();
+
+    // The trees of the world as geometry (no GL: the Rowing page's 3D view
+    // plants the same trees): position, normal, colour, sway (0 at the foot ..
+    // 1 at the top: how much the wind moves it).
+    struct MeshVertex { QVector3D position, normal, color; float sway; };
+    void treeMesh(const route3d::TreeSpec &t, bool far, std::vector<MeshVertex> &out);
 
 private:
     enum Material { Solid = 0, Asphalt = 1, Grass = 2, Gravel = 3, Paint = 4, Verge = 5, Shadow = 6, Distant = 7, Foliage = 8,
@@ -165,7 +179,7 @@ private:
     };
     void placeDisplayBike();
     void displayBike(std::vector<Vertex> &out);
-    void sprintMarks(std::vector<Vertex> &out);
+    void sprintMarks(std::vector<Vertex> &out, const SprintMarks &sprint);
     void kmPosts();                                   // -> m_target (buildGates)
     float vergeHeight(double d, float lateral) const;  // the ground beside the road (gravel, verge, terrain)
     // The landscape around the camera: rebuilt when the camera enters another
@@ -190,8 +204,8 @@ private:
     int m_startGateCount = 0;     // first vertices: the START arch, then the FINISH arch
     int m_finishGateEnd = 0;      // then the display bike (always drawn) up to the end
     DisplaySpot m_bikeSpot;       // read by the tile job: changed only after waitForTile()
-    SprintMarks m_sprint;         // drawn with the arches (m_gateBuffer)
-    KomMarks m_kom;
+    std::vector<SprintMarks> m_sprints;   // drawn with the arches (m_gateBuffer)
+    std::vector<KomMarks> m_koms;
     std::vector<double> m_kmPosts;           // drawn metres of km 1, 2, ...
     std::vector<route3d::BenchSpec> m_benches;   // per route (setRoute), read by the tile job
     std::vector<Vertex> *m_target = &m_build;

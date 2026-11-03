@@ -313,7 +313,7 @@ bool RlvRoute::load(const QString &pathIn, QString *error)
         return fail(err);
     m_source = file;
     m_folder = QFileInfo(file).absolutePath();
-    computeDerived();
+    // (derived values: computed by setPoints() - every loader ends there)
     if (!isValid())
         return fail(m_points.size() < 2 ? QStringLiteral("The track has fewer than two points")
                                         : QStringLiteral("The track is shorter than %1 m").arg(int(kMinDistanceM)));
@@ -433,6 +433,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
     bool inPoint = false, curHasTime = false, curHasEle = false;
     QString trackName;
     int depthTrk = 0;
+    QVector<RouteSegment> segs;
     while (!xml.atEnd()) {
         const auto tok = xml.readNext();
         if (tok == QXmlStreamReader::StartElement) {
@@ -478,6 +479,23 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
                 cur.heartRate = int(std::lround(parseNumber(xml.readElementText())));
             } else if (inPoint && n == QLatin1String("cad")) {
                 cur.cadence = int(std::lround(parseNumber(xml.readElementText())));
+            } else if (!inPoint && n == QLatin1String("segments")
+                       && xml.namespaceUri() == QLatin1String(segments::kNamespace)) {
+                bool ok = false;
+                const double g = xml.attributes().value(QLatin1String("maxGrade")).toDouble(&ok);
+                if (ok && g > 0)
+                    m_maxCleanGrade = std::clamp(g, 5.0, 30.0);
+            } else if (!inPoint && n == QLatin1String("segment")
+                       && xml.namespaceUri() == QLatin1String(segments::kNamespace)) {
+                const auto a = xml.attributes();
+                RouteSegment s;
+                s.kind = a.value(QLatin1String("kind")) == QLatin1String("kom") ? RouteSegment::Kom : RouteSegment::Sprint;
+                bool okS = false, okF = false;
+                s.start = a.value(QLatin1String("start")).toDouble(&okS);
+                s.finish = a.value(QLatin1String("finish")).toDouble(&okF);
+                s.name = a.value(QLatin1String("name")).toString();
+                if (okS && okF)
+                    segs.append(s);
             } else if (!inPoint && depthTrk > 0 && n == QLatin1String("name") && trackName.isEmpty()) {
                 trackName = xml.readElementText().trimmed();
             }
@@ -506,7 +524,17 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
     fillMissingElevation(pts, hasEle);
     if (m_title.isEmpty() && !trackName.isEmpty() && trackName != m_name)
         m_title = trackName;
-    return setPoints(std::move(pts), error);
+    if (!setPoints(std::move(pts), error))
+        return false;
+    // the workshop's segments: one by one, so a bad one does not drop the rest
+    std::sort(segs.begin(), segs.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
+    for (const RouteSegment &s : segs) {
+        QVector<RouteSegment> trial = m_segments;
+        trial.append(s);
+        if (segments::validate(trial, totalDistance()))
+            m_segments = trial;
+    }
+    return true;
 }
 
 void RlvRoute::fillMissingElevation(QVector<RlvPoint> &pts, const QVector<bool> &hasEle)
@@ -594,14 +622,16 @@ void RlvRoute::computeDerived()
         p.distance = dist;
     }
 
-    // elevation: mean of the raw (piecewise linear) profile over
+    cleanElevations();
+
+    // elevation: mean of the cleaned (piecewise linear) profile over
     // [d - window/2, d + window/2] - exact integral, so standing points and
     // uneven point spacing do not bias it
     QVector<double> integral(n, 0.0);
     for (int i = 1; i < n; ++i) {
         const RlvPoint &a = m_points.at(i - 1);
         const RlvPoint &b = m_points.at(i);
-        integral[i] = integral.at(i - 1) + (b.distance - a.distance) * (a.rawElevation + b.rawElevation) / 2.0;
+        integral[i] = integral.at(i - 1) + (b.distance - a.distance) * (a.cleanElevation + b.cleanElevation) / 2.0;
     }
     const double total = dist;
     auto integralAt = [&](double x) {
@@ -614,8 +644,8 @@ void RlvRoute::computeDerived()
         const RlvPoint &b = m_points.at(i + 1);
         const double span = b.distance - a.distance;
         const double f = span > 0 ? (x - a.distance) / span : 0.0;
-        const double ex = a.rawElevation + (b.rawElevation - a.rawElevation) * f;
-        return integral.at(i) + (x - a.distance) * (a.rawElevation + ex) / 2.0;
+        const double ex = a.cleanElevation + (b.cleanElevation - a.cleanElevation) * f;
+        return integral.at(i) + (x - a.distance) * (a.cleanElevation + ex) / 2.0;
     };
     const double half = kElevationWindowM / 2.0;
     for (int i = 0; i < n; ++i) {
@@ -623,7 +653,7 @@ void RlvRoute::computeDerived()
         const double h = std::min({ half, d, total - d });   // symmetric, shrinks at the ends
         const double a = d - h;
         const double b = d + h;
-        m_points[i].elevation = b - a > 1e-6 ? (integralAt(b) - integralAt(a)) / (b - a) : m_points.at(i).rawElevation;
+        m_points[i].elevation = b - a > 1e-6 ? (integralAt(b) - integralAt(a)) / (b - a) : m_points.at(i).cleanElevation;
     }
 
     // grade over ±kGradeWindowM/2 of smoothed elevation
@@ -670,6 +700,112 @@ void RlvRoute::computeDerived()
     else
         m_descent += ref - end;
     m_points[n - 1].ascent = m_ascent;
+}
+
+void RlvRoute::cleanElevations()
+{
+    const int n = m_points.size();
+    m_spikes = m_limited = 0;
+    m_rawMaxGrade = 0;
+    for (RlvPoint &p : m_points)
+        p.cleanElevation = p.rawElevation;
+    const double total = m_points.constLast().distance;
+    if (n < 3 || total < 2 * kCleanStepM)
+        return;
+    // the raw track on a regular grid
+    const int m = int(std::ceil(total / kCleanStepM)) + 1;
+    const double step = total / (m - 1);
+    std::vector<double> raw(static_cast<size_t>(m)), e;
+    for (int k = 0, i = 0; k < m; ++k) {
+        const double x = k * step;
+        while (i < n - 2 && m_points.at(i + 1).distance < x)
+            ++i;
+        const RlvPoint &a = m_points.at(i), &b = m_points.at(i + 1);
+        const double span = b.distance - a.distance;
+        const double f = span > 0 ? std::clamp((x - a.distance) / span, 0.0, 1.0) : 0.0;
+        raw[size_t(k)] = a.rawElevation + (b.rawElevation - a.rawElevation) * f;
+    }
+    {   // the steepest 40 m grade as recorded
+        const int w = std::max(1, int(std::lround(40.0 / step)));
+        for (int k = 0; k + w < m; ++k)
+            m_rawMaxGrade = std::max(m_rawMaxGrade, std::abs(raw[size_t(k + w)] - raw[size_t(k)]) / (w * step) * 100.0);
+    }
+    // 1. spikes: a Hampel filter (median and median absolute deviation)
+    e = raw;
+    const int half = std::max(1, int(std::lround(kSpikeWindowM / step)));
+    std::vector<double> win, dev;
+    for (int k = 0; k < m; ++k) {
+        win.clear();
+        for (int j = std::max(0, k - half); j <= std::min(m - 1, k + half); ++j)
+            if (j != k)
+                win.push_back(raw[size_t(j)]);
+        std::nth_element(win.begin(), win.begin() + win.size() / 2, win.end());
+        const double med = win[win.size() / 2];
+        dev.clear();
+        for (double v : win)
+            dev.push_back(std::abs(v - med));
+        std::nth_element(dev.begin(), dev.begin() + dev.size() / 2, dev.end());
+        const double mad = 1.4826 * dev[dev.size() / 2];
+        const double off = std::abs(raw[size_t(k)] - med);
+        if (off > kSpikeM && off > kSpikeMads * mad) {
+            e[size_t(k)] = med;
+            ++m_spikes;
+        }
+    }
+    // 2. grade limit: share each step's excess with its neighbours until none
+    //    is steeper than kMaxCleanGrade (the sum of the heights is kept)
+    const double limit = maxCleanGrade() / 100.0 * step;
+    std::vector<char> touched(size_t(m), 0);
+    const int passes = std::clamp(int(3e8 / m), 500, 20000);   // bounded work on long routes
+    for (int pass = 0; pass < passes; ++pass) {
+        double worst = 0;
+        for (int k = 0; k + 1 < m; ++k) {
+            const double diff = e[size_t(k + 1)] - e[size_t(k)];
+            const double excess = std::abs(diff) - limit;
+            if (excess <= 1e-4)
+                continue;
+            const double moved = (diff > 0 ? excess : -excess) / 2.0;
+            e[size_t(k)] += moved;
+            e[size_t(k + 1)] -= moved;
+            touched[size_t(k)] = touched[size_t(k + 1)] = 1;
+            worst = std::max(worst, excess);
+        }
+        if (worst < 0.01)
+            break;
+    }
+    m_limited = int(std::count(touched.begin(), touched.end(), 1));
+    if (m_spikes == 0 && m_limited == 0)
+        return;
+    // back onto the points: the raw value plus the grid's correction there
+    for (int i = 0; i < n; ++i) {
+        RlvPoint &p = m_points[i];
+        const double x = std::clamp(p.distance / step, 0.0, double(m - 1));
+        const int k = std::min(m - 2, int(x));
+        const double f = x - k;
+        const double corr = (e[size_t(k)] - raw[size_t(k)]) * (1 - f) + (e[size_t(k + 1)] - raw[size_t(k + 1)]) * f;
+        // a point between grid points can itself be a spike: take the grid
+        const double gridValue = e[size_t(k)] * (1 - f) + e[size_t(k + 1)] * f;
+        p.cleanElevation = std::abs(p.rawElevation + corr - gridValue) > kSpikeM ? gridValue : p.rawElevation + corr;
+    }
+}
+
+void RlvRoute::setMaxCleanGrade(double percent)
+{
+    const double v = percent > 0 ? std::clamp(percent, 5.0, 30.0) : 0.0;
+    if (v == m_maxCleanGrade)
+        return;
+    m_maxCleanGrade = v;
+    if (m_points.size() >= 2)
+        computeDerived();
+}
+
+double RlvRoute::steepestGrade() const
+{
+    double best = 0;
+    const double total = totalDistance();
+    for (double d = 0; d + 40 <= total; d += 10)
+        best = std::max(best, std::abs(elevationAtDistance(d + 40) - elevationAtDistance(d)) / 40.0 * 100.0);
+    return best;
 }
 
 // --- lookups ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ Rectangle {
     property int currentIndex: 0
     property bool profileOpen: false
     // Page names in StackLayout order (Main.qml window.pageNames).
-    property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "gpxworkshop", "history", "devices"]
     signal navigate(int index)
     signal profileRequested()
 
@@ -23,6 +23,7 @@ Rectangle {
         { label: "Workouts", icon: "calendar", page: "workouts" },
         { label: "Calendar", icon: "calendarDays", page: "calendar" },
         { label: "Builder", icon: "plus", page: "builder" },
+        { label: "GPX Workshop", icon: "flag", page: "gpxworkshop" },
         { label: "History", icon: "history", page: "history" },
         { label: "Devices", icon: "bluetooth", page: "devices" }
     ]

@@ -23,6 +23,22 @@ Item {
     property int currentInformation: Rlv.currentInformationIndex
     property bool interactive: false
     property bool showPositionLabel: true
+    property bool showPosition: true            // the position marker (off: the GPX Workshop)
+    property string hoverPrefix: "Start at "    // hover bubble text before the distance (interactive)
+    // sprints / KOMs: a map pin (green sprint, red KOM) where each starts and
+    // a light band to its finish: [{kind, start, finish, name}]
+    property var segments: []
+    property bool showKmLabels: true            // off: a mini profile without the km row (full-screen HUD)
+    // the sprint / KOM whose pin the mouse is near (its name goes into the hover bubble), or null
+    readonly property var hoverSegment: {
+        if (hoverDistance < 0 || !segments)
+            return null
+        const hx = xOf(hoverDistance)
+        for (let i = 0; i < segments.length; ++i)
+            if (Math.abs(xOf(segments[i].start) - hx) <= 9)
+                return segments[i]
+        return null
+    }
     readonly property real hoverDistance: mouse.containsMouse || mouse.pressed ? distanceAt(mouse.mouseX) : -1
     signal startChosen(real meters)
 
@@ -30,7 +46,7 @@ Item {
     readonly property real span: Math.max(40, maxEle - minEle)
     readonly property real lo: minEle - span * 0.12
     readonly property real hi: maxEle + span * 0.10
-    readonly property real labelH: 20
+    readonly property real labelH: showKmLabels ? 20 : 0
     readonly property real plotH: Math.max(10, height - labelH)
     readonly property real kmStep: {
         var km = total / 1000
@@ -166,6 +182,60 @@ Item {
         }
     }
 
+    // sprint / KOM bands and pins
+    Repeater {
+        model: prof.hasData ? prof.segments : []
+        Item {
+            id: segMark
+            readonly property bool kom: modelData.kind === "kom"
+            readonly property color tint: kom ? "#ff5a4f" : "#2fd35a"
+            x: prof.xOf(modelData.start)
+            width: Math.max(2, prof.xOf(modelData.finish) - x)
+            height: prof.plotH
+            // the stretch under the profile
+            Rectangle {
+                width: parent.width
+                y: prof.yOf(prof.eleAt(modelData.start)) - parent.y
+                height: Math.max(0, prof.plotH - y)
+                color: segMark.tint
+                opacity: 0.16
+            }
+            Rectangle { x: parent.width - 1; y: prof.yOf(prof.eleAt(modelData.finish)); width: 2
+                        height: Math.max(0, prof.plotH - y); color: segMark.tint; opacity: 0.6 }
+            // the pin: its point on the profile at the start
+            Canvas {
+                id: pin
+                readonly property real tipY: prof.yOf(prof.eleAt(modelData.start))
+                width: 18
+                height: 24
+                x: -width / 2
+                y: Math.max(0, tipY - height)
+                antialiasing: true
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.reset()
+                    const r = 8, cx = width / 2, cy = r + 1
+                    ctx.beginPath()
+                    ctx.moveTo(cx, height - 1)
+                    ctx.bezierCurveTo(cx - r * 0.55, height - 7, cx - r, cy + r * 0.75, cx - r, cy)
+                    ctx.arc(cx, cy, r, Math.PI, 0, false)
+                    ctx.bezierCurveTo(cx + r, cy + r * 0.75, cx + r * 0.55, height - 7, cx, height - 1)
+                    ctx.closePath()
+                    ctx.fillStyle = segMark.tint
+                    ctx.fill()
+                    ctx.lineWidth = 1.5
+                    ctx.strokeStyle = "white"
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.arc(cx, cy, 3.2, 0, 2 * Math.PI)
+                    ctx.fillStyle = "white"
+                    ctx.fill()
+                }
+                Component.onCompleted: requestPaint()
+            }
+        }
+    }
+
     // start point (when not at 0)
     Item {
         visible: prof.hasData && prof.startDistance > 1
@@ -183,7 +253,7 @@ Item {
 
     // km labels
     Repeater {
-        model: prof.hasData ? Math.floor(prof.total / 1000 / prof.kmStep) + 1 : 0
+        model: prof.hasData && prof.showKmLabels ? Math.floor(prof.total / 1000 / prof.kmStep) + 1 : 0
         Text {
             readonly property real d: index * prof.kmStep * 1000
             visible: index === 0 || prof.total - d > prof.total * 0.05
@@ -195,7 +265,7 @@ Item {
         }
     }
     Text {
-        visible: prof.hasData
+        visible: prof.hasData && prof.showKmLabels
         anchors.right: parent.right
         y: prof.plotH + 3
         text: prof.km(prof.total, 1) + " km"
@@ -224,11 +294,15 @@ Item {
             height: 26
             radius: 13
             color: Theme.menuBackground
-            border.color: prof.interactive ? Theme.successText : Theme.menuBorder
+            border.color: prof.hoverSegment ? (prof.hoverSegment.kind === "kom" ? "#ff5a4f" : "#2fd35a")
+                          : prof.interactive ? Theme.successText : Theme.menuBorder
+            border.width: prof.hoverSegment ? 2 : 1
             Text {
                 id: hoverText
                 anchors.centerIn: parent
-                text: (prof.interactive ? "Start at " : "") + prof.km(prof.hoverDistance, 2) + " km  •  "
+                text: prof.hoverSegment ? prof.hoverSegment.name + "  ·  "
+                                          + Math.round(prof.hoverSegment.finish - prof.hoverSegment.start) + " m long"
+                      : (prof.interactive ? prof.hoverPrefix : "") + prof.km(prof.hoverDistance, 2) + " km  •  "
                       + Math.round(prof.eleAt(prof.hoverDistance)) + " m"
                 color: Theme.text
                 font.pixelSize: 13
@@ -240,7 +314,7 @@ Item {
     // current position
     Item {
         id: marker
-        visible: prof.hasData
+        visible: prof.hasData && prof.showPosition
         x: prof.xOf(prof.position)
         height: prof.plotH
         Rectangle {

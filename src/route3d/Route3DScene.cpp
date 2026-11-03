@@ -741,14 +741,15 @@ void Route3DScene::buildGates()
     arch(m_gateVertices, finishArch, FinishArch);
     m_finishGateEnd = int(m_gateVertices.size());
     displayBike(m_gateVertices);
-    sprintMarks(m_gateVertices);
+    for (const SprintMarks &s : m_sprints)
+        sprintMarks(m_gateVertices, s);
     // the KOM: polka-dot arch at the foot of the climb, red at the top (not
     // into the START / FINISH arch when the climb begins or ends there)
-    if (m_kom.valid) {
-        if (std::abs(m_kom.start - m_builtStartGate) > kArchClearM && std::abs(m_kom.start - finishArch) > kArchClearM)
-            arch(m_gateVertices, m_kom.start, KomStartArch);
-        if (std::abs(m_kom.finish - m_builtStartGate) > kArchClearM && std::abs(m_kom.finish - finishArch) > kArchClearM)
-            arch(m_gateVertices, m_kom.finish, KomFinishArch);
+    for (const KomMarks &kom : m_koms) {
+        if (std::abs(kom.start - m_builtStartGate) > kArchClearM && std::abs(kom.start - finishArch) > kArchClearM)
+            arch(m_gateVertices, kom.start, KomStartArch);
+        if (std::abs(kom.finish - m_builtStartGate) > kArchClearM && std::abs(kom.finish - finishArch) > kArchClearM)
+            arch(m_gateVertices, kom.finish, KomFinishArch);
     }
     // kilometre posts (the short put() writes here meanwhile)
     m_target = &m_gateVertices;
@@ -906,10 +907,14 @@ void Route3DScene::kmPosts()
     for (size_t i = 0; i < m_kmPosts.size(); ++i) {
         double d = m_kmPosts[i];
         // not into a sign or an arch
-        for (double busy : { m_sprint.valid ? m_sprint.start : -1e9, m_sprint.valid ? m_sprint.finish : -1e9, m_builtStartGate,
-                             m_kom.valid ? m_kom.start : -1e9, m_kom.valid ? m_kom.finish : -1e9 })
-            if (std::abs(d - busy) < 4)
-                d = busy + 6;
+        std::vector<double> busy { m_builtStartGate };
+        for (const SprintMarks &s : m_sprints)
+            busy.insert(busy.end(), { s.start, s.finish });
+        for (const KomMarks &k : m_koms)
+            busy.insert(busy.end(), { k.start, k.finish });
+        for (double b : busy)
+            if (std::abs(d - b) < 4)
+                d = b + 6;
         if (d < 1 || d > length - 1)
             continue;
         const float lat = kGravelEdgeM + .55f;
@@ -947,20 +952,19 @@ void Route3DScene::kmPosts()
     }
 }
 
-void Route3DScene::setKom(const KomMarks &marks)
+void Route3DScene::setKoms(const std::vector<KomMarks> &marks)
 {
-    if (marks.valid == m_kom.valid && marks.start == m_kom.start && marks.finish == m_kom.finish)
+    if (marks == m_koms)
         return;
-    m_kom = marks;
+    m_koms = marks;
     m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
 }
 
-void Route3DScene::setSprint(const SprintMarks &marks)
+void Route3DScene::setSprints(const std::vector<SprintMarks> &marks)
 {
-    if (marks.valid == m_sprint.valid && marks.announce == m_sprint.announce && marks.start == m_sprint.start
-        && marks.finish == m_sprint.finish)
+    if (marks == m_sprints)
         return;
-    m_sprint = marks;
+    m_sprints = marks;
     m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
 }
 
@@ -977,10 +981,11 @@ constexpr float kSignTurnDeg = 20.f;       // turned towards the road
 // The sprint on the road (GPX Ride): painted lines across the asphalt, road
 // text before the first two and a small sign on the verge at the start and
 // the finish line. All in the gate buffer (static, ~400 vertices).
-void Route3DScene::sprintMarks(std::vector<Vertex> &out)
+void Route3DScene::sprintMarks(std::vector<Vertex> &out, const SprintMarks &sprint)
 {
-    if (!m_sprint.valid || !m_route)
+    if (!m_route)
         return;
+    const SprintMarks &marks = sprint;
     const Route &route = *m_route;
     const float length = float(route.length());
     const QVector3D up(0, 1, 0);
@@ -1060,15 +1065,17 @@ void Route3DScene::sprintMarks(std::vector<Vertex> &out)
     const QVector3D green = kStartGreen, red = kFinishRed;
     const QVector3D paintGreen(.20f, .85f, .32f), paintRed(.95f, .18f, .14f);
     // "SPRINT IN 200 m", a thin green line
-    text(m_sprint.announce - 1 - kRoadTextLengthM, m_sprint.announce - 1, 2.6f, kRoadAnnounce);
-    line(m_sprint.announce, .45f, paintGreen);
+    if (marks.announce >= 0) {
+        text(marks.announce - 1 - kRoadTextLengthM, marks.announce - 1, 2.6f, kRoadAnnounce);
+        line(marks.announce, .45f, paintGreen);
+    }
     // "SPRINT", the thick green start line and its sign
-    text(m_sprint.start - 1 - kRoadTextLengthM, m_sprint.start - 1, 2.2f, kRoadSprint);
-    line(m_sprint.start, 1.4f, paintGreen);
-    sign(m_sprint.start, kSprintSign, green);
+    text(marks.start - 1 - kRoadTextLengthM, marks.start - 1, 2.2f, kRoadSprint);
+    line(marks.start, 1.4f, paintGreen);
+    sign(marks.start, kSprintSign, green);
     // the red finish line and its sign
-    line(m_sprint.finish, 1.4f, paintRed);
-    sign(m_sprint.finish, kSprintFinishSign, red);
+    line(marks.finish, 1.4f, paintRed);
+    sign(marks.finish, kSprintFinishSign, red);
 }
 
 // --- geometry (unchanged from the prototype) -----------------------------------------------
@@ -1220,6 +1227,24 @@ void Route3DScene::broadleaf(const TreeSpec &t, bool far)
         blob(crown + off, crown, R * (.55f + .15f * rnd(t.seed, 40 + k)), green * (.92f + .16f * rnd(t.seed, 50 + k)), .85f,
              t.seed + uint32_t(k) + 1, 5, 8, base.y(), h);
     }
+}
+
+void Route3DScene::treeMesh(const TreeSpec &t, bool far, std::vector<MeshVertex> &out)
+{
+    std::vector<Vertex> buf;
+    std::vector<Vertex> *saved = m_target;
+    m_target = &buf;
+    if (t.kind == Spruce)
+        spruce(t, far);
+    else if (t.kind == Broadleaf)
+        broadleaf(t, far);
+    else
+        bush(t);
+    m_target = saved;
+    out.reserve(out.size() + buf.size());
+    for (const Vertex &v : buf)
+        out.push_back({ QVector3D(v.x, v.y, v.z), QVector3D(v.nx, v.ny, v.nz), QVector3D(v.r, v.g, v.b),
+                        int(v.material + .5f) == Foliage ? v.blend : 0.f });
 }
 
 void Route3DScene::bush(const TreeSpec &t)
@@ -1643,6 +1668,79 @@ void Route3DScene::buildTile(int tileX, int tileZ)
                     nearby.insert(nearby.end(), it->second.begin(), it->second.end());
         std::sort(nearby.begin(), nearby.end());
     }
+    // Where the route meets itself (a loop closing, a junction with a part
+    // ridden before or after), a road's gravel shoulder, verge and edge line
+    // would lie across the other road's asphalt: on that side it becomes
+    // asphalt instead (the two roads join). "Other": more than kJoinApartM
+    // along the route; road points drawn by an earlier pass (shared) are left
+    // out - that pass is the road.
+    constexpr double kJoinApartM = 30.0, kJoinCellM = 8.0;
+    std::unordered_map<long long, std::vector<uint32_t>> joinGrid;   // segment j..j+1 by its ends' cells
+    auto joinKey = [](long long x, long long z) { return (x << 32) ^ (z & 0xffffffffLL); };
+    for (const uint32_t j : nearby) {
+        if (j + 1 >= route.points.size() || (route.isShared(j) && route.isShared(j + 1)))
+            continue;
+        const auto &pa = route.points[j], &pb = route.points[j + 1];
+        const long long ax = (long long)std::floor(pa.x / kJoinCellM), az = (long long)std::floor(pa.z / kJoinCellM);
+        const long long bx = (long long)std::floor(pb.x / kJoinCellM), bz = (long long)std::floor(pb.z / kJoinCellM);
+        joinGrid[joinKey(ax, az)].push_back(j);
+        if (bx != ax || bz != az)
+            joinGrid[joinKey(bx, bz)].push_back(j);
+    }
+    // the nearest other part of the road (not within kJoinApartM of `along`)
+    // to (x, z), at most `reach` away: its distance and the point on its centre line
+    struct Other { double dist, x, z; };
+    // (another road more than Route::kSnapRiseM higher or lower - a hairpin
+    // on a climb, a bridge - is not joined)
+    auto otherRoad = [&](double x, double y, double z, double along, double reach) {
+        Other best { reach, x, z };
+        const long long cx0 = (long long)std::floor((x - reach) / kJoinCellM), cx1 = (long long)std::floor((x + reach) / kJoinCellM);
+        const long long cz0 = (long long)std::floor((z - reach) / kJoinCellM), cz1 = (long long)std::floor((z + reach) / kJoinCellM);
+        for (long long gx = cx0 - 1; gx <= cx1 + 1; ++gx)
+            for (long long gz = cz0 - 1; gz <= cz1 + 1; ++gz) {
+                auto it = joinGrid.find(joinKey(gx, gz));
+                if (it == joinGrid.end())
+                    continue;
+                for (const uint32_t j : it->second) {
+                    const auto &pa = route.points[j], &pb = route.points[j + 1];
+                    if (std::abs(pa.distance - along) < kJoinApartM || std::abs(pb.distance - along) < kJoinApartM)
+                        continue;
+                    const double sx = pb.x - pa.x, sz = pb.z - pa.z, l2 = sx * sx + sz * sz;
+                    const double t = l2 > 1e-12 ? std::clamp(((x - pa.x) * sx + (z - pa.z) * sz) / l2, 0.0, 1.0) : 0.0;
+                    const double nx = pa.x + sx * t, nz = pa.z + sz * t, dd = std::hypot(x - nx, z - nz);
+                    if (std::abs(pa.y + (pb.y - pa.y) * t - y) > route3d::Route::kSnapRiseM)
+                        continue;
+                    if (dd < best.dist)
+                        best = { dd, nx, nz };
+                }
+            }
+        return best;
+    };
+    // Rounded corners where roads join: on a side facing another part of
+    // the road, the asphalt widens along a quarter circle of radius
+    // kFilletM tangent to both road edges (half width kRoadHalfM). q: the
+    // distance from this road's edge to the other road's centre line.
+    constexpr float kRoadHalfM = 3.0f, kFilletM = 6.0f;
+    auto fillet = [&](double q) -> float {
+        if (q <= kRoadHalfM)
+            return 0.f;   // on the other road itself: its asphalt is there (no square patch)
+        if (q >= kRoadHalfM + kFilletM)
+            return 0.f;
+        const double u = kRoadHalfM + kFilletM - q;
+        return float(kFilletM - std::sqrt(std::max(0.0, double(kFilletM) * kFilletM - u * u)));
+    };
+    // the widening of side `sign` (-1 left, +1 right) at centre point c (route distance along)
+    auto widening = [&](QVector3D c, QVector3D sd, float sign, double along, double *q) {
+        const QVector3D edge = c + sd * (sign * kRoadHalfM);
+        const Other o = otherRoad(edge.x(), c.y(), edge.z(), along, kRoadHalfM + kFilletM + 1);
+        *q = o.dist;
+        // -1: no other road at this side (it must reach out on this side, not
+        // just end at the centre); else the widening (0 on the other road itself)
+        if (o.dist >= kRoadHalfM + kFilletM)
+            return -1.f;
+        const double lateral = ((o.x - c.x()) * sd.x() + (o.z - c.z()) * sd.z()) * sign;
+        return lateral > 1.5 || o.dist <= kRoadHalfM ? fillet(o.dist) : -1.f;
+    };
     for (const uint32_t idx : nearby) {
         const size_t i = idx;
         auto p = route.points[i];
@@ -1666,18 +1764,105 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         outerLB.setY(outerLB.y() + .03f);
         outerRA.setY(outerRA.y() + .03f);
         outerRB.setY(outerRB.y() + .03f);
-        quad(leftA, leftB, outerLB, outerLA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
-        quad(rightA, rightB, outerRB, outerRA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
-        quad(leftA, leftB, rightB, rightA, QVector3D(1, 1, 1), Gravel);
+        // a side joining another part of the road: rounded corner of asphalt,
+        // no gravel shoulder / edge line there (the verge follows the curve)
+        bool join[2] = { false, false };   // left, right
+        float wide[2][2] = { { 0, 0 }, { 0, 0 } };   // [side][end]
+        double qEdge[2][2] = { { 99, 99 }, { 99, 99 } };
+        for (int k = 0; k < 2; ++k) {
+            const float sign = k ? 1.f : -1.f;
+            wide[k][0] = widening(a, sa, sign, d, &qEdge[k][0]);
+            wide[k][1] = widening(b, sb, sign, e, &qEdge[k][1]);
+            join[k] = wide[k][0] >= 0 || wide[k][1] >= 0;
+            wide[k][0] = std::max(0.f, wide[k][0]);
+            wide[k][1] = std::max(0.f, wide[k][1]);
+        }
+        if (!join[0])
+            quad(leftA, leftB, outerLB, outerLA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
+        if (!join[1])
+            quad(rightA, rightB, outerRB, outerRA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
+        if (!join[0] || !join[1])
+            quad(join[0] ? a : leftA, join[0] ? b : leftB, join[1] ? b : rightB, join[1] ? a : rightA, QVector3D(1, 1, 1), Gravel);
         a.setY(a.y() + .025f);
         b.setY(b.y() + .025f);
         // blend carries the lateral position (-1..1) for wheel tracks and edge wear.
         quad(a - sa * 3, b - sb * 3, b + sb * 3, a + sa * 3, QVector3D(1, 1, 1), Asphalt, -1, -1, 1, 1);
+        // joining side: the rounded corner, in a few steps along the segment
+        for (int k = 0; k < 2; ++k) {
+            if (!join[k])
+                continue;
+            const float sign = k ? 1.f : -1.f;
+            constexpr int steps = 8;
+            for (int t = 0; t < steps; ++t) {
+                const float f0 = float(t) / steps, f1 = float(t + 1) / steps;
+                const double d0 = d + (e - d) * f0, d1 = d + (e - d) * f1;
+                const QVector3D c0 = a + (b - a) * f0, c1 = a + (b - a) * f1;
+                const QVector3D s0 = side(d0), s1 = side(d1);
+                double q0 = 99, q1 = 99;
+                const float w0 = t == 0 ? wide[k][0] : std::max(0.f, widening(c0, s0, sign, d0, &q0));
+                const float w1 = t == steps - 1 ? wide[k][1] : std::max(0.f, widening(c1, s1, sign, d1, &q1));
+                if (t == 0) q0 = qEdge[k][0];
+                if (t == steps - 1) q1 = qEdge[k][1];
+                if (w0 <= .01f && w1 <= .01f) {
+                    // the curve has faded out here (or the other road is right
+                    // here): the plain shoulder and verge, unless on the other road
+                    if (q0 > kRoadHalfM + .6 && q1 > kRoadHalfM + .6) {
+                        const QVector3D in0 = c0 + s0 * (sign * kGravelEdgeM), in1 = c1 + s1 * (sign * kGravelEdgeM);
+                        QVector3D g0 = below(c0 + s0 * (sign * kVergeEdgeM)), g1 = below(c1 + s1 * (sign * kVergeEdgeM));
+                        g0.setY(g0.y() + .03f);
+                        g1.setY(g1.y() + .03f);
+                        QVector3D e0 = c0 + s0 * (sign * kRoadHalfM), e1 = c1 + s1 * (sign * kRoadHalfM);
+                        e0.setY(e0.y() - .025f);
+                        e1.setY(e1.y() - .025f);
+                        QVector3D i0g = in0, i1g = in1;
+                        i0g.setY(i0g.y() - .025f);
+                        i1g.setY(i1g.y() - .025f);
+                        // (as the road's own shoulder and verge: inner edge first)
+                        quad(e0, e1, i1g, i0g, QVector3D(1, 1, 1), Gravel);
+                        quad(i0g, i1g, g1, g0, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
+                    }
+                    continue;
+                }
+                // one end inside the other road (no widening there): the curve
+                // meets the other road's edge in between - end the piece there
+                QVector3D c0e = c0, c1e = c1, s0e = s0, s1e = s1;
+                float w0e = w0, w1e = w1;
+                if ((w0 <= .01f) != (w1 <= .01f) && std::min(q0, q1) <= kRoadHalfM) {
+                    const double qi = w0 <= .01f ? q0 : q1, qo = w0 <= .01f ? q1 : q0;
+                    const float f = float(std::clamp((kRoadHalfM - qi) / std::max(1e-6, qo - qi), 0.0, 1.0));
+                    const QVector3D cm = w0 <= .01f ? c0 + (c1 - c0) * f : c1 + (c0 - c1) * f;
+                    const QVector3D sm = w0 <= .01f ? (s0 + (s1 - s0) * f).normalized() : (s1 + (s0 - s1) * f).normalized();
+                    if (w0 <= .01f) { c0e = cm; s0e = sm; w0e = kFilletM; }
+                    else { c1e = cm; s1e = sm; w1e = kFilletM; }
+                }
+                const QVector3D i0 = c0e + s0e * (sign * 2.9f), i1 = c1e + s1e * (sign * 2.9f);
+                const QVector3D o0 = c0e + s0e * (sign * (kRoadHalfM + w0e)), o1 = c1e + s1e * (sign * (kRoadHalfM + w1e));
+                if (k)
+                    quad(i0, i1, o1, o0, QVector3D(1, 1, 1), Asphalt, 0, 0, 0, 0);
+                else
+                    quad(o0, o1, i1, i0, QVector3D(1, 1, 1), Asphalt, 0, 0, 0, 0);
+                // the verge beyond the curve, down to the terrain (not on the other road)
+                if (q0 > kRoadHalfM + .6 && q1 > kRoadHalfM + .6) {
+                    const float r0 = kRoadHalfM + w0e + (kVergeEdgeM - kGravelEdgeM), r1 = kRoadHalfM + w1e + (kVergeEdgeM - kGravelEdgeM);
+                    QVector3D g0 = below(c0e + s0e * (sign * r0)), g1 = below(c1e + s1e * (sign * r1));
+                    g0.setY(g0.y() + .03f);
+                    g1.setY(g1.y() + .03f);
+                    QVector3D e0 = o0, e1 = o1;
+                    e0.setY(e0.y() - .025f);
+                    e1.setY(e1.y() - .025f);
+                    quad(e0, e1, g1, g0, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
+                }
+            }
+        }
         a.setY(a.y() + .02f);
         b.setY(b.y() + .02f);
-        for (float sign : { -1.f, 1.f })
+        for (int k = 0; k < 2; ++k) {
+            if (join[k])
+                continue;   // no edge line across the join
+            const float sign = k ? 1.f : -1.f;
             quad(a + sa * (sign * 2.75f - .04f), b + sb * (sign * 2.75f - .04f), b + sb * (sign * 2.75f + .04f),
                  a + sa * (sign * 2.75f + .04f), QVector3D(.87f, .88f, .79f), Paint);
+        }
         if (i % 3 == 0)
             quad(a - sa * .06f, b - sb * .06f, b + sb * .06f, a + sa * .06f, QVector3D(.9f, .88f, .73f), Paint);
     }

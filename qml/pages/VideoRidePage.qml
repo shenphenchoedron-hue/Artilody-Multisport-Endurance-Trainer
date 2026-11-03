@@ -40,6 +40,15 @@ Item {
     readonly property string st: page.session.state
     readonly property bool finished: st === "finished"
     readonly property bool locked: page.session.active
+    // full screen: the picture only, with the HUD (Main.setImmersive)
+    property bool fullscreen: false
+    property bool hudVisible: true
+    onFullscreenChanged: ApplicationWindow.window.setImmersive(fullscreen)
+    onVisibleChanged: if (!visible) fullscreen = false
+    Connections {
+        target: ApplicationWindow.window
+        function onImmersiveChanged() { if (!ApplicationWindow.window.immersive) page.fullscreen = false }
+    }
     // Only one session at a time: a workout / free ride / row IN PROGRESS on
     // another page (riding, or paused with a recording) disables Start - and
     // only Start: the pickers, gears, difficulty etc. stay usable. The reason
@@ -702,10 +711,10 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.pageMargin
-        anchors.rightMargin: Theme.pageMargin
-        anchors.bottomMargin: Theme.pageMargin
-        spacing: Theme.spacing
+        anchors.leftMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.rightMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.bottomMargin: page.fullscreen ? 0 : Theme.pageMargin
+        spacing: page.fullscreen ? 0 : Theme.spacing
 
         // ================= left column =================
         ColumnLayout {
@@ -715,6 +724,7 @@ Item {
 
             // header: title + route drop-down
             Item {
+                visible: !page.fullscreen
                 Layout.topMargin: 26
                 Layout.fillWidth: true
                 Layout.preferredHeight: header.implicitHeight
@@ -878,6 +888,7 @@ Item {
 
             // live metrics
             RowLayout {
+                visible: !page.fullscreen
                 Layout.fillWidth: true
                 Layout.preferredHeight: 132
                 Layout.fillHeight: false
@@ -965,10 +976,10 @@ Item {
                 // small preferred size: takes whatever the other rows leave
                 // (Qt 6.4 does not shrink it when the workout strip appears)
                 Layout.preferredHeight: 200
-                radius: Theme.radius
+                radius: page.fullscreen ? 0 : Theme.radius
                 color: showOverlay ? "#04060d" : Theme.card
                 border.color: Theme.cardBorder
-                border.width: 1
+                border.width: page.fullscreen ? 0 : 1
                 clip: true
 
                 VideoOutput {
@@ -989,6 +1000,10 @@ Item {
                     sourceComponent: Route3DView {
                         session: page.session
                     }
+                }
+                FullscreenTapLayer {
+                    enabled: videoCard.showOverlay
+                    onToggle: page.fullscreen = !page.fullscreen
                 }
 
                 // ---- overlays on the video (light on dark in both themes) ----
@@ -1107,7 +1122,7 @@ Item {
                             readonly property real best: kom ? s.komBestSec : s.sprintBestSec
                             readonly property real previousBest: kom ? s.komPreviousBestSec : s.sprintPreviousBestSec
                             readonly property bool newBest: kom ? s.komNewBest : s.sprintNewBest
-                            readonly property string name: kom ? "KOM" : "Sprint"
+                            readonly property string name: (kom ? s.komName : s.sprintName) || (kom ? "KOM" : "Sprint")
                             property bool showResult: false
                             readonly property bool approaching: sst === "ahead" && page.st === "running"
                                                                 && toStart <= (kom ? 500 : 400)
@@ -1143,7 +1158,7 @@ Item {
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: segPanel.approaching ? segPanel.name + " in " + Math.max(0, Math.round(segPanel.toStart)) + " m"
-                                          : segPanel.timing ? segPanel.name.toUpperCase()
+                                          : segPanel.timing ? segPanel.name
                                           : segPanel.newBest ? "New best " + segPanel.name + "!" : segPanel.name
                                     color: segPanel.tone
                                     font.pixelSize: 15
@@ -1153,7 +1168,7 @@ Item {
                                     // the climb ahead: length, average grade, height gain
                                     visible: segPanel.kom && segPanel.approaching
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: page.session.formatDistance(page.session.komLengthM) + "  ·  "
+                                    text: Math.round(page.session.komLengthM) + " m  ·  "
                                           + page.session.komGradePercent.toFixed(1) + " %  ·  "
                                           + Math.round(page.session.komGainM) + " m"
                                     color: "white"
@@ -1171,7 +1186,7 @@ Item {
                                 Text {
                                     visible: segPanel.kom && segPanel.timing
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: page.session.formatDistance(Math.max(0, segPanel.finishM - page.session.distanceMeters))
+                                    text: Math.round(Math.max(0, segPanel.finishM - page.session.distanceMeters)) + " m"
                                           + " to the top"
                                     color: "white"
                                     font.pixelSize: 15
@@ -1191,7 +1206,7 @@ Item {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     readonly property real shown: segPanel.done ? segPanel.previousBest : segPanel.best
                                     text: shown > 0 ? (segPanel.done ? "Previous best " : "Best ") + segPanel.secs(shown)
-                                                    : segPanel.done ? "First " + segPanel.name + " on this route" : "No best yet"
+                                                    : segPanel.done ? "First time on " + segPanel.name : "No best yet"
                                     color: Qt.rgba(1, 1, 1, 0.75)
                                     font.pixelSize: Theme.small(13)
                                 }
@@ -1419,6 +1434,44 @@ Item {
                             }
                         }
                     }
+                }
+
+                // full screen: the numbers on the left, the button, the bar
+                RideHud {
+                    visible: page.fullscreen && page.hudVisible && videoCard.showOverlay
+                    x: 16
+                    y: 64
+                    metrics: [
+                        { label: "Power", value: "" + page.session.watts, unit: "W", color: "#ffd23f" },
+                        { label: "Cadence", value: "" + page.session.cadence, unit: "rpm" },
+                        { label: "Heart rate", value: page.session.heartRate > 0 ? "" + page.session.heartRate : "–", unit: "bpm", color: "#ff7a8a" },
+                        { label: "Speed", value: page.session.speedKmh.toFixed(1), unit: "km/h" },
+                        { label: "Time", value: Theme.clock(page.session.elapsedSeconds), unit: "" },
+                        { label: "Distance", value: page.kmText(page.session.riddenMeters), unit: "km" },
+                        { label: "Grade", value: page.gradeText(page.session.gradePercent), unit: "", color: page.gradeTextColor(page.session.gradePercent) }
+                    ]
+                    stepText: page.workoutLive && page.session.currentIntervalIndex >= 0
+                              ? page.session.currentIntervalName + " · " + Theme.clock(page.session.intervalRemainingSec) + " left"
+                                + (page.session.workoutTargetWatts > 0 ? " · " + page.session.workoutTargetWatts + " W" : "")
+                              : ""
+                    profile: page.session.profile
+                    total: page.session.totalDistanceM
+                    minEle: page.session.minElevationM
+                    maxEle: page.session.maxElevationM
+                    position: page.session.distanceMeters
+                    elevation: page.session.elevationM
+                    segments: page.gpx ? page.session.segmentMarkers : []
+                }
+                FullscreenControls {
+                    visible: videoCard.showOverlay
+                    buttonRightMargin: videoCard.showVideo ? 62 : 14   // left of the sound button
+                    fullscreen: page.fullscreen
+                    hudVisible: page.hudVisible
+                    canPause: page.session.active
+                    paused: page.st === "paused"
+                    onToggleFullscreen: page.fullscreen = !page.fullscreen
+                    onToggleHud: page.hudVisible = !page.hudVisible
+                    onTogglePause: page.session.togglePause()
                 }
 
                 // paused / finished
@@ -1699,6 +1752,7 @@ Item {
             // not take a child back in when it becomes visible again)
             Item {
                 id: bottomArea
+                visible: !page.fullscreen
                 readonly property bool stacked: page.hasWorkout && !page.workoutTabs
                 Layout.fillWidth: true
                 // Qt 6.4 layouts miss size changes made while the page is hidden
@@ -1820,6 +1874,7 @@ Item {
                         elevation: page.session.elevationM
                         informations: page.session.informations
                         currentInformation: page.session.currentInformationIndex
+                        segments: page.gpx ? page.session.segmentMarkers : []
                         onStartChosen: (meters) => page.session.seekToDistance(meters)
                     }
                     Text {
@@ -1839,6 +1894,7 @@ Item {
         // ERG / virtual gears controls on a small screen).
         Flickable {
             id: rightFlick
+            visible: !page.fullscreen
             Layout.preferredWidth: 300
             Layout.maximumWidth: 300
             Layout.fillHeight: true

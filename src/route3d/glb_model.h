@@ -28,7 +28,8 @@ class GlbModel {
 public:
     // How the figure is coloured: a runner (shirt, shorts, shoes) or a road
     // cyclist (jersey, black bib shorts to above the knee, white socks / shoes).
-    enum class Outfit { Runner, Cyclist };
+    // ...or a sculler in a sleeveless unisuit to above the knee.
+    enum class Outfit { Runner, Cyclist, Rower };
 
     // Loads and prepares the model. False (and *error) when the file is not
     // a usable skinned, animated .glb.
@@ -83,6 +84,23 @@ public:
     bool canRide() const { return m_canRide; }
     void poseOnBike(const BikeFit& fit, std::vector<GhostVertex>& out, HeadPose* head = nullptr) const;
 
+    // --- in a rowing boat (Rowing3DItem) -----------------------------------------
+    // Posed from the bind pose like on the bike, in the same frame (x = the
+    // rower's right, y = up, z = forward: the way he faces, the boat's
+    // stern), metres, the seat's top at y = 0. The caller gives the stroke's
+    // positions: the hips on the sliding seat, the feet on the foot stretcher,
+    // the hands on the oar handles, the back's lean (+ forward at the catch,
+    // - back at the finish). The back leans further when the hands are out of reach.
+    struct RowFit {
+        QVector3D hipCenter;
+        QVector3D ankle[2];           // [0] left, [1] right
+        double footPitchDeg = -55;    // toes up on the stretcher
+        QVector3D wrist[2];
+        double torsoDeg = 0;
+        double headDeg = 4;           // the head (absolute): looking level, over the stern
+    };
+    void poseRowing(const RowFit& fit, std::vector<GhostVertex>& out) const;
+
 private:
     struct Node {
         QVector3D t{0, 0, 0};
@@ -109,6 +127,9 @@ private:
     void solveBike(const BikeFit& fit, double torsoDeg, std::vector<QVector3D>& P,
                    std::vector<QQuaternion>& Q, const QVector3D ankle[2], const QQuaternion foot[2],
                    const QVector3D wrist[2], const QVector3D& hipCenter) const;
+    void solveRow(const RowFit& fit, double torsoDeg, std::vector<QVector3D>& P, std::vector<QQuaternion>& Q) const;
+    // skinning from posed joints (positions P, rotations Q from the bind pose)
+    void skinPosed(const std::vector<QVector3D>& P, const std::vector<QQuaternion>& Q, std::vector<GhostVertex>& out) const;
     void colorize();   // colours per body part, triangles split on the cuts
 
     std::vector<Node> m_nodes;

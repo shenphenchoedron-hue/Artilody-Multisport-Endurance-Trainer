@@ -1,6 +1,18 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.6.1
+## What's new in 1.7.0
+
+**3D rowing, the GPX Workshop, training plans and full screen.**
+
+- **3D rowing**: the Rowing page shows the row in 3D, seen from the side – a sculler in a single scull on a regatta lake, rowing at your stroke rate (catch, drive, finish and recovery), the boat moving with your pace. Lane buoys, distance boards every 250 m, the same trees as GPX Ride and, on rows with a distance, a finish line with a judges' tower and a cheering crowd. In Ghost Race a half-transparent ghost rows your record in the next lane. The page is laid out like GPX Ride: the 3D view in the middle, a smaller power / pace / heart-rate chart below.
+- **Full screen** on GPX Ride, Video Ride, Treadmill Run and Rowing: the button in the corner of the picture, a double-click or <kbd>F</kbd> (<kbd>Esc</kbd> leaves). A half-transparent HUD on the left shows the ride's numbers and a mini elevation profile; <kbd>H</kbd> hides it.
+- **GPX Workshop** (sidebar, under the Builder): see a route's elevation profile, place your own **sprints** (any length) and **KOMs** (foot and top) with names, and save them in the GPX file (a GPX extension other apps ignore). GPX Ride draws and times exactly these – as many as you like; routes without any have none. Sprint and KOM pins and their names show on GPX Ride's profile.
+- **Elevation spikes removed**: single bad elevation points are removed and steeper steps than 20 % (typical at hairpins in GPS / map data) become even ramps, the height kept. The limit can be set per route in the GPX Workshop (5–30 %). The GPX file's track is never changed.
+- **Training plans**: export weeks of your calendar as a shareable *.awplan* file (workouts and GPX routes included; video rides by route name), and import a plan onto any date from the **+** on a day. New calendar kinds: **GPX Ride**, **Free Row** and **Free Run**.
+- **Roads**: where a route meets itself, the roads join in asphalt with rounded corners instead of a gravel verge across the other road.
+- **Database**: sprint / KOM times are now kept per segment (no schema change) – install over 1.6.1.
+
+## Also included from 1.6.1
 
 **GPX Ride fixes and polish.**
 

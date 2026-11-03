@@ -41,6 +41,17 @@ WorkoutPlanner::WorkoutPlanner(Database *db, ProfileManager *profiles, QObject *
     connect(m_profiles, &ProfileManager::profileChanged, this, &WorkoutPlanner::refresh);
 }
 
+void WorkoutPlanner::setGpx(RlvSession *gpx, RlvLibrary *gpxRoutes)
+{
+    if (m_gpxRoutes)
+        disconnect(m_gpxRoutes, nullptr, this, nullptr);
+    m_gpx = gpx;
+    m_gpxRoutes = gpxRoutes;
+    // GPX entries show the route's name / distance from the library
+    if (m_gpxRoutes)
+        connect(m_gpxRoutes, &RlvLibrary::scanned, this, &WorkoutPlanner::refresh);
+}
+
 void WorkoutPlanner::setSessions(TrainingSession *training, FreeRideSession *freeRide, RlvSession *rlv,
                                  RlvLibrary *videos)
 {
@@ -130,6 +141,18 @@ qint64 WorkoutPlanner::completeFreeRide(qint64 rideId, int riddenSec, qint64 pro
 qint64 WorkoutPlanner::completeVideoRide(qint64 rideId, const QString &routePath, bool routeCompleted,
                                          double distanceShare, qint64 profileId)
 {
+    return completeRouteRide(plankind::video(), rideId, routePath, routeCompleted, distanceShare, profileId);
+}
+
+qint64 WorkoutPlanner::completeGpxRide(qint64 rideId, const QString &routePath, bool routeCompleted,
+                                       double distanceShare, qint64 profileId)
+{
+    return completeRouteRide(plankind::gpx(), rideId, routePath, routeCompleted, distanceShare, profileId);
+}
+
+qint64 WorkoutPlanner::completeRouteRide(const QString &kind, qint64 rideId, const QString &routePath,
+                                         bool routeCompleted, double distanceShare, qint64 profileId)
+{
     if (m_activeEntryId < 0)
         return -1;
     const auto e = m_db->plannedWorkout(m_activeEntryId);
@@ -138,8 +161,29 @@ qint64 WorkoutPlanner::completeVideoRide(qint64 rideId, const QString &routePath
         return -1;
     }
     const qint64 profile = profileId >= 0 ? profileId : m_profiles->profileId();
-    if (e->kind != plankind::video() || e->profileId != profile || !samePath(e->routePath, routePath)
+    if (e->kind != kind || e->profileId != profile || !samePath(e->routePath, routePath)
         || !videoRideQualifies(routeCompleted, distanceShare))
+        return -1;
+    const qint64 id = m_activeEntryId;
+    const bool ok = m_db->setPlannedCompleted(id, true, rideId);
+    clearActiveEntry();
+    if (!ok)
+        return -1;
+    refresh();
+    return id;
+}
+
+qint64 WorkoutPlanner::completeFreeSession(const QString &kind, qint64 rideId, int durationSec, qint64 profileId)
+{
+    if (m_activeEntryId < 0)
+        return -1;
+    const auto e = m_db->plannedWorkout(m_activeEntryId);
+    if (!e) {
+        clearActiveEntry();
+        return -1;
+    }
+    const qint64 profile = profileId >= 0 ? profileId : m_profiles->profileId();
+    if (e->kind != kind || e->profileId != profile || !freeRideQualifies(durationSec, e->plannedDurationSec))
         return -1;
     const qint64 id = m_activeEntryId;
     const bool ok = m_db->setPlannedCompleted(id, true, rideId);
@@ -163,16 +207,22 @@ bool WorkoutPlanner::samePath(const QString &a, const QString &b)
     return (fa.isDir() && fb.absolutePath() == la) || (fb.isDir() && fa.absolutePath() == lb);
 }
 
-WorkoutPlanner::RouteInfo WorkoutPlanner::lookupRoute(const QString &path, bool allowLoad) const
+RlvLibrary *WorkoutPlanner::libraryFor(const QString &kind) const
+{
+    return kind == plankind::gpx() ? m_gpxRoutes.data() : m_videos.data();
+}
+
+WorkoutPlanner::RouteInfo WorkoutPlanner::lookupRoute(const QString &path, bool allowLoad, RlvLibrary *library) const
 {
     RouteInfo r;
     const QString local = RlvLibrary::toLocalPath(path);
     if (local.isEmpty())
         return r;
-    if (m_videos) {
-        const int row = m_videos->indexOfPath(local);
-        if (row >= 0 && row < m_videos->entries().size() && m_videos->entries().at(row).valid) {
-            const RlvLibrary::Entry &e = m_videos->entries().at(row);
+    RlvLibrary *lib = library ? library : m_videos.data();
+    if (lib) {
+        const int row = lib->indexOfPath(local);
+        if (row >= 0 && row < lib->entries().size() && lib->entries().at(row).valid) {
+            const RlvLibrary::Entry &e = lib->entries().at(row);
             r.found = r.inLibrary = true;
             r.path = e.path;
             r.name = e.title.isEmpty() ? e.name : e.title;
@@ -211,10 +261,10 @@ bool WorkoutPlanner::normalizeOptions(const QString &kind, const QVariantMap &in
         m.insert(QStringLiteral("ergWatts"),
                  ergWatts > 0 ? std::clamp(ergWatts, int(FreeRideSession::kMinErgWatts), int(FreeRideSession::kMaxWatts))
                               : 0);
-    } else if (kind == plankind::video()) {
+    } else if (plankind::isRoute(kind)) {
         const auto parsed = RlvSession::parseMode(mode.isEmpty() ? QStringLiteral("sim") : mode);
         if (!parsed) {
-            setError(QStringLiteral("Unknown video ride mode \"%1\"").arg(mode));
+            setError(QStringLiteral("Unknown ride mode \"%1\"").arg(mode));
             return false;
         }
         m.insert(QStringLiteral("mode"), RlvSession::modeName(*parsed));
@@ -273,26 +323,70 @@ qint64 WorkoutPlanner::addFreeRide(const QVariant &date, int durationMin, const 
 qint64 WorkoutPlanner::addVideoRide(const QVariant &date, const QString &routePath, const QVariantMap &options,
                                     const QString &notes)
 {
+    return addRouteRide(plankind::video(), date, routePath, options, notes);
+}
+
+qint64 WorkoutPlanner::addGpxRide(const QVariant &date, const QString &routePath, const QVariantMap &options,
+                                  const QString &notes)
+{
+    if (!RlvLibrary::toLocalPath(routePath).endsWith(QLatin1String(".gpx"), Qt::CaseInsensitive)) {
+        setError(QStringLiteral("A GPX Ride needs a .gpx route"));
+        return -1;
+    }
+    return addRouteRide(plankind::gpx(), date, routePath, options, notes);
+}
+
+qint64 WorkoutPlanner::addRouteRide(const QString &kind, const QVariant &date, const QString &routePath,
+                                    const QVariantMap &options, const QString &notes)
+{
     const QDate d = toDate(date);
     if (!d.isValid() || m_profiles->profileId() < 0) {
         setError(QStringLiteral("Invalid date"));
         return -1;
     }
-    const RouteInfo route = lookupRoute(routePath, true);
+    const RouteInfo route = lookupRoute(routePath, true, libraryFor(kind));
     if (!route.found) {
         setError(QStringLiteral("Route not found: %1").arg(routePath));
         return -1;
     }
     QVariantMap opts;
-    if (!normalizeOptions(plankind::video(), options, &opts))
+    if (!normalizeOptions(kind, options, &opts))
         return -1;
     PlannedWorkout e;
     e.profileId = m_profiles->profileId();
     e.date = d;
-    e.kind = plankind::video();
+    e.kind = kind;
     e.routePath = route.path;
     e.routeName = route.name;
     e.options = optionsToText(opts);
+    e.notes = notes;
+    const qint64 id = m_db->addPlannedEntry(e);
+    if (id < 0) {
+        setError(m_db->lastError());
+        return -1;
+    }
+    setError(QString());
+    refresh();
+    return id;
+}
+
+qint64 WorkoutPlanner::addFreeSession(const QVariant &date, const QString &kind, int durationMin, const QString &notes)
+{
+    const QDate d = toDate(date);
+    if (!d.isValid() || m_profiles->profileId() < 0) {
+        setError(QStringLiteral("Invalid date"));
+        return -1;
+    }
+    if (kind != plankind::freeRow() && kind != plankind::freeRun()) {
+        setError(QStringLiteral("Unknown kind \"%1\"").arg(kind));
+        return -1;
+    }
+    PlannedWorkout e;
+    e.profileId = m_profiles->profileId();
+    e.date = d;
+    e.kind = kind;
+    e.plannedDurationSec = std::clamp(durationMin, 0, int(kMaxFreeRideMin)) * 60;
+    e.options = QStringLiteral("{}");
     e.notes = notes;
     const qint64 id = m_db->addPlannedEntry(e);
     if (id < 0) {
@@ -322,7 +416,7 @@ bool WorkoutPlanner::updateEntry(qint64 id, const QVariantMap &options, int dura
     if (!normalizeOptions(e->kind, merged, &opts))
         return false;
     int planned = e->plannedDurationSec;
-    if (e->kind == plankind::freeRide() && durationMin >= 0)
+    if (plankind::isFree(e->kind) && durationMin >= 0)
         planned = std::clamp(durationMin, 0, int(kMaxFreeRideMin)) * 60;
     if (!m_db->updatePlannedDetails(id, planned, optionsToText(opts))) {
         setError(m_db->lastError());
@@ -413,13 +507,23 @@ QVariantMap WorkoutPlanner::toMap(const PlannedWorkout &e) const
         name = e.plannedDurationSec > 0
                    ? QStringLiteral("Free Ride · %1 min").arg(int(std::lround(e.plannedDurationSec / 60.0)))
                    : QStringLiteral("Free Ride");
-    } else if (e.kind == plankind::video()) {
-        route = lookupRoute(e.routePath, false);   // library only: no file parsing per refresh
+    } else if (e.kind == plankind::freeRow() || e.kind == plankind::freeRun()) {
+        const bool row = e.kind == plankind::freeRow();
+        workoutId = -1;
+        sportName = row ? sport::rowing() : sport::running();
+        category = row ? QStringLiteral("Free Row") : QStringLiteral("Free Run");
+        durationSec = e.plannedDurationSec;
+        name = e.plannedDurationSec > 0 ? QStringLiteral("%1 · %2 min").arg(category).arg(int(std::lround(e.plannedDurationSec / 60.0)))
+                                        : category;
+    } else if (plankind::isRoute(e.kind)) {
+        const bool gpx = e.kind == plankind::gpx();
+        route = e.routePath.isEmpty() ? RouteInfo() : lookupRoute(e.routePath, false, libraryFor(e.kind));   // library only
         const QString routeName = route.inLibrary && !route.name.isEmpty()
                                       ? route.name
                                       : (e.routeName.isEmpty() ? QFileInfo(e.routePath).completeBaseName() : e.routeName);
+        const QString prefix = gpx ? QStringLiteral("GPX") : QStringLiteral("Video");
         sportName = sport::cycling();
-        category = QStringLiteral("Video Ride");
+        category = gpx ? QStringLiteral("GPX Ride") : QStringLiteral("Video Ride");
         workoutId = -1;
         durationSec = route.durationSec;
         const QVariant wv = opts.value(QStringLiteral("workoutId"), -1);
@@ -431,12 +535,14 @@ QVariantMap WorkoutPlanner::toMap(const PlannedWorkout &e) const
                 durationSec = w->totalDurationSec();
             }
         }
-        if (workoutId >= 0)
-            name = QStringLiteral("Video: %1 + %2").arg(routeName, workoutName);
+        if (e.routePath.isEmpty())
+            name = QStringLiteral("%1: %2 – choose video").arg(prefix, routeName);
+        else if (workoutId >= 0)
+            name = QStringLiteral("%1: %2 + %3").arg(prefix, routeName, workoutName);
         else if (route.distanceM > 0)
-            name = QStringLiteral("Video: %1 · %2 km").arg(routeName, QString::number(route.distanceM / 1000.0, 'f', 1));
+            name = QStringLiteral("%1: %2 · %3 km").arg(prefix, routeName, QString::number(route.distanceM / 1000.0, 'f', 1));
         else
-            name = QStringLiteral("Video: %1").arg(routeName);
+            name = QStringLiteral("%1: %2").arg(prefix, routeName);
         m.insert(QStringLiteral("routeName"), routeName);
     }
     m.insert(QStringLiteral("id"), e.id);
@@ -621,8 +727,23 @@ QString WorkoutPlanner::startEntry(const QVariant &entryOrId)
         setActiveEntry(id);
         return QStringLiteral("freeride");
     }
-    if (e->kind == plankind::video())
+    if (plankind::isRoute(e->kind))
         return startVideo(*e, opts);
+    if (e->kind == plankind::freeRow() || e->kind == plankind::freeRun()) {
+        const bool row = e->kind == plankind::freeRow();
+        const auto &starter = row ? m_freeRowStarter : m_freeRunStarter;
+        if (!starter) {
+            setError(row ? QStringLiteral("Rowing is not available") : QStringLiteral("Treadmill running is not available"));
+            return {};
+        }
+        if (!starter()) {
+            setError(row ? QStringLiteral("A row is in progress – finish it first")
+                         : QStringLiteral("A run is in progress – finish it first"));
+            return {};
+        }
+        setActiveEntry(id);
+        return row ? QStringLiteral("rowing") : QStringLiteral("treadmill");
+    }
 
     // workout
     const auto w = m_db->workout(e->workoutId);
@@ -672,45 +793,52 @@ QString WorkoutPlanner::startEntry(const QVariant &entryOrId)
 
 QString WorkoutPlanner::startVideo(const PlannedWorkout &e, const QVariantMap &opts)
 {
-    if (!m_rlv) {
-        setError(QStringLiteral("Video rides are not available"));
+    const bool gpx = e.kind == plankind::gpx();
+    RlvSession *session = gpx ? m_gpx.data() : m_rlv.data();
+    if (!session) {
+        setError(gpx ? QStringLiteral("GPX rides are not available") : QStringLiteral("Video rides are not available"));
         return {};
     }
-    if (m_rlv->active()) {
-        setError(QStringLiteral("A video ride is in progress – finish it first"));
+    if (session->active()) {
+        setError(gpx ? QStringLiteral("A GPX ride is in progress – finish it first")
+                     : QStringLiteral("A video ride is in progress – finish it first"));
         return {};
     }
-    const RouteInfo route = lookupRoute(e.routePath, false);
+    if (e.routePath.isEmpty()) {
+        setError(QStringLiteral("Choose your video for \"%1\" first (Edit)").arg(e.routeName));
+        return {};
+    }
+    const RouteInfo route = lookupRoute(e.routePath, false, libraryFor(e.kind));
     const QString path = route.inLibrary ? route.path : RlvLibrary::toLocalPath(e.routePath);
     const QString displayName = route.inLibrary ? route.name : (e.routeName.isEmpty() ? e.routePath : e.routeName);
     if (path.isEmpty() || (!route.inLibrary && !QFileInfo::exists(path))) {
         setError(QStringLiteral("Route not found: %1").arg(displayName));
         return {};
     }
-    if (!m_rlv->selectPath(path)) {
+    if (!session->selectPath(path)) {
         setError(QStringLiteral("Route not found: %1").arg(displayName));
         return {};
     }
-    m_rlv->setMode(opts.value(QStringLiteral("mode"), QStringLiteral("sim")).toString());
-    m_rlv->setDifficulty(opts.value(QStringLiteral("difficulty"), int(RlvSession::kDefaultDifficulty)).toInt());
+    session->setMode(opts.value(QStringLiteral("mode"), QStringLiteral("sim")).toString());
+    session->setDifficulty(opts.value(QStringLiteral("difficulty"), int(RlvSession::kDefaultDifficulty)).toInt());
     if (const int w = opts.value(QStringLiteral("ergWatts"), 0).toInt(); w > 0)
-        m_rlv->setTargetWatts(w);
+        session->setTargetWatts(w);
     QString warning;
     const QVariant wv = opts.value(QStringLiteral("workoutId"), -1);
     const qint64 workoutId = wv.isNull() ? -1 : wv.toLongLong();
     if (workoutId >= 0) {
-        if (m_rlv->attachWorkout(workoutId)) {
-            m_rlv->setWorkoutErg(opts.value(QStringLiteral("workoutErg"), true).toBool());
+        if (session->attachWorkout(workoutId)) {
+            session->setWorkoutErg(opts.value(QStringLiteral("workoutErg"), true).toBool());
         } else {
-            m_rlv->detachWorkout();
+            session->detachWorkout();
             warning = QStringLiteral("Workout not found – riding the route only");
         }
     } else {
-        m_rlv->detachWorkout();
+        session->detachWorkout();
     }
     setActiveEntry(e.id);
     setError(warning);
-    return QStringLiteral("video");
+    return gpx ? QStringLiteral("gpx") : QStringLiteral("video");
 }
 
 QString WorkoutPlanner::sportFor(const QVariant &entryOrId) const

@@ -567,6 +567,14 @@ const QVector3D kCyclistPalette[] = { { .13f, .40f, .80f },   // jersey
                                       { .95f, .95f, .96f },   // socks
                                       { .88f, .89f, .91f },   // shoes
                                       { .06f, .06f, .07f } }; // helmet vents
+// sculler: a blue sleeveless unisuit to above the knee, white socks, grey shoes
+const QVector3D kRowerPalette[] = { { .10f, .33f, .78f },   // unisuit (top)
+                                    { .10f, .33f, .78f },   // unisuit (legs)
+                                    { .84f, .64f, .51f },   // skin
+                                    { .84f, .64f, .51f },   // hair: skin coloured (no cap line across the face)
+                                    { .93f, .94f, .95f },   // socks
+                                    { .30f, .31f, .33f },   // shoes
+                                    { .84f, .64f, .51f } };
 } // namespace
 
 void GlbModel::colorize()
@@ -605,11 +613,12 @@ void GlbModel::colorize()
 
     // where the clothes end: shorts hem (along the thigh), sock top (along the
     // shin), sleeve (along the upper arm)
-    const bool cyclist = m_outfit == Outfit::Cyclist;
-    const float hem = cyclist ? .74f : .42f, sock = cyclist ? .80f : .82f, sleeve = cyclist ? .50f : .95f;
+    const bool cyclist = m_outfit == Outfit::Cyclist, rower = m_outfit == Outfit::Rower;
+    const float hem = cyclist ? .74f : rower ? .62f : .42f, sock = cyclist ? .80f : rower ? .86f : .82f;
+    const float sleeve = cyclist ? .50f : rower ? -1.f : .95f;   // (rower: bare arms)
     const float hairCut = cyclist ? .46f : .62f;   // cyclist: the helmet's line (centre)
     const float headR = (neck && (headTop || head)) ? std::max(1e-6f, ((headTop ? *headTop : *head) - *neck).length() * .5f) : 1.f;
-    const QVector3D* palette = cyclist ? kCyclistPalette : kPalette;
+    const QVector3D* palette = cyclist ? kCyclistPalette : rower ? kRowerPalette : kPalette;
     auto along = [](const QVector3D& p, const std::optional<QVector3D>& a, const std::optional<QVector3D>& b) {
         if (!a || !b)
             return 0.5f;
@@ -1112,6 +1121,18 @@ void GlbModel::poseOnBike(const BikeFit& fit, std::vector<GhostVertex>& out, Hea
     }
     solveBike(fit, best, P, Q, ankle, footQ, wrist, hipCenter);
 
+    skinPosed(P, Q, out);
+    if (head) {
+        const QQuaternion& qh = Q[size_t(m_jHead)];
+        head->helmetCenter = P[size_t(m_jHead)] + qh.rotatedVector(m_helmetOffset);
+        head->helmetRadii = m_helmetRadii;
+        head->up = qh.rotatedVector(QVector3D(0, 1, 0));
+        head->forward = qh.rotatedVector(QVector3D(0, 0, 1));
+    }
+}
+
+void GlbModel::skinPosed(const std::vector<QVector3D>& P, const std::vector<QQuaternion>& Q, std::vector<GhostVertex>& out) const
+{
     // skinning: v = sum w * (P_j + Q_j (v_bind - joint_bind))
     std::vector<QMatrix3x3> R(Q.size());
     for (size_t j = 0; j < Q.size(); ++j)
@@ -1141,13 +1162,111 @@ void GlbModel::poseOnBike(const BikeFit& fit, std::vector<GhostVertex>& out, Hea
         out[m_bf.size() + e] = { a.position * x.w[0] + b.position * x.w[1] + c.position * x.w[2],
                                  n.lengthSquared() > 0 ? n.normalized() : a.normal, x.color };
     }
-    if (head) {
-        const QQuaternion& qh = Q[size_t(m_jHead)];
-        head->helmetCenter = P[size_t(m_jHead)] + qh.rotatedVector(m_helmetOffset);
-        head->helmetRadii = m_helmetRadii;
-        head->up = qh.rotatedVector(QVector3D(0, 1, 0));
-        head->forward = qh.rotatedVector(QVector3D(0, 0, 1));
+}
+
+// --- in a rowing boat ---------------------------------------------------------------------------
+
+void GlbModel::solveRow(const RowFit& fit, double torsoDeg, std::vector<QVector3D>& P, std::vector<QQuaternion>& Q) const
+{
+    const size_t J = m_jf.size();
+    P.assign(J, QVector3D());
+    Q.assign(J, QQuaternion());
+    // a long, straight back: the pelvis turns with the trunk (a little more,
+    // flattening the model's hollow back), so the lower back does not arch
+    // and the belly does not push out towards the knees
+    const QQuaternion hipsQ = pitch(torsoDeg - 8);
+    const QVector3D hipBind = (m_jf[size_t(m_jUpLeg[0])] + m_jf[size_t(m_jUpLeg[1])]) * .5f;
+    for (int j : m_jorder) {
+        const int p = m_jparent[size_t(j)];
+        const QQuaternion qp = p >= 0 ? Q[size_t(p)] : QQuaternion();
+        const JointInfo& info = m_jinfo[size_t(j)];
+        if (info.role == Role::Hips)
+            P[size_t(j)] = fit.hipCenter - hipsQ.rotatedVector(hipBind - m_jf[size_t(j)]);
+        else
+            P[size_t(j)] = p >= 0 ? P[size_t(p)] + qp.rotatedVector(m_jf[size_t(j)] - m_jf[size_t(p)]) : m_jf[size_t(j)];
+        const QVector3D& pj = P[size_t(j)];
+        const int s = info.side;
+        const float side = s == 0 ? -1.f : 1.f;
+        auto aim = [&](const QVector3D& target) {
+            const QVector3D want = target - pj;
+            if (want.lengthSquared() < 1e-10f)
+                return qp;
+            return QQuaternion::rotationTo(qp.rotatedVector(m_jdir[size_t(j)]), want.normalized()) * qp;
+        };
+        auto length = [&](int a, int b) { return (m_jf[size_t(b)] - m_jf[size_t(a)]).length(); };
+        // overhand grip: the palm down on the handle (rolled about the bone)
+        auto palmDown = [&](const QQuaternion& q0, float fraction) {
+            const QVector3D axis = q0.rotatedVector(m_jdir[size_t(j)]).normalized();
+            auto flat = [&](QVector3D v) { return v - axis * QVector3D::dotProduct(v, axis); };
+            const QVector3D have = flat(q0.rotatedVector(QVector3D(0, -1, 0)));
+            const QVector3D want = flat(QVector3D(0, -1, .15f));
+            if (have.lengthSquared() < 1e-6f || want.lengthSquared() < 1e-6f)
+                return q0;
+            const QVector3D h = have.normalized(), w = want.normalized();
+            const float ang = std::atan2(QVector3D::dotProduct(QVector3D::crossProduct(h, w), axis),
+                                         QVector3D::dotProduct(h, w)) * 180.f / float(M_PI);
+            return QQuaternion::fromAxisAndAngle(axis, ang * fraction) * q0;
+        };
+        QQuaternion q = qp;
+        switch (info.role) {
+        case Role::Hips: q = hipsQ; break;
+        case Role::Spine: q = pitch(torsoDeg - 5); break;
+        case Role::Spine1: q = pitch(torsoDeg - 2); break;
+        case Role::Spine2: q = pitch(torsoDeg); break;
+        case Role::Neck: q = pitch((torsoDeg + fit.headDeg) * .5); break;
+        case Role::Head: q = pitch(fit.headDeg); break;
+        case Role::UpLeg: {
+            // knees up (and a little out) between the hips and the feet
+            const QVector3D knee = ikJoint(pj, fit.ankle[s], length(m_jUpLeg[s], m_jLeg[s]), length(m_jLeg[s], m_jFoot[s]),
+                                           QVector3D(side * .22f, 1, .25f));   // (knees up, a little apart)
+            q = aim(knee);
+            break;
+        }
+        case Role::Leg: q = aim(fit.ankle[s]); break;
+        case Role::Foot: q = pitch(fit.footPitchDeg); break;
+        case Role::Arm: {
+            // elbows well out to the sides (past the body at the finish, not through it)
+            const QVector3D elbow = ikJoint(pj, fit.wrist[s], length(m_jArm[s], m_jForeArm[s]),
+                                            length(m_jForeArm[s], m_jHand[s]), QVector3D(side * 1.f, -.35f, -.25f));
+            q = aim(elbow);
+            break;
+        }
+        case Role::ForeArm: q = palmDown(aim(fit.wrist[s]), .5f); break;
+        case Role::Hand: q = palmDown(aim(fit.wrist[s] + QVector3D(-side * .10f, 0, .02f)), 1.f); break;
+        case Role::Finger: {
+            const QVector3D axis = QVector3D::crossProduct(m_jdir[size_t(j)], QVector3D(0, -1, 0));
+            if (axis.lengthSquared() > 1e-6f) {
+                const float deg = info.thumb ? 50.f : (info.digit == 1 ? 70.f : info.digit == 2 ? 80.f : 55.f);
+                q = QQuaternion::fromAxisAndAngle(qp.rotatedVector(axis.normalized()), deg) * qp;
+            }
+            break;
+        }
+        default: break;
+        }
+        Q[size_t(j)] = q;
     }
+}
+
+void GlbModel::poseRowing(const RowFit& fit, std::vector<GhostVertex>& out) const
+{
+    if (!m_canRide)
+        return;
+    std::vector<QVector3D> P;
+    std::vector<QQuaternion> Q;
+    // the back leans forward until the hands reach the handles (arms nearly straight at most)
+    const float arm = (m_jf[size_t(m_jForeArm[0])] - m_jf[size_t(m_jArm[0])]).length()
+                      + (m_jf[size_t(m_jHand[0])] - m_jf[size_t(m_jForeArm[0])]).length();
+    double lean = fit.torsoDeg;
+    for (int k = 0; k < 4; ++k) {   // (at most a little: the thighs meet the chest)
+        solveRow(fit, lean, P, Q);
+        bool reach = true;
+        for (int s = 0; s < 2; ++s)
+            reach = reach && (P[size_t(m_jArm[s])] - fit.wrist[s]).length() <= arm * .99f;
+        if (reach)
+            break;
+        lean += 3;
+    }
+    skinPosed(P, Q, out);
 }
 
 // --- StaticModel -------------------------------------------------------------------------------

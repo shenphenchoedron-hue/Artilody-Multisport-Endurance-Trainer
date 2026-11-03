@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Artilody.Backend
 
 // Training calendar: month grid with planned workouts, an "Upcoming" list and
@@ -92,22 +93,24 @@ Item {
     function kindOf(e) { return e && e.kind ? e.kind : "workout" }
     function entryColor(e) { return Theme.kindColor(kindOf(e), e ? e.sport : "") }
     function entryIcon(e) { return Theme.kindIcon(kindOf(e), e ? e.sport : "") }
-    function routeMissing(e) { return kindOf(e) === "rlv" && e.routeAvailable === false }
+    function isRouteKind(k) { return k === "rlv" || k === "gpx" }
+    function isFreeKind(k) { return k === "freeride" || k === "row" || k === "run" }
+    function routeMissing(e) { return isRouteKind(kindOf(e)) && e.routeAvailable === false }
     function modeText(e) {
         var o = e.options || {}
         var k = kindOf(e)
         if (k === "freeride")
             return o.mode === "erg" ? "ERG" + (o.ergWatts > 0 ? " " + o.ergWatts + " W" : "") : "Ride"
-        if (k === "rlv")
+        if (isRouteKind(k))
             return o.mode === "erg" ? "ERG" + (o.ergWatts > 0 ? " " + o.ergWatts + " W" : "")
                                     : "Simulation" + (o.difficulty !== undefined && o.difficulty < 100 ? " " + o.difficulty + " %" : "")
         return ""
     }
     // second line of a chip (short)
     function chipSubText(e) {
-        if (kindOf(e) === "rlv" && !(e.durationSec > 0))
-            return e.routeDistanceM > 0 ? kmText(e.routeDistanceM) : "Video Ride"
-        if (kindOf(e) === "freeride" && !(e.durationSec > 0))
+        if (isRouteKind(kindOf(e)) && !(e.durationSec > 0))
+            return e.routeDistanceM > 0 ? kmText(e.routeDistanceM) : Theme.kindLabel(kindOf(e), "")
+        if (isFreeKind(kindOf(e)) && !(e.durationSec > 0))
             return "Open"
         return durationText(e.durationSec)
     }
@@ -115,15 +118,16 @@ Item {
     function entrySubtitle(e) {
         var k = kindOf(e)
         var parts = []
-        if (k === "freeride") {
-            parts.push("Free Ride")
+        if (isFreeKind(k)) {
+            parts.push(Theme.kindLabel(k, ""))
             parts.push(e.plannedDurationSec > 0 ? durationText(e.plannedDurationSec) : "Open")
-            parts.push(modeText(e))
-        } else if (k === "rlv") {
+            if (k === "freeride")
+                parts.push(modeText(e))
+        } else if (isRouteKind(k)) {
             if (e.routeDistanceM > 0)
                 parts.push(kmText(e.routeDistanceM) + "  " + Math.round(e.routeAscentM) + " m ↑")
             else
-                parts.push("Video Ride")
+                parts.push(k === "rlv" && !e.routePath ? "Choose your video (Edit)" : Theme.kindLabel(k, ""))
             if (e.durationSec > 0)
                 parts.push(durationText(e.durationSec))
             parts.push(e.workoutId >= 0 ? "Workout " + ((e.options || {}).workoutErg === false ? "(guide)" : "ERG") : modeText(e))
@@ -141,13 +145,15 @@ Item {
     function entryDetails(e) {
         var k = kindOf(e)
         var lines = [e.name || ""]
-        if (k === "freeride") {
-            lines.push("Free Ride  ·  " + (e.plannedDurationSec > 0 ? "planned " + durationText(e.plannedDurationSec) : "no planned duration")
-                       + "  ·  " + modeText(e))
-        } else if (k === "rlv") {
+        if (isFreeKind(k)) {
+            lines.push(Theme.kindLabel(k, "") + "  ·  " + (e.plannedDurationSec > 0 ? "planned " + durationText(e.plannedDurationSec) : "no planned duration")
+                       + (k === "freeride" ? "  ·  " + modeText(e) : ""))
+        } else if (isRouteKind(k)) {
             lines.push("Route: " + (e.routeName || "") + (e.routeDistanceM > 0 ? "  ·  " + routeDetails(e.routeDistanceM, e.routeAscentM, 0, "") : ""))
-            if (routeMissing(e))
-                lines.push("⚠ Route not found in the video library")
+            if (k === "rlv" && !e.routePath)
+                lines.push("⚠ Choose your video for this ride (Edit)")
+            else if (routeMissing(e))
+                lines.push(k === "gpx" ? "⚠ Route not found in the GPX library" : "⚠ Route not found in the video library")
             if (e.workoutId >= 0)
                 lines.push("Workout: " + e.workoutName + "  ·  " + durationText(e.durationSec)
                            + ((e.options || {}).workoutErg === false ? "  ·  targets as guidance" : "  ·  Workout ERG"))
@@ -163,7 +169,8 @@ Item {
     }
     function startLabel(e) {
         var k = kindOf(e)
-        return k === "freeride" ? "Start Free Ride" : k === "rlv" ? "Start Video Ride"
+        return k === "freeride" ? "Start Free Ride" : k === "rlv" ? "Start Video Ride" : k === "gpx" ? "Start GPX Ride"
+             : k === "row" ? "Start Free Row" : k === "run" ? "Start Free Run"
              : e.sport === "rowing" ? "Row this workout" : e.sport === "running" ? "Run this workout" : "Ride this workout"
     }
 
@@ -383,6 +390,15 @@ Item {
 
     // screenshot aid (WATT_SCREENSHOT_MENU=calendar-add, calendar-add-freeride, calendar-add-video)
     function openScreenshotAdd(kind) {
+        if (kind === "export") {
+            exportDialog.openFrom(selectedDate)
+            return
+        }
+        if (kind.indexOf("import:") === 0) {
+            importTargetIso = selectedDate
+            importDialog.openFile(kind.substring(7))
+            return
+        }
         if (kind === "edit") {   // the first Free Ride / Video Ride of the selected day
             var list = Planner.entriesForDate(selectedDate)
             for (var i = 0; i < list.length; ++i)
@@ -401,6 +417,8 @@ Item {
         if (picker.visible) picker.close()
         if (movePicker.visible) movePicker.close()
         if (removeConfirm.visible) removeConfirm.close()
+        if (exportDialog.visible) exportDialog.close()
+        if (importDialog.visible) importDialog.close()
     }
 
     Component.onCompleted: goToday()
@@ -497,7 +515,8 @@ Item {
             Repeater {
                 model: [{ k: "workout", s: "cycling", t: "Cycling" }, { k: "workout", s: "rowing", t: "Rowing" },
                         { k: "workout", s: "running", t: "Running" },
-                        { k: "freeride", s: "cycling", t: "Free Ride" }, { k: "rlv", s: "cycling", t: "Video" }]
+                        { k: "freeride", s: "cycling", t: "Free Ride" }, { k: "rlv", s: "cycling", t: "Video" },
+                        { k: "gpx", s: "cycling", t: "GPX" }]
                 Row {
                     spacing: 6
                     Icon {
@@ -524,6 +543,20 @@ Item {
             iconName: "plus"
             text: "Add"
             onClicked: picker.openFor(page.selectedDate)
+        }
+        AppButton {
+            Layout.fillHeight: true
+            horizontalPadding: 16
+            iconSpacing: 8
+            kind: "secondary"
+            iconName: "share"
+            text: "Plans"
+            onClicked: plansMenu.popup()
+            AppMenu {
+                id: plansMenu
+                AppMenuItem { text: "Export weeks as a plan…"; onTriggered: exportDialog.openFrom(page.selectedDate) }
+                AppMenuItem { text: "Import a plan…"; onTriggered: page.importPlanFor(page.selectedDate) }
+            }
         }
     }
 
@@ -1200,6 +1233,278 @@ Item {
         onPicked: (iso) => page.moveEntry(movePicker.entry, iso)
     }
 
+    // --- training plans: export weeks / import a plan ------------------------------------------------------
+    function mondayOf(iso) {
+        var d = parseIso(iso)
+        var back = (d.getDay() + 6) % 7
+        return addDays(iso, -back)
+    }
+    property string importTargetIso: ""
+    function importPlanFor(iso) {
+        importTargetIso = iso || todayIso
+        planOpenDialog.open()
+    }
+    FileDialog {
+        id: planOpenDialog
+        title: "Import a training plan"
+        nameFilters: ["Training plans (*.awplan)", "All files (*)"]
+        onAccepted: importDialog.openFile(selectedFile.toString())
+    }
+    FileDialog {
+        id: planSaveDialog
+        title: "Export the training plan"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "awplan"
+        nameFilters: ["Training plans (*.awplan)"]
+        onAccepted: {
+            if (Planner.exportPlan(exportDialog.firstIso, Math.round(exportWeeks.value), planName.text, planDesc.text,
+                                   selectedFile.toString())) {
+                exportDialog.close()
+                page.toast("Plan saved: " + Planner.lastMessage)
+            } else {
+                page.toast(Planner.lastError.length > 0 ? Planner.lastError : "Could not export the plan")
+            }
+        }
+    }
+    DatePickerDialog {
+        id: firstWeekPicker
+        parent: page.dialogHost
+        title: "First week of the plan"
+        acceptText: "Choose"
+        onPicked: (iso) => exportDialog.firstIso = page.mondayOf(iso)
+    }
+
+    AppDialog {
+        id: exportDialog
+        parent: page.dialogHost
+        title: "Export weeks as a training plan"
+        panelWidth: 760
+        panelHeight: 640
+        property string firstIso: ""
+        readonly property string lastIso: firstIso.length > 0 ? page.addDays(firstIso, Math.round(exportWeeks.value) * 7 - 1) : ""
+        readonly property var preview: {
+            var r = Planner.revision
+            return firstIso.length > 0 ? Planner.entriesBetween(firstIso, lastIso) : []
+        }
+        function openFrom(iso) {
+            firstIso = page.mondayOf(iso || page.todayIso)
+            if (planName.text.length === 0)
+                planName.text = "My training plan"
+            open()
+        }
+        Column {
+            x: 28
+            y: 70
+            width: exportDialog.panelWidth - 56
+            spacing: 14
+            Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: "Everything planned in these weeks goes into one file you can share. Workouts and GPX routes are "
+                      + "included; video rides keep only the route name (others choose their own video)."
+                color: Theme.textSecondary
+                font.pixelSize: 15
+            }
+            Row {
+                spacing: 12
+                Text { anchors.verticalCenter: parent.verticalCenter; text: "From"; color: Theme.text; font.pixelSize: 17; width: 70 }
+                AppButton {
+                    height: 46
+                    kind: "secondary"
+                    bold: false
+                    fontSize: 15
+                    iconName: "calendar"
+                    text: exportDialog.firstIso.length > 0 ? "Week of " + page.longDate(exportDialog.firstIso) : "Choose"
+                    onClicked: firstWeekPicker.openFor(exportDialog.firstIso)
+                }
+                Text { anchors.verticalCenter: parent.verticalCenter; text: "Weeks"; color: Theme.text; font.pixelSize: 17 }
+                UnitSpinBox {
+                    id: exportWeeks
+                    width: 170
+                    from: 1
+                    to: 52
+                    stepSize: 1
+                    unit: "wk"
+                    value: 4
+                }
+            }
+            AppTextField {
+                id: planName
+                width: parent.width
+                height: 46
+                iconName: "edit"
+                placeholderText: "Plan name, e.g. Back to fitness"
+            }
+            AppTextField {
+                id: planDesc
+                width: parent.width
+                height: 46
+                placeholderText: "Description (optional)"
+            }
+            Text {
+                text: exportDialog.preview.length + " entries  ·  " + page.longDate(exportDialog.firstIso)
+                      + " – " + page.longDate(exportDialog.lastIso)
+                color: exportDialog.preview.length > 0 ? Theme.text : Theme.warningText
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+            ListView {
+                width: parent.width
+                height: 170
+                clip: true
+                model: exportDialog.preview
+                spacing: 2
+                delegate: Row {
+                    spacing: 10
+                    Icon {
+                        name: page.entryIcon(modelData)
+                        size: 18
+                        color: page.entryColor(modelData)
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: page.longDate(modelData.date) + "   " + modelData.name
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                    }
+                }
+            }
+        }
+        RowLayout {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            spacing: 12
+            Item { Layout.fillWidth: true }
+            AppButton { Layout.preferredHeight: 52; kind: "secondary"; bold: false; text: "Cancel"; onClicked: exportDialog.close() }
+            AppButton {
+                Layout.preferredHeight: 52
+                iconName: "share"
+                text: "Export…"
+                enabled: exportDialog.preview.length > 0
+                onClicked: {
+                    planSaveDialog.selectedFile = Planner.suggestedPlanUrl(planName.text)
+                    planSaveDialog.open()
+                }
+            }
+        }
+    }
+
+    AppDialog {
+        id: importDialog
+        parent: page.dialogHost
+        title: "Import training plan"
+        panelWidth: 760
+        panelHeight: 620
+        property string file: ""
+        property var info: ({})
+        function openFile(f) {
+            file = f
+            info = Planner.planInfo(f)
+            if (!info.ok) {
+                page.toast(info.error || "Not a training plan")
+                return
+            }
+            open()
+        }
+        Column {
+            x: 28
+            y: 70
+            width: importDialog.panelWidth - 56
+            spacing: 10
+            Text {
+                text: importDialog.info.name || ""
+                color: Theme.text
+                font.pixelSize: 24
+                font.weight: Font.Bold
+            }
+            Text {
+                visible: (importDialog.info.description || "").length > 0
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: importDialog.info.description || ""
+                color: Theme.textSecondary
+                font.pixelSize: 15
+            }
+            Text {
+                function n(v, word) { return (v || 0) + " " + word + ((v || 0) === 1 ? "" : "s") }
+                text: n(importDialog.info.weeks, "week") + "  ·  " + n(importDialog.info.entries, "entry").replace("entrys", "entries")
+                      + "  ·  " + n(importDialog.info.workouts, "workout") + "  ·  " + n(importDialog.info.gpxRoutes, "GPX route")
+                      + ((importDialog.info.videos || 0) > 0 ? "  ·  " + n(importDialog.info.videos, "video ride") : "")
+                color: Theme.text
+                font.pixelSize: 16
+            }
+            Row {
+                spacing: 6
+                Text { anchors.verticalCenter: parent.verticalCenter; text: "Day 1 on"; color: Theme.text; font.pixelSize: 17 }
+                IconButton { flat: true; iconName: "chevronLeft"; iconSize: 20; onClicked: page.importTargetIso = page.addDays(page.importTargetIso, -1) }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: page.importTargetIso.length > 0 ? page.longDate(page.importTargetIso) + " " + page.parseIso(page.importTargetIso).getFullYear() : ""
+                    color: Theme.accentText
+                    font.pixelSize: 17
+                    font.weight: Font.Bold
+                }
+                IconButton { flat: true; iconName: "chevronRight"; iconSize: 20; onClicked: page.importTargetIso = page.addDays(page.importTargetIso, 1) }
+            }
+            ListView {
+                width: parent.width
+                height: 250
+                clip: true
+                model: importDialog.info.items || []
+                spacing: 2
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: Row {
+                    spacing: 10
+                    Icon {
+                        name: Theme.kindIcon(modelData.kind, "")
+                        size: 18
+                        color: Theme.kindColor(modelData.kind, "cycling")
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: page.longDate(page.addDays(page.importTargetIso, modelData.day)) + "   " + modelData.label
+                        color: Theme.textSecondary
+                        font.pixelSize: 14
+                    }
+                }
+            }
+            Text {
+                visible: (importDialog.info.videos || 0) > 0
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: "Video rides are linked to a video in your library with the same route name; otherwise choose your video by editing the entry."
+                color: Theme.textMuted
+                font.pixelSize: 13
+            }
+        }
+        RowLayout {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            spacing: 12
+            Item { Layout.fillWidth: true }
+            AppButton { Layout.preferredHeight: 52; kind: "secondary"; bold: false; text: "Cancel"; onClicked: importDialog.close() }
+            AppButton {
+                Layout.preferredHeight: 52
+                iconName: "download"
+                text: "Import"
+                onClicked: {
+                    var n = Planner.importPlan(importDialog.file, page.importTargetIso)
+                    if (n > 0) {
+                        importDialog.close()
+                        page.selectDay(page.importTargetIso)
+                        page.toast(Planner.lastMessage)
+                    } else {
+                        page.toast(Planner.lastError.length > 0 ? Planner.lastError : "Could not import the plan")
+                    }
+                }
+            }
+        }
+    }
+
     // --- remove confirmation ---------------------------------------------------------------------------------
     ConfirmDialog {
         id: removeConfirm
@@ -1216,7 +1521,10 @@ Item {
         id: picker
         parent: page.dialogHost
         property string targetIso
-        property string kind: "workout"          // "workout" | "freeride" | "rlv"
+        property string kind: "workout"          // "workout" | "freeride" | "rlv" | "gpx" | "row" | "run"
+        readonly property bool routeKind: kind === "rlv" || kind === "gpx"
+        readonly property bool freeKind: kind === "freeride" || kind === "row" || kind === "run"
+        readonly property var routeLib: kind === "gpx" ? GpxRoutes : Videos
         property var editEntry: null             // Free Ride / Video Ride entry being edited (null = add)
         readonly property bool editing: editEntry !== null
         // workout tab
@@ -1233,15 +1541,15 @@ Item {
         property bool vrWorkoutErg: true
         property var cyclingWorkouts: []         // [{ workoutId, name, label }], first = none
         readonly property int routeRow: {
-            var n = Videos.count               // re-evaluate when the library changes
-            return routePath.length > 0 && n >= 0 ? Videos.indexOfPath(routePath) : -1
+            var n = routeLib.count               // re-evaluate when the library changes
+            return routePath.length > 0 && n >= 0 ? routeLib.indexOfPath(routePath) : -1
         }
         readonly property bool canSave: kind === "workout" ? chosenId >= 0
-                                        : kind === "freeride" ? true
+                                        : freeKind ? true
                                         : routePath.length > 0 && (routeRow >= 0 || editing)
 
-        title: editing ? (kind === "freeride" ? "Edit Free Ride" : "Edit Video Ride") : "Add to Calendar"
-        panelWidth: 840
+        title: editing ? "Edit " + Theme.kindLabel(kind, "") : "Add to Calendar"
+        panelWidth: 960
         panelHeight: 740
 
         function defaultWatts() {
@@ -1249,13 +1557,18 @@ Item {
             return Math.max(25, Math.round(f * 0.6 / 5) * 5)
         }
         function firstValidRoute() {
-            for (var i = 0; i < Videos.count; ++i) {
-                var r = Videos.get(i)
+            for (var i = 0; i < routeLib.count; ++i) {
+                var r = routeLib.get(i)
                 if (r.valid)
                     return r.path
             }
             return ""
         }
+        function defaultRoute() {
+            var session = kind === "gpx" ? Gpx : Rlv
+            return session.hasRoute ? session.routePath : firstValidRoute()
+        }
+        onKindChanged: if (!editing && routeKind && (routePath.length === 0 || routeRow < 0)) routePath = defaultRoute()
         function resetFields() {
             chosenId = -1
             searchField.text = ""
@@ -1263,7 +1576,7 @@ Item {
             frMode = "ride"
             frMinutes.value = 60
             frWatts.value = FreeRide.targetWatts > 0 ? FreeRide.targetWatts : defaultWatts()
-            routePath = Rlv.hasRoute ? Rlv.routePath : firstValidRoute()
+            routePath = defaultRoute()
             vrMode = "sim"
             vrDifficulty.value = 100
             vrWatts.value = Rlv.targetWatts > 0 ? Rlv.targetWatts : defaultWatts()
@@ -1274,7 +1587,8 @@ Item {
             editEntry = null
             targetIso = iso || page.todayIso
             resetFields()
-            kind = k === "freeride" || k === "rlv" ? k : "workout"
+            kind = ["freeride", "rlv", "gpx", "row", "run"].indexOf(k) >= 0 ? k : "workout"
+            routePath = routeKind ? defaultRoute() : routePath
             reload()
             reloadCycling()
             open()
@@ -1286,7 +1600,7 @@ Item {
             kind = page.kindOf(e)
             notesField.text = e.notes || ""
             var o = e.options || {}
-            if (kind === "freeride") {
+            if (freeKind) {
                 frMinutes.value = Math.round((e.plannedDurationSec || 0) / 60)
                 frMode = o.mode === "erg" ? "erg" : "ride"
                 if (o.ergWatts > 0)
@@ -1349,8 +1663,8 @@ Item {
                 return false
             if (a === b)
                 return true
-            var ia = Videos.indexOfPath(a)
-            return ia >= 0 && ia === Videos.indexOfPath(b)
+            var ia = routeLib.indexOfPath(a)
+            return ia >= 0 && ia === routeLib.indexOfPath(b)
         }
         function add(workoutId) {
             if (workoutId === undefined || workoutId < 0)
@@ -1377,14 +1691,15 @@ Item {
             var entry = editEntry
             var id = wasEditing ? entry.id : -1
             var ok = false
-            var label = kind === "freeride" ? "Free Ride" : "Video Ride"
-            if (kind === "freeride") {
-                var fo = { mode: frMode, ergWatts: frMode === "erg" ? Math.round(frWatts.value) : 0 }
+            var label = Theme.kindLabel(kind, "")
+            if (freeKind) {
+                var fo = kind === "freeride" ? { mode: frMode, ergWatts: frMode === "erg" ? Math.round(frWatts.value) : 0 } : {}
                 var minutes = Math.round(frMinutes.value)
                 if (wasEditing)
                     ok = Planner.updateEntry(id, fo, minutes)
                 else {
-                    id = Planner.addFreeRide(targetIso, minutes, fo, notes)
+                    id = kind === "freeride" ? Planner.addFreeRide(targetIso, minutes, fo, notes)
+                                             : Planner.addFreeSession(targetIso, kind, minutes, notes)
                     ok = id >= 0
                 }
             } else {
@@ -1395,7 +1710,8 @@ Item {
                     ok = Planner.updateEntry(id, vo)
                 } else {
                     // a new route: replace the entry (the route of an entry is fixed)
-                    var nid = Planner.addVideoRide(targetIso, routePath, vo, notes)
+                    var nid = kind === "gpx" ? Planner.addGpxRide(targetIso, routePath, vo, notes)
+                                             : Planner.addVideoRide(targetIso, routePath, vo, notes)
                     ok = nid >= 0
                     if (ok && wasEditing) {
                         if (entry.completed)
@@ -1450,7 +1766,10 @@ Item {
             options: [
                 { value: "workout", label: "Workout", icon: "bike" },
                 { value: "freeride", label: "Free Ride", icon: "freeRide", color: Theme.freeRideColor, textColor: Theme.textOnColor },
-                { value: "rlv", label: "Video Ride", icon: "video", color: Theme.videoColor }
+                { value: "rlv", label: "Video", icon: "video", color: Theme.videoColor },
+                { value: "gpx", label: "GPX", icon: "mapPin", color: Theme.gpxColor },
+                { value: "row", label: "Row", icon: "rowing", color: Theme.rowingColor, textColor: Theme.textOnColor },
+                { value: "run", label: "Run", icon: "run", color: Theme.runningColor, textColor: Theme.textOnColor }
             ]
             onActivated: (v) => picker.kind = v
         }
@@ -1620,7 +1939,7 @@ Item {
         // ---- free ride ----
         Item {
             anchors.fill: parent
-            visible: picker.kind === "freeride"
+            visible: picker.freeKind
 
             Column {
                 x: 28
@@ -1669,23 +1988,27 @@ Item {
                 }
                 Text {
                     width: parent.width
+                    readonly property string what: picker.kind === "row" ? "row" : picker.kind === "run" ? "treadmill run" : "Free Ride"
                     text: Math.round(frMinutes.value) > 0
-                          ? "A target, not a limit: the Free Ride page shows the time left, nothing stops. "
-                            + "The entry is ticked off by a saved Free Ride of at least " + Math.ceil(frMinutes.value / 2) + " min."
-                          : "No planned duration: a saved Free Ride of at least 10 min ticks the entry off."
+                          ? (picker.kind === "freeride" ? "A target, not a limit: the Free Ride page shows the time left, nothing stops. "
+                                                        : "A target, not a limit. ")
+                            + "The entry is ticked off by a saved " + what + " of at least " + Math.ceil(frMinutes.value / 2) + " min."
+                          : "No planned duration: a saved " + what + " of at least 10 min ticks the entry off."
                     color: Theme.textSecondary
                     font.pixelSize: 15
                     wrapMode: Text.WordWrap
                 }
 
-                Item { width: 1; height: 8 }
+                Item { width: 1; height: 8; visible: picker.kind === "freeride" }
                 Text {
+                    visible: picker.kind === "freeride"
                     text: "Resistance"
                     color: Theme.text
                     font.pixelSize: 18
                     font.weight: Font.Bold
                 }
                 Row {
+                    visible: picker.kind === "freeride"
                     spacing: 16
                     SegmentedControl {
                         height: 48
@@ -1717,6 +2040,7 @@ Item {
                     }
                 }
                 Text {
+                    visible: picker.kind === "freeride"
                     width: parent.width
                     text: picker.frMode === "erg"
                           ? "ERG: the trainer holds the target watts – change them during the ride with ↑ / ↓ or the Zwift Click."
@@ -1731,7 +2055,7 @@ Item {
         // ---- video ride ----
         Item {
             anchors.fill: parent
-            visible: picker.kind === "rlv"
+            visible: picker.routeKind
 
             Text {
                 x: 28
@@ -1759,7 +2083,7 @@ Item {
                 height: picker.panelHeight - y - 162
                 clip: true
                 spacing: 4
-                model: Videos
+                model: picker.routeLib
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -1831,7 +2155,7 @@ Item {
                     spacing: 12
                     Icon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        name: "film"
+                        name: picker.kind === "gpx" ? "mapPin" : "film"
                         size: 40
                         strokeWidth: 2
                         color: Theme.videoColor
@@ -1839,7 +2163,8 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: Videos.scanning ? "Scanning the video library…" : "No videos in your library"
+                        text: picker.routeLib.scanning ? "Scanning the library…"
+                              : picker.kind === "gpx" ? "No GPX routes in your library" : "No videos in your library"
                         color: Theme.text
                         font.pixelSize: 18
                         font.weight: Font.Bold
@@ -1847,8 +2172,10 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: "A route is a folder with the video (.mp4) and its GPS track (.gpx / .xml). Put route folders into "
-                              + Videos.libraryFolder + " or add folders on the Video Ride page, then rescan."
+                        text: picker.kind === "gpx"
+                              ? "Put .gpx files into " + GpxRoutes.libraryFolder + " or add folders on the GPX Ride page, then rescan."
+                              : "A route is a folder with the video (.mp4) and its GPS track (.gpx / .xml). Put route folders into "
+                                + Videos.libraryFolder + " or add folders on the Video Ride page, then rescan."
                         color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -1862,9 +2189,9 @@ Item {
                         iconSpacing: 8
                         bold: false
                         iconName: "refresh"
-                        enabled: !Videos.scanning
-                        text: Videos.scanning ? "Scanning…" : "Rescan"
-                        onClicked: if (!Videos.scanning) Videos.rescan()
+                        enabled: !picker.routeLib.scanning
+                        text: picker.routeLib.scanning ? "Scanning…" : "Rescan"
+                        onClicked: if (!picker.routeLib.scanning) picker.routeLib.rescan()
                     }
                 }
             }
@@ -2031,12 +2358,27 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: picker.kind === "workout" ? "Tip: double-click a workout to add it right away"
-                      : picker.kind === "rlv" ? (picker.editing ? "Start it from the calendar on the day"
+                      : picker.routeKind ? (picker.editing ? "Start it from the calendar on the day"
                                                                 : "Tip: double-click a route to add it right away")
+                      : picker.kind === "row" ? "Start it from the calendar – the Rowing page opens ready for a free row"
+                      : picker.kind === "run" ? "Start it from the calendar – the Treadmill Run page opens"
                       : "Start it from the calendar – the Free Ride page opens ready to go"
                 color: Theme.textMuted
                 font.pixelSize: 14
                 elide: Text.ElideRight
+            }
+            AppButton {
+                visible: !picker.editing
+                Layout.preferredHeight: 52
+                kind: "secondary"
+                bold: false
+                iconName: "download"
+                text: "Import plan…"
+                onClicked: {
+                    var iso = picker.targetIso
+                    picker.close()
+                    page.importPlanFor(iso)
+                }
             }
             AppButton {
                 Layout.preferredHeight: 52

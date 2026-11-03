@@ -108,8 +108,10 @@ Item {
         refreshWorkouts()
     }
     onVisibleChanged: {
-        if (!visible)
+        if (!visible) {
+            fullscreen = false
             return
+        }
         refreshWorkouts()
         // opening the page prepares the row ("ready"); it only starts with
         // Start / Space - strokes on the rower never start it
@@ -137,12 +139,23 @@ Item {
         function onCountChanged() { page.refreshWorkouts() }
     }
 
+    // full screen: the 3D row only, with the HUD (Main.setImmersive)
+    property bool fullscreen: false
+    property bool hudVisible: true
+    onFullscreenChanged: ApplicationWindow.window.setImmersive(fullscreen)
+    Connections {
+        target: ApplicationWindow.window
+        function onImmersiveChanged() { if (!ApplicationWindow.window.immersive) page.fullscreen = false }
+    }
+    // (the page keyboard: F only works where the 3D view is shown)
+    readonly property bool canFullscreen: rowScene.active
+
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.pageMargin
-        anchors.rightMargin: Theme.pageMargin
-        anchors.bottomMargin: Theme.pageMargin
-        spacing: Theme.spacing
+        anchors.leftMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.rightMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.bottomMargin: page.fullscreen ? 0 : Theme.pageMargin
+        spacing: page.fullscreen ? 0 : Theme.spacing
 
         // ================= left column =================
         ColumnLayout {
@@ -152,6 +165,7 @@ Item {
 
             // header
             Item {
+                visible: !page.fullscreen
                 Layout.topMargin: 26
                 Layout.fillWidth: true
                 Layout.preferredHeight: header.implicitHeight
@@ -221,6 +235,7 @@ Item {
 
             // live metrics
             RowLayout {
+                visible: !page.fullscreen
                 Layout.fillWidth: true
                 Layout.preferredHeight: 136
                 Layout.fillHeight: false   // children fill the row; the row itself never grows
@@ -303,10 +318,127 @@ Item {
                 }
             }
 
+            // the row in 3D, seen from the side (like the GPX Ride's world, in the middle)
+            Rectangle {
+                id: rowScene
+                readonly property bool active: rowView.supported && rowView.error.length === 0
+                visible: active
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 240
+                radius: page.fullscreen ? 0 : Theme.radius
+                border.color: Theme.cardBorder
+                border.width: page.fullscreen ? 0 : 1
+                color: "#04060d"
+                clip: true
+                Rowing3DView {
+                    id: rowView
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    distance: page.distance
+                    speedMps: Rowing.pace500 > 0 ? 500 / Rowing.pace500 : 0
+                    strokeRate: Rowing.spm
+                    rowing: Rowing.running
+                    ghostVisible: page.uiMode === "ghost" && Rowing.hasGhost
+                    ghostDistance: Rowing.ghostDistanceM
+                    finishDistance: page.target
+                    onErrorChanged: if (error.length > 0) console.warn("Rowing3D:", error)
+                }
+                FullscreenTapLayer {
+                    onToggle: page.fullscreen = !page.fullscreen
+                }
+                // what is rowed (top left, over the water)
+                Rectangle {
+                    visible: !page.fullscreen || !page.hudVisible
+                    x: 14
+                    y: 14
+                    width: chipText.implicitWidth + 24
+                    height: 34
+                    radius: 17
+                    color: Qt.rgba(0, 0, 0, 0.5)
+                    Text {
+                        id: chipText
+                        anchors.centerIn: parent
+                        readonly property bool ahead: Rowing.ghostGapMeters >= 0
+                        textFormat: Text.StyledText
+                        text: page.uiMode === "ghost" && Rowing.hasGhost
+                              ? "<b>YOU</b> " + page.meters(page.distance) + " m &nbsp;&nbsp;<b>GHOST</b> " + page.meters(Rowing.ghostDistanceM)
+                                + " m &nbsp;&nbsp;<font color='" + (ahead ? "#2fd35a" : "#ff8a7a") + "'><b>" + (ahead ? "+" : "−")
+                                + page.meters(Math.abs(Rowing.ghostGapMeters)) + " m " + (ahead ? "ahead" : "behind") + "</b></font>"
+                              : page.meters(page.distance) + " m rowed"
+                                + (page.target > 0 ? "  •  " + Theme.thousands(Math.max(0, page.target - Math.floor(page.distance))) + " m to go" : "")
+                                + "  •  " + Rowing.strokeCount + " strokes"
+                        color: "white"
+                        font.pixelSize: 15
+                    }
+                }
+                // progress along the course (you, and the ghost)
+                Item {
+                    readonly property real total: page.target > 0 ? page.target
+                                                  : (page.uiMode === "ghost" ? page.ghostDistance : page.openScale)
+                    visible: total > 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 14
+                    anchors.rightMargin: 14 + 42 + 12   // (clear of the full-screen button)
+                    height: 18
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        height: 4
+                        radius: 2
+                        color: Qt.rgba(1, 1, 1, 0.3)
+                    }
+                    Rectangle {
+                        visible: page.uiMode === "ghost" && Rowing.hasGhost
+                        x: Math.min(1, Rowing.ghostDistanceM / parent.total) * (parent.width - width)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 12; height: 12; radius: 6
+                        color: Qt.rgba(0.8, 0.92, 1, 0.6)
+                        border.color: "white"
+                    }
+                    Rectangle {
+                        x: Math.min(1, page.distance / parent.total) * (parent.width - width)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 14; height: 14; radius: 7
+                        color: Theme.rowingColor
+                        border.color: "white"
+                        border.width: 2
+                    }
+                }
+                // full screen: the numbers on the left, the button, the bar
+                RideHud {
+                    visible: page.fullscreen && page.hudVisible
+                    x: 16
+                    y: 16
+                    metrics: [
+                        { label: "Pace", value: page.paceText(Rowing.pace500), unit: "/500m", color: Theme.pace },
+                        { label: "Power", value: "" + Rowing.watts, unit: "W", color: "#ffd23f" },
+                        { label: "Stroke rate", value: "" + Rowing.spm, unit: "spm" },
+                        { label: "Heart rate", value: Rowing.heartRate > 0 ? "" + Rowing.heartRate : "–", unit: "bpm", color: "#ff7a8a" },
+                        { label: "Time", value: Theme.clock(Rowing.elapsedSeconds), unit: "" },
+                        { label: "Distance", value: page.meters(page.distance), unit: "m" }
+                    ].concat(page.uiMode === "ghost" && Rowing.hasGhost
+                             ? [{ label: "Ghost", value: (Rowing.ghostGapMeters >= 0 ? "+" : "−") + page.meters(Math.abs(Rowing.ghostGapMeters)),
+                                  unit: "m", color: Rowing.ghostGapMeters >= 0 ? "#2fd35a" : "#ff8a7a" }] : [])
+                }
+                FullscreenControls {
+                    fullscreen: page.fullscreen
+                    hudVisible: page.hudVisible
+                    canPause: Rowing.active
+                    paused: Rowing.paused
+                    onToggleFullscreen: page.fullscreen = !page.fullscreen
+                    onToggleHud: page.hudVisible = !page.hudVisible
+                    onTogglePause: Rowing.togglePause()
+                }
+            }
+
             // power / pace / heart rate chart
             Card {
+                visible: !page.fullscreen
                 Layout.fillWidth: true
-                Layout.preferredHeight: 318
+                Layout.preferredHeight: 230
                 title: "Power, Pace & Heart Rate"
                 headerRight: [
                     Row {
@@ -357,9 +489,12 @@ Item {
             // course / plan
             Card {
                 id: courseCard
+                // the plan's intervals (Watt Plan), or the course without OpenGL
+                visible: !page.fullscreen && (page.uiMode === "plan" || !rowScene.active)
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumHeight: 230
+                Layout.fillHeight: !rowScene.active
+                Layout.preferredHeight: 200
+                Layout.minimumHeight: 180
                 title: page.uiMode === "ghost"
                        ? "Ghost Race  •  " + page.meters(page.target > 0 ? page.target : page.ghostDistance) + " m"
                        : page.uiMode === "plan"
@@ -427,9 +562,9 @@ Item {
                     }
                 ]
 
-                // ghost race course
+                // ghost race course (without OpenGL)
                 GhostRaceTrack {
-                    visible: page.uiMode === "ghost"
+                    visible: page.uiMode === "ghost" && !rowScene.active
                     x: 16
                     y: courseCard.contentTop
                     width: parent.width - 32
@@ -444,9 +579,9 @@ Item {
                     strokeRate: Rowing.spm
                 }
 
-                // solo course
+                // solo course (without OpenGL)
                 RowerTrack {
-                    visible: page.uiMode === "solo"
+                    visible: page.uiMode === "solo" && !rowScene.active
                     x: 16
                     y: courseCard.contentTop
                     width: parent.width - 32
@@ -560,6 +695,7 @@ Item {
 
         // ================= right column =================
         ColumnLayout {
+            visible: !page.fullscreen
             Layout.preferredWidth: 300
             Layout.maximumWidth: 300
             Layout.fillHeight: true

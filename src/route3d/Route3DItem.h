@@ -6,6 +6,10 @@
 #include <QPointer>
 #include <QQuickFramebufferObject>
 #include <QTimer>
+#include "RouteSegments.h"
+
+#include <QVector>
+#include <array>
 #include <vector>
 #include <QVector>
 
@@ -68,21 +72,18 @@ public:
     // (render thread, in Renderer::synchronize(); the GUI thread is blocked)
     std::shared_ptr<const route3d::Route> drawnRoute() const { return m_route; }
     quint64 routeVersion() const { return m_routeVersion; }
+    int marksVersion() const { return m_marksVersion; }   // sprints / KOMs / km posts changed
     double frameDistance() const { return m_frameDistance; }
     double frameSpeedKmh() const { return m_speedKmh; }
     double frameCrank() const { return m_crank; }
     double frameStartDistance() const { return m_startDrawn; }
-    // the session's sprint on the drawn road (Route3DScene::setSprint())
-    bool frameSprintValid() const { return m_sprintDrawnValid; }
-    double frameSprintAnnounce() const { return m_sprintDrawn[0]; }
-    double frameSprintStart() const { return m_sprintDrawn[1]; }
-    double frameSprintFinish() const { return m_sprintDrawn[2]; }
-    // the session's KOM climb on the drawn road (Route3DScene::setKom())
-    bool frameKomValid() const { return m_komDrawnValid; }
+    // the route's sprints on the drawn road: announce (< 0: none) / start /
+    // finish (Route3DScene::setSprints())
+    const std::vector<std::array<double, 3>> &frameSprints() const { return m_sprintDrawn; }
+    // the route's KOMs on the drawn road: foot / top (Route3DScene::setKoms())
+    const std::vector<std::array<double, 2>> &frameKoms() const { return m_komDrawn; }
     // drawn metres of each whole kilometre of the ride (Route3DScene::setKmPosts())
     const std::vector<double> &frameKmPosts() const { return m_kmDrawn; }
-    double frameKomStart() const { return m_komDrawn[0]; }
-    double frameKomFinish() const { return m_komDrawn[1]; }
     bool frameRunner() const { return m_runner; }
     // (read live: the profile's setting may change during a run)
     double frameWalkRunKmh() const;
@@ -134,6 +135,10 @@ private:
     QString m_builtPath;
     int m_builtPoints = 0;
     double m_builtLength = 0;
+    double m_builtGrade = 0;
+    QVector<RouteSegment> m_builtSegments;
+    int m_marksVersion = 0;
+    void buildMarks();
     bool m_supported = true;
 
     // position: the session's last value + extrapolation
@@ -141,11 +146,9 @@ private:
     double m_speedKmh = 0;
     double m_frameDistance = 0;    // what the next frame shows
     double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
-    bool m_sprintDrawnValid = false;
-    double m_sprintDrawn[3] = { 0, 0, 0 };   // sprint announce / start / finish, drawn metres
-    bool m_komDrawnValid = false;
+    std::vector<std::array<double, 3>> m_sprintDrawn;   // per sprint: announce / start / finish, drawn metres
+    std::vector<std::array<double, 2>> m_komDrawn;      // per KOM: foot / top, drawn metres
     std::vector<double> m_kmDrawn;
-    double m_komDrawn[2] = { 0, 0 };         // KOM foot / top, drawn metres
     double m_crank = 0;            // pedal angle (radians), integrated from the cadence
     double m_shownRpm = 0;         // smoothed cadence driving m_crank
     QElapsedTimer m_frameClock;    // time between frames for the crank

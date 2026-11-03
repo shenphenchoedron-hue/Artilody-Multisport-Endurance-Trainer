@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RouteSegments.h"
+
 #include <QPointF>
 #include <QString>
 #include <QVector>
@@ -14,7 +16,8 @@ struct RlvPoint
     double lat = 0;
     double lon = 0;
     double distance = 0;    // cumulative metres (haversine)
-    double rawElevation = 0;
+    double rawElevation = 0;   // as recorded (the route's identity: sprint::routeKey)
+    double cleanElevation = 0; // spikes removed, grades limited (cleanElevations()): what is smoothed
     double elevation = 0;   // smoothed (distance window kElevationWindowM)
     double grade = 0;       // % from the smoothed elevation over kGradeWindowM, clamped
     double speed = 0;       // m/s, filmed speed = d(distance)/d(time), smoothed
@@ -64,6 +67,18 @@ public:
     static constexpr double kMinGrade = -20.0;
     static constexpr double kMaxGrade = 25.0;
     static constexpr double kAscentThresholdM = 2.0;    // hysteresis for ascent / descent
+    // Elevation cleaning (before smoothing): GPS / map elevations jump at
+    // hairpins on mountainsides and have single bad points. On a kCleanStepM
+    // grid, a point more than kSpikeM off the median of its ±kSpikeWindowM
+    // neighbours (and kSpikeMads robust deviations) is a spike and replaced by
+    // that median; then no step may climb or fall more than kMaxCleanGrade:
+    // the excess is shared with the neighbours (the height is kept, the jump
+    // becomes a ramp). Only the drawn / felt elevation changes, not the file.
+    static constexpr double kCleanStepM = 5.0;
+    static constexpr double kSpikeWindowM = 30.0;
+    static constexpr double kSpikeM = 4.0;
+    static constexpr double kSpikeMads = 4.0;
+    static constexpr double kMaxCleanGrade = 20.0;      // default limit; a route may set its own
     static constexpr double kStopSpeedKmh = 0.5;        // gps speed below: standing (no distance)
     static constexpr double kInfoMinShowM = 150.0;      // overlay shown at least this far ...
     static constexpr double kInfoMinShowSec = 10.0;     // ... or for this many filmed seconds
@@ -99,10 +114,24 @@ public:
 
     const QVector<RlvPoint> &points() const { return m_points; }
     const QVector<RlvInformation> &informations() const { return m_infos; }
+    // sprints / KOMs placed in the GPX Workshop (read from the GPX file; sorted,
+    // checked: invalid ones are left out)
+    const QVector<RouteSegment> &segments() const { return m_segments; }
     double totalDistance() const { return m_points.isEmpty() ? 0.0 : m_points.constLast().distance; }
     double ascent() const { return m_ascent; }
     double descent() const { return m_descent; }
     double minElevation() const { return m_minEle; }
+    // what the cleaning did: spikes removed and steps limited (points of the
+    // kCleanStepM grid), the steepest 40 m grade of the raw track (%)
+    int spikesRemoved() const { return m_spikes; }
+    int stepsLimited() const { return m_limited; }
+    double rawMaxGrade() const { return m_rawMaxGrade; }
+    // The grade limit of the cleaning (%): the route's own (GPX Workshop,
+    // saved in the GPX file) or kMaxCleanGrade. Setting it recomputes the route.
+    double maxCleanGrade() const { return m_maxCleanGrade > 0 ? m_maxCleanGrade : kMaxCleanGrade; }
+    double ownMaxCleanGrade() const { return m_maxCleanGrade; }   // 0 = the default
+    void setMaxCleanGrade(double percent);
+    double steepestGrade() const;   // steepest 40 m grade after cleaning (%)
     double maxElevation() const { return m_maxEle; }
 
     // Lookups (clamped to the route). Distances in m, times in s.
@@ -150,7 +179,12 @@ private:
     int m_endFrame = 0;
     QVector<RlvPoint> m_points;
     QVector<RlvInformation> m_infos;
+    QVector<RouteSegment> m_segments;
     double m_ascent = 0, m_descent = 0, m_minEle = 0, m_maxEle = 0;
+    int m_spikes = 0, m_limited = 0;
+    double m_rawMaxGrade = 0;
+    double m_maxCleanGrade = 0;
+    void cleanElevations();   // rawElevation -> cleanElevation (distances known)
 };
 
 } // namespace watt

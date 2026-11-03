@@ -40,7 +40,17 @@ class TrainingSession;
 //                    (routeAvailable), else the cached name and 0,
 //                    options { mode: "sim" | "erg", difficulty 0..100, ergWatts
 //                    (0 = Rlv's own target), workoutId, workoutErg (bool) }.
-//   sport is "cycling" for Free Ride and Video Ride entries.
+//   kind "gpx":      GPX Ride: as "rlv" with the GPX library (GpxRoutes), name
+//                    "GPX: <route> · 12.0 km", category "GPX Ride".
+//   kind "row" / "run": free row / free treadmill run: plannedDurationSec (0 = open),
+//                    name "Free Row · 30 min" / "Free Run", sport "rowing" / "running".
+//   A "rlv" entry with routePath "" (from an imported plan: the video is the
+//   rider's own) has routeAvailable false and is named "Video: <name> – choose video".
+//   sport is "cycling" for Free Ride, Video Ride and GPX Ride entries.
+//
+// Training plans (exportPlan / importPlan, WorkoutPlannerIO.cpp): a range of
+// weeks of the calendar as one shareable ".awplan" file (UTF-8 JSON) with
+// the workouts and GPX files it uses; videos are not included (by route name).
 // Workout entries of deleted workouts are removed with the workout and never
 // returned; a Video Ride entry whose attached workout was deleted keeps the
 // route (workoutId -1).
@@ -68,6 +78,8 @@ class WorkoutPlanner : public QObject
     Q_PROPERTY(qint64 activeEntryId READ activeEntryId NOTIFY activeEntryChanged)
     // Why the last add*/startEntry() call failed ("" after a success).
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    // what the last plan import did (workouts added / reused, routes, videos to choose)
+    Q_PROPERTY(QString lastMessage READ lastMessage NOTIFY lastErrorChanged)
 public:
     static constexpr int kDefaultFreeRideMin = 60;
     static constexpr int kMaxFreeRideMin = 24 * 60;
@@ -80,6 +92,10 @@ public:
     // Sessions startEntry() prepares (any may be null: that kind cannot be
     // started) and the video library for route lookups.
     void setSessions(TrainingSession *training, FreeRideSession *freeRide, RlvSession *rlv, RlvLibrary *videos);
+    void setGpx(RlvSession *gpx, RlvLibrary *gpxRoutes);
+    // free row / free run (no workout): prepare the session, true when ready
+    void setFreeRowStarter(std::function<bool()> starter) { m_freeRowStarter = std::move(starter); }
+    void setFreeRunStarter(std::function<bool()> starter) { m_freeRunStarter = std::move(starter); }
     // Rowing lives in another library: main.cpp passes Rowing.setupPlan().
     void setRowingStarter(std::function<bool(qint64 workoutId)> starter) { m_rowingStarter = std::move(starter); }
     // running workouts: attaches the workout to the treadmill run (page "treadmill")
@@ -88,6 +104,7 @@ public:
     int revision() const { return m_revision; }
     qint64 activeEntryId() const { return m_activeEntryId; }
     QString lastError() const { return m_lastError; }
+    QString lastMessage() const { return m_lastMessage; }
 
     // Call right before Training.loadWorkout()/Rowing.setupPlan() when a plan
     // entry is started from the calendar (any day: past, today or future).
@@ -109,6 +126,11 @@ public:
     qint64 completeFreeRide(qint64 rideId, int riddenSec, qint64 profileId = -1);
     qint64 completeVideoRide(qint64 rideId, const QString &routePath, bool routeCompleted, double distanceShare,
                              qint64 profileId = -1);
+    // the same for GPX Rides (kind "gpx")
+    qint64 completeGpxRide(qint64 rideId, const QString &routePath, bool routeCompleted, double distanceShare,
+                           qint64 profileId = -1);
+    // a saved free row / free run (kind "row" / "run"; qualifies like a Free Ride)
+    qint64 completeFreeSession(const QString &kind, qint64 rideId, int durationSec, qint64 profileId = -1);
     static bool freeRideQualifies(int riddenSec, int plannedSec);
     static bool videoRideQualifies(bool routeCompleted, double distanceShare);
 
@@ -122,6 +144,25 @@ public:
     // any) must be a cycling workout with intervals. id or -1 (lastError).
     Q_INVOKABLE qint64 addVideoRide(const QVariant &date, const QString &routePath,
                                     const QVariantMap &options = QVariantMap(), const QString &notes = QString());
+    // GPX Ride entry: a .gpx route (in the GPX library or loadable); options as a Video Ride
+    Q_INVOKABLE qint64 addGpxRide(const QVariant &date, const QString &routePath,
+                                  const QVariantMap &options = QVariantMap(), const QString &notes = QString());
+    // free row ("row") / free run ("run"): durationMin 0 = open
+    Q_INVOKABLE qint64 addFreeSession(const QVariant &date, const QString &kind, int durationMin = 30,
+                                      const QString &notes = QString());
+
+    // --- training plans (WorkoutPlannerIO.cpp) ---
+    // The entries of `weeks` weeks from the Monday of `firstDay` -> file (an
+    // .awplan). Returns false + lastError on failure.
+    Q_INVOKABLE bool exportPlan(const QVariant &firstDay, int weeks, const QString &name, const QString &description,
+                                const QString &fileOrUrl);
+    // What a plan file holds: { ok, error, name, description, weeks, days, entries,
+    // workouts, gpxRoutes, videos, freeSessions, items: [{day, label, kind}] }
+    Q_INVOKABLE QVariantMap planInfo(const QString &fileOrUrl) const;
+    // Puts the plan into the calendar, day 1 on startDay. Returns the number of
+    // entries added (-1 + lastError on failure); lastMessage tells what was done.
+    Q_INVOKABLE int importPlan(const QString &fileOrUrl, const QVariant &startDay);
+    Q_INVOKABLE QString suggestedPlanUrl(const QString &name) const;
     // Edit a Free Ride / Video Ride entry: options are merged into the stored
     // ones and validated like add*(); durationMin < 0 keeps the duration.
     Q_INVOKABLE bool updateEntry(qint64 id, const QVariantMap &options, int durationMin = -1);
@@ -175,6 +216,7 @@ public slots:
 
 signals:
     void planChanged();
+    void workoutsImported();   // a plan import added workouts (the library reloads)
     void activeEntryChanged();
     void lastErrorChanged();
 
@@ -194,10 +236,15 @@ private:
         double ascentM = 0;
         int durationSec = 0;
     };
-    RouteInfo lookupRoute(const QString &path, bool allowLoad) const;
+    RouteInfo lookupRoute(const QString &path, bool allowLoad, RlvLibrary *library = nullptr) const;
+    RlvLibrary *libraryFor(const QString &kind) const;
+    qint64 addRouteRide(const QString &kind, const QVariant &date, const QString &routePath, const QVariantMap &options,
+                        const QString &notes);
+    qint64 completeRouteRide(const QString &kind, qint64 rideId, const QString &routePath, bool routeCompleted,
+                             double distanceShare, qint64 profileId);
     static bool samePath(const QString &a, const QString &b);
     void activeEntryReset(qint64 previous);
-    QString startVideo(const PlannedWorkout &e, const QVariantMap &opts);
+    QString startVideo(const PlannedWorkout &e, const QVariantMap &opts);   // "rlv" and "gpx"
 
     Database *m_db;
     ProfileManager *m_profiles;
@@ -205,6 +252,11 @@ private:
     QPointer<FreeRideSession> m_freeRide;
     QPointer<RlvSession> m_rlv;
     QPointer<RlvLibrary> m_videos;
+    QPointer<RlvSession> m_gpx;
+    QPointer<RlvLibrary> m_gpxRoutes;
+    std::function<bool()> m_freeRowStarter;
+    std::function<bool()> m_freeRunStarter;
+    QString m_lastMessage;
     std::function<bool(qint64)> m_rowingStarter;
     std::function<bool(qint64)> m_runningStarter;
     int m_revision = 0;

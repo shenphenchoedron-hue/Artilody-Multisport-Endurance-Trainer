@@ -73,15 +73,20 @@ QtObject {
     // Calendar entry kinds (Planner: "workout" | "freeride" | "rlv")
     readonly property color freeRideColor: "#2fbf71"
     readonly property color videoColor: purple
+    readonly property color gpxColor: "#3aa0ff"
+    // calendar entry kinds: workout (by sport), freeride, rlv (video), gpx, row (free row), run (free run)
     function kindColor(kind, sport) {
-        return kind === "freeride" ? freeRideColor : kind === "rlv" ? videoColor : sportColor(sport)
+        return kind === "freeride" ? freeRideColor : kind === "rlv" ? videoColor : kind === "gpx" ? gpxColor
+             : kind === "row" ? rowingColor : kind === "run" ? runningColor : sportColor(sport)
     }
     function kindIcon(kind, sport) {
-        return kind === "freeride" ? "freeRide" : kind === "rlv" ? "video"
+        return kind === "freeride" ? "freeRide" : kind === "rlv" ? "video" : kind === "gpx" ? "mapPin"
+             : kind === "row" ? "rowing" : kind === "run" ? "run"
              : (sport === "rowing" ? "rowing" : sport === "running" ? "run" : "bike")
     }
     function kindLabel(kind, sport) {
-        return kind === "freeride" ? "Free Ride" : kind === "rlv" ? "Video Ride"
+        return kind === "freeride" ? "Free Ride" : kind === "rlv" ? "Video Ride" : kind === "gpx" ? "GPX Ride"
+             : kind === "row" ? "Free Row" : kind === "run" ? "Free Run"
              : (sport === "rowing" ? "Rowing" : sport === "running" ? "Running" : "Cycling")
     }
 
@@ -182,6 +187,8 @@ QtObject {
         "dashboard": { d: "M4 20h3V11H4z M10.5 20h3V4h-3z M17 20h3V8h-3z", fill: true },
         "calendar": "M4 6h16v14H4z M4 10.5h16 M8.5 3v4.5 M15.5 3v4.5",
         "plus": "M12 4.5v15 M4.5 12h15",
+        "expand": "M14 4h6v6 M20 4l-6.5 6.5 M10 20H4v-6 M4 20l6.5-6.5",
+        "collapse": "M20 4l-6 6 M14 5v5h5 M4 20l6-6 M10 19v-5H5",
         "minus": "M5 12h14",
         "history": "M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0 M12 7v5l3.2 2",
         "clock": "M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0 M12 7.5v4.5l3 2",

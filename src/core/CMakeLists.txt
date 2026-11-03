@@ -23,7 +23,7 @@ qt_add_library(watt_core STATIC
     TrainingSession.h TrainingSession.cpp
     HistoryManager.h HistoryManager.cpp
     PlanTypes.h
-    WorkoutPlanner.h WorkoutPlanner.cpp
+    WorkoutPlanner.h WorkoutPlanner.cpp WorkoutPlannerIO.cpp
     RowingRecords.h RowingRecords.cpp
     Gearing.h Gearing.cpp
     RideResistance.h RideResistance.cpp
@@ -36,6 +36,8 @@ qt_add_library(watt_core STATIC
     RlvSession.h RlvSession.cpp
     RouteProgress.h
     Sprint.h
+    RouteSegments.h RouteSegments.cpp
+    GpxWorkshop.h GpxWorkshop.cpp
     Climb.h
     RunWorkout.h RunWorkout.cpp
     RunRoutes.h RunRoutes.cpp

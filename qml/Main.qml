@@ -21,7 +21,7 @@ ApplicationWindow {
     color: Theme.bgTop
 
     // Page order of the StackLayout below (and of the sidebar entries).
-    readonly property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "history", "devices"]
+    readonly property var pageNames: ["dashboard", "freeride", "video", "gpx", "treadmill", "rowing", "workouts", "calendar", "builder", "gpxworkshop", "history", "devices"]
 
     function navigate(index) {
         sidebar.currentIndex = index
@@ -49,6 +49,25 @@ ApplicationWindow {
     }
 
     readonly property string currentPage: pageNames[sidebar.currentIndex] || ""
+
+    // Full-screen ride picture (Video Ride, GPX Ride, Treadmill Run): the
+    // page shows only its picture + HUD; the sidebar and top bar go, and the
+    // window goes full screen (back to how it was when it ends).
+    property bool immersive: false
+    property int visibilityBefore: Window.Windowed
+    function setImmersive(on) {
+        if (on === immersive)
+            return
+        immersive = on
+        if (on) {
+            visibilityBefore = window.visibility
+            if (window.visibility !== Window.FullScreen)
+                window.showFullScreen()
+        } else if (window.visibility === Window.FullScreen && visibilityBefore !== Window.FullScreen) {
+            visibilityBefore === Window.Maximized ? window.showMaximized() : window.showNormal()
+        }
+    }
+    onCurrentPageChanged: setImmersive(false)
 
     // Scaled item that hosts every modal AppDialog (pages parent theirs here so
     // they cover the whole window, sidebar included).
@@ -82,6 +101,7 @@ ApplicationWindow {
 
     // Screenshot aid (WATT_SCREENSHOT_MENU, see main.cpp): open one of the menus.
     property var screenshotMenu: null
+    property string screenshotPlan: ""
     function openScreenshotMenu(name) {
         closeScreenshotMenu()
         switch (name) {
@@ -89,6 +109,10 @@ ApplicationWindow {
         case "calendar-add": showPage("calendar"); calendarPage.openScreenshotAdd("workout"); break
         case "calendar-add-freeride": showPage("calendar"); calendarPage.openScreenshotAdd("freeride"); break
         case "calendar-add-video": showPage("calendar"); calendarPage.openScreenshotAdd("rlv"); break
+        case "calendar-add-gpx": showPage("calendar"); calendarPage.openScreenshotAdd("gpx"); break
+        case "calendar-add-row": showPage("calendar"); calendarPage.openScreenshotAdd("row"); break
+        case "calendar-export": showPage("calendar"); calendarPage.openScreenshotAdd("export"); break
+        case "calendar-import": showPage("calendar"); calendarPage.openScreenshotAdd("import:" + window.screenshotPlan); break
         case "calendar-edit": showPage("calendar"); calendarPage.openScreenshotAdd("edit"); break
         case "workouts": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("more"); break
         case "new": showPage("workouts"); screenshotMenu = workoutsPage.openScreenshotMenu("new"); break
@@ -179,6 +203,7 @@ ApplicationWindow {
 
         Sidebar {
             id: sidebar
+            visible: !window.immersive
             width: 196
             height: parent.height
             profileOpen: profileDialog.visible
@@ -189,7 +214,7 @@ ApplicationWindow {
 
         Item {
             id: content
-            anchors.left: sidebar.right
+            anchors.left: window.immersive ? parent.left : sidebar.right
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
@@ -213,10 +238,12 @@ ApplicationWindow {
                     onRequestFinish: freeRideFinishDialog.open()
                 }
                 VideoRidePage {
+                    id: videoPage
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: videoFinishDialog.open()
                 }
                 GpxRidePage {
+                    id: gpxPage
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: gpxFinishDialog.open()
                 }
@@ -227,6 +254,7 @@ ApplicationWindow {
                     onMessage: (text) => window.showToast(text)
                 }
                 RowingPage {
+                    id: rowingPage
                     onOpenDevices: window.showPage("devices")
                     onOpenBuilder: {
                         Builder.newWorkout("rowing")
@@ -250,6 +278,10 @@ ApplicationWindow {
                     id: builderPage
                     onMessage: (text) => window.showToast(text)
                 }
+                GpxWorkshopPage {
+                    id: gpxWorkshopPage
+                    onMessage: (text) => window.showToast(text)
+                }
                 HistoryPage {
                     id: historyPage
                     onMessage: (text) => window.showToast(text)
@@ -263,6 +295,7 @@ ApplicationWindow {
 
             TopBar {
                 id: topBar
+                visible: !window.immersive
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.rightMargin: 24
@@ -509,6 +542,26 @@ ApplicationWindow {
         function onAntTestCompleted(result) {
             antResultDialog.openWith(result)
         }
+    }
+
+    // Full-screen ride picture: F toggles, Esc leaves, H shows / hides the numbers
+    readonly property var fullscreenPage: currentPage === "video" ? videoPage : currentPage === "gpx" ? gpxPage
+                                        : currentPage === "treadmill" ? treadmillPage
+                                        : currentPage === "rowing" && rowingPage.canFullscreen ? rowingPage : null
+    Shortcut {
+        sequence: "F"
+        enabled: !!window.fullscreenPage && !window.anyDialogOpen
+        onActivated: window.fullscreenPage.fullscreen = !window.fullscreenPage.fullscreen
+    }
+    Shortcut {
+        sequence: "Esc"
+        enabled: window.immersive && !window.anyDialogOpen
+        onActivated: window.setImmersive(false)
+    }
+    Shortcut {
+        sequence: "H"
+        enabled: window.immersive && !!window.fullscreenPage && !window.anyDialogOpen
+        onActivated: window.fullscreenPage.hudVisible = !window.fullscreenPage.hudVisible
     }
 
     // keyboard shortcuts for the trainer room. Space is an explicit Start /

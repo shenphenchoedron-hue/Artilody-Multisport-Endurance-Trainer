@@ -990,7 +990,9 @@ qint64 Database::addPlannedEntry(const PlannedWorkout &e)
 {
     const bool isWorkout = e.kind == plankind::workout();
     if (!e.date.isValid() || !plankind::isValid(e.kind) || (isWorkout && !workout(e.workoutId))
-        || (e.kind == plankind::video() && e.routePath.trimmed().isEmpty())) {
+        // a Video Ride may wait for its video (imported plan: the route name only)
+        || (e.kind == plankind::video() && e.routePath.trimmed().isEmpty() && e.routeName.trimmed().isEmpty())
+        || (e.kind == plankind::gpx() && e.routePath.trimmed().isEmpty())) {
         setError(QStringLiteral("addPlannedEntry"), QStringLiteral("invalid date, kind, workout or route"));
         return -1;
     }
@@ -1165,15 +1167,16 @@ qint64 Database::saveSegmentRecord(const SegmentRecord &r)
 }
 
 std::optional<SegmentRecord> Database::bestSegment(qint64 profileId, const QString &kind, const QString &routeKey,
-                                                   double lengthM) const
+                                                   double startM, double lengthM) const
 {
     QSqlQuery q(db());
     q.prepare(QStringLiteral("SELECT id, profile_id, kind, route_key, route_name, start_m, length_m, time_sec, ride_id,"
                              " created_at FROM segment_records WHERE profile_id = ? AND kind = ? AND route_key = ?"
-                             " AND abs(length_m - ?) < 0.5 ORDER BY time_sec, id LIMIT 1"));
+                             " AND abs(start_m - ?) < 0.5 AND abs(length_m - ?) < 0.5 ORDER BY time_sec, id LIMIT 1"));
     q.addBindValue(profileId);
     q.addBindValue(kind);
     q.addBindValue(routeKey);
+    q.addBindValue(startM);
     q.addBindValue(lengthM);
     if (!q.exec() || !q.next())
         return std::nullopt;
@@ -1191,14 +1194,16 @@ std::optional<SegmentRecord> Database::bestSegment(qint64 profileId, const QStri
     return r;
 }
 
-int Database::segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double lengthM) const
+int Database::segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double startM,
+                              double lengthM) const
 {
     QSqlQuery q(db());
     q.prepare(QStringLiteral("SELECT COUNT(*) FROM segment_records WHERE profile_id = ? AND kind = ? AND route_key = ?"
-                             " AND abs(length_m - ?) < 0.5"));
+                             " AND abs(start_m - ?) < 0.5 AND abs(length_m - ?) < 0.5"));
     q.addBindValue(profileId);
     q.addBindValue(kind);
     q.addBindValue(routeKey);
+    q.addBindValue(startM);
     q.addBindValue(lengthM);
     return q.exec() && q.next() ? q.value(0).toInt() : 0;
 }

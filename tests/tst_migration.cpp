@@ -356,11 +356,11 @@ private slots:
         QVERIFY(db.open(path));
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
         QVERIFY(!db.hasTable(QStringLiteral("sprint_records")));
-        const auto best = db.bestSegment(1, QStringLiteral("sprint"), QStringLiteral("abc"), 200);
+        const auto best = db.bestSegment(1, QStringLiteral("sprint"), QStringLiteral("abc"), 500, 200);
         QVERIFY(best.has_value());
         QCOMPARE(best->timeSec, 21.5);
-        QCOMPARE(db.segmentAttempts(1, QStringLiteral("sprint"), QStringLiteral("abc"), 200), 2);   // the orphan profile's dropped
-        QVERIFY(!db.bestSegment(1, QStringLiteral("kom"), QStringLiteral("abc"), 200).has_value());
+        QCOMPARE(db.segmentAttempts(1, QStringLiteral("sprint"), QStringLiteral("abc"), 500, 200), 2);   // the orphan profile's dropped
+        QVERIFY(!db.bestSegment(1, QStringLiteral("kom"), QStringLiteral("abc"), 500, 200).has_value());
     }
 
     void upgradesV4ToV5PlanKinds()
@@ -459,6 +459,7 @@ private slots:
             // invalid: workout kind without a workout, rlv without route, unknown kind
             PlannedWorkout bad = rlv;
             bad.routePath.clear();
+            bad.routeName.clear();   // (with a name it waits for the rider's video: imported plans)
             QCOMPARE(db.addPlannedEntry(bad), qint64(-1));
             bad = fr;
             bad.kind = QStringLiteral("workout");

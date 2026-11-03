@@ -291,7 +291,8 @@ private slots:
 
     void gradeIsClampedAndNoiseFiltered()
     {
-        // a wall: +30 % for 200 m -> clamped to kMaxGrade; noise ±1 m on flat adds no ascent
+        // a wall: +30 % for 200 m -> limited to kMaxCleanGrade by the elevation
+        // cleaning (a ramp, the height kept); noise ±1 m on flat adds no ascent
         QVector<SynthPoint> pts;
         double ele = 100;
         for (double d = 0; d <= 1200; d += 5.0) {
@@ -304,7 +305,8 @@ private slots:
         QVERIFY(writeFile(dir.filePath(QStringLiteral("wall.gpx")), gpxFor(pts)));
         RlvRoute r;
         QVERIFY(r.load(dir.filePath(QStringLiteral("wall.gpx"))));
-        QCOMPARE(r.gradeAtDistance(600), RlvRoute::kMaxGrade);
+        QVERIFY2(std::abs(r.gradeAtDistance(600) - RlvRoute::kMaxCleanGrade) < 1.0,
+                 qPrintable(QString::number(r.gradeAtDistance(600))));
         QVERIFY2(std::abs(r.ascent() - 60.0) < 3.0, qPrintable(QString::number(r.ascent())));
         for (double d = 850; d < 1150; d += 10)
             QVERIFY(std::abs(r.gradeAtDistance(d)) < 1.0);

@@ -84,12 +84,22 @@ Item {
 
     TapHandler { onTapped: page.forceActiveFocus() }
 
+    // full screen: the 3D view only, with the HUD (Main.setImmersive)
+    property bool fullscreen: false
+    property bool hudVisible: true
+    onFullscreenChanged: ApplicationWindow.window.setImmersive(fullscreen)
+    onVisibleChanged: if (!visible) fullscreen = false
+    Connections {
+        target: ApplicationWindow.window
+        function onImmersiveChanged() { if (!ApplicationWindow.window.immersive) page.fullscreen = false }
+    }
+
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.pageMargin
-        anchors.rightMargin: Theme.pageMargin
-        anchors.bottomMargin: Theme.pageMargin
-        spacing: Theme.spacing
+        anchors.leftMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.rightMargin: page.fullscreen ? 0 : Theme.pageMargin
+        anchors.bottomMargin: page.fullscreen ? 0 : Theme.pageMargin
+        spacing: page.fullscreen ? 0 : Theme.spacing
 
         // ================= left column =================
         ColumnLayout {
@@ -99,6 +109,7 @@ Item {
 
             // header: title + route choice
             Item {
+                visible: !page.fullscreen
                 Layout.topMargin: 26
                 Layout.fillWidth: true
                 Layout.preferredHeight: header.implicitHeight
@@ -224,6 +235,7 @@ Item {
 
             // live metrics
             RowLayout {
+                visible: !page.fullscreen
                 Layout.fillWidth: true
                 // fixed height (the tiles' fillHeight would otherwise let the
                 // row take space from the 3D view)
@@ -303,10 +315,10 @@ Item {
                 Layout.fillHeight: true
                 Layout.minimumHeight: 260
                 Layout.preferredHeight: 2000
-                radius: Theme.radius
+                radius: page.fullscreen ? 0 : Theme.radius
                 color: showScene ? "#04060d" : Theme.card
                 border.color: Theme.cardBorder
-                border.width: 1
+                border.width: page.fullscreen ? 0 : 1
                 clip: true
 
                 Loader {
@@ -316,6 +328,10 @@ Item {
                     anchors.fill: parent
                     anchors.margins: 1
                     sourceComponent: Route3DView { session: Running }
+                }
+                FullscreenTapLayer {
+                    enabled: sceneCard.showScene
+                    onToggle: page.fullscreen = !page.fullscreen
                 }
                 Text {
                     visible: !sceneCard.showScene
@@ -514,10 +530,45 @@ Item {
                         }
                     }
                 }
+
+                // full screen: the numbers on the left, the button, the bar
+                RideHud {
+                    visible: page.fullscreen && page.hudVisible && sceneCard.showScene
+                    x: 16
+                    y: 64
+                    metrics: [
+                        { label: "Pace", value: Running.pace.length > 0 ? Running.pace : "–", unit: "/km", color: "#5fd4ff" },
+                        { label: "Speed", value: Running.speedKmh.toFixed(1), unit: "km/h" },
+                        { label: "Incline", value: Running.inclineKnown ? Running.inclinePercent.toFixed(1) : "–", unit: "%",
+                          color: page.gradeColor(Running.inclinePercent) },
+                        { label: "Heart rate", value: Running.heartRate > 0 ? "" + Running.heartRate : "–", unit: "bpm", color: "#ff7a8a" },
+                        { label: "Time", value: Theme.clock(Running.elapsedSeconds), unit: "" },
+                        { label: "Distance", value: page.kmText(Running.runDistanceM), unit: "km" }
+                    ]
+                    stepText: Running.hasWorkout && Running.active && Running.currentStepIndex >= 0
+                              ? Running.currentStepName + " · " + Theme.clock(Running.stepRemainingSec) + " left" : ""
+                    profile: Running.profile
+                    total: Running.routeLengthM
+                    minEle: Running.minElevationM
+                    maxEle: Running.maxElevationM
+                    position: Running.distanceMeters
+                    elevation: Running.elevationM
+                }
+                FullscreenControls {
+                    visible: sceneCard.showScene
+                    fullscreen: page.fullscreen
+                    hudVisible: page.hudVisible
+                    canPause: Running.active
+                    paused: page.st === "paused"
+                    onToggleFullscreen: page.fullscreen = !page.fullscreen
+                    onToggleHud: page.hudVisible = !page.hudVisible
+                    onTogglePause: Running.togglePause()
+                }
             }
 
             // route profile + workout
             Card {
+                visible: !page.fullscreen
                 Layout.fillWidth: true
                 Layout.preferredHeight: Running.hasWorkout ? 176 : 116
                 Layout.maximumHeight: Running.hasWorkout ? 176 : 116
@@ -552,6 +603,7 @@ Item {
 
         // ================= right column =================
         ColumnLayout {
+            visible: !page.fullscreen
             Layout.preferredWidth: 360
             Layout.maximumWidth: 360
             Layout.fillHeight: true

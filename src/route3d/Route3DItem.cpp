@@ -3,6 +3,7 @@
 #include "Route3DScene.h"
 #include "RlvRoute.h"
 #include "RouteProgress.h"
+#include "Sprint.h"
 
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
@@ -61,17 +62,18 @@ public:
         if (view->routeVersion() != m_version) {
             m_version = view->routeVersion();
             m_scene.setRoute(view->drawnRoute());
-            Route3DScene::SprintMarks sprint;
-            sprint.valid = view->frameSprintValid();
-            sprint.announce = view->frameSprintAnnounce();
-            sprint.start = view->frameSprintStart();
-            sprint.finish = view->frameSprintFinish();
-            m_scene.setSprint(sprint);
-            Route3DScene::KomMarks kom;
-            kom.valid = view->frameKomValid();
-            kom.start = view->frameKomStart();
-            kom.finish = view->frameKomFinish();
-            m_scene.setKom(kom);
+        }
+        // the route's marks (also when only they changed: GPX Workshop saved)
+        if (view->marksVersion() != m_marksVersion) {
+            m_marksVersion = view->marksVersion();
+            std::vector<Route3DScene::SprintMarks> sprints;
+            for (const auto &s : view->frameSprints())
+                sprints.push_back({ s[0], s[1], s[2] });
+            m_scene.setSprints(sprints);
+            std::vector<Route3DScene::KomMarks> koms;
+            for (const auto &k : view->frameKoms())
+                koms.push_back({ k[0], k[1] });
+            m_scene.setKoms(koms);
             m_scene.setKmPosts(view->frameKmPosts());
         }
         m_scene.setStartDistance(view->frameStartDistance());
@@ -95,6 +97,7 @@ private:
     Route3DScene m_scene;
     bool m_initTried = false;
     quint64 m_version = 0;
+    int m_marksVersion = -1;
     double m_distance = 0;
     double m_speedKmh = 0;
     double m_crank = 0;
@@ -279,6 +282,28 @@ double Route3DItem::mapDistance(const Built &b, double d)
     return b.drawnDistance.at(i) + (b.drawnDistance.at(j) - b.drawnDistance.at(i)) * t;
 }
 
+// The GPX Workshop's sprints and KOMs on the drawn road (the announce line:
+// kAnnounceM before the start, if the road is there and it is clear of the
+// segment before).
+void Route3DItem::buildMarks()
+{
+    m_sprintDrawn.clear();
+    m_komDrawn.clear();
+    if (!m_route)
+        return;
+    double previousFinish = 0;
+    for (const RouteSegment &s : m_builtSegments) {
+        if (s.kind == RouteSegment::Sprint) {
+            const double at = s.start - sprint::kAnnounceM;
+            const double announce = at >= previousFinish + 20 ? mapDistance(m_built, at) : -1;
+            m_sprintDrawn.push_back({ announce, mapDistance(m_built, s.start), mapDistance(m_built, s.finish) });
+        } else {
+            m_komDrawn.push_back({ mapDistance(m_built, s.start), mapDistance(m_built, s.finish) });
+        }
+        previousFinish = s.finish;
+    }
+}
+
 void Route3DItem::rebuildRoute()
 {
     // RlvSession also emits routeChanged after every library scan (its
@@ -287,42 +312,48 @@ void Route3DItem::rebuildRoute()
     const QString path = m_session && m_session->hasRoute() ? m_session->routePath() : QString();
     const int pointCount = m_session && m_session->hasRoute() ? int(m_session->route().points().size()) : 0;
     const double length = m_session && m_session->hasRoute() ? m_session->route().totalDistance() : 0.0;
-    if (m_builtValid && path == m_builtPath && pointCount == m_builtPoints && length == m_builtLength)
+    // the elevation cleaning's limit changes the profile (GPX Workshop)
+    const double grade = m_session && m_session->hasRoute() ? m_session->route().maxCleanGrade() : 0.0;
+    const QVector<RouteSegment> segments = m_session ? m_session->routeSegments() : QVector<RouteSegment>();
+    if (m_builtValid && path == m_builtPath && pointCount == m_builtPoints && length == m_builtLength
+        && grade == m_builtGrade) {
+        if (segments != m_builtSegments) {   // only the sprints / KOMs: the marks, not the terrain
+            m_builtSegments = segments;
+            buildMarks();
+            ++m_marksVersion;
+            update();
+        }
         return;
+    }
     m_builtValid = true;
     m_builtPath = path;
     m_builtPoints = pointCount;
     m_builtLength = length;
+    m_builtGrade = grade;
+    m_builtSegments = segments;
     const bool hadScene = hasScene();
     const QString before = error();
     m_built = Built();
     m_route.reset();
     m_routeError.clear();
-    m_sprintDrawnValid = false;
-    m_komDrawnValid = false;
+    m_sprintDrawn.clear();
+    m_komDrawn.clear();
     m_kmDrawn.clear();
     if (m_session && m_session->hasRoute()) {
         try {
             m_built = build(m_session->route());
             m_route = m_built.route;
-            const sprint::Segment s = m_session->sprintSegment();
-            m_sprintDrawnValid = s.valid;
-            m_sprintDrawn[0] = s.valid ? mapDistance(m_built, s.announce) : 0;
-            m_sprintDrawn[1] = s.valid ? mapDistance(m_built, s.start) : 0;
-            m_sprintDrawn[2] = s.valid ? mapDistance(m_built, s.finish) : 0;
+            buildMarks();
             const double total = m_session->route().totalDistance();
             for (int km = 1; km * 1000.0 < total - 30; ++km)
                 m_kmDrawn.push_back(mapDistance(m_built, km * 1000.0));
-            const climb::Climb k = m_session->komClimb();
-            m_komDrawnValid = k.valid;
-            m_komDrawn[0] = k.valid ? mapDistance(m_built, k.start) : 0;
-            m_komDrawn[1] = k.valid ? mapDistance(m_built, k.finish) : 0;
         } catch (const std::exception &e) {
             m_routeError = QString::fromUtf8(e.what());
             qWarning("Route3D: %s: %s", qPrintable(m_session->routePath()), e.what());
         }
     }
     ++m_routeVersion;
+    ++m_marksVersion;
     if (hadScene != hasScene() || hasScene())
         emit sceneChanged();
     if (error() != before)

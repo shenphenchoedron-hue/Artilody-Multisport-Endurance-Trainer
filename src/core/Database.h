@@ -115,9 +115,11 @@ public:
     // ride's are deleted). The best is the fastest, then the oldest, of a
     // profile for a kind on a route (key) and length.
     qint64 saveSegmentRecord(const SegmentRecord &record);
+    // (a segment: kind, route, where it starts and its length, each within 0.5 m)
     std::optional<SegmentRecord> bestSegment(qint64 profileId, const QString &kind, const QString &routeKey,
-                                             double lengthM) const;
-    int segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double lengthM) const;
+                                             double startM, double lengthM) const;
+    int segmentAttempts(qint64 profileId, const QString &kind, const QString &routeKey, double startM,
+                        double lengthM) const;
     bool setSegmentRideId(qint64 recordId, qint64 rideId);
     bool deleteSegmentRecord(qint64 recordId);
 

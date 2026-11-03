@@ -1,7 +1,9 @@
 // GPX Ride: RlvSession / RlvLibrary with Kind::Gpx (plain .gpx tracks without
 // a video, own settings, "GPX: <route>" rides, the same physics as the video
 // ride) and the 3D view's route building / distance mapping (Route3DItem).
+#include "Climb.h"
 #include "Database.h"
+#include "GpxWorkshop.h"
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
 #include "RlvLibrary.h"
@@ -19,6 +21,7 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <tuple>
 
 using namespace watt;
 
@@ -73,6 +76,24 @@ bool writeGpxProfile(const QString &path, int points, double step, const std::fu
     return f.open(QIODevice::WriteOnly) && f.write(gpx) > 0;
 }
 
+// Writes sprints / KOMs into a GPX file as the GPX Workshop does.
+bool addSegments(const QString &path, QVector<RouteSegment> list)
+{
+    RlvRoute r;
+    if (!r.load(path) || !segments::validate(list, r.totalDistance()))
+        return false;
+    return segments::writeToGpx(path, list, {});
+}
+RouteSegment seg(RouteSegment::Kind kind, double start, double finish, const QString &name = QString())
+{
+    RouteSegment s;
+    s.kind = kind;
+    s.start = start;
+    s.finish = finish;
+    s.name = name;
+    return s;
+}
+
 // 1 km flat, a 1 km climb at 5 %, 0.5 km flat, a 0.6 km climb at 6 %, 0.9 km down
 double twoClimbs(double d)
 {
@@ -86,6 +107,8 @@ double twoClimbs(double d)
         return 60 + (d - 2500) * 0.06;
     return std::max(0.0, 96 - (d - 3100) * 0.04);
 }
+
+constexpr double kSprintM = 200.0;
 
 struct Fixture
 {
@@ -202,13 +225,6 @@ private slots:
 
     void sprintSegmentAndCrossing()
     {
-        QVERIFY(!sprint::forRoute(999).valid);   // too short
-        QVERIFY(!sprint::forRoute(std::nan("")).valid);
-        const sprint::Segment s = sprint::forRoute(2000);
-        QVERIFY(s.valid);
-        QCOMPARE(s.start, 500.0);
-        QCOMPARE(s.finish, 700.0);
-        QCOMPARE(s.announce, 300.0);
         // the line crossed a quarter into a step from 490 m at 1000 ms to 530 m at 1400 ms
         QCOMPARE(sprint::crossingMs(490, 530, 1000, 1400, 500), 1100.0);
         QVERIFY(std::isnan(sprint::crossingMs(500, 530, 1000, 1400, 500)));   // already on it
@@ -220,11 +236,14 @@ private slots:
         Fixture f;
         QVERIFY(f.init());
         const QString path = f.dir.filePath(QStringLiteral("flat.gpx"));
-        QVERIFY(writeGpx(path, 161, 10, 0));   // 1.6 km: sprint 400..600 m
+        QVERIFY(writeGpx(path, 161, 10, 0));   // 1.6 km
+        QVERIFY(f.gpx->selectPath(path));
+        QVERIFY(!f.gpx->sprintAvailable());   // none placed: none
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 400, 600) }));
         QVERIFY(f.gpx->selectPath(path));
         QVERIFY(f.gpx->sprintAvailable());
-        QVERIFY(std::abs(f.gpx->sprintStartM() - f.gpx->totalDistanceM() * 0.25) < 1e-9);
-        QCOMPARE(f.gpx->sprintFinishM() - f.gpx->sprintStartM(), sprint::kLengthM);
+        QCOMPARE(f.gpx->sprintStartM(), 400.0);
+        QCOMPARE(f.gpx->sprintFinishM() - f.gpx->sprintStartM(), kSprintM);
         QCOMPARE(f.gpx->sprintState(), QStringLiteral("ahead"));
         QCOMPARE(f.gpx->sprintBestSec(), 0.0);
         QVERIFY(!f.gpx->sprintKey().isEmpty());
@@ -249,7 +268,7 @@ private slots:
                 return -1.0;
             // the time matches the ride's speed through the sprint
             const double t = f.gpx->sprintTimeSec();
-            if (std::abs(t - sprint::kLengthM / speedInSprint) > 1.0)
+            if (std::abs(t - kSprintM / speedInSprint) > 1.0)
                 return -2.0;
             f.ride_for(f.gpx.get(), 6000);
             const qint64 ride = f.gpx->finish(true);
@@ -262,7 +281,7 @@ private slots:
         QCOMPARE(f.gpx->sprintPreviousBestSec(), 0.0);
         QCOMPARE(f.gpx->sprintBestSec(), first);
         QCOMPARE(f.gpx->sprintAttempts(), 1);
-        const auto best = f.db.bestSegment(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(), sprint::kLengthM);
+        const auto best = f.db.bestSegment(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(), 400, kSprintM);
         QVERIFY(best.has_value());
         QCOMPARE(best->timeSec, first);
         QCOMPARE(best->rideId, f.gpx->lastRideId());   // linked to the saved ride
@@ -293,7 +312,7 @@ private slots:
             QCOMPARE(f.gpx->sprintAttempts(), 2);
             QCOMPARE(f.gpx->sprintState(), QStringLiteral("void"));
             QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(),
-                                          sprint::kLengthM), 2);
+                                          400, kSprintM), 2);
         }
         // the same track under another name and folder is the same route
         QVERIFY(QDir(f.dir.path()).mkpath(QStringLiteral("moved")));
@@ -306,6 +325,7 @@ private slots:
         QCOMPARE(f.gpx->sprintAttempts(), 2);
         // an edited track is a new route
         QVERIFY(writeGpx(moved, 161, 10, 1));
+        QVERIFY(addSegments(moved, { seg(RouteSegment::Sprint, 400, 600) }));
         QVERIFY(f.gpx->selectPath(moved));
         QVERIFY(f.gpx->sprintKey() != key);
         QCOMPARE(f.gpx->sprintBestSec(), 0.0);
@@ -317,6 +337,7 @@ private slots:
         QVERIFY(f.init());
         const QString path = f.dir.filePath(QStringLiteral("flat.gpx"));
         QVERIFY(writeGpx(path, 161, 10, 0, true));
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 400, 600) }));
         QVERIFY(f.gpx->selectPath(path));
         f.hub->updateCadence(90);
         f.hub->updatePower(300);
@@ -332,7 +353,7 @@ private slots:
         f.ride_for(f.gpx.get(), 40000);
         QCOMPARE(f.gpx->sprintState(), QStringLiteral("void"));
         f.gpx->finish(false);
-        QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(), sprint::kLengthM), 0);
+        QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("sprint"), f.gpx->sprintKey(), 400, kSprintM), 0);
         // starting beyond the start line: no sprint this ride
         QVERIFY(f.gpx->seekToDistance(f.gpx->sprintStartM() + 10));
         QCOMPARE(f.gpx->sprintState(), QStringLiteral("passed"));
@@ -345,7 +366,7 @@ private slots:
         QVERIFY(!f.rlv->sprintAvailable());
         QCOMPARE(f.rlv->sprintState(), QStringLiteral("none"));
         const QString shortPath = f.dir.filePath(QStringLiteral("short.gpx"));
-        QVERIFY(writeGpx(shortPath, 90, 10, 0));
+        QVERIFY(writeGpx(shortPath, 90, 10, 0));   // no segments placed
         QVERIFY(f.gpx->selectPath(shortPath));
         QVERIFY(!f.gpx->sprintAvailable());
         QCOMPARE(f.gpx->sprintState(), QStringLiteral("none"));
@@ -409,8 +430,10 @@ private slots:
         QVERIFY(f.init());
         const QString path = f.dir.filePath(QStringLiteral("hill.gpx"));
         QVERIFY(writeGpxProfile(path, 401, 10, twoClimbs));
+        QVERIFY(addSegments(path, { seg(RouteSegment::Kom, 1000, 2000, QStringLiteral("The wall")) }));
         QVERIFY(f.gpx->selectPath(path));
         QVERIFY(f.gpx->komAvailable());
+        QCOMPARE(f.gpx->komName(), QStringLiteral("The wall"));
         QCOMPARE(f.gpx->komState(), QStringLiteral("ahead"));
         QVERIFY(f.gpx->komGradePercent() > 3);
         auto rideKom = [&](int watts) {
@@ -433,13 +456,13 @@ private slots:
         QVERIFY(f.gpx->komNewBest());
         QCOMPARE(f.gpx->komBestSec(), first);
         const auto best = f.db.bestSegment(f.profiles->profileId(), QStringLiteral("kom"), f.gpx->komKey(),
-                                           f.gpx->komLengthM());
+                                           f.gpx->komStartM(), f.gpx->komLengthM());
         QVERIFY(best.has_value());
         QCOMPARE(best->timeSec, first);
         QCOMPARE(best->rideId, f.gpx->lastRideId());
         // the sprint (on the same route) is kept apart
         QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("kom"), f.gpx->komKey(),
-                                      f.gpx->komLengthM()), 1);
+                                      f.gpx->komStartM(), f.gpx->komLengthM()), 1);
         QVERIFY(f.gpx->seekToDistance(0));
         const double second = rideKom(200);
         QVERIFY(second > first);
@@ -449,6 +472,197 @@ private slots:
         // no KOM on the video ride
         QVERIFY(f.rlv->selectPath(path) || !f.rlv->hasRoute());
         QVERIFY(!f.rlv->komAvailable());
+    }
+
+    void segmentsReadWrittenAndValidated()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("s.gpx"));
+        QVERIFY(writeGpx(path, 401, 10, 0));   // 4 km
+        QFile in(path);
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        const QByteArray before = in.readAll();
+        in.close();
+        // overlap / too short / outside: rejected
+        QVector<RouteSegment> bad { seg(RouteSegment::Sprint, 100, 300), seg(RouteSegment::Kom, 250, 900) };
+        QString error;
+        QVERIFY(!segments::validate(bad, 4000, &error));
+        QVERIFY(error.contains(QStringLiteral("overlaps")));
+        QVector<RouteSegment> tiny { seg(RouteSegment::Sprint, 100, 120) };
+        QVERIFY(!segments::validate(tiny, 4000));
+        QVector<RouteSegment> out { seg(RouteSegment::Kom, 3900, 4200) };
+        QVERIFY(!segments::validate(out, 4000));
+        // written, read back sorted, the track untouched
+        QVERIFY(addSegments(path, { seg(RouteSegment::Kom, 2000, 3100, QStringLiteral("Hill & dale")),
+                                    seg(RouteSegment::Sprint, 500, 700) }));
+        RlvRoute r;
+        QVERIFY(r.load(path));
+        QCOMPARE(r.segments().size(), 2);
+        QCOMPARE(r.segments().at(0).kind, RouteSegment::Sprint);
+        QCOMPARE(r.segments().at(1).name, QStringLiteral("Hill & dale"));
+        QCOMPARE(r.segments().at(1).finish, 3100.0);
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QByteArray now = after.readAll();
+        QVERIFY(now.startsWith(before.left(before.lastIndexOf("</gpx>"))));   // the track as it was
+        // written again: replaced, not added; an empty list removes them
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 1000, 1300) }));
+        QVERIFY(r.load(path));
+        QCOMPARE(r.segments().size(), 1);
+        QVERIFY(segments::writeToGpx(path, {}, {}));
+        QVERIFY(r.load(path));
+        QVERIFY(r.segments().isEmpty());
+        QFile clean(path);
+        QVERIFY(clean.open(QIODevice::ReadOnly));
+        QCOMPARE(clean.readAll(), before);
+        // a file with its own root <extensions>: ours go inside it, and out again
+        QByteArray own = before;
+        own.replace("</gpx>", "<extensions>\n<x:y xmlns:x=\"urn:x\">1</x:y>\n</extensions>\n</gpx>");
+        QFile w(path);
+        QVERIFY(w.open(QIODevice::WriteOnly));
+        w.write(own);
+        w.close();
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 1000, 1300) }));
+        QVERIFY(r.load(path));
+        QCOMPARE(r.segments().size(), 1);
+        QFile o2(path);
+        QVERIFY(o2.open(QIODevice::ReadOnly));
+        const QByteArray withOurs = o2.readAll();
+        o2.close();
+        QCOMPARE(withOurs.count("<extensions>"), own.count("<extensions>"));
+        QVERIFY(segments::writeToGpx(path, {}, {}));
+        QFile o3(path);
+        QVERIFY(o3.open(QIODevice::ReadOnly));
+        QCOMPARE(o3.readAll(), own);
+    }
+
+    void segmentsKeepTheFileEncoding()
+    {
+        // an ISO-8859-1 GPX with "ø" / "é" in its name: written byte for byte, the name escaped
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("latin.gpx"));
+        QByteArray g = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">"
+                       "<trk><name>S\xf8 rundt caf\xe9</name><trkseg>\n";
+        for (int i = 0; i <= 200; ++i)
+            g += QStringLiteral("<trkpt lat=\"%1\" lon=\"12.0\"><ele>10</ele></trkpt>\n").arg(55.0 + i * 10.0 / kMPerDegLat, 0, 'f', 8).toLatin1();
+        g += "</trkseg></trk></gpx>\n";
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(g);
+        }
+        QVERIFY(addSegments(path, { seg(RouteSegment::Kom, 200, 900, QStringLiteral("Bakken \u00f8st")) }));
+        QFile in(path);
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        const QByteArray now = in.readAll();
+        in.close();
+        QVERIFY(now.startsWith(g.left(g.lastIndexOf("</gpx>"))));   // the track's bytes as they were
+        QVERIFY(now.contains("Bakken &#xf8;st"));
+        RlvRoute r;
+        QVERIFY(r.load(path));
+        QCOMPARE(r.title(), QStringLiteral("S\u00f8 rundt caf\u00e9"));
+        QCOMPARE(r.segments().first().name, QStringLiteral("Bakken \u00f8st"));
+        QVERIFY(segments::writeToGpx(path, {}, {}));
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        QCOMPARE(in.readAll(), g);
+    }
+
+    void severalSegmentsAndTheWorkshop()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("hill.gpx"));
+        QVERIFY(writeGpxProfile(path, 401, 10, twoClimbs));   // climbs at 1..2 km and 2.5..3.1 km
+        GpxWorkshop ws(nullptr, f.gpx.get());
+        QVERIFY(ws.open(path));
+        QVERIFY(ws.segments().isEmpty());
+        QCOMPARE(ws.addSprint(200, 200), QString());
+        QVERIFY(!ws.addSprint(300, 200).isEmpty());   // overlaps the first
+        QCOMPARE(ws.addKom(1000, 2000, QStringLiteral("Wall")), QString());
+        QCOMPARE(ws.addKom(2500, 3100), QString());
+        QCOMPARE(ws.addSprint(3300, 150), QString());
+        QCOMPARE(ws.sprintCount(), 2);
+        QCOMPARE(ws.komCount(), 2);
+        QVERIFY(ws.dirty());
+        QVERIFY(!ws.addSprint(3950, 200).isEmpty());   // past the end
+        QCOMPARE(ws.setSegment(3, 3300, 3500, QStringLiteral("Last")), QString());
+        QCOMPARE(ws.save(), QString());
+        QVERIFY(!ws.dirty());
+        // GPX Ride: it reloaded the selected route? (not selected: select it)
+        QVERIFY(f.gpx->selectPath(path));
+        QCOMPARE(f.gpx->sprintCount(), 2);
+        QCOMPARE(f.gpx->komCount(), 2);
+        QCOMPARE(f.gpx->sprintStartM(), 200.0);   // the next ahead
+        QCOMPARE(f.gpx->komName(), QStringLiteral("Wall"));
+        // ride it all: both sprints and both KOMs timed, focus moving on
+        QSignalSpy sprints(f.gpx.get(), &RlvSession::sprintFinished), koms(f.gpx.get(), &RlvSession::komFinished);
+        f.hub->updateCadence(90);
+        f.hub->updatePower(320);
+        QVERIFY(f.gpx->start());
+        int steps = 0;
+        while (f.gpx->running() && steps++ < 40000)
+            f.gpx->advanceClock(250);
+        QCOMPARE(sprints.count(), 2);
+        QCOMPARE(koms.count(), 2);
+        // each saved on its own (kind, start, length)
+        for (const auto &[kind, start, length] :
+             { std::tuple { "sprint", 200.0, 200.0 }, { "sprint", 3300.0, 200.0 }, { "kom", 1000.0, 1000.0 }, { "kom", 2500.0, 600.0 } })
+            QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QString::fromLatin1(kind), f.gpx->segmentKey(), start, length), 1);
+        // suggest: the longest climb, when free
+        QVERIFY(ws.open(path));
+        QVERIFY(!ws.suggestKom().isEmpty());   // overlaps the KOMs placed
+        ws.removeSegment(1);
+        ws.removeSegment(1);
+        QCOMPARE(ws.komCount(), 0);
+        QCOMPARE(ws.suggestKom(), QString());
+        QCOMPARE(ws.komCount(), 1);
+        ws.revert();
+        QCOMPARE(ws.komCount(), 2);
+    }
+
+    void elevationSpikesAndSteepStepsCleaned()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        // a 6 % climb with a single 25 m spike and a 30 m jump over 40 m at 2 km (a hairpin)
+        const QString path = f.dir.filePath(QStringLiteral("alp.gpx"));
+        QVERIFY(writeGpxProfile(path, 401, 10, [](double d) {
+            double e = 100 + d * 0.06;
+            if (std::abs(d - 1000) < 1) e += 25;              // spike
+            if (d >= 2000) e += 30 * std::min(1.0, (d - 2000) / 40.0);   // 75 % over 40 m
+            return e;
+        }));
+        RlvRoute r;
+        QVERIFY(r.load(path));
+        QVERIFY(r.rawMaxGrade() > 60);
+        QVERIFY(r.spikesRemoved() >= 1);
+        QVERIFY(r.stepsLimited() > 0);
+        QVERIFY2(r.steepestGrade() < RlvRoute::kMaxCleanGrade + 1.5, qPrintable(QString::number(r.steepestGrade())));
+        QVERIFY(std::abs(r.elevationAtDistance(1000) - (100 + 60)) < 2);    // the spike is gone
+        // the height is kept: the summit as recorded
+        QVERIFY(std::abs(r.elevationAtDistance(3900) - (100 + 234 + 30)) < 2);
+        // the route's own limit: saved in the file, read back
+        GpxWorkshop ws(nullptr, f.gpx.get());
+        QVERIFY(ws.open(path));
+        QCOMPARE(ws.maxGrade(), RlvRoute::kMaxCleanGrade);
+        ws.setMaxGrade(12);
+        QVERIFY(ws.dirty());
+        QVERIFY(ws.steepestGrade() < 13.5);
+        QCOMPARE(ws.save(), QString());
+        RlvRoute again;
+        QVERIFY(again.load(path));
+        QCOMPARE(again.maxCleanGrade(), 12.0);
+        QVERIFY(again.steepestGrade() < 13.5);
+        QCOMPARE(sprint::routeKey(again), sprint::routeKey(r));   // the track is the same route
+        // a flat, clean route is not touched
+        const QString flat = f.dir.filePath(QStringLiteral("flat.gpx"));
+        QVERIFY(writeGpx(flat, 300, 10, 3));
+        RlvRoute plain;
+        QVERIFY(plain.load(flat));
+        QCOMPARE(plain.spikesRemoved(), 0);
+        QCOMPARE(plain.stepsLimited(), 0);
     }
 
     void sameSpeedAsTheVideoRide()

@@ -12,7 +12,15 @@ namespace plankind {
 inline QString workout() { return QStringLiteral("workout"); }   // a workout of the library
 inline QString freeRide() { return QStringLiteral("freeride"); } // Free Ride (FreeRideSession)
 inline QString video() { return QStringLiteral("rlv"); }         // Video Ride (RlvSession)
-inline bool isValid(const QString &k) { return k == workout() || k == freeRide() || k == video(); }
+inline QString gpx() { return QStringLiteral("gpx"); }           // GPX Ride (RlvSession, Kind::Gpx)
+inline QString freeRow() { return QStringLiteral("row"); }       // free row (RowingSession, open)
+inline QString freeRun() { return QStringLiteral("run"); }       // free treadmill run (RunSession, no workout)
+inline bool isRoute(const QString &k) { return k == video() || k == gpx(); }
+inline bool isFree(const QString &k) { return k == freeRide() || k == freeRow() || k == freeRun(); }
+inline bool isValid(const QString &k)
+{
+    return k == workout() || isFree(k) || isRoute(k);
+}
 } // namespace plankind
 
 // One entry scheduled on a calendar day (table planned_workouts, schema v2;
@@ -31,9 +39,9 @@ struct PlannedWorkout
 
     // schema v5
     QString kind = plankind::workout();
-    QString routePath;           // kind "rlv": route file (xml/gpx)
-    QString routeName;           // kind "rlv": cached display name
-    int plannedDurationSec = 0;  // kind "freeride": planned duration (0 = open)
+    QString routePath;           // kind "rlv" / "gpx": route file (xml/gpx); "" = a video still to choose
+    QString routeName;           // kind "rlv" / "gpx": cached display name
+    int plannedDurationSec = 0;  // kind "freeride" / "row" / "run": planned duration (0 = open)
     QString options;             // JSON object text (kind specific, see WorkoutPlanner)
 
     // joined from workouts (kind "workout")
@@ -63,8 +71,8 @@ struct RowingRecord
     QVector<TracePoint> trace;
 };
 
-// One timed segment of a GPX Ride (kind "sprint": sprint::Segment, "kom":
-// climb::longest()): every attempt is kept.
+// One timed segment of a GPX Ride (a RouteSegment placed in the GPX Workshop:
+// kind "sprint" / "kom"): every attempt of a saved ride is kept.
 struct SegmentRecord
 {
     qint64 id = -1;
