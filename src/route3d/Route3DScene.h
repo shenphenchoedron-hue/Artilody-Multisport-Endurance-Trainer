@@ -48,6 +48,7 @@ class Route3DScene : protected QOpenGLFunctions
 public:
     static constexpr float kCameraHeightM = 1.7f;
     static constexpr float kNearPlaneM = .5f;
+    static constexpr double kTaperM = 35.0;   // the run-out after the finish narrows to nothing over this
 
     Route3DScene();
     ~Route3DScene();
@@ -181,6 +182,7 @@ private:
     void displayBike(std::vector<Vertex> &out);
     void sprintMarks(std::vector<Vertex> &out, const SprintMarks &sprint);
     void kmPosts();                                   // -> m_target (buildGates)
+    void finishTunnel(double finishArch);              // barriers + flags past the FINISH arch (-> m_target)
     float vergeHeight(double d, float lateral) const;  // the ground beside the road (gravel, verge, terrain)
     // The landscape around the camera: rebuilt when the camera enters another
     // 32 m tile. The first tile of a route is built in the frame; later ones

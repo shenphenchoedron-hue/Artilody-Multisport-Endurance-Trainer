@@ -29,8 +29,9 @@ constexpr double kMaxDrawGapM = 400.0;
 constexpr double kMaxTrackM = 200000.0;
 constexpr double kMaxGapM = 2000.0;
 // After the FINISH arch the drawn road runs on straight for this far (not
-// ridden: a point-to-point route would otherwise end in the grass).
-constexpr double kRunOutM = 50.0;
+// ridden: a point-to-point route would otherwise end in the grass), then
+// tapers gently away.
+constexpr double kRunOutM = 90.0;   // (the last 35 m narrow to nothing: Route3DScene::buildTile)
 
 class Route3DRenderer : public QQuickFramebufferObject::Renderer
 {

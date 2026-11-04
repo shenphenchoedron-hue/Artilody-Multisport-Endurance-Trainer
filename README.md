@@ -42,7 +42,12 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 1.7.0
+## What's new in 1.7.1
+
+**Mountains, finishes and polish** – switchback climbs like Alpe d'Huez ride up a real mountainside (no more "great wall"), clean hairpins, a finisher tunnel with barriers and flags and a road that runs on gently past the finish, tyres that sit in the rims, Finish and Reset on Treadmill Run, and a red scull with a proper unisuit on the Rowing page. No database change – see the [1.7.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.7.1).
+
+<details>
+<summary><b>What's new in 1.7.0</b> – 3D rowing, GPX Workshop, training plans, full screen</summary>
 
 **3D rowing, the GPX Workshop, training plans and full screen.**
 
@@ -52,6 +57,8 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **Elevation spikes removed** – bad elevation points and steps steeper than 20 % (adjustable per route) are smoothed; the file is not changed.
 - **Training plans** – export weeks of your calendar as a shareable file with its workouts and GPX routes, and import a plan onto any date. New calendar kinds: GPX Ride, Free Row and Free Run.
 - **Roads that meet** join in asphalt with rounded corners. See the [1.7.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.7.0).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.6.1</b> – GPX Ride fixes and polish</summary>
@@ -294,7 +301,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.7.0](#whats-new-in-170)
+- [What's new in 1.7.1](#whats-new-in-171)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -392,7 +399,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **The same ride as a Video Ride**: power, cadence, heart rate, speed and time at the top, the 3D view in the middle (gradient, mode and difficulty as overlays) and the route's elevation profile at the bottom (click it to start part-way). Resistance (**Simulation** or **ERG**), **Difficulty**, a **workout with Workout ERG**, virtual gears and the **Zwift Click** work exactly as in the [Video Ride](#real-life-video), with the same physics; the 3D road follows your position, so the gradient you feel, the profile and the picture agree. GPX Ride remembers its own mode, difficulty and last route.
 - **START and FINISH**: a green inflatable START arch stands just ahead of where you start (also when you start part-way) and a red FINISH arch at the end; the START arch is shown until you have ridden through it, then the FINISH arch – on a loop you start under green and finish under red.
 - **The rider is you**: a 3D cyclist (blue jersey, black bibs, red helmet) whose feet follow the pedals at your real cadence and stand still when you coast, pause or have no cadence; he rocks gently from side to side with the pedal stroke – more on climbs over 6 %. The wheels roll on with your speed.
-- **Run-out after the finish**: on point-to-point routes the road continues 50 m past the FINISH arch.
+- **Finish**: a finisher tunnel of crowd barriers with banners and flags around the FINISH arch; on point-to-point routes the road continues 90 m past it and tapers gently away.
 - **Sprints and KOMs** from the **GPX Workshop**: *SPRINT IN 200 m* on the road, green start lines and signs, red *SPRINT FINISH* lines; a white polka-dot arch at a KOM's foot and a red *KOM FINISH* arch at its top. Pins on the profile show where each starts.
 - **GPX Workshop** (sidebar, under the Builder): the route's elevation profile; click to place a sprint (any length) or a KOM (foot, then top), name them, edit them in a list and save them in the GPX file (a GPX extension; the track is not changed). *Longest climb* suggests a KOM. **Gradients**: bad elevation points are always removed, and steps steeper than the route's limit (20 % by default, 5–30 %) become even ramps with the height kept.
 - **Sprint and KOM times**: timed to 0.01 s on the ride's clock (pauses never count; pausing during one voids it), saved per profile and route (recognised by the track, so renamed or moved files keep their times) and compared with your best in a panel on the 3D view.
@@ -539,18 +546,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.7.0**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
+The current version is **1.7.1**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.7.0-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/ArtilodyMultisportEnduranceTrainer-1.7.0-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.7.0-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/ArtilodyMultisportEnduranceTrainer-1.7.0-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.7.0-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/ArtilodyMultisportEnduranceTrainer-1.7.0-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.7.0_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/artilody-watts-trainer_1.7.0_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.7.0_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/artilody-watts-trainer_1.7.0_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.7.0_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/artilody-watts-trainer_1.7.0_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.0/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.7.1-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/ArtilodyMultisportEnduranceTrainer-1.7.1-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.7.1-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/ArtilodyMultisportEnduranceTrainer-1.7.1-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.7.1-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/ArtilodyMultisportEnduranceTrainer-1.7.1-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.7.1_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/artilody-watts-trainer_1.7.1_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.7.1_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/artilody-watts-trainer_1.7.1_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.7.1_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/artilody-watts-trainer_1.7.1_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.7.1/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -560,7 +567,7 @@ The current version is **1.7.0**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyMultisportEnduranceTrainer-1.7.0-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyMultisportEnduranceTrainer-1.7.1-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Multisport Endurance Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -586,8 +593,8 @@ The current version is **1.7.0**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.7.0_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.7.0_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.7.1_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.7.1_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Multisport Endurance Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -603,7 +610,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** on a Raspberry Pi 3, 4, 5 or 400.
 
 ```sh
 sudo apt update
-sudo apt install ./artilody-watts-trainer_1.7.0_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.7.1_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -647,7 +654,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.7.0",
+  "app": "Artilody Multisport Endurance Trainer 1.7.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

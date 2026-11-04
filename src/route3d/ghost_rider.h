@@ -122,14 +122,19 @@ protected:
     }
     void wheel(float z,double phase,QVector3D tyre,QVector3D rim,QVector3D metal){
         QVector3D center(0,.34f,z);
+        // A 25 mm tyre: its outer arc, and on each side its sidewall running
+        // on down into the rim's edge (the beads sit just inside the rim), so
+        // no gap shows between tyre and rim.
         std::vector<std::pair<QVector2D,QVector2D>> tyreProfile;
-        for(int j=0;j<=8;j++){double b=3.141592654*(-.55+1.1*j/8.0); // outer arc of a 25 mm tyre
+        tyreProfile.push_back({QVector2D(.302f,-.0112f),QVector2D(.15f,-.99f)});   // bead, inside the rim's edge
+        for(int j=0;j<=8;j++){double b=3.141592654*(-.55+1.1*j/8.0);
             tyreProfile.push_back({QVector2D(float(.318+.016*std::cos(b)),float(.016*std::sin(b))),QVector2D(float(std::cos(b)),float(std::sin(b)))});}
+        tyreProfile.push_back({QVector2D(.302f,.0112f),QVector2D(.15f,.99f)});
         lathe(center,tyreProfile,40,tyre);
         // Deep-section carbon rim: trapezoid profile.
         lathe(center,{{QVector2D(.305f,.012f),QVector2D(.3f,.95f)},{QVector2D(.262f,.008f),QVector2D(-.2f,.98f)},
                       {QVector2D(.262f,.008f),QVector2D(-1,0)},{QVector2D(.262f,-.008f),QVector2D(-1,0)},
-                      {QVector2D(.262f,-.008f),QVector2D(-.2f,-.98f)},{QVector2D(.305f,-.012f),QVector2D(.3f,-.95f)}},32,rim);
+                      {QVector2D(.262f,-.008f),QVector2D(-.2f,-.98f)},{QVector2D(.305f,-.012f),QVector2D(.3f,-.95f)}},40,rim);   // (as many segments as the tyre: the edges meet)
         for(int i=0;i<18;i++){ // alternating left/right flange spokes
             double t=phase+i*6.283185307/18;float side=i%2?.028f:-.028f;
             auto hub=center+QVector3D(side,float(.025*std::cos(t+.3)),float(.025*std::sin(t+.3)));

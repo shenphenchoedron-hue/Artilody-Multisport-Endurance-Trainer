@@ -667,25 +667,41 @@ Item {
                         startWhat: "a run"
                         namePrefix: "run"
                     }
-                    Row {
+                    AppButton {
+                        width: parent.width
+                        height: 56
+                        enabled: Running.active || page.canStart
+                        kind: Running.paused ? "success" : Running.running ? "danger" : "primary"
+                        iconName: Running.running ? "pause" : "play"
+                        text: Running.running ? "Pause" : Running.paused ? "Resume" : page.st === "finished" ? "Run Again" : "Start Run"
+                        onClicked: page.st === "finished" ? Running.start() : Running.togglePause()
+                    }
+                    // like the other training pages: Finish (save) while running, Reset after
+                    RowLayout {
                         width: parent.width
                         spacing: 10
                         AppButton {
-                            width: Running.active ? (parent.width - 10) / 2 : parent.width
-                            height: 56
-                            enabled: Running.active || page.canStart
-                            iconName: Running.running ? "pause" : "play"
-                            text: Running.running ? "Pause" : Running.paused ? "Resume" : page.st === "finished" ? "Run Again" : "Start Run"
-                            onClicked: page.st === "finished" ? Running.start() : Running.togglePause()
-                        }
-                        AppButton {
-                            visible: Running.active
-                            width: (parent.width - 10) / 2
-                            height: 56
-                            kind: "danger"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.touch(44)
+                            kind: "secondary"
+                            fontSize: 15
+                            iconSize: 18
                             iconName: "stop"
                             text: "Finish"
+                            enabled: Running.active
                             onClicked: page.requestFinish()
+                        }
+                        AppButton {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.touch(44)
+                            kind: "secondary"
+                            fontSize: 15
+                            iconSize: 18
+                            iconName: "refresh"
+                            text: "Reset"
+                            // back to "ready" (route and workout kept): after the finish
+                            enabled: page.st === "finished"
+                            onClicked: Running.reset()
                         }
                     }
                     Text {

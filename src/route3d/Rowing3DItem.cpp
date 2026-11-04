@@ -219,7 +219,9 @@ void hull(std::vector<V> &out)
 {
     constexpr float L = 8.2f, halfBeam = .215f, keel = .075f, sheer = .11f;
     constexpr int N = 40, R = 8;   // stations along, points round the half section
-    const QVector3D white(.96f, .96f, .95f), deck(.78f, .80f, .83f), inside(.22f, .24f, .27f), black(.08f, .08f, .09f);
+    // a red hull, egg-white decks and coamings
+    const QVector3D red(.74f, .09f, .08f), deck(.94f, .91f, .82f), inside(.22f, .24f, .27f), black(.08f, .08f, .09f);
+    const QVector3D white = deck;
     // open from the stern deck (past the feet) to the bow deck (past the seat at the finish)
     constexpr float cockpitA = kSeatX - 1.2f, cockpitB = kSeatX + .25f;   // (the back at the finish: at its end)
     auto x = [&](int i) { return -L * .5f + L * float(i) / N; };
@@ -239,7 +241,7 @@ void hull(std::vector<V> &out)
     };
     for (int i = 0; i < N; ++i)
         for (int k = 0; k < R; ++k)
-            quad(out, skin(x(i), k), skin(x(i), k + 1), skin(x(i + 1), k + 1), skin(x(i + 1), k), white);
+            quad(out, skin(x(i), k), skin(x(i), k + 1), skin(x(i + 1), k + 1), skin(x(i + 1), k), red);
     for (int i = 0; i < N; ++i) {
         const float X0 = x(i), X1 = x(i + 1), Xm = (X0 + X1) * .5f;
         const float w0 = width(X0), w1 = width(X1);

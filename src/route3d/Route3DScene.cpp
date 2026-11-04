@@ -125,7 +125,17 @@ void main(){
         base*=1.+.12*smoothstep(.88,1.,lat); // dusty edges
         base*=.90+.20*texture(noiseMap,uv*.018).b; // repair patches
     }
-    if(mat==2){base=grass(uv)*col;if(edge>.002)base=mix(base,sand(uv),clamp(edge,0.,1.));}
+    if(mat==2){base=grass(uv)*col;if(edge>.002)base=mix(base,sand(uv),clamp(edge,0.,1.));
+        // steep slopes (mountainsides): grey rock and scree instead of grass
+        // (patchy, so it reads as rock showing through the turf, not as paint)
+        float patch=texture(noiseMap,uv*.06).r;
+        float steep=smoothstep(.78,.58,normalize(norm).y+(patch-.5)*.18);
+        if(steep>0.){
+            float g=texture(gravelMap,uv*.22).r;
+            vec3 rock=mix(vec3(.36,.35,.33),vec3(.58,.56,.52),g)*(.85+.3*patch);
+            base=mix(base,rock,steep*.9);
+        }
+    }
     if(mat==3)base=texture(gravelMap,uv*.75).rgb;
     if(mat==4){float grain=texture(asphaltMap,uv*.8).r;base=col*(.9+grain*.35);}
     if(mat==9){
@@ -754,6 +764,7 @@ void Route3DScene::buildGates()
     // kilometre posts (the short put() writes here meanwhile)
     m_target = &m_gateVertices;
     kmPosts();
+    finishTunnel(finishArch);
     m_target = &m_build;
     m_gateBuffer.bind();
     m_gateBuffer.allocate(m_gateVertices.data(), int(m_gateVertices.size() * sizeof(Vertex)));
@@ -895,6 +906,63 @@ float Route3DScene::vergeHeight(double d, float lateral) const
     const QVector3D outer = road + s * (sign * kVergeEdgeM);
     const float outerY = float(m_terrain.surface(outer.x(), outer.z())) + .03f;
     return road.y() + (outerY - road.y()) * (lat - kGravelEdgeM) / (kVergeEdgeM - kGravelEdgeM);
+}
+
+// The finisher tunnel: crowd barriers with coloured banners along both edges
+// of the road from before the FINISH arch to the end of the run-out (before
+// it tapers away), and flags on poles behind them.
+void Route3DScene::finishTunnel(double finishArch)
+{
+    const Route &route = *m_route;
+    const double from = std::max(0.0, finishArch - 40.0);
+    const double to = std::min(route.length() - kTaperM - 2.0, finishArch + 45.0);
+    if (to <= from + 5 || std::abs(finishArch - m_builtStartGate) < 60)
+        return;   // (no run-out, or a loop: start and finish at one place)
+    const QVector3D up(0, 1, 0), steel(.62f, .64f, .67f);
+    static const QVector3D banners[] = { { .80f, .10f, .09f }, { .95f, .95f, .93f }, { .10f, .30f, .72f }, { .98f, .78f, .10f } };
+    constexpr double panel = 2.4;
+    constexpr float lateral = 3.35f, height = 1.05f;
+    int n = 0;
+    for (double d = from; d + panel <= to; d += panel, ++n) {
+        if (std::abs(d + panel * .5 - finishArch) < 2.2)
+            continue;   // the arch's legs
+        for (float sign : { -1.f, 1.f }) {
+            const QVector3D a0 = v(route.at(d)) + side(d) * (sign * lateral), b0 = v(route.at(d + panel - .15)) + side(d + panel - .15) * (sign * lateral);
+            QVector3D a = a0, b = b0;
+            a.setY(vergeHeight(d, sign * lateral));
+            b.setY(vergeHeight(d + panel - .15, sign * lateral));
+            const QVector3D inward = -side(d) * sign;   // facing the road
+            // frame: two feet, two posts, top and bottom rails
+            for (const QVector3D &p : { a, b }) {
+                box(p + up * .02f, inward * .32f, up * .02f, (b - a).normalized() * .03f, steel * .8f);
+                box(p + up * (height * .5f), inward * .02f, up * (height * .5f), (b - a).normalized() * .02f, steel);
+            }
+            limb(a + up * height, b + up * height, .02f, steel);
+            limb(a + up * .12f, b + up * .12f, .015f, steel);
+            // the banner on the road side
+            const QVector3D col = banners[(n + (sign > 0 ? 2 : 0)) % 4];
+            const QVector3D o = inward * .03f;
+            face(a + up * .2f + o, b + up * .2f + o, b + up * (height - .06f) + o, a + up * (height - .06f) + o, inward, col);
+            face(b + up * .2f - o, a + up * .2f - o, a + up * (height - .06f) - o, b + up * (height - .06f) - o, -inward, col * .6f);
+        }
+        // flags on poles behind the barriers, every third panel
+        if (n % 3 == 1)
+            for (float sign : { -1.f, 1.f }) {
+                const float lat = lateral + 1.6f;
+                QVector3D foot = v(route.at(d)) + side(d) * (sign * lat);
+                foot.setY(vergeHeight(d, sign * lat));
+                limb(foot, foot + up * 4.2f, .03f, QVector3D(.9f, .9f, .9f));
+                const QVector3D f = (v(route.at(d + 1)) - v(route.at(d))).normalized();
+                const QVector3D col = banners[(n / 3 + (sign > 0 ? 1 : 3)) % 4];
+                const QVector3D top = foot + up * 4.15f;
+                for (int k = 0; k < 2; ++k) {   // a hanging flag (both sides), waving
+                    const QVector3D nn = (k ? -1.f : 1.f) * QVector3D::crossProduct(up, f).normalized();
+                    const QVector3D p0 = top, p1 = top + f * .9f, p2 = top + f * .9f - up * 1.4f, p3 = top - up * 1.5f;
+                    for (const QVector3D &p : { p0, p1, p2, p0, p2, p3 })
+                        put(p, nn, col, Foliage, (p - top).length() > .5f ? .7f : .1f);
+                }
+            }
+    }
 }
 
 // Kilometre posts: a short white post on the right-hand verge with a small
@@ -1668,6 +1736,35 @@ void Route3DScene::buildTile(int tileX, int tileZ)
                     nearby.insert(nearby.end(), it->second.begin(), it->second.end());
         std::sort(nearby.begin(), nearby.end());
     }
+    // (left, right) cross-section scale at d: the inner side of a bend
+    // tighter than the verge's width is narrowed to ~0.8 of its radius
+    auto innerSqueeze = [&](double at) {
+        const QVector3D p0 = v(route.at(at - 3)), p1 = v(route.at(at)), p2 = v(route.at(at + 3));
+        QVector3D t1 = p1 - p0, t2 = p2 - p1;
+        t1.setY(0);
+        t2.setY(0);
+        const float l1 = t1.length(), l2 = t2.length();
+        if (l1 < 1e-3f || l2 < 1e-3f)
+            return QVector2D(1, 1);
+        t1 /= l1;
+        t2 /= l2;
+        const float cross = t1.x() * t2.z() - t1.z() * t2.x();
+        const float angle = std::atan2(std::abs(cross), QVector3D::dotProduct(t1, t2));
+        if (angle < 1e-4f)
+            return QVector2D(1, 1);
+        const float radius = (l1 + l2) * .5f / angle;
+        const float f = std::clamp(.8f * radius / kVergeEdgeM, .35f, 1.f);
+        // side() = the direction rotated +90 degrees: turning that way (cross > 0) = the inside is right
+        return cross > 0 ? QVector2D(1, f) : QVector2D(f, 1);
+    };
+    // the run-out's taper: 1 (full width) .. 0 at the drawn road's very end
+    const bool runOut = route.finishDistance >= 0 && route.length() > route.finish() + kTaperM;
+    auto runOutTaper = [&](double at) {
+        if (!runOut)
+            return 1.f;
+        const double u = std::clamp((route.length() - at) / kTaperM, 0.0, 1.0);
+        return float(u * u * (3 - 2 * u));
+    };
     // Where the route meets itself (a loop closing, a junction with a part
     // ridden before or after), a road's gravel shoulder, verge and edge line
     // would lie across the other road's asphalt: on that side it becomes
@@ -1751,15 +1848,26 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             continue;
         double d = p.distance, e = route.points[i + 1].distance;
         auto a = v(p), b = v(route.points[i + 1]), sa = side(d), sb = side(e);
-        auto leftA = a - sa * kGravelEdgeM, leftB = b - sb * kGravelEdgeM, rightA = a + sa * kGravelEdgeM,
-             rightB = b + sb * kGravelEdgeM;
+        // the run-out after the finish (not ridden): the road narrows to
+        // nothing over its last kTaperM, the lines stop where it starts to
+        const float ta = runOutTaper(d), tb = runOutTaper(e);
+        const bool lined = ta >= 1 && tb >= 1;
+        sa *= ta;
+        sb *= tb;
+        // on the inside of a tight bend (a hairpin) the cross section is
+        // narrowed, so its inner edge does not fold over and cut up through
+        // the asphalt of the road just before / after
+        const QVector2D fa = innerSqueeze(d), fb = innerSqueeze(e);   // (left, right) scale
+        const QVector3D saL = sa * fa.x(), saR = sa * fa.y(), sbL = sb * fb.x(), sbR = sb * fb.y();
+        auto leftA = a - saL * kGravelEdgeM, leftB = b - sbL * kGravelEdgeM, rightA = a + saR * kGravelEdgeM,
+             rightB = b + sbR * kGravelEdgeM;
         auto below = [&](QVector3D q) {
             q.setY(float(m_terrain.surface(q.x(), q.z())));
             return q;
         };
         // A sloping gravel-to-grass verge rather than a vertical painted wall.
-        auto outerLA = below(a - sa * kVergeEdgeM), outerLB = below(b - sb * kVergeEdgeM);
-        auto outerRA = below(a + sa * kVergeEdgeM), outerRB = below(b + sb * kVergeEdgeM);
+        auto outerLA = below(a - saL * kVergeEdgeM), outerLB = below(b - sbL * kVergeEdgeM);
+        auto outerRA = below(a + saR * kVergeEdgeM), outerRB = below(b + sbR * kVergeEdgeM);
         outerLA.setY(outerLA.y() + .03f);
         outerLB.setY(outerLB.y() + .03f);
         outerRA.setY(outerRA.y() + .03f);
@@ -1781,12 +1889,17 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             quad(leftA, leftB, outerLB, outerLA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
         if (!join[1])
             quad(rightA, rightB, outerRB, outerRA, QVector3D(1, 1, 1), Verge, 0, 0, 1, 1);
-        if (!join[0] || !join[1])
-            quad(join[0] ? a : leftA, join[0] ? b : leftB, join[1] ? b : rightB, join[1] ? a : rightA, QVector3D(1, 1, 1), Gravel);
+        // the gravel shoulders: strips from the asphalt's edge out (not one
+        // sheet under the whole road - on a steep bend the sheet of the
+        // segment a few metres on lies higher and cut up through the asphalt)
+        if (!join[0])
+            quad(leftA, leftB, b - sbL * 2.95f, a - saL * 2.95f, QVector3D(1, 1, 1), Gravel);
+        if (!join[1])
+            quad(a + saR * 2.95f, b + sbR * 2.95f, rightB, rightA, QVector3D(1, 1, 1), Gravel);
         a.setY(a.y() + .025f);
         b.setY(b.y() + .025f);
         // blend carries the lateral position (-1..1) for wheel tracks and edge wear.
-        quad(a - sa * 3, b - sb * 3, b + sb * 3, a + sa * 3, QVector3D(1, 1, 1), Asphalt, -1, -1, 1, 1);
+        quad(a - saL * 3, b - sbL * 3, b + sbR * 3, a + saR * 3, QVector3D(1, 1, 1), Asphalt, -1, -1, 1, 1);
         // joining side: the rounded corner, in a few steps along the segment
         for (int k = 0; k < 2; ++k) {
             if (!join[k])
@@ -1856,12 +1969,15 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         }
         a.setY(a.y() + .02f);
         b.setY(b.y() + .02f);
+        if (!lined)
+            continue;
         for (int k = 0; k < 2; ++k) {
             if (join[k])
                 continue;   // no edge line across the join
             const float sign = k ? 1.f : -1.f;
-            quad(a + sa * (sign * 2.75f - .04f), b + sb * (sign * 2.75f - .04f), b + sb * (sign * 2.75f + .04f),
-                 a + sa * (sign * 2.75f + .04f), QVector3D(.87f, .88f, .79f), Paint);
+            const QVector3D la = k ? saR : saL, lb = k ? sbR : sbL;
+            quad(a + la * (sign * 2.75f - .04f), b + lb * (sign * 2.75f - .04f), b + lb * (sign * 2.75f + .04f),
+                 a + la * (sign * 2.75f + .04f), QVector3D(.87f, .88f, .79f), Paint);
         }
         if (i % 3 == 0)
             quad(a - sa * .06f, b - sb * .06f, b + sb * .06f, a + sa * .06f, QVector3D(.9f, .88f, .73f), Paint);

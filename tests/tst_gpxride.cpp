@@ -728,9 +728,10 @@ private slots:
         QVERIFY(std::abs(b.route->finish() - route.totalDistance()) < route.totalDistance() * 0.02);
         QCOMPARE(Route3DItem::mapDistance(b, 0), 0.0);
         QVERIFY(std::abs(Route3DItem::mapDistance(b, route.totalDistance()) - b.route->finish()) < 1e-6);
-        // the drawn road runs on ~50 m past the finish (a point-to-point route)
-        QVERIFY(b.route->length() - b.route->finish() > 40.0);
-        QVERIFY(b.route->length() - b.route->finish() < 60.0);
+        // the drawn road runs on ~90 m past the finish (a point-to-point route;
+        // the last 35 m taper away)
+        QVERIFY(b.route->length() - b.route->finish() > 80.0);
+        QVERIFY(b.route->length() - b.route->finish() < 100.0);
         double last = -1;
         for (double d = 0; d <= route.totalDistance(); d += 37) {
             const double m = Route3DItem::mapDistance(b, d);

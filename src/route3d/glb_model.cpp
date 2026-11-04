@@ -577,8 +577,12 @@ const QVector3D kRowerPalette[] = { { .10f, .33f, .78f },   // unisuit (top)
                                     { .84f, .64f, .51f } };
 } // namespace
 
+// the sculler's unisuit (fractions of the shoulders' half width / the neck's height above them)
+constexpr float kNeckR = .40f, kNeckCut = .35f, kScoop = 1.2f, kStrapOuter = .70f, kSideW = .95f, kArmpitDepth = 2.2f;
+
 void GlbModel::colorize()
 {
+
     // Colours per body part. The coarse part (torso, legs, an arm, the head)
     // comes from a vertex's dominant joint; the visible cuts (waist band,
     // shorts hem, socks, shoes, sleeves, hair) are planes / positions along a
@@ -625,8 +629,54 @@ void GlbModel::colorize()
         const QVector3D d = *b - *a;
         return QVector3D::dotProduct(p - *a, d) / std::max(1e-9f, d.lengthSquared());
     };
+    // the sculler's unisuit: its armholes and neckline are planes in the bind
+    // pose, the same whichever joint a vertex follows - straight edges, not
+    // the zigzag of the boundary between the torso's and the arms' vertices
+    const float shoulderH = shoulder[0] ? QVector3D::dotProduct(*shoulder[0] - root, up) : 0.f;
+    const float neckH = neck ? QVector3D::dotProduct(*neck - root, up) : shoulderH;
+    // (in the bind pose, across the body: W = the shoulder joints' half width)
+    const float W = shoulder[0] && shoulder[1] ? .5f * (std::abs(QVector3D::dotProduct(*shoulder[0] - root, side))
+                                                        + std::abs(QVector3D::dotProduct(*shoulder[1] - root, side)))
+                                               : 1.f;
+    const float neckDy = std::max(1e-6f, neckH - shoulderH);
+    auto unisuit = [&](const QVector3D& p) -> int {
+        const float h = QVector3D::dotProduct(p - root, up);
+        const float lat = std::abs(QVector3D::dotProduct(p - root, side));
+        const int arm = QVector3D::dotProduct(p - root, side) >= 0 ? 0 : 1;   // 0 = left
+        // the arm beyond the shoulder joint: bare
+        if (along(p, shoulder[arm], elbow[arm]) > .04f)
+            return Skin;
+        // (the underside of the arm next to the armpit: out past the body's side)
+        if (lat > kSideW * W && h > waist)
+            return Skin;
+        // the head and the neck: bare (the neck: inside the neckline's circle,
+        // above its cut - lower at the front, a round scoop)
+        if (h > neckH + .5f * neckDy)
+            return Skin;
+        const float fwd = QVector3D::dotProduct(p - *neck, fwdAxis);
+        const float neckR = kNeckR * W;
+        // the front: a round U (deepest in the middle), the back a little higher
+        const float u = std::min(1.f, lat / neckR);
+        const float depth = fwd > 0 ? kScoop * neckDy * std::sqrt(std::max(0.f, 1.f - u * u)) * std::min(1.f, fwd / (.5f * neckR))
+                                    : 0.f;
+        if (lat < neckR && h > shoulderH + kNeckCut * neckDy - depth)
+            return Skin;
+        // the armholes: the strap's outer edge at the top, curving down and
+        // out to the armpit (a quarter circle)
+        const float strapOuter = kStrapOuter * W, sideW = kSideW * W;
+        const float armpitH = shoulderH - kArmpitDepth * neckDy;
+        if (h > armpitH) {
+            const float t = std::clamp((shoulderH + .3f * neckDy - h) / (shoulderH + .3f * neckDy - armpitH), 0.f, 1.f);
+            const float outer = strapOuter + (sideW - strapOuter) * (1.f - std::sqrt(std::max(0.f, 1.f - t * t)));
+            if (lat > outer)
+                return Skin;
+        }
+        return Shirt;
+    };
     auto regionAt = [&](int group, const QVector3D& p) -> int {
         const float h = QVector3D::dotProduct(p - root, up);
+        if (rower && group != Legs && shoulder[0] && shoulder[1] && elbow[0] && elbow[1] && neck)
+            return unisuit(p);
         switch (group) {
         case Legs: {
             if (h >= waist)

@@ -21,6 +21,8 @@ class Terrain {
     static constexpr double bucketSize=40;
 public:
     static constexpr double spacing=8;
+    static constexpr double kCapM=10.0;          // ground held below roads within this
+    static constexpr double kSlopeReachM=140.0;  // road heights blended into the slope from this far
     static constexpr double lakeCell=320;   // lakes are looked up by cell
     static constexpr double lakeStretch=700;   // at most one lake per stretch of road
     struct Lake {double x=0,z=0,radius=0,level=0,depth=0;uint32_t seed=0;};
@@ -91,12 +93,15 @@ public:
                     }
                     // Carve all corners of cells touched by a road. Taking the
                     // minimum avoids grass cutting through steep/nearby roads.
-                    if(dist<16)result.low=std::min(result.low,std::min(a.y,b.y));
+                    // (within one grid cell: kept below every road there, so no
+                    // grass covers the asphalt - but not the whole strip out to a
+                    // hairpin's other leg: that cut the upper road out as a wall)
+                    if(dist<kCapM)result.low=std::min(result.low,a.y+t*(b.y-a.y)-std::abs(b.y-a.y)*.5);
                 }
             }
             double outside=std::min({x-(cx-ring)*bucketSize,(cx+ring+1)*bucketSize-x,
                                       z-(cz-ring)*bucketSize,(cz+ring+1)*bucketSize-z});
-            if(outside>std::max(16.0,result.distance))break;
+            if(outside>std::max(kCapM,result.distance))break;
         }
         return result;
     }
@@ -174,9 +179,43 @@ private:
     }
     // The terrain without lakes: hills, valleys and coast. roadCap: the most
     // the ground may be here (just under a road within reach, else infinite).
+    // The mountainside the road climbs: the heights of all road nearby,
+    // weighted by distance (and segment length), so between two legs of a
+    // switchback the ground rises from the lower road to the upper one
+    // instead of following only the nearest road and stepping up halfway.
+    // bankCap: the ground may rise from any road at most kBankSlope (after a
+    // flat strip beside it), so a road below another (a hairpin's lower leg)
+    // gets a steep but even bank, not a sawtooth cliff on the coarse grid.
+    static constexpr double kBankSlope=.9, kBankFlatM=4.5;
+    double slopeHeight(double x,double z,double fallback,double* bankCap=nullptr) const {
+        if(bankCap)*bankCap=std::numeric_limits<double>::infinity();
+        if(!route)return fallback;
+        const int cx=int(std::floor(x/bucketSize)),cz=int(std::floor(z/bucketSize)),r=int(std::ceil(kSlopeReachM/bucketSize));
+        double sw=0,sh=0,lo=1e18,hi=-1e18;
+        for(int bx=cx-r;bx<=cx+r;++bx)for(int bz=cz-r;bz<=cz+r;++bz){
+            auto it=buckets.find(key(bx,bz));if(it==buckets.end())continue;
+            for(size_t i:it->second){
+                const auto& a=route->points[i];const auto& b=route->points[i+1];
+                const double dx=b.x-a.x,dz=b.z-a.z,l2=dx*dx+dz*dz;
+                if(l2<1e-12)continue;
+                const double t=std::clamp(((x-a.x)*dx+(z-a.z)*dz)/l2,0.0,1.0);
+                const double d=std::hypot(x-a.x-t*dx,z-a.z-t*dz);
+                if(d>kSlopeReachM)continue;
+                const double y=a.y+t*(b.y-a.y);
+                if(bankCap&&d<45)*bankCap=std::min(*bankCap,y-.4+std::max(0.0,d-kBankFlatM)*kBankSlope);
+                const double w=std::sqrt(l2)/((d+6)*(d+6)*(d+6));
+                sw+=w;sh+=w*y;lo=std::min(lo,y);hi=std::max(hi,y);
+            }
+        }
+        if(sw<=0||hi-lo<4)return fallback;   // (no relief: as before)
+        return sh/sw;
+    }
     Node base(double x,double z,double* roadCap=nullptr) const {
         Node out;auto n=nearest(x,z);
-        double h=n.height-.4+WorldNoise::smoothstep(12,105,n.distance)*hillShape(x,z,n.distance);
+        // next to the road its own height, further out the mountainside
+        double bank=std::numeric_limits<double>::infinity();
+        const double ground=n.height+(slopeHeight(x,z,n.height,&bank)-n.height)*WorldNoise::smoothstep(7,30,n.distance);   // (flat out to the cap: no teeth where capped and free nodes alternate)
+        double h=ground-.4+WorldNoise::smoothstep(12,105,n.distance)*hillShape(x,z,n.distance);
         double w=0,sea=0;
         if(coast(n,x,z,w,sea)){
             // road level next to the road, a sandy beach down to the water, then the sea floor
@@ -186,6 +225,7 @@ private:
             out.water=sea;
             out.sand=float(WorldNoise::smoothstep(.15,.5,w)*WorldNoise::smoothstep(9,15,d)*WorldNoise::smoothstep(sea+3.2,sea+1.2,h));
         }
+        h=std::min(h,bank);
         if(std::isfinite(n.low)){
             h=std::min(h,n.low-.4);
             if(roadCap)*roadCap=n.low-.4;
