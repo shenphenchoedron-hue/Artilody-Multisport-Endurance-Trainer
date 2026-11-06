@@ -78,24 +78,51 @@ void selectQuickGraphicsApi()
         qInfo("Graphics: Qt Quick default backend (WATT_NO_OPENGL / QSG_RHI_BACKEND set)");
         return;
     }
-    const QSurfaceFormat format = QSurfaceFormat::defaultFormat();
-    QOpenGLContext probe;
-    probe.setFormat(format);
-    QOffscreenSurface surface;
-    bool ok = probe.create();
-    if (ok) {
-        surface.setFormat(probe.format());
-        surface.create();
-        ok = surface.isValid() && probe.makeCurrent(&surface);
-    }
-    QString offered = QStringLiteral("none");
-    if (ok) {
-        const QSurfaceFormat f = probe.format();
+    // Can this computer give an OpenGL context the 3D view can use (desktop
+    // GL >= 3.1 or GLES >= 3.0) with the format f? offered: what it gave.
+    auto usable = [](const QSurfaceFormat &f, QString *offered) {
+        QOpenGLContext probe;
+        probe.setFormat(f);
+        QOffscreenSurface surface;
+        bool ok = probe.create();
+        if (ok) {
+            surface.setFormat(probe.format());
+            surface.create();
+            ok = surface.isValid() && probe.makeCurrent(&surface);
+        }
+        if (!ok)
+            return false;
+        const QSurfaceFormat g = probe.format();
         const bool es = probe.isOpenGLES();
-        offered = QStringLiteral("%1 %2.%3").arg(es ? QStringLiteral("OpenGL ES") : QStringLiteral("OpenGL"))
-                      .arg(f.majorVersion()).arg(f.minorVersion());
-        ok = es ? f.majorVersion() >= 3 : (f.majorVersion() > 3 || (f.majorVersion() == 3 && f.minorVersion() >= 1));
+        *offered = QStringLiteral("%1 %2.%3").arg(es ? QStringLiteral("OpenGL ES") : QStringLiteral("OpenGL"))
+                       .arg(g.majorVersion()).arg(g.minorVersion());
+        ok = es ? g.majorVersion() >= 3 : (g.majorVersion() > 3 || (g.majorVersion() == 3 && g.minorVersion() >= 1));
         probe.doneCurrent();
+        return ok;
+    };
+    QString offered = QStringLiteral("none");
+    bool ok = usable(QSurfaceFormat::defaultFormat(), &offered);
+    if (!ok) {
+        // Mesa drivers (the Raspberry Pi's V3D among them) give an old
+        // compatibility context unless a newer version is asked for: ask for
+        // 3.3 core, then 3.1, then OpenGL ES 3.0, and keep the first that works.
+        struct Ask { int major, minor; QSurfaceFormat::OpenGLContextProfile profile; QSurfaceFormat::RenderableType type; };
+        const Ask asks[] = { { 3, 3, QSurfaceFormat::CoreProfile, QSurfaceFormat::OpenGL },
+                             { 3, 1, QSurfaceFormat::NoProfile, QSurfaceFormat::OpenGL },
+                             { 3, 0, QSurfaceFormat::NoProfile, QSurfaceFormat::OpenGLES } };
+        for (const Ask &a : asks) {
+            QSurfaceFormat f = QSurfaceFormat::defaultFormat();
+            f.setVersion(a.major, a.minor);
+            f.setProfile(a.profile);
+            f.setRenderableType(a.type);
+            QString got;
+            if (usable(f, &got)) {
+                QSurfaceFormat::setDefaultFormat(f);
+                offered = got;
+                ok = true;
+                break;
+            }
+        }
     }
     if (!ok) {
         qWarning("Graphics: no usable OpenGL (%s) - Qt Quick default backend, no GPX 3D view", qPrintable(offered));

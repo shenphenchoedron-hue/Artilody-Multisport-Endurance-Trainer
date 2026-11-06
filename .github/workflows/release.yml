@@ -22,6 +22,7 @@ env:
 jobs:
   # ---------------------------------------------------------------------------
   # Linux: native .deb packages built against the distribution's Qt (6.4.2).
+  # (Raspberry Pi OS: a self-contained package, job pi-deb below.)
   # ---------------------------------------------------------------------------
   linux-deb:
     name: Linux .deb (${{ matrix.suffix }})
@@ -39,11 +40,6 @@ jobs:
             runner: ubuntu-24.04
             suffix: ubuntu24.04_amd64
             arch: amd64
-          # Raspberry Pi OS 64-bit (Bookworm) is Debian 12 arm64 (Pi 3/4/5/400).
-          - image: debian:bookworm
-            runner: ubuntu-24.04-arm
-            suffix: raspberrypi-os-bookworm_arm64
-            arch: arm64
     defaults:
       run:
         shell: bash
@@ -179,9 +175,6 @@ jobs:
           - image: ubuntu:24.04
             runner: ubuntu-24.04
             suffix: ubuntu24.04_amd64
-          - image: debian:bookworm
-            runner: ubuntu-24.04-arm
-            suffix: raspberrypi-os-bookworm_arm64
     defaults:
       run:
         shell: bash
@@ -216,6 +209,143 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: screenshots-clean-${{ matrix.suffix }}
+          path: smoke-shots/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Raspberry Pi OS 64-bit (Bookworm = Debian 12 arm64; Pi 4 / 5 / 400): a
+  # self-contained .deb with the same Qt as Windows and macOS inside
+  # (/opt/artilody-watts-trainer), so installing it downloads nothing
+  # (packaging/linux/pi-bundle.sh).
+  # ---------------------------------------------------------------------------
+  pi-deb:
+    name: Raspberry Pi OS .deb (self-contained, arm64)
+    runs-on: ubuntu-24.04-arm
+    container: debian:bookworm
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+      SUFFIX: raspberrypi-os-bookworm_arm64
+    steps:
+      - name: Install build tools and system libraries
+        run: |
+          set -euxo pipefail
+          apt-get update
+          # build tools; the headers Qt's CMake packages look for; the system
+          # libraries Qt's plugins link to (they stay the system's: Depends)
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build dpkg-dev file git ca-certificates curl \
+            python3 python3-venv \
+            libgl-dev libegl-dev libxkbcommon-dev libfontconfig-dev libfreetype-dev libdbus-1-dev \
+            libgl1 libegl1 libglib2.0-0 libdbus-1-3 libfontconfig1 libfreetype6 libxkbcommon0 \
+            libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libxcb-glx0 libsm6 libice6 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 libpulse0 libasound2 libdrm2 libgbm1 \
+            fonts-dejavu-core
+
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          cmake_version=$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n1)
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${cmake_version:-$FALLBACK_VERSION}"
+          fi
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && -n "$cmake_version" && "$version" != "$cmake_version" ]]; then
+            echo "::error::Tag version $version differs from project() version $cmake_version in CMakeLists.txt"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Qt ${{ env.QT_VERSION }} (linux_arm64)
+        run: |
+          set -euxo pipefail
+          python3 -m venv "$RUNNER_TEMP/aqt"
+          "$RUNNER_TEMP/aqt/bin/pip" install --quiet aqtinstall
+          "$RUNNER_TEMP/aqt/bin/aqt" install-qt linux_arm64 desktop "$QT_VERSION" linux_gcc_arm64 \
+            -m qtconnectivity qtmultimedia -O "$RUNNER_TEMP/Qt"
+          echo "QT_DIR=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_arm64" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWATT_BUILD_TESTS=ON -DCMAKE_PREFIX_PATH="$QT_DIR"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: LD_LIBRARY_PATH="$QT_DIR/lib" ctest --test-dir build --output-on-failure
+
+      - name: Bundle (self-contained .deb)
+        id: deb
+        run: |
+          set -euxo pipefail
+          asset="artilody-watts-trainer_${{ steps.version.outputs.version }}_${SUFFIX}.deb"
+          mkdir -p dist
+          bash packaging/linux/pi-bundle.sh build "$QT_DIR" "${{ steps.version.outputs.version }}" "dist/$asset"
+          dpkg-deb --contents "dist/$asset" | head -n 80
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-deb-raspberrypi
+          path: dist/*.deb
+          if-no-files-found: error
+
+  # Install the Pi package in a clean Debian 12 arm64 container: nothing but
+  # its Depends (which Raspberry Pi OS already has), no Qt from apt - then
+  # run the installed app.
+  pi-deb-install:
+    name: Install test Raspberry Pi OS .deb
+    needs: pi-deb
+    runs-on: ubuntu-24.04-arm
+    container: debian:bookworm
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-deb-raspberrypi
+          path: dist
+
+      - name: Install and smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          set -euxo pipefail
+          apt-get update
+          deb=$(ls dist/*.deb | head -n1)
+          dpkg-deb --field "$deb" Depends
+          apt-get install -y --no-install-recommends "./$deb" fonts-dejavu-core
+          # no Qt from the system: everything Qt comes from the package
+          if dpkg -l | grep -E "^ii +(libqt6|qml6|qt6-)"; then echo "::error::Qt packages were installed"; exit 1; fi
+          test -x /usr/bin/artilody-watts-trainer
+          test -f /usr/share/applications/artilody-watts-trainer.desktop
+          ls /opt/artilody-watts-trainer/usr/share/artilody-watts-trainer/music
+          export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+          bash packaging/ci/smoke-test.sh /usr/bin/artilody-watts-trainer "smoke-shots/pi"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-pi
           path: smoke-shots/
           if-no-files-found: ignore
 
@@ -518,7 +648,7 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: GitHub release
-    needs: [linux-deb, linux-deb-install, windows, macos]
+    needs: [linux-deb, linux-deb-install, pi-deb, pi-deb-install, windows, macos]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
