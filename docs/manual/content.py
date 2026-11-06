@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.8.0 source code (incl. GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.8.1 source code (incl. GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -175,10 +175,13 @@ def build(s, env):
     s.code("sudo systemctl enable --now bluetooth")
 
     s.section("Raspberry Pi OS")
-    s.p("You need <b>Raspberry Pi OS (64-bit) Bookworm</b> on a Raspberry Pi 3, 4, 5 or 400. Install the arm64 "
-        "package:")
-    s.code("sudo apt update\n"
-           f"sudo apt install ./artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")
+    s.p("You need <b>Raspberry Pi OS (64-bit) Bookworm</b> with the desktop on a Raspberry Pi 4, 5 or 400 "
+        "(a Pi 3 runs the app, but not the 3D views). The arm64 package is <b>self-contained</b>: Qt, GStreamer "
+        "(music and video decoders) and every other library the app needs are inside it "
+        "(in /opt/artilody-watts-trainer), so installing it downloads nothing – no internet connection needed. "
+        "It only uses what Raspberry Pi OS already has (graphics driver, fonts, Bluetooth service). Install it "
+        "(over an older version too):")
+    s.code(f"sudo apt install ./artilody-watts-trainer_{V}_raspberrypi-os-bookworm_arm64.deb")
     s.p("The built-in Bluetooth of the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure "
         "Bluetooth is switched on in the desktop panel.")
     s.tip("On small displays such as the official 7\" touch screen (800 × 480), maximise the window. The "
@@ -1729,9 +1732,8 @@ def build(s, env):
         "Elsewhere the page shows <i>No picture</i> or <i>This video cannot be played</i> together with the "
         "conversion steps below (with buttons to open the HandBrake website, copy the steps and rescan the "
         "library); the ride still works without the picture.",
-        f"<b>Raspberry Pi</b>: prefer 720p H.264 and install the GStreamer decoders: "
-        f"{C('sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-good')} (recommended by the .deb "
-        "package). 1080p and AV1 are too heavy for a Pi.",
+        "<b>Raspberry Pi</b>: prefer 720p H.264 (the decoders come with the app). 1080p and AV1 are too "
+        "heavy for a Pi.",
     ])
     s.p(f"<b>Convert a video to H.264 with HandBrake</b> (free, {L('https://handbrake.fr', 'handbrake.fr')}):")
     s.steps([
@@ -2216,7 +2218,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.8.0",
+  "app": "Artilody Multisport Endurance Trainer 1.8.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
