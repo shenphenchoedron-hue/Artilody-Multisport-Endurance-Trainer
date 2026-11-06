@@ -343,11 +343,13 @@ jobs:
             test -f "/opt/artilody-watts-trainer/usr/qml/$m/qmldir" || { echo "::error::QML module $m missing"; exit 1; }
           done
           # every qmldir's imports / depends are in the package too
-          grep -rhE "^(import|depends) " /opt/artilody-watts-trainer/usr/qml --include=qmldir | awk '{print $2}' | sort -u | while read -r m; do
-            case "$m" in Artilody.*|QtQuick.Controls.Fusion*|QtQuick.Controls.Material*|QtQuick.Controls.Universal*|QtQuick.Controls.Imagine*|QtQuick.Controls.Windows*|QtQuick.Controls.macOS*|QtQuick.Controls.iOS*|QtQuick.NativeStyle*) continue ;; esac
-            d="/opt/artilody-watts-trainer/usr/qml/${m//.//}"
-            test -f "$d/qmldir" || { echo "::error::QML module $m (needed by a bundled module) missing"; exit 1; }
+          # (QtQml is built into the Qt Qml library; the other styles are not used)
+          missing=0
+          for m in $(grep -rhE "^(import|depends) " /opt/artilody-watts-trainer/usr/qml --include=qmldir | awk '{print $2}' | sort -u); do
+            case "$m" in QtQml|Artilody.*|QtQuick.Controls.Fusion*|QtQuick.Controls.Material*|QtQuick.Controls.Universal*|QtQuick.Controls.Imagine*|QtQuick.Controls.Windows*|QtQuick.Controls.macOS*|QtQuick.Controls.iOS*|QtQuick.NativeStyle*) continue ;; esac
+            test -f "/opt/artilody-watts-trainer/usr/qml/${m//.//}/qmldir" || { echo "::error::QML module $m (needed by a bundled module) missing"; missing=1; }
           done
+          test "$missing" = 0
           export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
           bash packaging/ci/smoke-test.sh /usr/bin/artilody-watts-trainer "smoke-shots/pi"
 
