@@ -72,11 +72,11 @@ namespace {
 // QSG_RHI_BACKEND - Qt Quick keeps its default and the GPX Ride page says
 // that the 3D view is not available. Call after QGuiApplication exists,
 // before the first window.
-void selectQuickGraphicsApi()
+QString selectQuickGraphicsApi()
 {
     if (qEnvironmentVariableIntValue("WATT_NO_OPENGL") > 0 || qEnvironmentVariableIsSet("QSG_RHI_BACKEND")) {
         qInfo("Graphics: Qt Quick default backend (WATT_NO_OPENGL / QSG_RHI_BACKEND set)");
-        return;
+        return QStringLiteral("Qt Quick default backend (WATT_NO_OPENGL / QSG_RHI_BACKEND set)");
     }
     // Can this computer give an OpenGL context the 3D view can use (desktop
     // GL >= 3.1 or GLES >= 3.0) with the format f? offered: what it gave.
@@ -126,10 +126,11 @@ void selectQuickGraphicsApi()
     }
     if (!ok) {
         qWarning("Graphics: no usable OpenGL (%s) - Qt Quick default backend, no GPX 3D view", qPrintable(offered));
-        return;
+        return QStringLiteral("no usable OpenGL (%1): no GPX 3D view").arg(offered);
     }
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     qInfo("Graphics: Qt Quick on %s (GPX 3D view)", qPrintable(offered));
+    return QStringLiteral("Qt Quick on %1 (GPX 3D view)").arg(offered);
 }
 
 #ifdef Q_OS_MACOS
@@ -263,7 +264,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(QStringLiteral("artilody-watts-trainer"));
 #endif
 
-    selectQuickGraphicsApi();
+    const QString graphics = selectQuickGraphicsApi();
     // The UI ships its own look; "Basic" is fully customisable on all platforms.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/app-icon-256.png")));
@@ -303,6 +304,7 @@ int main(int argc, char *argv[])
         else
             qWarning("Diagnostic log: cannot write to %s", qPrintable(QDir::toNativeSeparators(logs.directory())));
     }
+    DiagLog::write("SYS", QStringLiteral("Artilody %1, Qt %2: %3").arg(QStringLiteral(APP_VERSION), QString::fromLatin1(qVersion()), graphics));
     DiagLog::write("SYS", QStringLiteral("Database: %1%2").arg(QDir::toNativeSeparators(dbPath),
                                                               shotDir.isEmpty() ? QString() : QStringLiteral(" (screenshot mode)")));
 
