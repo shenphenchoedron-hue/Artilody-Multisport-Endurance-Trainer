@@ -243,7 +243,7 @@ jobs:
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
             qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-templates \
             qml6-module-qtqml-workerscript qml6-module-qtqml-models \
-            qml6-module-qt-labs-folderlistmodel qml6-module-qtmultimedia \
+            qml6-module-qt-labs-folderlistmodel qml6-module-qtmultimedia qml6-module-qtquick-shapes \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
             gstreamer1.0-libav gstreamer1.0-gl \
             fonts-dejavu-core
@@ -336,6 +336,18 @@ jobs:
           ls /opt/artilody-watts-trainer/usr/plugins/wayland-graphics-integration-client/libqt-plugin-wayland-egl.so
           ls /opt/artilody-watts-trainer/usr/plugins/platforms/libqwayland-egl.so /opt/artilody-watts-trainer/usr/plugins/platforms/libqxcb.so
           ls /opt/artilody-watts-trainer/usr/plugins/xcbglintegrations/
+          # the QML modules the app and Qt's file / folder dialogs load (a missing one crashes the dialog)
+          for m in QtQuick QtQuick/Controls/Basic QtQuick/Layouts QtQuick/Dialogs QtQuick/Dialogs/quickimpl \
+                   QtQuick/Window QtQuick/Templates QtQuick/Shapes QtQml/WorkerScript QtQml/Models \
+                   Qt/labs/folderlistmodel QtMultimedia; do
+            test -f "/opt/artilody-watts-trainer/usr/qml/$m/qmldir" || { echo "::error::QML module $m missing"; exit 1; }
+          done
+          # every qmldir's imports / depends are in the package too
+          grep -rhE "^(import|depends) " /opt/artilody-watts-trainer/usr/qml --include=qmldir | awk '{print $2}' | sort -u | while read -r m; do
+            case "$m" in Artilody.*|QtQuick.Controls.Fusion*|QtQuick.Controls.Material*|QtQuick.Controls.Universal*|QtQuick.Controls.Imagine*|QtQuick.Controls.Windows*|QtQuick.Controls.macOS*|QtQuick.Controls.iOS*|QtQuick.NativeStyle*) continue ;; esac
+            d="/opt/artilody-watts-trainer/usr/qml/${m//.//}"
+            test -f "$d/qmldir" || { echo "::error::QML module $m (needed by a bundled module) missing"; exit 1; }
+          done
           export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
           bash packaging/ci/smoke-test.sh /usr/bin/artilody-watts-trainer "smoke-shots/pi"
 

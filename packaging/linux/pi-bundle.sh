@@ -31,6 +31,8 @@ work="$(mktemp -d)"
 root="$work/root"
 appdir="$root$prefix"
 
+extra_qml=()
+
 # 1. The app as installed (bin, music, desktop file, icons) under /opt.
 DESTDIR="$appdir" cmake --install "$build" --prefix /usr
 
@@ -64,6 +66,18 @@ test -d "$wgi" || { echo "::error::$wgi missing (qt6-wayland)"; exit 1; }
 mkdir -p "$appdir/usr/plugins"
 cp -r "$wgi" "$appdir/usr/plugins/"
 
+# QML modules linuxdeploy's scan misses: Qt Quick Dialogs' own file and
+# folder dialogs load Qt.labs.folderlistmodel (an "import ... auto" in their
+# qmldir); without it opening a file or a folder crashes. QtQuick.Shapes:
+# imported by Qt's controls.
+qmlsrc="$("$qmake" -query QT_INSTALL_QML)"
+for m in Qt/labs/folderlistmodel QtQuick/Shapes; do
+    test -d "$qmlsrc/$m" || { echo "::error::QML module $m missing in $qmlsrc"; exit 1; }
+    mkdir -p "$appdir/usr/qml/$(dirname "$m")"
+    cp -r "$qmlsrc/$m" "$appdir/usr/qml/$m"
+    extra_qml+=(--deploy-deps-only "$appdir/usr/qml/$m")
+done
+
 # 4. linuxdeploy + Qt plugin (extracted: no FUSE in containers).
 tools="$work/tools"
 mkdir -p "$tools/bin"
@@ -84,7 +98,7 @@ export EXTRA_PLATFORM_PLUGINS="libqwayland-egl.so;libqwayland-generic.so;libqoff
 export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 linuxdeploy --appdir "$appdir" --executable "$appdir/usr/bin/$name" --plugin qt \
     --deploy-deps-only "$gstdst" --deploy-deps-only "$appdir/usr/libexec" \
-    --deploy-deps-only "$appdir/usr/plugins/wayland-graphics-integration-client"
+    --deploy-deps-only "$appdir/usr/plugins/wayland-graphics-integration-client" "${extra_qml[@]}"
 
 # The app uses the Basic style only (main.cpp): the other Qt Quick Controls
 # styles stay out.
