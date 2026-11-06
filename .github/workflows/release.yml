@@ -17,7 +17,7 @@ concurrency:
 
 env:
   QT_VERSION: "6.8.3"
-  FALLBACK_VERSION: "1.8.1"
+  FALLBACK_VERSION: "1.8.2"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -332,6 +332,10 @@ jobs:
           test -x /usr/bin/artilody-watts-trainer
           test -f /usr/share/applications/artilody-watts-trainer.desktop
           ls /opt/artilody-watts-trainer/usr/share/artilody-watts-trainer/music
+          # OpenGL on the Pi's Wayland desktop and on X11
+          ls /opt/artilody-watts-trainer/usr/plugins/wayland-graphics-integration-client/libqt-plugin-wayland-egl.so
+          ls /opt/artilody-watts-trainer/usr/plugins/platforms/libqwayland-egl.so /opt/artilody-watts-trainer/usr/plugins/platforms/libqxcb.so
+          ls /opt/artilody-watts-trainer/usr/plugins/xcbglintegrations/
           export XDG_RUNTIME_DIR=/tmp/runtime-$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
           bash packaging/ci/smoke-test.sh /usr/bin/artilody-watts-trainer "smoke-shots/pi"
 

@@ -56,6 +56,14 @@ for g in coreelements \
 done
 cp "/usr/lib/$multiarch/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner" "$appdir/usr/libexec/"
 
+# Wayland (the Raspberry Pi OS desktop on a Pi 4 / 5): the EGL client
+# integration, without which Qt on Wayland cannot create an OpenGL context
+# (linuxdeploy-plugin-qt deploys the shell and decoration plugins only).
+wgi="$qtplugins/wayland-graphics-integration-client"
+test -d "$wgi" || { echo "::error::$wgi missing (qt6-wayland)"; exit 1; }
+mkdir -p "$appdir/usr/plugins"
+cp -r "$wgi" "$appdir/usr/plugins/"
+
 # 4. linuxdeploy + Qt plugin (extracted: no FUSE in containers).
 tools="$work/tools"
 mkdir -p "$tools/bin"
@@ -75,7 +83,8 @@ export QML_SOURCES_PATHS="$src/qml"
 export EXTRA_PLATFORM_PLUGINS="libqwayland-egl.so;libqwayland-generic.so;libqoffscreen.so"
 export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 linuxdeploy --appdir "$appdir" --executable "$appdir/usr/bin/$name" --plugin qt \
-    --deploy-deps-only "$gstdst" --deploy-deps-only "$appdir/usr/libexec"
+    --deploy-deps-only "$gstdst" --deploy-deps-only "$appdir/usr/libexec" \
+    --deploy-deps-only "$appdir/usr/plugins/wayland-graphics-integration-client"
 
 # The app uses the Basic style only (main.cpp): the other Qt Quick Controls
 # styles stay out.
@@ -91,6 +100,7 @@ cat > "$root/usr/bin/$name" <<EOF
 #!/bin/sh
 # Artilody Multisport Endurance Trainer (self-contained, $prefix)
 d=$prefix/usr
+export LD_LIBRARY_PATH="\$d/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 export GST_PLUGIN_SYSTEM_PATH_1_0="\$d/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="\$d/lib/gstreamer-1.0"
 export GST_PLUGIN_SCANNER_1_0="\$d/libexec/gst-plugin-scanner"

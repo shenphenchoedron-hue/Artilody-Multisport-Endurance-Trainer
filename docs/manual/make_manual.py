@@ -41,7 +41,7 @@ MOCKUPS = DOCS / "mockups"
 DEFAULT_OUT = DOCS / "Artilody-Multisport-Endurance-Trainer-Manual.pdf"
 
 APP = "Artilody Multisport Endurance Trainer"
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 DATE = "November 2026"
 REPO = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer"
 

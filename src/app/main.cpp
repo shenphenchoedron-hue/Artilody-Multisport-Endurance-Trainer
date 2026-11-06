@@ -125,8 +125,16 @@ QString selectQuickGraphicsApi()
         }
     }
     if (!ok) {
+#ifdef Q_OS_LINUX
+        // Qt Quick's default on Linux is OpenGL too: it would fail to open the
+        // window. Draw the UI in software instead (everything but the 3D views works).
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+        qWarning("Graphics: no usable OpenGL (%s) - Qt Quick software rendering, no 3D view", qPrintable(offered));
+        return QStringLiteral("no usable OpenGL (%1): software rendering, no 3D view").arg(offered);
+#else
         qWarning("Graphics: no usable OpenGL (%s) - Qt Quick default backend, no GPX 3D view", qPrintable(offered));
         return QStringLiteral("no usable OpenGL (%1): no GPX 3D view").arg(offered);
+#endif
     }
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     qInfo("Graphics: Qt Quick on %s (GPX 3D view)", qPrintable(offered));
