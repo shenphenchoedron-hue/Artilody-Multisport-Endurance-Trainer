@@ -15,6 +15,8 @@ class Route {
 public:
     std::vector<Point> points;
     bool flatFallback=false;
+    // The landscape it is drawn in (route3d::Biome, biome.h; 0 = Nordic).
+    int biome=0;
     // Where the ridden route ends (the FINISH arch); < 0 = at length(). The
     // drawn road may go on past it (a visual run-out after the finish).
     double finishDistance=-1;

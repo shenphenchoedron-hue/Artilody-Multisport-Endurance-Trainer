@@ -63,7 +63,7 @@ inline std::vector<AnimalSpec> scatter(const Terrain& t,double cx,double cz,doub
 }
 }
 
-// --- hay bales (round: wrapped white / green / black, or straw; small stacks of square bales) ---
+// --- hay bales (round: wrapped white / green, or straw; small stacks of square bales) ---
 enum BaleKind {RoundWrapped=0,RoundStraw=1,SquareStack=2};
 struct BaleSpec {double x=0,y=0,z=0,heading=0;int kind=RoundWrapped,color=0;uint32_t seed=0;};
 namespace Bales {
@@ -81,7 +81,7 @@ inline std::vector<BaleSpec> scatter(const Terrain& t,double cx,double cz,double
         BaleSpec s;s.x=x;s.z=z;s.y=t.surface(x,z);s.seed=WorldNoise::hash(ix,iz,963);
         s.kind=f<.55?RoundWrapped:f<.85?RoundStraw:SquareStack;
         const double c=WorldNoise::random(fx,fz,965);
-        s.color=c<.70?0:c<.85?1:2;   // wrapped: white, green, black
+        s.color=c<.78?0:1;   // wrapped: white or green (black wrap read as odd dark boxes in the view)
         s.heading=WorldNoise::random(fx,fz,967)*3.14159+(r(4)-.5)*.3;
         out.push_back(s);
     });

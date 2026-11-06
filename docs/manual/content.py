@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.7.1 source code (incl. GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.8.0 source code (incl. GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1797,6 +1797,17 @@ def build(s, env):
         "tractors, wind turbines with turning blades, benches, a white kilometre post at every kilometre and "
         "a display bike by the START arch. Where an out-and-back route or a loop comes back along a road "
         "already ridden, the 3D view draws one road.",
+        "<b>Landscapes</b>: the 3D world matches where the route is on the earth and how high it goes: "
+        "<i>Nordic</i> (green fields, spruce and broadleaf woods – the world of earlier versions), "
+        "<i>Tropical</i> (palms, lush green, turquoise water), <i>Australian</i> (red earth, gum trees and "
+        "acacias), <i>Desert</i> (sand, cacti, rare oases), <i>Icy</i> (snow, frozen lakes, snowy spruce) "
+        "and <i>Mountain</i> (routes high up or climbing more than 25 m per km: snow above the snow line, "
+        "the trees thinning out below it). Sky, light, houses, animals and farm life follow the landscape. "
+        "It is chosen automatically – nothing to set.",
+        "<b>Birds</b>: flocks wheel over the fields beside the road, a bird of prey circles above it (a "
+        "white-tailed sea eagle in the Nordic countryside, a wedge-tailed eagle in Australia, a golden eagle "
+        "in the mountains, a vulture over the desert) and little birds fly from tree to tree, often across the "
+        "road in front of you. Each landscape has its own birds.",
         "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
         "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
         "the page says why the 3D view is not available – the route can still be ridden with the profile.",
@@ -2205,7 +2216,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.7.1",
+  "app": "Artilody Multisport Endurance Trainer 1.8.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

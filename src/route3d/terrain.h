@@ -44,6 +44,9 @@ private:
         return (uint64_t(uint32_t(x))<<32)|uint32_t(z);
     }
 public:
+    // Per biome (set before reset()): the hills' height and the chance of a
+    // lake per stretch of road.
+    double hillScale=1, lakeChance=.6;
     // Natural-looking relief: domain-warped fractal hills, sharper ridge lines
     // on the higher ground and a gentle rise away from the road, so the route
     // tends to run along valley floors like real roads do.
@@ -215,7 +218,7 @@ private:
         // next to the road its own height, further out the mountainside
         double bank=std::numeric_limits<double>::infinity();
         const double ground=n.height+(slopeHeight(x,z,n.height,&bank)-n.height)*WorldNoise::smoothstep(7,30,n.distance);   // (flat out to the cap: no teeth where capped and free nodes alternate)
-        double h=ground-.4+WorldNoise::smoothstep(12,105,n.distance)*hillShape(x,z,n.distance);
+        double h=ground-.4+WorldNoise::smoothstep(12,105,n.distance)*hillShape(x,z,n.distance)*hillScale;
         double w=0,sea=0;
         if(coast(n,x,z,w,sea)){
             // road level next to the road, a sandy beach down to the water, then the sea floor
@@ -333,7 +336,7 @@ private:
     }
     void tryLake(int ix,int iz,long stretch,std::vector<Lake>& all){
         auto r=[&](uint32_t k){return WorldNoise::random(ix,iz,700+k);};
-        if(r(0)>.6)return;
+        if(r(0)>lakeChance)return;
         // a point along this stretch, then out to one side
         double along=(double(stretch)+.1+.8*r(1))*lakeStretch;
         if(along>route->length())return;

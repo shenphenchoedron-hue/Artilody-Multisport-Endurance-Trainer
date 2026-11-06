@@ -1,5 +1,6 @@
 #pragma once
 
+#include "biome.h"
 #include "ghost_rider.h"
 #include "ghost_runner.h"
 #include "countryside.h"
@@ -111,8 +112,9 @@ private:
                     Banner = 9,     // Banner: colour r,g = texture coordinates in the START / FINISH banner
                     Water = 10,     // lakes and the sea; blend = water depth (m). Grass: blend = sand (0..1)
                     Polka = 11,     // white with red dots: colour r,g = surface position in dot periods
-                    Rotor = 12 };   // wind turbine blades, turned in the vertex shader: colour = hub,
+                    Rotor = 12,     // wind turbine blades, turned in the vertex shader: colour = hub,
                                     // normal = rotor axis, blend = phase (one face, lit from both sides)
+                    BirdBody = 13 }; // birds: less haze (they fly beyond the landscape); normals point up
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
@@ -131,6 +133,24 @@ private:
               int sides, float baseY, float height);
     void broadleaf(const route3d::TreeSpec &t, bool far);
     void bush(const route3d::TreeSpec &t);
+    // the warm biomes' trees (biome.h)
+    void palm(const route3d::TreeSpec &t, bool far);
+    void cactus(const route3d::TreeSpec &t, bool far);
+    void eucalyptus(const route3d::TreeSpec &t, bool far);
+    void acacia(const route3d::TreeSpec &t, bool far);
+    void tree(const route3d::TreeSpec &t, bool far);   // any kind
+    static QVector3D rgb(const route3d::Rgb &c) { return QVector3D(c.r, c.g, c.b); }
+    // The birds around the rider at drawn distance d (eye: the camera) at
+    // this time (Route3DBirds.cpp): built every frame (up to a few thousand
+    // vertices), drawn after the landscape.
+    void birds(double distance, const QVector3D &eye, float time, std::vector<Vertex> &out);
+    // Two trees near the road a little bird flies between (Route3DBirds.cpp):
+    // a, b inside their crowns (where it rests, hidden), the top of its path.
+    struct Perch { QVector3D a, b; float peak; uint32_t seed; };
+    static void perches(const std::vector<route3d::TreeSpec> &trees, const route3d::Terrain &terrain, double cx, double cz,
+                        const route3d::BiomeProfile &profile, std::vector<Perch> &out);
+    void applyProfile();   // m_profile -> sun, terrain settings, ring (setRoute)
+    void setBiomeUniforms(QOpenGLShaderProgram &program, bool sky);
     void flowers(const route3d::FlowerClump &f);
     void rock(const route3d::RockSpec &s, bool far);
     void face(QVector3D a, QVector3D b, QVector3D c, QVector3D d, QVector3D n, QVector3D col);
@@ -215,8 +235,22 @@ private:
     double m_builtStartGate = 0;  // drawn metres of the START arch in m_gateBuffer
     bool m_startDirty = false;    // m_startDistance changed: bike / gates follow in scene()
     bool m_gatesDirty = true;
+    bool m_biomeUniformsDirty = true;   // m_profile -> the programs' uniforms (render)
     QOpenGLBuffer m_buffer { QOpenGLBuffer::VertexBuffer };
     QOpenGLBuffer m_ghostBuffer { QOpenGLBuffer::VertexBuffer };
+    QOpenGLBuffer m_birdBuffer { QOpenGLBuffer::VertexBuffer };
+    std::vector<Vertex> m_birdVertices;
+    // the little birds' trees: written by the tile job, taken with its tile (uploadTile)
+    std::vector<Perch> m_buildPerches, m_perches;
+    // the ground under the flying birds: a coarse grid of the highest terrain
+    // around each point (the tile's nodes; same hand-over as the perches)
+    struct BirdGround {
+        float x0 = 0, z0 = 0, step = 32;   // grid origin (in steps) and spacing (m)
+        int n = 0;
+        std::vector<float> h;              // n x n, [i * n + j]: i along x
+        float at(float x, float z) const;  // bilinear; -1e9 outside
+    };
+    BirdGround m_buildBirdGround, m_birdGround;
     QOpenGLBuffer m_ringBuffer { QOpenGLBuffer::VertexBuffer };
     QOpenGLBuffer m_ghostIndexBuffer { QOpenGLBuffer::IndexBuffer };
     std::vector<uint32_t> m_ghostIndices;
@@ -241,8 +275,13 @@ private:
     int m_meshX = INT_MAX, m_meshZ = INT_MAX;
     bool m_ready = false;
     QString m_error;
-    // Low afternoon sun from the south-west: long, readable shading on hills.
-    const QVector3D m_sun = QVector3D(-.55f, .50f, .67f).normalized();
+    // The route's landscape (biome.h): read by the tile job, changed only in
+    // setRoute() after waitForTile().
+    route3d::BiomeProfile m_profile;
+    bool m_ringDirty = false;   // the distant hills follow the biome (uploaded in render())
+    // Nordic: a low afternoon sun from the south-west, long, readable shading
+    // on hills (per biome: m_profile.sun).
+    QVector3D m_sun = QVector3D(-.55f, .50f, .67f).normalized();
 };
 
 } // namespace watt

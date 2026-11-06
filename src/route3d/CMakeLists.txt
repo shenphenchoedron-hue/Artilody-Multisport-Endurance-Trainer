@@ -7,6 +7,7 @@ qt_add_library(watt_route3d STATIC
     world_noise.h
     vegetation.h
     landuse.h
+    biome.h
     settlement.h
     countryside.h
     ghost_motion.h
@@ -15,7 +16,7 @@ qt_add_library(watt_route3d STATIC
     ghost_runner.h
     glb_model.h glb_model.cpp
     materials.h
-    Route3DScene.h Route3DScene.cpp Route3DCountryside.cpp
+    Route3DScene.h Route3DScene.cpp Route3DCountryside.cpp Route3DBirds.cpp
     Route3DItem.h Route3DItem.cpp
     Rowing3DItem.h Rowing3DItem.cpp
 )

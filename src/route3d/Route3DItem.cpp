@@ -2,6 +2,7 @@
 
 #include "Route3DScene.h"
 #include "RlvRoute.h"
+#include "biome.h"
 #include "RouteProgress.h"
 #include "Sprint.h"
 
@@ -32,6 +33,26 @@ constexpr double kMaxGapM = 2000.0;
 // ridden: a point-to-point route would otherwise end in the grass), then
 // tapers gently away.
 constexpr double kRunOutM = 90.0;   // (the last 35 m narrow to nothing: Route3DScene::buildTile)
+
+// The landscape of a route (route3d::Biomes::classify): from its middle
+// (mean position) and its profile (mean elevation, metres climbed per km).
+// WATT_BIOME=nordic|tropical|australian|desert|icy|mountain draws every
+// route in that one (for trying them out).
+route3d::Biome biomeOf(const RlvRoute &route)
+{
+    route3d::Biome forced;
+    const QByteArray env = qgetenv("WATT_BIOME");
+    if (!env.isEmpty() && route3d::Biomes::fromName(env.constData(), &forced))
+        return forced;
+    const QVector<RlvPoint> &pts = route.points();
+    if (pts.isEmpty())
+        return route3d::Biome::Nordic;
+    const auto m = route3d::Biomes::summarize(pts.constData(), size_t(pts.size()));
+    const auto biome = route3d::Biomes::classify(m.lat, m.lon, m.elevation, m.climbPerKm);
+    qInfo("Route3D: landscape %s (%.2f, %.2f; mean %.0f m, %.1f m/km)", route3d::Biomes::name(biome), m.lat, m.lon,
+          m.elevation, m.climbPerKm);
+    return biome;
+}
 
 class Route3DRenderer : public QQuickFramebufferObject::Renderer
 {
@@ -247,6 +268,7 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route)
     auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt));
     if (geo.size() > ridden)
         drawn->finishDistance = drawnAt[ridden - 1];
+    drawn->biome = int(biomeOf(route));
     b.route = drawn;
     b.appDistance.reserve(pts.size());
     b.drawnDistance.reserve(pts.size());

@@ -38,12 +38,14 @@ inline bool place(const Terrain& terrain,Building& b){
     b.ground=low;b.floor=top+.2;return true;
 }
 
-// Buildings belonging to one grid cell (0-2), fully deterministic.
-inline void site(const Terrain& terrain,int ix,int iz,std::vector<Building>& out){
+// Buildings belonging to one grid cell (0-2), fully deterministic. keep:
+// the share of the sites built (a farm stays whole: longhouse and barn).
+inline void site(const Terrain& terrain,int ix,int iz,std::vector<Building>& out,double keep=1){
     auto r=[&](uint32_t k){return WorldNoise::random(ix,iz,300+k);};
     double x=(ix+.3+.4*r(1))*cell,z=(iz+.3+.4*r(2))*cell;
     double h=Landuse::hamlet(x,z);
     if(r(3)>.06+.70*h)return;
+    if(keep<1&&r(14)>=keep)return;
     if(Landuse::forest(x,z)>.2)return;
     double d=terrain.nearest(x,z).distance;
     if(d<minSetback||d>maxSetback)return;
@@ -74,14 +76,14 @@ inline void site(const Terrain& terrain,int ix,int iz,std::vector<Building>& out
     }
 }
 
-inline std::vector<Building> near(const Terrain& terrain,double cx,double cz,double radius){
+inline std::vector<Building> near(const Terrain& terrain,double cx,double cz,double radius,double keep=1){
     std::vector<Building> out;
     int x0=int(std::floor((cx-radius)/cell)),x1=int(std::floor((cx+radius)/cell));
     int z0=int(std::floor((cz-radius)/cell)),z1=int(std::floor((cz+radius)/cell));
     for(int ix=x0;ix<=x1;++ix)for(int iz=z0;iz<=z1;++iz){
         double x=(ix+.5)*cell,z=(iz+.5)*cell;
         if(std::hypot(x-cx,z-cz)>radius+cell)continue;
-        site(terrain,ix,iz,out);
+        site(terrain,ix,iz,out,keep);
     }
     return out;
 }

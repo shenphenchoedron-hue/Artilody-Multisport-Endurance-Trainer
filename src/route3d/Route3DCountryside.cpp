@@ -274,10 +274,11 @@ void Route3DScene::bale(const BaleSpec &s)
         }
         return;
     }
-    static const QVector3D wraps[] = { { .90f, .91f, .88f }, { .30f, .42f, .25f }, { .10f, .10f, .10f } };
+    static const QVector3D wraps[] = { { .90f, .91f, .88f }, { .30f, .42f, .25f } };   // white, green
     const bool straw = s.kind == RoundStraw;
-    const QVector3D side = straw ? QVector3D(.78f, .66f, .36f) * tone : wraps[s.color % 3];
-    const QVector3D cap = straw ? QVector3D(.68f, .56f, .29f) * tone : wraps[s.color % 3] * .9f;
+    const QVector3D wrap = wraps[s.color ? 1 : 0];
+    const QVector3D side = straw ? QVector3D(.78f, .66f, .36f) * tone : wrap;
+    const QVector3D cap = straw ? QVector3D(.68f, .56f, .29f) * tone : wrap * .9f;
     const QVector3D c = base + kUp * .72f;
     cylinder(c - f * .6f, c + f * .6f, .75f, 10, side, cap);
 }

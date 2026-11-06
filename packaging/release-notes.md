@@ -1,6 +1,24 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.7.1
+## What's new in 1.8.0
+
+**GPX Ride: landscapes from around the world, and birds.**
+
+- **Six landscapes**: the 3D world now matches where a GPX route is on the earth and how high it goes – chosen automatically from the route's position and profile:
+  - **Nordic** – green fields, spruce and broadleaf woods, farms and wind turbines (exactly the world of earlier versions);
+  - **Tropical** – coconut palms, lush green, turquoise water, colourful houses;
+  - **Australian** – red-ochre earth, gum trees and umbrella acacias, corrugated-iron roofs;
+  - **Desert** – sand, saguaro cacti, sandstone, rare oases and earthen houses (the Sahara, Arabia, the south-west USA, the Atacama ...);
+  - **Icy** – snow, frozen lakes and snowy spruce (the Arctic, Greenland, Alaska, Siberia);
+  - **Mountain** – routes high up or climbing more than 25 m per km: snow above the snow line, trees thinning out below it, snow-capped peaks around.
+  Sky, sunlight, water, houses, animals, hay bales, tractors and fences follow the landscape.
+- **Birds**: flocks wheel over the fields beside the road, a bird of prey circles above it – a white-tailed sea eagle over the Nordic countryside, a wedge-tailed eagle in Australia, a golden eagle in the mountains, a vulture over the desert – and little birds fly from tree to tree, often across the road in front of you (finches and magpies, bee-eaters, lorikeets, sparrows, snow buntings). They fly in and out of view and rest hidden in the trees – they never just vanish.
+- **Trees in the distance**: distant gum trees and acacias keep their branches (no floating crowns).
+- **Hay bales**: no more black-wrapped bales (they looked like odd dark boxes from a distance).
+- Light on the Raspberry Pi: the birds are a few thousand vertices per frame; snow is only computed where there can be snow.
+- No database change – install over 1.7.1.
+
+## Also included from 1.7.1
 
 **Mountains, finishes and polish.**
 

@@ -29,13 +29,12 @@ namespace {
 // melts into the sky instead of into a flat colour.
 const char *const kSkyCommon = R"(
 uniform vec3 sunDir;
-const vec3 zenith=vec3(.27,.47,.77);
-const vec3 horizon=vec3(.73,.81,.88);
+uniform vec3 zenith;uniform vec3 horizon;uniform vec3 sunGlow;   // per biome (biome.h)
 vec3 skyColor(vec3 d){
     float h=max(d.y,0.);
     vec3 c=mix(horizon,zenith,pow(h,.5));
     float s=max(dot(d,sunDir),0.);
-    c+=vec3(1.,.86,.64)*(pow(s,6.)*.20+pow(s,48.)*.25);
+    c+=sunGlow*(pow(s,6.)*.20+pow(s,48.)*.25);
     c+=vec3(1.,.97,.90)*smoothstep(.9994,.9998,s)*1.5;
     return c;
 }
@@ -77,6 +76,11 @@ uniform vec3 eye;uniform vec2 uvOrigin;
 uniform sampler2D asphaltMap;uniform sampler2D grassMap;uniform sampler2D gravelMap;uniform sampler2D noiseMap;
 uniform sampler2D bannerMap;
 uniform float opacity;uniform float time;
+// the biome (biome.h): light, ground and water
+uniform vec3 sunLight;uniform vec3 ambientSky;uniform vec3 ambientGround;
+uniform vec3 grassTint;uniform vec3 sandTint;uniform float sandCover;
+uniform float snowCover;uniform float snowLine;uniform float treeSnow;uniform float iceWater;
+uniform vec3 waterShallow;uniform vec3 waterDeep;
 out vec4 frag;
 )";
 
@@ -86,25 +90,56 @@ vec3 grass(vec2 p){
     vec3 b=texture(grassMap,mat2(.8,-.6,.6,.8)*p*.13+.37).rgb; // rotated second scale hides tiling
     vec3 m=texture(noiseMap,p*.006).rgb;                          // 40 m and 10 m patches
     vec3 g=mix(a,b,.45)*(.80+m.g*.40);
-    return mix(g,g*vec3(1.12,1.05,.74),smoothstep(.55,.80,m.r)*.5);
+    return mix(g,g*vec3(1.12,1.05,.74),smoothstep(.55,.80,m.r)*.5)*grassTint;
 }
 vec3 sand(vec2 p){
     vec3 g=texture(gravelMap,p*.35).rgb;
     float m=texture(noiseMap,p*.02).b;
-    return mix(vec3(.80,.73,.56),g*vec3(1.10,1.06,1.),.35)*(.92+.16*m);
+    return mix(vec3(.80,.73,.56),g*vec3(1.10,1.06,1.),.35)*(.92+.16*m)*sandTint;
+}
+// any snow in this biome (uniforms only: no texture work where there is none)
+bool hasSnow(){return snowCover>0.||snowLine<1e4;}
+// the snow line, a little ragged (h: the height in metres)
+float snowAt(vec2 p,float h){
+    float m=texture(noiseMap,p*.004).b;
+    return max(snowCover,smoothstep(snowLine-18.,snowLine+18.,h+(m-.5)*50.));
+}
+vec3 snow(vec2 p){
+    float m=texture(noiseMap,p*.05).g,f=texture(grassMap,p*.6).g;
+    return vec3(.86,.89,.94)*(.93+.07*m+.05*(f-.45));
+}
+// The open ground of the biome over the grass g: sand in patches (deserts,
+// the outback), snow (the icy north, above the mountains' snow line). up:
+// how level the ground is (normal y; steep ground keeps no snow).
+vec3 biomeGround(vec3 g,vec2 p,float up,float h){
+    if(sandCover>0.){
+        float m=texture(noiseMap,p*.011).g*.6+texture(noiseMap,p*.05).b*.4;
+        float s=smoothstep(.36,.62,sandCover+(m-.5)*.7);
+        g=mix(g,sand(p),s);
+    }
+    if(!hasSnow())return g;   // (uniform: the same branch for every fragment)
+    float sn=snowAt(p,h)*smoothstep(.55,.80,up+(texture(noiseMap,p*.07).r-.5)*.2);
+    return mix(g,snow(p),sn);
 }
 // Lakes and the sea: animated ripples, sky reflection (Fresnel), sun glitter,
 // shallow water lighter and a pale rim where it meets the shore.
 vec3 water(vec2 p,vec3 view,float dist,float depth){
+    vec3 v=view/dist;
+    if(iceWater>.5){   // frozen: pale, dull ice with a faint sky sheen and snow drifts
+        vec3 m=texture(noiseMap,p*.045).rgb;
+        vec3 ice=mix(vec3(.62,.74,.82),vec3(.84,.90,.94),m.g);
+        ice=mix(ice,snow(p),smoothstep(.55,.75,m.r)*.8);
+        ice*=.70+.30*max(sunDir.y,0.)+.15;
+        return mix(ice,skyColor(reflect(v,vec3(0.,1.,0.))),.12);
+    }
     vec3 a=texture(noiseMap,p*.030+vec2(time*.011,time*.006)).rgb;
     vec3 b=texture(noiseMap,p*.085-vec2(time*.014,-time*.009)).rgb;
     float calm=1.-smoothstep(60.,260.,dist)*.6;   // ripples fade with distance (no shimmer)
     vec3 n=normalize(vec3((a.r-b.g)*.30*calm,1.,(a.g-b.r)*.30*calm));
-    vec3 v=view/dist;
     vec3 sky=skyColor(reflect(v,n));
     float fresnel=.03+.97*pow(1.-max(dot(-v,n),0.),5.);
     float d=clamp(depth/2.8,0.,1.);
-    vec3 body=mix(vec3(.19,.33,.30),vec3(.05,.15,.23),d)*(.62+.38*max(dot(n,sunDir),0.));
+    vec3 body=mix(waterShallow,waterDeep,d)*(.62+.38*max(dot(n,sunDir),0.));
     vec3 c=mix(body,sky,clamp(fresnel+.10,0.,1.));
     c+=vec3(1.,.93,.80)*pow(max(dot(reflect(-sunDir,n),-v),0.),110.)*.9;
     return mix(c,vec3(.80,.84,.82),(1.-smoothstep(0.,.22,depth))*.40);
@@ -112,6 +147,7 @@ vec3 water(vec2 p,vec3 view,float dist,float depth){
 void main(){
     vec3 view=world-eye;float dist=length(view);
     float fog=max(1.-exp(-dist*dist/(290.*290.)),smoothstep(335.,395.,dist));
+    if(mat==13)fog=1.-exp(-dist*dist/(620.*620.));   // birds: high up the air is clearer (seen beyond the landscape)
     if(mat==6){frag=vec4(.03,.05,.07,smoothstep(0.,.38,edge)*.52*(1.-fog));return;}
     vec2 uv=world.xz-uvOrigin;
     vec3 haze=hazeColor(view);
@@ -126,10 +162,12 @@ void main(){
         base*=.90+.20*texture(noiseMap,uv*.018).b; // repair patches
     }
     if(mat==2){base=grass(uv)*col;if(edge>.002)base=mix(base,sand(uv),clamp(edge,0.,1.));
+        float up=normalize(norm).y;
+        base=biomeGround(base,uv,up,world.y);
         // steep slopes (mountainsides): grey rock and scree instead of grass
         // (patchy, so it reads as rock showing through the turf, not as paint)
         float patch=texture(noiseMap,uv*.06).r;
-        float steep=smoothstep(.78,.58,normalize(norm).y+(patch-.5)*.18);
+        float steep=smoothstep(.78,.58,up+(patch-.5)*.18);
         if(steep>0.){
             float g=texture(gravelMap,uv*.22).r;
             vec3 rock=mix(vec3(.36,.35,.33),vec3(.58,.56,.52),g)*(.85+.3*patch);
@@ -151,19 +189,23 @@ void main(){
         base=mix(vec3(.80,.10,.09),vec3(.95,.94,.91),smoothstep(.27-w,.27+w,r));
     }
     if(mat==5){
-        vec3 g=grass(uv);
+        vec3 g=biomeGround(grass(uv),uv,1.,world.y);
         vec3 stone=texture(gravelMap,uv*.75).rgb;
         float variation=texture(grassMap,uv*1.5).g-.46;
         float mixValue=smoothstep(.12,.95,clamp(edge+variation*.32*sin(edge*3.14159),0.,1.));
         base=mix(stone,g,mixValue);
     }
     vec3 n=normalize(norm);
+    if(mat==8&&hasSnow()){   // snow on the trees (the icy north, above the snow line)
+        float s=max(treeSnow,snowAt(uv,world.y)*.85);
+        if(s>0.)base=mix(base,vec3(.84,.87,.92),s*smoothstep(.35,.85,n.y));
+    }
     if(mat==12&&dot(n,view)>0.)n=-n;   // turbine blades: one face, lit on the side you see
     float ndl=dot(n,sunDir);
     // Foliage uses wrapped diffuse: light scatters through leaves and needles.
     float diffuse=mat==8?clamp((ndl+.45)/1.45,0.,1.):max(ndl,0.);
-    vec3 ambient=mix(vec3(.30,.29,.23),vec3(.52,.57,.63),n.y*.5+.5);
-    vec3 lit=base*(ambient*.95+vec3(1.,.94,.82)*diffuse*.92);
+    vec3 ambient=mix(ambientGround,ambientSky,n.y*.5+.5);
+    vec3 lit=base*(ambient*.95+sunLight*diffuse*.92);
     if(mat==1||mat==4){
         float spec=pow(max(dot(reflect(-sunDir,n),-view/dist),0.),20.);
         lit+=vec3(1.,.95,.85)*spec*.06;
@@ -185,6 +227,7 @@ void main(){
 
 const char *const kSkyFragmentShaderHead = R"(
 in vec3 ray;uniform sampler2D noiseMap;uniform float time;
+uniform float cloudShift;   // > 0: fewer clouds (biome.h)
 out vec4 frag;
 )";
 
@@ -195,7 +238,7 @@ void main(){
         vec2 uv=d.xz/(d.y+.10)*.10+vec2(time*.0020,time*.0007);
         vec4 a=texture(noiseMap,uv),b=texture(noiseMap,uv*2.7+.31);
         float density=a.r*.62+b.g*.38;
-        float cover=smoothstep(.50,.76,density)*smoothstep(.0,.22,d.y);
+        float cover=smoothstep(.50+cloudShift,.76+cloudShift,density)*smoothstep(.0,.22,d.y);
         vec3 cloud=mix(vec3(.74,.78,.84),vec3(1.,.985,.955),clamp(.35+b.b*.9-cover*.3,0.,1.));
         c=mix(c,cloud,cover*.9);
     }
@@ -416,6 +459,7 @@ bool Route3DScene::initialize(QOpenGLContext *context)
 {
     m_context = context;
     m_ready = false;
+    m_biomeUniformsDirty = true;   // new programs
     if (!context) {
         m_error = QStringLiteral("No OpenGL context.");
         return false;
@@ -507,6 +551,8 @@ bool Route3DScene::initialize(QOpenGLContext *context)
     m_ghostBuffer.setUsagePattern(QOpenGLBuffer::DynamicDraw);
     m_ghostIndexBuffer.create();
     m_ghostIndexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    m_birdBuffer.create();
+    m_birdBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
     buildRing();
     m_ringBuffer.create();
     m_ringBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
@@ -528,6 +574,7 @@ void Route3DScene::release()
     m_buffer.destroy();
     m_ghostBuffer.destroy();
     m_ghostIndexBuffer.destroy();
+    m_birdBuffer.destroy();
     m_ringBuffer.destroy();
     m_vao.destroy();
     m_skyVao.destroy();
@@ -541,6 +588,9 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
 {
     waitForTile();   // the job reads the route and the terrain
     m_route = std::move(route);
+    m_perches.clear();
+    m_birdGround = BirdGround();
+    applyProfile();
     if (m_route)
         m_terrain.reset(*m_route);   // keeps a pointer: m_route owns the route
     else
@@ -556,6 +606,59 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
     m_ghostIndices.clear();
     m_ghostIndexShadow = size_t(-1);
     m_ghostIndexSource = nullptr;
+}
+
+// The route's biome: its profile (the mountains' snow line from the road's
+// heights), the sun, the terrain's relief and lakes, the distant hills.
+void Route3DScene::applyProfile()
+{
+    const Biome biome = m_route ? Biome(std::clamp(m_route->biome, 0, int(Biome::Mountain))) : Biome::Nordic;
+    double lo = 0, mean = 0, hi = 0;
+    if (m_route && !m_route->points.empty()) {
+        lo = 1e18;
+        hi = -1e18;
+        for (const auto &p : m_route->points) {
+            lo = std::min(lo, p.y);
+            hi = std::max(hi, p.y);
+            mean += p.y;
+        }
+        mean /= double(m_route->points.size());
+    }
+    const bool ringChanged = biome != m_profile.biome;
+    m_profile = Biomes::profile(biome, lo, mean, hi);
+    m_sun = QVector3D(m_profile.sun[0], m_profile.sun[1], m_profile.sun[2]).normalized();
+    m_terrain = Terrain();
+    m_terrain.hillScale = m_profile.hillScale;
+    m_terrain.lakeChance = m_profile.lakeChance;
+    m_biomeUniformsDirty = true;
+    if (ringChanged) {
+        buildRing();
+        m_ringDirty = true;
+    }
+}
+
+void Route3DScene::setBiomeUniforms(QOpenGLShaderProgram &program, bool sky)
+{
+    const BiomeProfile &p = m_profile;
+    program.setUniformValue("zenith", rgb(p.zenith));
+    program.setUniformValue("horizon", rgb(p.horizon));
+    program.setUniformValue("sunGlow", rgb(p.sunGlow));
+    if (sky) {
+        program.setUniformValue("cloudShift", p.cloudShift);
+        return;
+    }
+    program.setUniformValue("sunLight", rgb(p.sunLight));
+    program.setUniformValue("ambientSky", rgb(p.ambientSky));
+    program.setUniformValue("ambientGround", rgb(p.ambientGround));
+    program.setUniformValue("grassTint", rgb(p.grassTint));
+    program.setUniformValue("sandTint", rgb(p.sandTint));
+    program.setUniformValue("sandCover", p.sandCover);
+    program.setUniformValue("snowCover", p.snowCover);
+    program.setUniformValue("snowLine", p.snowLine);
+    program.setUniformValue("treeSnow", p.treeSnow);
+    program.setUniformValue("iceWater", p.iceWater ? 1.f : 0.f);
+    program.setUniformValue("waterShallow", rgb(p.waterShallow));
+    program.setUniformValue("waterDeep", rgb(p.waterDeep));
 }
 
 namespace {
@@ -1282,7 +1385,7 @@ void Route3DScene::broadleaf(const TreeSpec &t, bool far)
     float h = float(t.height), R = float(t.radius);
     trunk(base, h * .58f, h * .032f, h * .018f, far ? 4 : 6, QVector3D(.33f, .27f, .21f));
     float tone = rnd(t.seed, 5);
-    QVector3D green = QVector3D(.20f + .10f * tone, .32f + .08f * tone, .11f + .04f * rnd(t.seed, 6));
+    QVector3D green = QVector3D(.20f + .10f * tone, .32f + .08f * tone, .11f + .04f * rnd(t.seed, 6)) * rgb(m_profile.leafTint);
     QVector3D crown = base + QVector3D(0, h * .63f, 0);
     if (far) {
         blob(crown, crown, R, green, .85f, t.seed, 4, 6, base.y(), h);
@@ -1302,12 +1405,7 @@ void Route3DScene::treeMesh(const TreeSpec &t, bool far, std::vector<MeshVertex>
     std::vector<Vertex> buf;
     std::vector<Vertex> *saved = m_target;
     m_target = &buf;
-    if (t.kind == Spruce)
-        spruce(t, far);
-    else if (t.kind == Broadleaf)
-        broadleaf(t, far);
-    else
-        bush(t);
+    tree(t, far);
     m_target = saved;
     out.reserve(out.size() + buf.size());
     for (const Vertex &v : buf)
@@ -1319,9 +1417,186 @@ void Route3DScene::bush(const TreeSpec &t)
 {
     QVector3D base(float(t.x), float(t.y), float(t.z));
     float h = float(t.height);
-    QVector3D green = QVector3D(.21f + .08f * rnd(t.seed, 7), .31f + .06f * rnd(t.seed, 8), .12f);
+    QVector3D green = QVector3D(.21f + .08f * rnd(t.seed, 7), .31f + .06f * rnd(t.seed, 8), .12f) * rgb(m_profile.leafTint);
     QVector3D c = base + QVector3D(0, h * .45f, 0);
     blob(c, c, float(t.radius), green, .75f, t.seed, 4, 7, base.y(), h * 2.5f);
+}
+
+void Route3DScene::tree(const TreeSpec &t, bool far)
+{
+    switch (t.kind) {
+    case Spruce: spruce(t, far); break;
+    case Broadleaf: broadleaf(t, far); break;
+    case Palm: palm(t, far); break;
+    case Cactus: cactus(t, far); break;
+    case Eucalyptus: eucalyptus(t, far); break;
+    case Acacia: acacia(t, far); break;
+    default: bush(t); break;
+    }
+}
+
+// A coconut palm: a slender, ringed trunk bending gently to one side and a
+// crown of long, drooping fronds (each a strip with a raised spine), a dead
+// brown one or two hanging below. The fronds sway in the wind.
+void Route3DScene::palm(const TreeSpec &t, bool far)
+{
+    const QVector3D base(float(t.x), float(t.y), float(t.z));
+    const float h = float(t.height);
+    const float lean = rnd(t.seed, 1) * 6.283f, bend = h * (.06f + .12f * rnd(t.seed, 2));
+    const QVector3D dir(std::cos(lean), 0, std::sin(lean));
+    auto at = [&](float u) { return base + QVector3D(0, h * u, 0) + dir * (bend * u * u); };
+    const QVector3D bark(.47f, .40f, .31f);
+    // (far: about as many vertices as a far broadleaf)
+    const int segs = far ? 2 : 6;
+    for (int i = 0; i < segs; ++i) {
+        const float u0 = float(i) / segs, u1 = float(i + 1) / segs;
+        const float r0 = h * (.028f - .010f * u0), r1 = h * (.028f - .010f * u1);
+        taper(at(u0), at(u1), r0, r1, far ? 3 : 6, bark * (.78f + .10f * (i % 2)), bark * (.92f + .10f * (i % 2)));
+    }
+    const QVector3D crown = at(1.f);
+    const float L = float(t.radius) * 1.05f;
+    const int fronds = far ? 5 : 11, steps = far ? 2 : 4;
+    const float spin = rnd(t.seed, 3) * 6.283f;
+    const QVector3D green(.19f + .05f * rnd(t.seed, 4), .37f + .06f * rnd(t.seed, 5), .13f);
+    auto vert = [&](const QVector3D &p, const QVector3D &n, const QVector3D &c) {
+        put(p, n, c, Foliage, std::clamp((p.y() - base.y()) / h, 0.f, 1.3f));
+    };
+    for (int f = 0; f < fronds; ++f) {
+        const bool dead = !far && f >= fronds - 2 && rnd(t.seed, 10 + f) < .6f;
+        const float a = spin + f * 6.283f / fronds + (rnd(t.seed, 30 + f) - .5f) * .4f;
+        const QVector3D out(std::cos(a), 0, std::sin(a)), side(-out.z(), 0, out.x());
+        // rise, then droop (dead fronds hang down along the trunk)
+        const float rise = dead ? -.6f : .25f + .35f * rnd(t.seed, 50 + f), droop = dead ? .6f : .85f + .4f * rnd(t.seed, 70 + f);
+        const float len = L * (dead ? .7f : .85f + .3f * rnd(t.seed, 90 + f));
+        const QVector3D col = dead ? QVector3D(.45f, .36f, .20f) : green * (.85f + .3f * rnd(t.seed, 110 + f));
+        auto spine = [&](float s) {
+            const float d = len * s;
+            return crown + out * d + QVector3D(0, d * rise - d * d / len * droop, 0);
+        };
+        for (int k = 0; k < steps; ++k) {
+            const float s0 = float(k) / steps, s1 = float(k + 1) / steps;
+            const QVector3D p0 = spine(s0), p1 = spine(s1);
+            // leaflets: widest in the middle, the edges hanging lower than the spine (a V)
+            const float w0 = len * .17f * std::sin(3.1416f * std::max(s0, .08f)), w1 = len * .17f * std::sin(3.1416f * s1);
+            for (float sd : { -1.f, 1.f }) {
+                const QVector3D e0 = p0 + side * (sd * w0) - QVector3D(0, w0 * .45f, 0);
+                const QVector3D e1 = p1 + side * (sd * w1) - QVector3D(0, w1 * .45f, 0);
+                QVector3D n = QVector3D::crossProduct(p1 - p0, e0 - p0).normalized();
+                if (n.y() < 0)
+                    n = -n;
+                n = (n + QVector3D(0, .6f, 0)).normalized();
+                vert(p0, n, col * 1.08f);
+                vert(p1, n, col * 1.08f);
+                vert(e1, n, col * .82f);
+                vert(p0, n, col * 1.08f);
+                vert(e1, n, col * .82f);
+                vert(e0, n, col * .82f);
+            }
+        }
+    }
+    if (!far)   // coconuts under the crown
+        for (int k = 0; k < 3; ++k) {
+            const float a = spin + k * 2.1f;
+            const QVector3D c = crown + QVector3D(std::cos(a) * h * .03f, -h * .025f, std::sin(a) * h * .03f);
+            const float r = .13f;
+            ellipsoid(c, QVector3D(r, 0, 0), QVector3D(0, r * 1.1f, 0), QVector3D(0, 0, r), 3, 5,
+                      [](QVector3D) { return QVector3D(.30f, .24f, .12f); });
+        }
+}
+
+// A saguaro: a ribbed green column with a rounded top and, when tall enough,
+// arms that bend upwards. Small ones are a single stem.
+void Route3DScene::cactus(const TreeSpec &t, bool far)
+{
+    const QVector3D base(float(t.x), float(t.y), float(t.z));
+    const float h = float(t.height), r = std::clamp(h * .065f, .14f, .40f);
+    const QVector3D green = QVector3D(.27f + .05f * rnd(t.seed, 1), .38f + .05f * rnd(t.seed, 2), .22f);
+    const int sides = far ? 5 : 9;
+    auto cap = [&](const QVector3D &top, float radius) {
+        if (far)
+            return;
+        ellipsoid(top, QVector3D(radius, 0, 0), QVector3D(0, radius * .7f, 0), QVector3D(0, 0, radius), 3, sides,
+                  [&](QVector3D d) { return green * (.95f + .1f * d.y()); });
+    };
+    const QVector3D top = base + QVector3D(0, h, 0);
+    taper(base, top, r, r * .92f, sides, green * .75f, green);
+    cap(top, r * .92f);
+    if (h < 3.2f)
+        return;
+    const int arms = 1 + int(rnd(t.seed, 3) * (h > 5 ? 3.f : 2.f));
+    const float spin = rnd(t.seed, 4) * 6.283f;
+    for (int k = 0; k < arms; ++k) {
+        const float a = spin + k * 2.4f + (rnd(t.seed, 10 + k) - .5f) * .8f;
+        const QVector3D out(std::cos(a), 0, std::sin(a));
+        const float ra = r * .72f;
+        const QVector3D p0 = base + QVector3D(0, h * (.35f + .25f * rnd(t.seed, 20 + k)), 0);
+        const QVector3D p1 = p0 + out * (r * 2.6f) + QVector3D(0, ra * 1.2f, 0);
+        const QVector3D p2 = p1 + QVector3D(0, std::min(h * (.22f + .25f * rnd(t.seed, 30 + k)), base.y() + h - p1.y() - .2f), 0);
+        taper(p0, p1, ra, ra, sides, green * .8f, green * .9f);
+        if (!far)
+            ellipsoid(p1, QVector3D(ra, 0, 0), QVector3D(0, ra, 0), QVector3D(0, 0, ra), 3, sides,
+                      [&](QVector3D) { return green * .88f; });
+        if (p2.y() > p1.y() + .1f) {
+            taper(p1, p2, ra, ra * .92f, sides, green * .85f, green);
+            cap(p2, ra * .92f);
+        }
+    }
+}
+
+// A gum tree: a tall, pale, smooth trunk forking into a few limbs that carry
+// loose, grey-green clumps of leaves (an open crown: you see the sky through it).
+void Route3DScene::eucalyptus(const TreeSpec &t, bool far)
+{
+    const QVector3D base(float(t.x), float(t.y), float(t.z));
+    const float h = float(t.height), R = float(t.radius);
+    const QVector3D bark = rnd(t.seed, 1) < .5f ? QVector3D(.80f, .77f, .70f) : QVector3D(.70f, .62f, .52f);
+    const QVector3D leaves = QVector3D(.34f + .05f * rnd(t.seed, 2), .42f + .05f * rnd(t.seed, 3), .30f) * rgb(m_profile.leafTint);
+    const float lean = rnd(t.seed, 4) * 6.283f;
+    const QVector3D fork = base + QVector3D(std::cos(lean) * h * .05f, h * .48f, std::sin(lean) * h * .05f);
+    taper(base, fork, h * .035f, h * .024f, far ? 4 : 7, bark * .8f, bark);
+    const int limbs = far ? 2 : 3 + int(rnd(t.seed, 5) * 2);
+    const float spin = rnd(t.seed, 6) * 6.283f;
+    for (int k = 0; k < limbs; ++k) {
+        const float a = spin + k * 6.283f / limbs + (rnd(t.seed, 10 + k) - .5f) * .7f;
+        const QVector3D out(std::cos(a), 0, std::sin(a));
+        const QVector3D end = fork + out * (R * (.45f + .35f * rnd(t.seed, 20 + k))) + QVector3D(0, h * (.25f + .2f * rnd(t.seed, 30 + k)), 0);
+        taper(fork, end, h * .016f, h * .008f, far ? 3 : 5, bark, bark * 1.05f);   // (far too: no floating clumps)
+        const float r = R * (.38f + .14f * rnd(t.seed, 40 + k));
+        blob(end + QVector3D(0, r * .2f, 0), end, r, leaves * (.9f + .2f * rnd(t.seed, 50 + k)), .62f, t.seed + uint32_t(k) * 31u,
+             far ? 3 : 4, far ? 5 : 7, base.y(), h);
+    }
+    if (!far)   // a clump at the top
+        blob(base + QVector3D(0, h * .9f, 0), fork, R * .4f, leaves, .6f, t.seed + 997u, 4, 7, base.y(), h);
+}
+
+// An umbrella thorn: a short trunk splitting into a few slanting limbs under
+// a wide, flat crown.
+void Route3DScene::acacia(const TreeSpec &t, bool far)
+{
+    const QVector3D base(float(t.x), float(t.y), float(t.z));
+    const float h = float(t.height), R = float(t.radius);
+    const QVector3D bark(.33f, .27f, .21f);
+    const QVector3D leaves = QVector3D(.30f + .05f * rnd(t.seed, 1), .37f + .05f * rnd(t.seed, 2), .17f) * rgb(m_profile.leafTint);
+    const QVector3D fork = base + QVector3D(0, h * .38f, 0);
+    taper(base, fork, h * .04f, h * .03f, far ? 4 : 6, bark * .8f, bark);
+    const QVector3D crown = base + QVector3D(0, h * .82f, 0);
+    // the limbs up to the crown (far too, simpler: else the crown floats over a stump)
+    const float spin = rnd(t.seed, 3) * 6.283f;
+    for (int k = 0; k < 3; ++k) {
+        const float a = spin + k * 2.09f;
+        const QVector3D end = crown + QVector3D(std::cos(a) * R * .45f, -h * .05f, std::sin(a) * R * .45f);
+        taper(fork, end, h * .022f, h * .012f, far ? 3 : 5, bark, bark);
+    }
+    if (far) {
+        blob(crown, crown, R, leaves, .26f, t.seed, 3, 7, base.y(), h);
+        return;
+    }
+    blob(crown, crown, R * .85f, leaves, .26f, t.seed, 4, 9, base.y(), h);
+    for (int k = 0; k < 2; ++k) {   // a lumpy, layered top
+        const float a = spin + 1.f + k * 3.1f;
+        const QVector3D c = crown + QVector3D(std::cos(a) * R * .4f, h * .04f, std::sin(a) * R * .4f);
+        blob(c, crown, R * .55f, leaves * (.92f + .16f * rnd(t.seed, 10 + k)), .3f, t.seed + uint32_t(k) + 7u, 4, 8, base.y(), h);
+    }
 }
 
 // A clump of wild flowers: each a thin stem and a small cup-shaped head
@@ -1392,9 +1667,13 @@ void Route3DScene::rock(const RockSpec &s, bool far)
     const float cs = std::cos(spin), sn = std::sin(spin);
     const QVector3D centre(float(s.x), float(s.y) + ry * .45f, float(s.z));
     const float tone = .38f + .16f * rnd(s.seed, 5);
-    const QVector3D grey = rnd(s.seed, 6) < .5f ? QVector3D(tone * 1.05f, tone, tone * .92f)    // warm granite
-                                                 : QVector3D(tone * .95f, tone, tone * 1.04f);  // cool
-    const float moss = rnd(s.seed, 7) * .6f;
+    QVector3D grey = rnd(s.seed, 6) < .5f ? QVector3D(tone * 1.05f, tone, tone * .92f)    // warm granite
+                                           : QVector3D(tone * .95f, tone, tone * 1.04f);  // cool
+    // sandstone and red rock where the ground is sand (deserts, the outback); no moss there or in snow
+    const bool dry = m_profile.sandCover > .2f;
+    if (dry)
+        grey *= QVector3D(1, 1, 1) + (rgb(m_profile.sandTint) - QVector3D(1, 1, 1)) * .8f + QVector3D(.18f, .12f, .05f);
+    const float moss = dry || m_profile.snowCover > 0 ? 0.f : rnd(s.seed, 7) * .6f;
     const QVector3D mossGreen(.27f, .34f, .16f);
     std::vector<QVector3D> pts;
     pts.reserve(size_t((rings + 1) * sides));
@@ -1453,11 +1732,10 @@ void Route3DScene::building(const Building &b, bool far)
     float L = float(b.length * .5), W = float(b.width * .5), y0 = float(b.ground) - .4f, fl = float(b.floor),
           y1 = fl + float(b.wall), rise = W * float(b.pitch);
     auto P = [&](float a, float s, float y) { return c + u * a + f * s + QVector3D(0, y, 0); };
-    static const QVector3D wallColors[] = { { .84f, .83f, .79f }, { .86f, .72f, .42f }, { .58f, .23f, .17f }, { .14f, .13f, .12f } };
-    static const QVector3D roofColors[] = { { .52f, .22f, .15f }, { .12f, .12f, .14f }, { .42f, .35f, .24f },
-                                            { .46f, .46f, .44f }, { .30f, .32f, .35f } };
+    // the biome's palettes (Nordic: Danish whitewash, ochre, red and tarred walls)
     float tint = .92f + .16f * rnd(b.seed, 1);
-    QVector3D wall = wallColors[b.walls & 3] * tint, roof = roofColors[std::clamp(b.roof, 0, 4)] * (.9f + .2f * rnd(b.seed, 2)),
+    QVector3D wall = rgb(m_profile.walls[b.walls & 3]) * tint,
+              roof = rgb(m_profile.roofs[std::clamp(b.roof, 0, 4)]) * (.9f + .2f * rnd(b.seed, 2)),
               plinth(.40f, .39f, .37f);
     float base = fl + .35f;
     // Walls: long sides (normal +-f) and gable ends (normal +-u).
@@ -1563,8 +1841,11 @@ void Route3DScene::buildRing()
 {
     m_ring.clear();
     struct Layer { float radius, height, amp, vis; QVector3D color; float phase; };
-    for (auto L : { Layer { 1750, 110, 170, .46f, QVector3D(.42f, .52f, .60f), 0.f },
-                    Layer { 1150, 55, 90, .66f, QVector3D(.27f, .38f, .24f), 1.7f } }) {
+    const float k = m_profile.ringScale;
+    // snow caps (the icy north, the mountains): the upper part of the far ridge turns white
+    const QVector3D snowCap(.86f, .89f, .94f);
+    for (auto L : { Layer { 1750, 110 * k, 170 * k, .46f, rgb(m_profile.ringFar), 0.f },
+                    Layer { 1150, 55 * k, 90 * k, .66f, rgb(m_profile.ringNear), 1.7f } }) {
         constexpr int n = 192;
         auto top = [&](int i) {
             double a = 6.283185307 * i / n;
@@ -1584,15 +1865,23 @@ void Route3DScene::buildRing()
                 p.setY(y);
                 return p;
             };
+            // the top's colour: snow on the higher crests of the far ridge
+            auto crest = [&](const QVector3D &p) {
+                if (!m_profile.ringSnow || L.phase != 0.f)
+                    return L.color;
+                const float s = std::clamp((p.y() - L.height) / (L.amp * .35f), 0.f, 1.f);
+                return L.color * (1 - s) + snowCap * s;
+            };
             // Skirt below the horizon (pure haze), then the hill face.
             for (auto [y0, y1, e0, e1] : { std::array<float, 4> { -140, -6, 0, 0 }, std::array<float, 4> { -6, 0, 0, 1 } }) {
                 auto a0 = at(a, y0), b0 = at(b, y0), a1 = y1 == 0 ? a : at(a, y1), b1 = y1 == 0 ? b : at(b, y1);
+                const QVector3D ca = y1 == 0 ? crest(a) : L.color, cb = y1 == 0 ? crest(b) : L.color;
                 put(m_ring, a0, na, L.color, Distant, e0 * L.vis);
                 put(m_ring, b0, nb, L.color, Distant, e0 * L.vis);
-                put(m_ring, b1, nb, L.color, Distant, e1 * L.vis);
+                put(m_ring, b1, nb, cb, Distant, e1 * L.vis);
                 put(m_ring, a0, na, L.color, Distant, e0 * L.vis);
-                put(m_ring, b1, nb, L.color, Distant, e1 * L.vis);
-                put(m_ring, a1, na, L.color, Distant, e1 * L.vis);
+                put(m_ring, b1, nb, cb, Distant, e1 * L.vis);
+                put(m_ring, a1, na, ca, Distant, e1 * L.vis);
             }
         }
     }
@@ -1612,6 +1901,8 @@ void Route3DScene::uploadTile()
                        int(m_buildDecals.size() * sizeof(Vertex)));
     m_meshCount = int(m_build.size());
     m_decalCount = int(m_buildDecals.size());
+    m_perches.swap(m_buildPerches);
+    std::swap(m_birdGround, m_buildBirdGround);
 }
 
 void Route3DScene::scene(double distance)
@@ -1697,6 +1988,24 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             tint *= 1 - std::min(.22f, steep * .9f);   // steep banks slightly darker
             col[i * n + j] *= tint;
         }
+    // the birds' ground: per 4 x 4 nodes (32 m) the highest node around
+    {
+        constexpr int kBlock = 4, m = (n - 1) / kBlock;
+        BirdGround &g = m_buildBirdGround;
+        g.step = float(kBlock * Terrain::spacing);
+        g.n = m;
+        g.x0 = float(nx + kBlock / 2) / kBlock;
+        g.z0 = float(nz + kBlock / 2) / kBlock;
+        g.h.assign(size_t(m * m), -1e9f);
+        for (int bi = 0; bi < m; ++bi)
+            for (int bj = 0; bj < m; ++bj) {
+                float top = -1e9f;
+                for (int i = bi * kBlock; i <= std::min(n - 1, bi * kBlock + kBlock); ++i)
+                    for (int j = bj * kBlock; j <= std::min(n - 1, bj * kBlock + kBlock); ++j)
+                        top = std::max(top, pos[i * n + j].y());
+                g.h[size_t(bi * m + bj)] = top;
+            }
+    }
     m_build.reserve(size_t(n * n * 6 + 400000));
     for (int i = 0; i + 1 < n; i++)
         for (int j = 0; j + 1 < n; j++) {
@@ -1986,7 +2295,8 @@ void Route3DScene::buildTile(int tileX, int tileZ)
     QVector3D shadowDir = QVector3D(-m_sun.x(), 0, -m_sun.z()).normalized();
     auto ground = [&](QVector3D q) { return float(m_terrain.surface(q.x(), q.z())) + .06f; };
     // Houses and farms (trees avoid their footprints and gardens).
-    auto buildings = Settlement::near(m_terrain, cx, cz, 380);
+    // (fewer in the desert, the outback, the icy north: whole sites left out)
+    const auto buildings = Settlement::near(m_terrain, cx, cz, 380, m_profile.buildings);
     for (const auto &b : buildings) {
         double dist = std::hypot(b.x - cx, b.z - cz);
         if (dist > 390)
@@ -2011,7 +2321,7 @@ void Route3DScene::buildTile(int tileX, int tileZ)
     };
     // animals: the nearest kMaxAnimals (a tile in the middle of a big herd stays cheap)
     constexpr size_t kMaxAnimals = 150;
-    auto animals = Animals::scatter(m_terrain, cx, cz, 260, &buildings);
+    auto animals = m_profile.animals ? Animals::scatter(m_terrain, cx, cz, 260, &buildings) : std::vector<AnimalSpec>();
     if (animals.size() > kMaxAnimals) {
         auto byDistance = [&](const AnimalSpec &p, const AnimalSpec &q) {
             return std::hypot(p.x - cx, p.z - cz) < std::hypot(q.x - cx, q.z - cz);
@@ -2027,20 +2337,20 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         if (dist < 120)
             contact(a.x, a.z, QVector3D(std::cos(float(a.heading)), 0, std::sin(float(a.heading))), .45f * big, 1.15f * big, .32f);
     }
-    for (const auto &b : Bales::scatter(m_terrain, cx, cz, 260, &buildings)) {
+    for (const auto &b : m_profile.bales ? Bales::scatter(m_terrain, cx, cz, 260, &buildings) : std::vector<BaleSpec>()) {
         bale(b);
         taken.push_back({ b.x, b.z, 1.1 });
         if (std::hypot(b.x - cx, b.z - cz) < 120)
             contact(b.x, b.z, QVector3D(std::cos(float(b.heading)), 0, std::sin(float(b.heading))), .75f, .85f, .38f);
     }
-    for (const auto &t : Tractors::scatter(m_terrain, cx, cz, 300, &buildings)) {
+    for (const auto &t : m_profile.tractors ? Tractors::scatter(m_terrain, cx, cz, 300, &buildings) : std::vector<TractorSpec>()) {
         const double dist = std::hypot(t.x - cx, t.z - cz);
         tractor(t, dist > 130);
         taken.push_back({ t.x, t.z, 3.0 });
         if (dist < 150)
             contact(t.x, t.z, QVector3D(std::cos(float(t.heading)), 0, std::sin(float(t.heading))), 1.3f, 2.2f, .40f);
     }
-    for (const auto &t : Turbines::scatter(m_terrain, cx, cz, 430, &buildings)) {
+    for (const auto &t : m_profile.turbines ? Turbines::scatter(m_terrain, cx, cz, 430, &buildings) : std::vector<TurbineSpec>()) {
         turbine(t, std::hypot(t.x - cx, t.z - cz) > 250);
         taken.push_back({ t.x, t.z, 6.0 });
     }
@@ -2065,7 +2375,7 @@ void Route3DScene::buildTile(int tileX, int tileZ)
     // road point, 5 m; now and then a field gate), only near the camera.
     for (const uint32_t idx : nearby) {
         const size_t i = idx;
-        if (i % 2 || i + 2 >= route.points.size() || route.isShared(i))
+        if (!m_profile.fences || i % 2 || i + 2 >= route.points.size() || route.isShared(i))
             continue;
         const auto &p = route.points[i];
         if (std::hypot(p.x - cx, p.z - cz) > 170)
@@ -2100,25 +2410,28 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         shadowDisc(m_buildDecals, c, -bike.x, .42f, 1.05f, .40f, [&](QVector3D q) { return bike.groundAt(q) + .05f; });
     }
     // Trees: detailed models near the road, simple ones further out (fog hides the rest).
-    for (const auto &t : Vegetation::scatter(m_terrain, cx, cz, 300, &buildings)) {
-        if (atBike(t.x, t.z, 2.5 + t.radius) || takenAt(t.x, t.z, t.radius * (t.kind == Bush ? .6 : .3)))
+    std::vector<TreeSpec> drawnTrees;
+    for (const auto &t : Vegetation::scatter(m_terrain, cx, cz, 300, &buildings, &m_profile)) {
+        const bool small = t.kind == Bush || t.kind == Cactus;
+        if (atBike(t.x, t.z, 2.5 + t.radius) || takenAt(t.x, t.z, t.radius * (small ? .6 : .3)))
             continue;
+        drawnTrees.push_back(t);
         double dist = std::hypot(t.x - cx, t.z - cz);
         bool far = dist > 115;
-        if (t.kind == Spruce)
-            spruce(t, far);
-        else if (t.kind == Broadleaf)
-            broadleaf(t, far);
-        else
-            bush(t);
+        tree(t, far);
         if (dist < 170) {
+            // (a cactus or a palm casts a slim shadow, an acacia a wide one)
+            const float spread = t.kind == Cactus ? .45f : t.kind == Palm ? .8f : t.kind == Bush ? 1.1f : 1.25f;
             QVector3D c = QVector3D(float(t.x), 0, float(t.z)) + shadowDir * float(t.height * (t.kind == Bush ? .15 : .22));
-            float r = float(t.radius) * (t.kind == Bush ? 1.1f : 1.25f);
+            float r = float(t.radius) * spread;
             shadowDisc(m_buildDecals, c, shadowDir, r, r * 1.25f, t.kind == Bush ? .30f : .42f, ground);
         }
     }
+    // the little birds' treetops
+    m_buildPerches.clear();
+    perches(drawnTrees, m_terrain, cx, cz, m_profile, m_buildPerches);
     // Rocks and boulders (simpler further out), wild flowers close by (they are small).
-    for (const auto &s : Rocks::scatter(m_terrain, cx, cz, 240, &buildings)) {
+    for (const auto &s : Rocks::scatter(m_terrain, cx, cz, 240, &buildings, m_profile.rocks)) {
         if (atBike(s.x, s.z, 2.0 + 1.5 * s.size) || takenAt(s.x, s.z, s.size))
             continue;
         const double dist = std::hypot(s.x - cx, s.z - cz);
@@ -2129,7 +2442,7 @@ void Route3DScene::buildTile(int tileX, int tileZ)
             shadowDisc(m_buildDecals, c, shadowDir, r, r * 1.2f, .32f, ground);
         }
     }
-    for (const auto &f : Flowers::scatter(m_terrain, cx, cz, 75, &buildings))
+    for (const auto &f : Flowers::scatter(m_terrain, cx, cz, 75, &buildings, m_profile.flowers))
         if (!atBike(f.x, f.z, 1.6) && !takenAt(f.x, f.z, .4))
             flowers(f);
 }
@@ -2162,7 +2475,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     glDisable(GL_POLYGON_OFFSET_FILL);
     glDepthFunc(GL_LESS);
     glClearDepthf(1.0f);
-    glClearColor(.73f, .81f, .88f, 1);
+    glClearColor(m_profile.horizon.r, m_profile.horizon.g, m_profile.horizon.b, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDisable(GL_CULL_FACE);
     if (!m_route || m_route->points.size() < 2)
@@ -2170,6 +2483,12 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     const Route &route = *m_route;
     distance = std::clamp(distance, 0.0, route.length());
     scene(distance);
+    if (m_ringDirty) {   // a route in another biome: its distant hills
+        m_ringDirty = false;
+        m_ringBuffer.bind();
+        m_ringBuffer.allocate(m_ring.data(), int(m_ring.size() * sizeof(Vertex)));
+        m_ringBuffer.release();
+    }
 
     auto pos = v(route.at(distance));
     auto forward = v(route.at(std::min(route.length(), distance + 12))) - v(route.at(std::max(0.0, distance - 3)));
@@ -2208,6 +2527,8 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     m_skyShader.setUniformValue("sunDir", m_sun);
     m_skyShader.setUniformValue("noiseMap", 3);
     m_skyShader.setUniformValue("time", time);
+    if (m_biomeUniformsDirty)   // (per route: the programs keep them)
+        setBiomeUniforms(m_skyShader, true);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     m_skyShader.release();
     m_skyVao.release();
@@ -2230,7 +2551,10 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         program->setUniformValue("gravelMap", 2);
         program->setUniformValue("noiseMap", 3);
         program->setUniformValue("bannerMap", 4);
+        if (m_biomeUniformsDirty)
+            setBiomeUniforms(*program, false);
     }
+    m_biomeUniformsDirty = false;
     attributes();
     glDrawArrays(GL_TRIANGLES, 0, m_meshCount);
     // 3. Distant hills, centred on the camera like a skybox.
@@ -2239,6 +2563,15 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     m_shader.setUniformValue("offset", QVector3D(eye.x(), eye.y(), eye.z()));
     glDrawArrays(GL_TRIANGLES, 0, int(m_ring.size()));
     m_shader.setUniformValue("offset", QVector3D());
+    // the birds (moving: rebuilt every frame)
+    m_birdVertices.clear();
+    birds(distance, eye, time, m_birdVertices);
+    if (!m_birdVertices.empty()) {
+        m_birdBuffer.bind();
+        m_birdBuffer.allocate(m_birdVertices.data(), int(m_birdVertices.size() * sizeof(Vertex)));
+        attributes();
+        glDrawArrays(GL_TRIANGLES, 0, int(m_birdVertices.size()));
+    }
     // the arches, signs, road text, km posts and the bike (cut-out letters):
     // after the other opaque geometry, with the discarding program
     m_cutoutShader.bind();
