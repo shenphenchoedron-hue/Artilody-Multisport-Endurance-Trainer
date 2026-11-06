@@ -77,6 +77,12 @@ export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 linuxdeploy --appdir "$appdir" --executable "$appdir/usr/bin/$name" --plugin qt \
     --deploy-deps-only "$gstdst" --deploy-deps-only "$appdir/usr/libexec"
 
+# The app uses the Basic style only (main.cpp): the other Qt Quick Controls
+# styles stay out.
+for style in Material Universal Imagine Fusion; do
+    rm -rf "$appdir/usr/qml/QtQuick/Controls/$style"
+done
+
 # 5. System-visible pieces: the command (a launcher: GStreamer uses the
 #    bundled plugins, its registry lives in the user's cache), the menu entry
 #    and icons.

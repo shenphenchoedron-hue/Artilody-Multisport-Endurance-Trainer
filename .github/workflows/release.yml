@@ -283,7 +283,9 @@ jobs:
           asset="artilody-watts-trainer_${{ steps.version.outputs.version }}_${SUFFIX}.deb"
           mkdir -p dist
           bash packaging/linux/pi-bundle.sh build "${{ steps.version.outputs.version }}" "dist/$asset"
-          dpkg-deb --contents "dist/$asset" | head -n 80
+          # the biggest parts (size check)
+          dpkg-deb --contents "dist/$asset" | sort -k3 -n -r | head -n 60 || true
+          ls -l dist
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       - name: Upload package
