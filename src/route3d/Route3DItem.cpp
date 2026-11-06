@@ -1,6 +1,7 @@
 #include "Route3DItem.h"
 
 #include "Route3DScene.h"
+#include "DiagLog.h"
 #include "RlvRoute.h"
 #include "biome.h"
 #include "RouteProgress.h"
@@ -49,8 +50,13 @@ route3d::Biome biomeOf(const RlvRoute &route)
         return route3d::Biome::Nordic;
     const auto m = route3d::Biomes::summarize(pts.constData(), size_t(pts.size()));
     const auto biome = route3d::Biomes::classify(m.lat, m.lon, m.elevation, m.climbPerKm);
-    qInfo("Route3D: landscape %s (%.2f, %.2f; mean %.0f m, %.1f m/km)", route3d::Biomes::name(biome), m.lat, m.lon,
-          m.elevation, m.climbPerKm);
+    // (in the diagnostic log too: which landscape a route got, on any computer)
+    DiagLog::write("3D", QStringLiteral("landscape %1 (%2, %3; mean %4 m, %5 m/km)")
+                             .arg(QLatin1String(route3d::Biomes::name(biome)))
+                             .arg(m.lat, 0, 'f', 2)
+                             .arg(m.lon, 0, 'f', 2)
+                             .arg(m.elevation, 0, 'f', 0)
+                             .arg(m.climbPerKm, 0, 'f', 1));
     return biome;
 }
 

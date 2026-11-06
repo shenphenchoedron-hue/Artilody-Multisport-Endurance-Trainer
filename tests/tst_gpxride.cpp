@@ -9,6 +9,7 @@
 #include "RlvLibrary.h"
 #include "RlvSession.h"
 #include "Route3DItem.h"
+#include "biome.h"
 #include "SensorHub.h"
 #include "TrainingSession.h"
 #include "VirtualGears.h"
@@ -844,6 +845,46 @@ private slots:
             threw = true;
         }
         QVERIFY(threw);
+    }
+
+    void route3dPicksTheLandscape_data()
+    {
+        QTest::addColumn<double>("lat");
+        QTest::addColumn<double>("lon");
+        QTest::addColumn<int>("biome");
+        QTest::newRow("Copenhagen") << 55.68 << 12.57 << int(route3d::Biome::Nordic);
+        QTest::newRow("Sydney") << -33.87 << 151.21 << int(route3d::Biome::Australian);
+        QTest::newRow("Perth") << -31.95 << 115.86 << int(route3d::Biome::Australian);
+        QTest::newRow("Cairo") << 30.04 << 31.24 << int(route3d::Biome::Desert);
+        QTest::newRow("Bangkok") << 13.76 << 100.50 << int(route3d::Biome::Tropical);
+    }
+    void route3dPicksTheLandscape()
+    {
+        // the whole way from a GPX file to the drawn route's landscape
+        // (RlvRoute::load -> Route3DItem::build -> biome.h), on every platform
+        QFETCH(double, lat);
+        QFETCH(double, lon);
+        QFETCH(int, biome);
+        qunsetenv("WATT_BIOME");
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("place.gpx"));
+        QByteArray gpx = "<?xml version=\"1.0\"?>\n<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">"
+                         "<trk><name>place</name><trkseg>\n";
+        for (int i = 0; i < 60; ++i)   // 3 km north, flat
+            gpx += QStringLiteral("<trkpt lat=\"%1\" lon=\"%2\"><ele>%3</ele></trkpt>\n")
+                       .arg(lat + i * 50.0 / kMPerDegLat, 0, 'f', 8)
+                       .arg(lon, 0, 'f', 8)
+                       .arg(30.0 + (i % 2), 0, 'f', 2)
+                       .toUtf8();
+        gpx += "</trkseg></trk></gpx>\n";
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(gpx);
+        f.close();
+        RlvRoute route;
+        QVERIFY(route.load(path));
+        const Route3DItem::Built b = Route3DItem::build(route);
+        QCOMPARE(b.route->biome, biome);
     }
 
     void route3dFillsSparseTracks()
