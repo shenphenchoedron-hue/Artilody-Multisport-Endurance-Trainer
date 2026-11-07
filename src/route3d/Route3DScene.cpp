@@ -276,7 +276,9 @@ constexpr double kLapBoardAfterM = 18.0;   // the lap board: this far after the 
 //   rows 752..783  digits 0..9 for the kilometre posts: black on opaque
 //                  white (no cut-out: far away they blur to grey instead of
 //                  vanishing), 40 px apart (kDigit()); "LAPS" for the
-//                  loop's lap board at x 416..607 (kLapsLabel)
+//                  loop's lap board at x 416..607 (kLapsLabel); the same
+//                  digits on yellow for the kilometre posts at x 616..1015
+//                  (kYellowDigit())
 //   rows 816..919  road text "SPRINT IN 200 m"          (kRoadAnnounce)
 //   rows 920..1023 road text "SPRINT" (x 0..511)         (kRoadSprint)
 //                  and the bike's brand label (x 512..1023, kLabel)
@@ -296,6 +298,12 @@ constexpr TexRect kDigit(int digit)
 {
     return texPixels(digit * kDigitCell + 5, kDigitRow + 1, kDigitCell - 10, 30);
 }
+constexpr int kYellowDigitX = 616;
+constexpr TexRect kYellowDigit(int digit)
+{
+    return texPixels(kYellowDigitX + digit * kDigitCell + 5, kDigitRow + 1, kDigitCell - 10, 30);
+}
+constexpr QRgb kKmYellow = 0xfff2c21b;   // the kilometre posts' plate
 constexpr TexRect kLapsLabel = texPixels(420, kDigitRow + 1, 184, 30);
 constexpr TexRect cellFace(int x, int row)
 {
@@ -396,6 +404,10 @@ QImage bannerImage()
         p.setPen(QColor(18, 18, 18));
         for (int k = 0; k < 10; ++k)
             p.drawText(QRect(k * kDigitCell, kDigitRow, kDigitCell, 32), Qt::AlignCenter, QString::number(k));
+        // the kilometre posts' digits: black on yellow
+        p.fillRect(QRect(kYellowDigitX, kDigitRow, 10 * kDigitCell, 32), QColor::fromRgb(kKmYellow));
+        for (int k = 0; k < 10; ++k)
+            p.drawText(QRect(kYellowDigitX + k * kDigitCell, kDigitRow, kDigitCell, 32), Qt::AlignCenter, QString::number(k));
         // the lap board's label
         const QRect laps(416, kDigitRow, 192, 32);
         p.fillRect(laps, Qt::white);
@@ -1093,7 +1105,8 @@ void Route3DScene::kmPosts()
 {
     const Route &route = *m_route;
     const double length = route.length();
-    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateWhite(1, 1, 1);
+    const QColor y = QColor::fromRgb(kKmYellow);
+    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateYellow(y.redF(), y.greenF(), y.blueF());
     for (size_t i = 0; i < m_kmPosts.size(); ++i) {
         double d = m_kmPosts[i][0];
         // not into a sign or an arch
@@ -1125,10 +1138,10 @@ void Route3DScene::kmPosts()
         const QVector3D plate = foot + up * (1.15f + ph) + n * .07f;
         box(plate - n * .045f, r * (pw + .02f), up * (ph + .02f), n * .015f, black);   // dark rim and back (well behind the face: no depth fighting)
         const QVector3D front = plate + n * .001f;
-        face(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, n, plateWhite);
+        face(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, n, plateYellow);
         float x = -number.size() * dw * .5f;
         for (const QChar ch : number) {
-            const TexRect t = kDigit(ch.digitValue());
+            const TexRect t = kYellowDigit(ch.digitValue());
             const QVector3D c0 = front + n * .025f + r * x - up * (dh * .5f), c1 = c0 + r * dw, c2 = c1 + up * dh, c3 = c0 + up * dh;
             const QVector3D tl(t.u0, t.v0, 0), tr(t.u1, t.v0, 0), bl(t.u0, t.v1, 0), br(t.u1, t.v1, 0);
             put(c0, n, bl, Banner, 0);
