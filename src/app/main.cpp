@@ -244,6 +244,17 @@ int main(int argc, char *argv[])
     // has read it already (it keeps it for the plugins loaded later), so put
     // back the user's value: programs the app starts (the file manager for
     // "Open folder", a browser) must use the system's libraries, not ours.
+    // ... and on a Wayland desktop it runs through XWayland (X11): with Qt
+    // 6.4's own Wayland window frame the first switch to full screen left a
+    // black band along the top and the left of the full-screen 3D view. Only when
+    // nobody chose a platform (QT_QPA_PLATFORM=wayland still works); put
+    // back after the application exists, so started programs are not affected.
+    bool chosePlatform = false;
+    if (qEnvironmentVariableIsSet("ARTILODY_BUNDLE") && !qEnvironmentVariableIsSet("QT_QPA_PLATFORM")
+        && qEnvironmentVariableIsSet("DISPLAY")) {
+        qputenv("QT_QPA_PLATFORM", "xcb");
+        chosePlatform = true;
+    }
     if (qEnvironmentVariableIsSet("ARTILODY_BUNDLE")) {
         const QByteArray original = qgetenv("ARTILODY_ORIGINAL_LD_LIBRARY_PATH");
         if (original.isEmpty())
@@ -272,6 +283,10 @@ int main(int argc, char *argv[])
         QSurfaceFormat::setDefaultFormat(format);
     }
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_LINUX
+    if (chosePlatform)
+        qunsetenv("QT_QPA_PLATFORM");
+#endif
     QGuiApplication::setOrganizationName(QStringLiteral("Artilody"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("artilody.app"));
     // NOTE: applicationName/organizationName are intentionally kept at their
