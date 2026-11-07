@@ -259,6 +259,7 @@ constexpr float kArchLegHeight = 3.0f;  // straight legs, then a half circle
 constexpr float kArchTube = .48f;       // inflated tube radius
 constexpr float kBannerHalfWidth = 2.6f;   // banner height: from its printed face (arch())
 constexpr double kArchClearM = 10.0;       // a KOM arch this close to START / FINISH is left out
+constexpr double kLoopStartArchM = 150.0;  // closed lap: no START arch this close after the FINISH arch
 
 // The one banner texture (1024 x 1024 RGBA, mipmapped) holds every printed
 // face, so the arches, the bike's label, the sprint and the KOM add no
@@ -848,7 +849,11 @@ void Route3DScene::buildGates()
     // START ahead of the start point (seen whole before you ride through
     // it), FINISH just before the end (you finish under it)
     m_builtStartGate = startGate(length);
-    arch(m_gateVertices, m_builtStartGate, StartArch);
+    // a closed lap: the FINISH arch at the seam ends every lap, a START arch
+    // just after it would be a second gate right behind (left out)
+    const bool startArch = !(m_route->closed && m_builtStartGate + (length - m_route->finish()) < kLoopStartArchM);
+    if (startArch)
+        arch(m_gateVertices, m_builtStartGate, StartArch);
     m_startGateCount = int(m_gateVertices.size());
     const double finishArch = std::max(0.0, m_route->finish() - 1.0);
     arch(m_gateVertices, finishArch, FinishArch);
@@ -881,8 +886,9 @@ void Route3DScene::drawGates(double distance)
 {
     if (!m_route || m_gateVertices.empty())
         return;
-    // START until you have ridden through it, then FINISH (a loop has both at one place)
-    const bool finishHalf = distance > m_builtStartGate + 2.0;
+    // START until you have ridden through it, then FINISH (a loop has both at
+    // one place); no START (a closed lap): FINISH all the time
+    const bool finishHalf = m_startGateCount == 0 || distance > m_builtStartGate + 2.0;
     m_gateBuffer.bind();
     attributes();
     if (finishHalf)
@@ -2484,7 +2490,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     if (!m_route || m_route->points.size() < 2)
         return;   // just the haze colour until a route is set
     const Route &route = *m_route;
-    distance = std::clamp(distance, 0.0, route.length());
+    distance = route.wrap(distance);   // (a closed lap: round again)
     scene(distance);
     if (m_ringDirty) {   // a route in another biome: its distant hills
         m_ringDirty = false;
@@ -2494,7 +2500,8 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     }
 
     auto pos = v(route.at(distance));
-    auto forward = v(route.at(std::min(route.length(), distance + 12))) - v(route.at(std::max(0.0, distance - 3)));
+    auto forward = route.closed ? v(route.at(distance + 12)) - v(route.at(distance - 3))
+                                : v(route.at(std::min(route.length(), distance + 12))) - v(route.at(std::max(0.0, distance - 3)));
     if (forward.lengthSquared() < .01f)
         forward = QVector3D(0, 0, -1);
     forward.normalize();
@@ -2594,7 +2601,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         if (fwd.lengthSquared() < 1e-4f)
             fwd = QVector3D(0, 0, -1);
         fwd.normalize();
-        double along = std::min(route.length(), distance + 3);
+        double along = route.closed ? distance + 3 : std::min(route.length(), distance + 3);
         auto roadHeight = [&](QVector3D q) {
             return float(route.at(along + QVector3D::dotProduct(q - QVector3D(float(pose.center.x), 0, float(pose.center.z)), fwd)).y) + .06f;
         };

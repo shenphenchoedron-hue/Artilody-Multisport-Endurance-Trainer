@@ -150,6 +150,7 @@ private:
     double m_baseDistance = 0;     // drawn metres at the last session tick
     double m_speedKmh = 0;
     double m_frameDistance = 0;    // what the next frame shows
+    double m_lapOffset = 0;        // closed lap: drawn metres of the laps before (frames count on)
     double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
     std::vector<std::array<double, 3>> m_sprintDrawn;   // per sprint: announce / start / finish, drawn metres
     std::vector<std::array<double, 2>> m_komDrawn;      // per KOM: foot / top, drawn metres

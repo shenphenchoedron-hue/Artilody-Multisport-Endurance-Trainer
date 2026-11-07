@@ -260,14 +260,31 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     const bool roundTrip = loop && route.isRoundTrip();
     const bool thereAndBack = loop && !roundTrip;
     if (roundTrip) {
-        // round and round: the road closes back to the start (no run-out)
+        // round and round: the road closes back to the start (no run-out) on
+        // a curve that leaves the end the way the track arrives and meets the
+        // start the way the track leaves it (no corner at the seam)
         const route3d::GeoPoint end = geo.back(), first = geo.front();
         const double gap = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon);
-        const int steps = int(std::ceil(gap / 10.0));
+        // the direction (degrees per metre) over ~20 m from point `from` going `step`
+        auto heading = [&](size_t from, int step, double &dLat, double &dLon) {
+            size_t k = from;
+            while (k + step < geo.size() && int(k) + step >= 0
+                   && RlvRoute::haversine(geo[k].lat, geo[k].lon, geo[from].lat, geo[from].lon) < 20.0)
+                k = size_t(int(k) + step);
+            const double span = RlvRoute::haversine(geo[k].lat, geo[k].lon, geo[from].lat, geo[from].lon);
+            dLat = span > 1 ? (geo[from].lat - geo[k].lat) / span * (step < 0 ? 1 : -1) : 0;
+            dLon = span > 1 ? (geo[from].lon - geo[k].lon) / span * (step < 0 ? 1 : -1) : 0;
+        };
+        double eLat, eLon, sLat, sLon;
+        heading(ridden - 1, -1, eLat, eLon);   // arriving at the end
+        heading(0, 1, sLat, sLon);             // leaving the start
+        const int steps = int(std::ceil(gap / 5.0));
         for (int k = 1; k < steps; ++k) {
-            const double t = double(k) / steps;
-            geo.push_back({ end.lat + (first.lat - end.lat) * t, end.lon + (first.lon - end.lon) * t,
-                            end.elevation + (first.elevation - end.elevation) * t });
+            const double t = double(k) / steps, t2 = t * t, t3 = t2 * t;
+            const double h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+            geo.push_back({ h00 * end.lat + h10 * gap * eLat + h01 * first.lat + h11 * gap * sLat,
+                            h00 * end.lon + h10 * gap * eLon + h01 * first.lon + h11 * gap * sLon,
+                            end.elevation + (first.elevation - end.elevation) * (3 * t2 - 2 * t3) });
         }
         if (gap > 0.5)
             geo.push_back(first);
@@ -299,6 +316,13 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
         drawn->finishDistance = drawnAt[ridden - 1];
     if (thereAndBack)
         drawn->turnDistance = drawnAt[ridden - 1];
+    if (roundTrip) {
+        // the seam: the last point is the first (at() goes on round)
+        drawn->points.back().x = drawn->points.front().x;
+        drawn->points.back().y = drawn->points.front().y;
+        drawn->points.back().z = drawn->points.front().z;
+        drawn->closed = true;
+    }
     drawn->biome = int(biomeOf(route));
     b.route = drawn;
     b.appDistance.reserve(pts.size());
@@ -427,6 +451,8 @@ void Route3DItem::rebuildRoute()
         emit sceneChanged();
     if (error() != before)
         emit errorChanged();
+    m_lapOffset = 0;
+    m_baseDistance = 0;
     onPosition();
     m_frameDistance = m_baseDistance;   // a new route: no catching up
 }
@@ -434,7 +460,21 @@ void Route3DItem::rebuildRoute()
 void Route3DItem::onPosition()
 {
     const double old = m_baseDistance;
-    m_baseDistance = m_session && m_route ? mapDistance(m_built, m_session->distanceMeters(), m_session->returning()) : 0.0;
+    const double mapped = m_session && m_route ? mapDistance(m_built, m_session->distanceMeters(), m_session->returning()) : 0.0;
+    if (m_route && m_route->closed) {
+        // a closed lap: counted on over the seam (the frames ride on smoothly,
+        // the scene wraps), a new lap adds the lap's length
+        const double L = m_route->length();
+        const double now = mapped + m_lapOffset;
+        if (now < old - L / 2)
+            m_lapOffset += L;
+        else if (now > old + L / 2 && m_lapOffset >= L)
+            m_lapOffset -= L;
+        m_baseDistance = mapped + m_lapOffset;
+    } else {
+        m_lapOffset = 0;
+        m_baseDistance = mapped;
+    }
     m_startDrawn = m_session && m_route ? mapDistance(m_built, m_session->startDistanceM()) : 0.0;
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
     const bool running = m_session && m_session->running();
@@ -462,7 +502,8 @@ void Route3DItem::onFrame()
         // extrapolate from the last tick; never backwards (the next tick
         // catches up), but a jump (seek) is taken at once
         const double dt = std::min(m_sinceTick.elapsed() / 1000.0, kMaxExtrapolationSec);
-        const double target = std::min(m_route->finish(), m_baseDistance + m_speedKmh / 3.6 * dt);
+        const double ahead = m_baseDistance + m_speedKmh / 3.6 * dt;
+        const double target = m_route->closed ? ahead : std::min(m_route->finish(), ahead);
         if (std::abs(target - m_frameDistance) > 25.0)
             m_frameDistance = target;
         else

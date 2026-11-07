@@ -962,7 +962,22 @@ private slots:
         QVERIFY(b.backDistance.isEmpty());
         QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->length()) < 1e-6);
         const auto a0 = b.route->at(0), a1 = b.route->at(b.route->length());
-        QVERIFY(std::hypot(a0.x - a1.x, a0.z - a1.z) < 3.0);
+        QVERIFY(std::hypot(a0.x - a1.x, a0.z - a1.z) < 1e-6);
+        QVERIFY(b.route->closed);
+        // over the seam the road turns no more than elsewhere on the circle (no corner)
+        const double L = b.route->length();
+        auto heading = [&](double d) {
+            const auto p = b.route->at(d - 2), q = b.route->at(d + 2);
+            return std::atan2(q.z - p.z, q.x - p.x);
+        };
+        auto turn = [&](double d) { return std::abs(std::remainder(heading(d + 4) - heading(d - 4), 2 * M_PI)); };
+        const double normal = turn(L / 2);
+        QVERIFY(turn(L) < normal * 2 + 0.02);
+        QVERIFY(turn(L - 6) < normal * 2 + 0.02);
+        QVERIFY(turn(6) < normal * 2 + 0.02);
+        // and on round: past the end is the start again
+        const auto past = b.route->at(L + 10), early = b.route->at(10);
+        QVERIFY(std::hypot(past.x - early.x, past.z - early.z) < 1e-6);
     }
 
     void route3dPicksTheLandscape_data()

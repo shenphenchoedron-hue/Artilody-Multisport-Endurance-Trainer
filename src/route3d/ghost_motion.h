@@ -8,7 +8,7 @@ struct GhostPose {
     double fx=0,fy=0,fz=-1,lean=0,crank=0,wheel=0;
 };
 inline GhostPose ghostPose(const Route& route,double distance,double speedKmh){
-    GhostPose pose;double d=std::min(route.length(),distance+3);
+    GhostPose pose;double d=route.closed?distance+3:std::min(route.length(),distance+3);
     pose.center=route.at(d);
     auto before=route.at(d-5),after=route.at(d+5);
     double dx=after.x-before.x,dy=after.y-before.y,dz=after.z-before.z;

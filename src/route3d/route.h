@@ -24,6 +24,15 @@ public:
     // A looped there-and-back road (GPX Ride loop): where it turns back, a
     // second finish line (a lap ends there too); < 0 = none.
     double turnDistance=-1;
+    // A closed lap (GPX Ride loop of a round trip): the road's end is its
+    // start; at() goes on round (distances wrap, the spline runs through
+    // the seam), so the rider and the camera ride over it without a jolt.
+    bool closed=false;
+    double wrap(double d) const {
+        const double L=length();
+        if(!closed||L<=0) return std::clamp(d,0.0,L);
+        d=std::fmod(d,L); return d<0?d+L:d;
+    }
     // Per point: 1 = this part of the road was already ridden earlier on the
     // route (out-and-back, loops) and lies on it; the earlier pass draws it.
     std::vector<unsigned char> shared;
@@ -31,7 +40,7 @@ public:
     double length() const { return points.empty()?0:points.back().distance; }
     Point at(double distance) const {
         if(points.empty()) return {};
-        distance=std::clamp(distance,0.0,length());
+        distance=wrap(distance);
         auto it=std::lower_bound(points.begin(),points.end(),distance,
             [](const Point &p,double d){return p.distance<d;});
         if(it==points.begin()) return *it;
@@ -41,13 +50,17 @@ public:
         // at every polyline vertex.
         size_t i=size_t(it-points.begin())-1,n=points.size();
         const auto& a=points[i];const auto& b=points[i+1];
-        const auto& p0=points[i>0?i-1:i];const auto& p3=points[std::min(n-1,i+2)];
+        // closed: the neighbours over the seam (the last point is the first)
+        const bool wrap0=closed&&i==0&&n>2, wrap3=closed&&i+2>=n&&n>2;
+        const auto& p0=points[i>0?i-1:(wrap0?n-2:i)];const auto& p3=points[i+2<n?i+2:(wrap3?1:n-1)];
+        const double d0=wrap0?p0.distance-length():p0.distance, d3=wrap3?p3.distance+length():p3.distance;
+        const bool has0=i>0||wrap0, has3=i+2<n||wrap3;
         double t=(distance-a.distance)/(b.distance-a.distance);
         // Tangents scaled to the local spacing (non-uniform Catmull-Rom).
         double ha=b.distance-a.distance;
-        double s0=i>0?ha/std::max(1e-9,b.distance-p0.distance):1.0, s1=i+2<n?ha/std::max(1e-9,p3.distance-a.distance):1.0;
+        double s0=has0?ha/std::max(1e-9,b.distance-d0):1.0, s1=has3?ha/std::max(1e-9,d3-a.distance):1.0;
         auto spline=[&](double q0,double q1,double q2,double q3){
-            double m1=i>0?(q2-q0)*s0:(q2-q1), m2=i+2<n?(q3-q1)*s1:(q2-q1);
+            double m1=has0?(q2-q0)*s0:(q2-q1), m2=has3?(q3-q1)*s1:(q2-q1);
             double t2=t*t,t3=t2*t;
             return (2*t3-3*t2+1)*q1+(t3-2*t2+t)*m1+(-2*t3+3*t2)*q2+(t3-t2)*m2;
         };
