@@ -260,6 +260,7 @@ constexpr float kArchTube = .48f;       // inflated tube radius
 constexpr float kBannerHalfWidth = 2.6f;   // banner height: from its printed face (arch())
 constexpr double kArchClearM = 10.0;       // a KOM arch this close to START / FINISH is left out
 constexpr double kLoopStartArchM = 150.0;  // closed lap: no START arch this close after the FINISH arch
+constexpr double kLapBoardAfterM = 9.0;    // the lap board: this far after the finish line
 
 // The one banner texture (1024 x 1024 RGBA, mipmapped) holds every printed
 // face, so the arches, the bike's label, the sprint and the KOM add no
@@ -274,7 +275,8 @@ constexpr double kLoopStartArchM = 150.0;  // closed lap: no START arch this clo
 //                  (each 512 x 112 cell is sampled 12 px inside its colour)
 //   rows 752..783  digits 0..9 for the kilometre posts: black on opaque
 //                  white (no cut-out: far away they blur to grey instead of
-//                  vanishing), 40 px apart (kDigit())
+//                  vanishing), 40 px apart (kDigit()); "LAPS" for the
+//                  loop's lap board at x 416..607 (kLapsLabel)
 //   rows 816..919  road text "SPRINT IN 200 m"          (kRoadAnnounce)
 //   rows 920..1023 road text "SPRINT" (x 0..511)         (kRoadSprint)
 //                  and the bike's brand label (x 512..1023, kLabel)
@@ -294,6 +296,7 @@ constexpr TexRect kDigit(int digit)
 {
     return texPixels(digit * kDigitCell + 5, kDigitRow + 1, kDigitCell - 10, 30);
 }
+constexpr TexRect kLapsLabel = texPixels(420, kDigitRow + 1, 184, 30);
 constexpr TexRect cellFace(int x, int row)
 {
     return texPixels(x + kCellInset, row + kCellInset, 512 - 2 * kCellInset, kCellRows - 2 * kCellInset);
@@ -388,11 +391,17 @@ QImage bannerImage()
     };
     {   // kilometre post digits: black on white
         p.fillRect(QRect(0, kDigitRow, 10 * kDigitCell, 32), Qt::white);
-        const QFont f = fittedFont(QStringLiteral("0"), QRect(0, 0, kDigitCell - 16, 27), 34);
+        QFont f = fittedFont(QStringLiteral("0"), QRect(0, 0, kDigitCell - 16, 27), 34);
         p.setFont(f);
         p.setPen(QColor(18, 18, 18));
         for (int k = 0; k < 10; ++k)
             p.drawText(QRect(k * kDigitCell, kDigitRow, kDigitCell, 32), Qt::AlignCenter, QString::number(k));
+        // the lap board's label
+        const QRect laps(416, kDigitRow, 192, 32);
+        p.fillRect(laps, Qt::white);
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 3);
+        p.setFont(f);
+        p.drawText(laps, Qt::AlignCenter, QStringLiteral("LAPS"));
     }
     cutOut(QRect(0, 816, 1024, 104), QStringLiteral("SPRINT IN 200 m"), false);
     cutOut(QRect(0, 920, 512, 104), QStringLiteral("SPRINT"), false);
@@ -875,6 +884,7 @@ void Route3DScene::buildGates()
     // kilometre posts (the short put() writes here meanwhile)
     m_target = &m_gateVertices;
     kmPosts();
+    lapBoards();
     finishTunnel(finishArch);
     m_target = &m_build;
     m_gateBuffer.bind();
@@ -1127,6 +1137,75 @@ void Route3DScene::kmPosts()
             put(c0, n, bl, Banner, 0);
             put(c2, n, tr, Banner, 0);
             put(c3, n, tl, Banner, 0);
+            x += dw;
+        }
+    }
+}
+
+void Route3DScene::setLaps(int laps)
+{
+    if (laps == m_laps)
+        return;
+    m_laps = laps;
+    m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
+}
+
+// The loop's lap board: on two posts on the right-hand verge just after each
+// place a lap ends (the finish at the start; a there-and-back loop's turn),
+// facing the rider - "LAPS" over the laps finished, so the number you see
+// riding on is the lap just completed.
+void Route3DScene::lapBoards()
+{
+    if (m_laps < 0)
+        return;
+    const Route &route = *m_route;
+    const double length = route.length();
+    std::vector<double> at { kLapBoardAfterM };   // after the start / the closed lap's seam
+    if (route.turnDistance > 0)
+        at.push_back(route.turnDistance + kLapBoardAfterM);
+    if (!route.closed && route.turnDistance <= 0)
+        return;   // (a loop is always one of the two)
+    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateWhite(1, 1, 1), up(0, 1, 0);
+    const QString number = QString::number(m_laps);
+    const TexRect d0 = kDigit(0);
+    const float dh = .62f, dw = dh * (d0.u1 - d0.u0) / (d0.v1 - d0.v0);
+    const float lh = .26f, lw = lh * (kLapsLabel.u1 - kLapsLabel.u0) / (kLapsLabel.v1 - kLapsLabel.v0);
+    const float pw = std::max(lw, number.size() * dw) * .5f + .10f, ph = (dh + lh) * .5f + .10f;
+    auto quad = [&](QVector3D c0, QVector3D r, QVector3D u, QVector3D n, const TexRect &t) {
+        const QVector3D c1 = c0 + r, c2 = c1 + u, c3 = c0 + u;
+        const QVector3D tl(t.u0, t.v0, 0), tr(t.u1, t.v0, 0), bl(t.u0, t.v1, 0), br(t.u1, t.v1, 0);
+        put(c0, n, bl, Banner, 0);
+        put(c1, n, br, Banner, 0);
+        put(c2, n, tr, Banner, 0);
+        put(c0, n, bl, Banner, 0);
+        put(c2, n, tr, Banner, 0);
+        put(c3, n, tl, Banner, 0);
+    };
+    for (double d : at) {
+        if (d < 1 || d > length - 1)
+            continue;
+        const float lat = kGravelEdgeM + .8f;
+        QVector3D f = v(route.at(std::min(length, d + 3))) - v(route.at(std::max(0.0, d - 3)));
+        f.setY(0);
+        f = f.lengthSquared() > 1e-6f ? f.normalized() : QVector3D(0, 0, -1);
+        const QVector3D right = side(d);
+        QVector3D foot = v(route.at(d)) + right * lat;
+        foot.setY(vergeHeight(d, lat));
+        // facing the rider coming up to it, turned a little towards the road
+        const QVector3D n = (-f * std::cos(qDegreesToRadians(20.f)) - right * std::sin(qDegreesToRadians(20.f))).normalized();
+        const QVector3D r = QVector3D::crossProduct(up, n);
+        const float bottom = 1.25f;
+        for (float sgn : { -1.f, 1.f })   // the posts
+            box(foot + r * (sgn * (pw - .08f)) + up * ((bottom + .1f) * .5f), r * .05f, up * ((bottom + .1f) * .5f), n * .05f, white);
+        const QVector3D plate = foot + up * (bottom + ph) + n * .08f;
+        box(plate - n * .045f, r * (pw + .03f), up * (ph + .03f), n * .015f, black);   // rim and back
+        const QVector3D front = plate + n * .001f;
+        face(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, n, plateWhite);
+        const QVector3D ink = front + n * .025f;
+        quad(ink - r * (lw * .5f) + up * (ph - .07f - lh), r * lw, up * lh, n, kLapsLabel);
+        float x = -number.size() * dw * .5f;
+        for (const QChar ch : number) {
+            quad(ink + r * x - up * (ph - .07f), r * dw, up * dh, n, kDigit(ch.digitValue()));
             x += dw;
         }
     }

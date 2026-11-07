@@ -87,6 +87,9 @@ public:
     // A small white kilometre post at each whole kilometre of the ride
     // (drawn metres of km 1, 2, ...), on the right-hand verge.
     void setKmPosts(const std::vector<double> &drawnMetres);
+    // GPX Ride loop: a lap board just after the finish line showing the laps
+    // finished (also after the turn of a there-and-back loop); < 0: none.
+    void setLaps(int laps);
     // Draw a runner (Treadmill Run) instead of the cyclist. In render(),
     // crank is then the stride phase (one turn = a left and a right step).
     void setRunner(bool on);
@@ -202,6 +205,7 @@ private:
     void displayBike(std::vector<Vertex> &out);
     void sprintMarks(std::vector<Vertex> &out, const SprintMarks &sprint);
     void kmPosts();                                   // -> m_target (buildGates)
+    void lapBoards();                                 // -> m_target (buildGates)
     void finishTunnel(double finishArch);              // barriers + flags past the FINISH arch (-> m_target)
     float vergeHeight(double d, float lateral) const;  // the ground beside the road (gravel, verge, terrain)
     // The landscape around the camera: rebuilt when the camera enters another
@@ -229,6 +233,7 @@ private:
     std::vector<SprintMarks> m_sprints;   // drawn with the arches (m_gateBuffer)
     std::vector<KomMarks> m_koms;
     std::vector<double> m_kmPosts;           // drawn metres of km 1, 2, ...
+    int m_laps = -1;                         // laps on the lap board (-1: none)
     std::vector<route3d::BenchSpec> m_benches;   // per route (setRoute), read by the tile job
     std::vector<Vertex> *m_target = &m_build;
     double m_startDistance = 0;

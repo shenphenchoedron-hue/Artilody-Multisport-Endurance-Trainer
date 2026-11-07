@@ -104,6 +104,7 @@ public:
             m_scene.setKoms(koms);
             m_scene.setKmPosts(view->frameKmPosts());
         }
+        m_scene.setLaps(view->frameLaps());
         m_scene.setStartDistance(view->frameStartDistance());
         m_scene.setRunner(view->frameRunner());
         m_scene.setWalkRunKmh(view->frameWalkRunKmh());
@@ -476,6 +477,7 @@ void Route3DItem::onPosition()
         m_baseDistance = mapped;
     }
     m_startDrawn = m_session && m_route ? mapDistance(m_built, m_session->startDistanceM()) : 0.0;
+    m_laps = m_session && m_route && m_session->loopRide() ? m_session->lapsDone() : -1;
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
     const bool running = m_session && m_session->running();
     if (m_baseDistance != old || running != m_running)

@@ -84,6 +84,8 @@ public:
     const std::vector<std::array<double, 2>> &frameKoms() const { return m_komDrawn; }
     // drawn metres of each whole kilometre of the ride (Route3DScene::setKmPosts())
     const std::vector<double> &frameKmPosts() const { return m_kmDrawn; }
+    // GPX Ride loop: laps finished (the lap board at the finish line); -1 = no loop
+    int frameLaps() const { return m_laps; }
     bool frameRunner() const { return m_runner; }
     // (read live: the profile's setting may change during a run)
     double frameWalkRunKmh() const;
@@ -150,6 +152,7 @@ private:
     double m_baseDistance = 0;     // drawn metres at the last session tick
     double m_speedKmh = 0;
     double m_frameDistance = 0;    // what the next frame shows
+    int m_laps = -1;               // loop ride: laps finished (-1: not looping)
     double m_lapOffset = 0;        // closed lap: drawn metres of the laps before (frames count on)
     double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
     std::vector<std::array<double, 3>> m_sprintDrawn;   // per sprint: announce / start / finish, drawn metres

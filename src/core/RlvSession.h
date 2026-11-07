@@ -462,7 +462,7 @@ public:
     bool loopRide() const override { return isGpx() && (active() || m_state == State::Finished ? m_loopRide : m_loop); }
     bool returning() const override { return m_returning; }
     int lap() const { return m_lapsDone + 1; }
-    int lapsDone() const { return m_lapsDone; }
+    int lapsDone() const override { return m_lapsDone; }
     double lastLapSec() const { return m_lastLapSec; }
     double lapElapsedSec() const { return std::max(0.0, (double(m_activeMs) - m_lapStartMs) / 1000.0); }
     double progress() const;

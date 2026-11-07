@@ -39,6 +39,8 @@ public:
     // position then counts back from the route's end).
     virtual bool loopRide() const { return false; }
     virtual bool returning() const { return false; }
+    // GPX Ride loop: laps finished so far (the lap board at the finish line)
+    virtual int lapsDone() const { return 0; }
 };
 
 } // namespace watt
