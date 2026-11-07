@@ -1082,9 +1082,14 @@ private slots:
             QVERIFY(std::abs(b.route->grade(d)) < 3.0);
         // the end of the ride maps to the lap's end
         QVERIFY(std::abs(Route3DItem::mapDistance(b, route.totalDistance()) - L) < 1e-6);
-        // the mapping never runs backwards
-        for (int i = 1; i < b.drawnDistance.size(); ++i)
-            QVERIFY(b.drawnDistance[i] >= b.drawnDistance[i - 1]);
+        // the mapping never runs backwards, and never stands still (the
+        // rider rides on up to the finish line, no stop and jump)
+        for (int i = 1; i < b.drawnDistance.size(); ++i) {
+            const double app = b.appDistance[i] - b.appDistance[i - 1];
+            const double drawn = b.drawnDistance[i] - b.drawnDistance[i - 1];
+            QVERIFY2(drawn > 0.5 * app && drawn < 1.5 * app,
+                     qPrintable(QStringLiteral("%1 m ridden -> %2 m drawn at %3").arg(app).arg(drawn).arg(b.appDistance[i])));
+        }
     }
 
     void loopRoundTrip()
@@ -1138,6 +1143,8 @@ private slots:
         const Route3DItem::Built b = Route3DItem::build(route, true);
         QVERIFY(b.backDistance.isEmpty());
         QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->length()) < 1e-6);
+        for (int i = 1; i < b.drawnDistance.size(); ++i)   // (no stop before the finish line)
+            QVERIFY(b.drawnDistance[i] - b.drawnDistance[i - 1] > 0.5 * (b.appDistance[i] - b.appDistance[i - 1]));
         const auto a0 = b.route->at(0), a1 = b.route->at(b.route->length());
         QVERIFY(std::hypot(a0.x - a1.x, a0.z - a1.z) < 1e-6);
         QVERIFY(b.route->closed);

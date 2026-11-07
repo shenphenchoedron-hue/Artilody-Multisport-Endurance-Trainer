@@ -1175,8 +1175,8 @@ void Route3DScene::setLaps(int laps)
 // riding on is the lap just completed.
 void Route3DScene::lapBoards()
 {
-    if (m_laps <= 0)
-        return;   // (no lap finished yet: nothing to count)
+    if (m_laps < 0)
+        return;   // (no loop; from the start on: LAPS 0)
     const Route &route = *m_route;
     const double length = route.length();
     std::vector<double> at { kLapBoardAfterM };   // after the start / the closed lap's seam

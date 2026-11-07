@@ -357,24 +357,35 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     b.appDistance.reserve(pts.size());
     b.drawnDistance.reserve(pts.size());
     double last = 0;
+    // a round trip's tail past the start (left out of the road): ridden on
+    // at the same rate from the last point drawn, then fitted into the lap
+    // below (no stop at the finish line)
+    double seamApp = 0, seamDrawn = 0;
     for (int i = 0; i < pts.size(); ++i) {
-        // (never backwards: the app distance is monotonic, so is the drawn one;
-        // a round trip's tail past the start: the lap's end)
+        // (never backwards: the app distance is monotonic, so is the drawn one)
         const size_t g = size_t(geoIndexOf[i]);
-        const double at = roundTrip && g > seam ? b.route->length() : drawnAt[g];
-        last = std::max(last, std::min(b.route->finish(), at));
+        double at;
+        if (roundTrip && g > seam) {
+            at = seamDrawn + (pts.at(i).distance - seamApp);
+        } else {
+            at = drawnAt[g];
+            seamApp = pts.at(i).distance;
+            seamDrawn = at;
+        }
+        last = std::max(last, roundTrip ? at : std::min(b.route->finish(), at));
         b.appDistance.append(pts.at(i).distance);
         b.drawnDistance.append(last);
     }
-    if (roundTrip && drawnAt[seam] > 0) {
-        // the lap's end is the drawn road's end (= its start): the closing
-        // metres are spread over the lap's last 200 m (the rider stays where
-        // the grade is felt everywhere else)
-        const double L = b.route->length(), E = drawnAt[seam], extra = L - E;
+    if (roundTrip && !b.drawnDistance.isEmpty() && b.drawnDistance.constLast() > 0) {
+        // the lap's end is the drawn road's end (= its start): the difference
+        // (the closing curve, the tail left out) is spread over the lap's
+        // last 200 m - smoothly, the rider stays where the grade is felt
+        const double L = b.route->length(), E = b.drawnDistance.constLast(), extra = L - E;
         const double from = std::max(0.0, E - 200.0);
         for (double &d : b.drawnDistance)
             if (d > from)
-                d = d >= E ? L : std::min(L, d + extra * (d - from) / std::max(1e-6, E - from));
+                d = std::clamp(d + extra * (d - from) / std::max(1e-6, E - from), 0.0, L);
+        b.drawnDistance.last() = L;
     } else if (thereAndBack) {
         // forward geo point k comes back at 2 (ridden - 1) - k
         b.backDistance.reserve(pts.size());
