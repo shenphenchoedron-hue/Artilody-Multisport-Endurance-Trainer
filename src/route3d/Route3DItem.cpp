@@ -438,9 +438,7 @@ void Route3DItem::rebuildRoute()
             m_built = build(m_session->route(), loop);
             m_route = m_built.route;
             buildMarks();
-            const double total = m_session->route().totalDistance();
-            for (int km = 1; km * 1000.0 < total - 30; ++km)
-                m_kmDrawn.push_back(mapDistance(m_built, km * 1000.0));
+            m_kmDrawn = kmPosts();
         } catch (const std::exception &e) {
             m_routeError = QString::fromUtf8(e.what());
             qWarning("Route3D: %s: %s", qPrintable(m_session->routePath()), e.what());
@@ -478,6 +476,13 @@ void Route3DItem::onPosition()
     }
     m_startDrawn = m_session && m_route ? mapDistance(m_built, m_session->startDistanceM()) : 0.0;
     m_laps = m_session && m_route && m_session->loopRide() ? m_session->lapsDone() : -1;
+    if (m_builtLoop) {   // looping: the kilometres count on lap after lap
+        auto posts = kmPosts();
+        if (posts != m_kmDrawn) {
+            m_kmDrawn = std::move(posts);
+            ++m_marksVersion;
+        }
+    }
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
     const bool running = m_session && m_session->running();
     if (m_baseDistance != old || running != m_running)
@@ -488,6 +493,47 @@ void Route3DItem::onPosition()
     updateTimer();
     if (isVisible() && m_supported && m_route)   // (shown again: itemChange updates)
         update();
+}
+
+// The kilometre posts (drawn metres, km number). Without a loop: each whole
+// kilometre of the route. Looping, the kilometres go on counting lap after
+// lap: the posts of the cycle being ridden (a round trip's lap; out and back
+// of a there-and-back loop), near its end also the first of the next.
+std::vector<std::array<double, 2>> Route3DItem::kmPosts() const
+{
+    if (!m_session || !m_session->hasRoute() || !m_route)
+        return {};
+    return kmPosts(m_built, m_session->route().totalDistance(), m_builtLoop, m_session->lapsDone(),
+                   m_session->distanceMeters(), m_session->returning());
+}
+
+std::vector<std::array<double, 2>> Route3DItem::kmPosts(const Built &b, double total, bool loop, int laps, double d,
+                                                        bool returning)
+{
+    std::vector<std::array<double, 2>> out;
+    if (!b.route || total <= 0)
+        return out;
+    if (!loop) {
+        for (int km = 1; km * 1000.0 < total - 30; ++km)
+            out.push_back({ mapDistance(b, km * 1000.0), double(km) });
+        return out;
+    }
+    const bool back = !b.backDistance.isEmpty();   // there and back
+    const double cycle = back ? 2 * total : total;
+    const int c = back ? laps / 2 : laps;
+    const double u = returning ? 2 * total - d : d;   // where in the cycle
+    auto drawnAt = [&](double v) { return v <= total ? mapDistance(b, v) : mapDistance(b, 2 * total - v, true); };
+    auto add = [&](int cy, double from, double to) {
+        for (int km = int(std::floor(cy * cycle / 1000.0)) + 1; km * 1000.0 < cy * cycle + to; ++km) {
+            const double v = km * 1000.0 - cy * cycle;
+            if (v >= from && v > 30 && v < cycle - 30)
+                out.push_back({ drawnAt(v), double(km) });
+        }
+    };
+    add(c, 0, cycle);
+    if (u > cycle - 500)   // the next cycle's first posts, ahead over the finish
+        add(c + 1, 0, 300);
+    return out;
 }
 
 void Route3DItem::onFrame()

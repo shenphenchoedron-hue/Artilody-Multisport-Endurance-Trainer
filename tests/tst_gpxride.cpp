@@ -904,6 +904,17 @@ private slots:
         QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->turnDistance) < 1);
         QVERIFY(std::abs(Route3DItem::mapDistance(b, total, true) - b.route->turnDistance) < 1);
         QVERIFY(std::abs(Route3DItem::mapDistance(b, 0, true) - b.route->length()) < 1);
+        // the km posts count on: out 0.59 km + back = 1.18 km a cycle
+        auto posts = Route3DItem::kmPosts(b, total, true, 0, 100, false);
+        QCOMPARE(int(posts.size()), 1);                       // km 1 on the way back
+        QCOMPARE(posts[0][1], 1.0);
+        QVERIFY(std::abs(posts[0][0] - Route3DItem::mapDistance(b, 2 * total - 1000, true)) < 1e-6);
+        posts = Route3DItem::kmPosts(b, total, true, 2, 100, false);   // lap 3: the second cycle
+        QCOMPARE(int(posts.size()), 1);
+        QCOMPARE(posts[0][1], 2.0);                           // 2 km at 820 m into it
+        posts = Route3DItem::kmPosts(b, total, true, 1, 50, true);     // near the start on the way back
+        QCOMPARE(int(posts.size()), 1);                       // (km 1 is behind: 0.82 km into the cycle)
+        QVERIFY(Route3DItem::kmPosts(b, total, false, 0, 100, false).empty());   // no loop: no km in 0.59 km
         // without the loop: drawn as before (a run-out, no way back)
         const Route3DItem::Built plain = Route3DItem::build(route);
         QVERIFY(plain.backDistance.isEmpty());

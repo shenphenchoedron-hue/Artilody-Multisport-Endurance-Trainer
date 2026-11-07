@@ -82,8 +82,8 @@ public:
     const std::vector<std::array<double, 3>> &frameSprints() const { return m_sprintDrawn; }
     // the route's KOMs on the drawn road: foot / top (Route3DScene::setKoms())
     const std::vector<std::array<double, 2>> &frameKoms() const { return m_komDrawn; }
-    // drawn metres of each whole kilometre of the ride (Route3DScene::setKmPosts())
-    const std::vector<double> &frameKmPosts() const { return m_kmDrawn; }
+    // the kilometre posts: drawn metres, km number (Route3DScene::setKmPosts())
+    const std::vector<std::array<double, 2>> &frameKmPosts() const { return m_kmDrawn; }
     // GPX Ride loop: laps finished (the lap board at the finish line); -1 = no loop
     int frameLaps() const { return m_laps; }
     bool frameRunner() const { return m_runner; }
@@ -108,6 +108,11 @@ public:
     // App distance (m) -> distance on the drawn road (m), linear between
     // points; returning: on the way back of a looped there-and-back road.
     static double mapDistance(const Built &b, double appDistanceM, bool returning = false);
+    // The kilometre posts (drawn metres, km number) for a rider at app
+    // distance d: each whole km of the route; looping, the km count on lap
+    // after lap (laps finished, returning: on a there-and-back's way back).
+    static std::vector<std::array<double, 2>> kmPosts(const Built &b, double totalM, bool loop, int laps, double d,
+                                                      bool returning);
 
 signals:
     void sessionChanged();
@@ -157,7 +162,8 @@ private:
     double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
     std::vector<std::array<double, 3>> m_sprintDrawn;   // per sprint: announce / start / finish, drawn metres
     std::vector<std::array<double, 2>> m_komDrawn;      // per KOM: foot / top, drawn metres
-    std::vector<double> m_kmDrawn;
+    std::vector<std::array<double, 2>> m_kmDrawn;
+    std::vector<std::array<double, 2>> kmPosts() const;
     double m_crank = 0;            // pedal angle (radians), integrated from the cadence
     double m_shownRpm = 0;         // smoothed cadence driving m_crank
     QElapsedTimer m_frameClock;    // time between frames for the crank

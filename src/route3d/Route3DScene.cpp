@@ -1004,7 +1004,7 @@ void Route3DScene::displayBike(std::vector<Vertex> &out)
     }
 }
 
-void Route3DScene::setKmPosts(const std::vector<double> &drawnMetres)
+void Route3DScene::setKmPosts(const std::vector<std::array<double, 2>> &drawnMetres)
 {
     if (drawnMetres == m_kmPosts)
         return;
@@ -1095,7 +1095,7 @@ void Route3DScene::kmPosts()
     const double length = route.length();
     const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateWhite(1, 1, 1);
     for (size_t i = 0; i < m_kmPosts.size(); ++i) {
-        double d = m_kmPosts[i];
+        double d = m_kmPosts[i][0];
         // not into a sign or an arch
         std::vector<double> busy { m_builtStartGate };
         for (const SprintMarks &s : m_sprints)
@@ -1119,7 +1119,7 @@ void Route3DScene::kmPosts()
         box(foot + up * .45f, r * .07f, up * .70f, n * .07f, white);
         box(foot + up * 1.10f, r * .073f, up * .05f, n * .073f, black);
         // the plate: big digits (read from the saddle while riding past)
-        const QString number = QString::number(int(i) + 1);
+        const QString number = QString::number(int(m_kmPosts[i][1]));
         const float dh = .40f, dw = dh * (kDigit(0).u1 - kDigit(0).u0) / (kDigit(0).v1 - kDigit(0).v0);
         const float pw = (number.size() * dw + .12f) * .5f, ph = dh * .5f + .05f;
         const QVector3D plate = foot + up * (1.15f + ph) + n * .07f;

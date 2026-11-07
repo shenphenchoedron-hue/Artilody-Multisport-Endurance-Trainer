@@ -84,9 +84,9 @@ public:
         bool operator==(const KomMarks &o) const { return start == o.start && finish == o.finish; }
     };
     void setKoms(const std::vector<KomMarks> &marks);
-    // A small white kilometre post at each whole kilometre of the ride
-    // (drawn metres of km 1, 2, ...), on the right-hand verge.
-    void setKmPosts(const std::vector<double> &drawnMetres);
+    // A small white kilometre post on the right-hand verge at each given
+    // place: drawn metres, the kilometre shown.
+    void setKmPosts(const std::vector<std::array<double, 2>> &posts);
     // GPX Ride loop: a lap board just after the finish line showing the laps
     // finished (also after the turn of a there-and-back loop); < 0: none.
     void setLaps(int laps);
@@ -232,7 +232,7 @@ private:
     DisplaySpot m_bikeSpot;       // read by the tile job: changed only after waitForTile()
     std::vector<SprintMarks> m_sprints;   // drawn with the arches (m_gateBuffer)
     std::vector<KomMarks> m_koms;
-    std::vector<double> m_kmPosts;           // drawn metres of km 1, 2, ...
+    std::vector<std::array<double, 2>> m_kmPosts;   // drawn metres, km number
     int m_laps = -1;                         // laps on the lap board (-1: none)
     std::vector<route3d::BenchSpec> m_benches;   // per route (setRoute), read by the tile job
     std::vector<Vertex> *m_target = &m_build;
