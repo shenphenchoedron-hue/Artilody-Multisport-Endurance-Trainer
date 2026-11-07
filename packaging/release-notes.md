@@ -1,6 +1,18 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.8.4
+## What's new in 1.9.0
+
+**GPX Ride: loop a route, with lap times.**
+
+- **Loop route**: a new switch in GPX Ride – ride the route lap after lap until you press Finish. A **round trip** (start and end within 60 m) goes round and round: the 3D road is closed, so you ride on smoothly over the finish line into the next lap (no START arch right behind the FINISH arch). **Any other route** goes out and back: the way back is the route backwards, with the grade reversed (felt on the trainer too) and a finish arch at the turn.
+- **Lap board**: a *LAPS* board just after the finish line shows the laps done.
+- **Kilometre posts** are now bright, reflective yellow and count on lap after lap.
+- **Lap times**: a panel on the 3D view shows the lap being ridden and every finished lap, the fastest in gold with the others' gap to it (a shorter first lap from a start point inside the route is marked *part*). Each finished lap shows a toast with its time.
+- **History**: a looped ride keeps its lap times – in the ride's details (*Lap times*), in the **FIT** export as one lap per lap (Garmin Connect, Strava, TrainingPeaks, intervals.icu show them as laps) and in the **CSV** export (lap lines, a lap column; the summary has *laps* and *best_lap_s*).
+- Sprints and KOMs are timed on every lap.
+- **Database**: schema version 10 (the lap times). The update is automatic and keeps all data; after it, older versions of the app cannot open the database.
+
+## Also included from 1.8.4
 
 **Raspberry Pi: full screen fills the screen the first time.**
 

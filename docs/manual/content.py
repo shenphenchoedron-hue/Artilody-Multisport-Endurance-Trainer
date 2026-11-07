@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.8.4 source code (incl. GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.0 source code (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1810,7 +1810,15 @@ def build(s, env):
         "white-tailed sea eagle in the Nordic countryside, a wedge-tailed eagle in Australia, a golden eagle "
         "in the mountains, a vulture over the desert) and little birds fly from tree to tree, often across the "
         "road in front of you. Each landscape has its own birds.",
-        "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV.",
+        "<b>Loop route</b>: switch it on before the start to ride the route lap after lap until you press "
+        "<i>Finish</i>. A round trip (start and end within 60 m) goes round and round – the road runs on "
+        "smoothly over the finish line; any other route goes out and back. Every lap ends on a finish line; "
+        "a <i>LAPS</i> board after it shows the laps done, the yellow kilometre posts count on lap after lap, "
+        "sprints and KOMs are timed every lap. A <i>Lap times</i> panel on the 3D view shows the lap being "
+        "ridden and every finished lap (the fastest in gold).",
+        "<b>History</b>: rides are saved as <i>GPX: route name</i> and can be exported as FIT or CSV. A looped "
+        "ride keeps its lap times: shown in the ride's details, one lap per lap in the FIT file (Garmin "
+        "Connect, Strava ...), a lap column and lap lines in the CSV.",
         "<b>Limits</b>: the 3D view shows routes up to 200 km with track points at most 2 km apart. Otherwise "
         "the page says why the 3D view is not available – the route can still be ridden with the profile.",
         "<b>Graphics</b>: the 3D view needs OpenGL 3.1 (OpenGL ES 3.0 on a Raspberry Pi; a Pi 4 or 5 is "
@@ -2218,7 +2226,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.8.4",
+  "app": "Artilody Multisport Endurance Trainer 1.9.0",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
