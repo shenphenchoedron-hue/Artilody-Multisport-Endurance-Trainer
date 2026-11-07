@@ -21,6 +21,9 @@ public:
     // drawn road may go on past it (a visual run-out after the finish).
     double finishDistance=-1;
     double finish() const { return finishDistance>=0?std::min(finishDistance,length()):length(); }
+    // A looped there-and-back road (GPX Ride loop): where it turns back, a
+    // second finish line (a lap ends there too); < 0 = none.
+    double turnDistance=-1;
     // Per point: 1 = this part of the road was already ridden earlier on the
     // route (out-and-back, loops) and lies on it; the earlier pass draws it.
     std::vector<unsigned char> shared;

@@ -1,6 +1,7 @@
 #include "RlvSession.h"
 
 #include "Database.h"
+#include "DiagLog.h"
 #include "FreeRideSession.h"
 #include "ProfileManager.h"
 #include "RideAnalysis.h"
@@ -24,6 +25,7 @@ const char *const kSettingMode = "mode";
 const char *const kSettingDifficulty = "difficulty";
 const char *const kSettingErgWatts = "ergWatts";
 const char *const kSettingLastRoute = "lastRoute";
+const char *const kSettingLoop = "loop";
 } // namespace
 
 QString RlvSession::settingKey(const char *name) const
@@ -120,6 +122,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     const int storedErg = m_db->setting(settingKey(kSettingErgWatts), 0).toInt();
     m_ergTarget = storedErg > 0 ? std::clamp(storedErg, int(kMinErgWatts), int(kMaxWatts)) : defaultErgTarget();
     m_difficulty = std::clamp(m_db->setting(settingKey(kSettingDifficulty), kDefaultDifficulty).toInt(), 0, 100);
+    m_loop = isGpx() && m_db->setting(settingKey(kSettingLoop), false).toBool();
 
     const QString last = m_db->setting(settingKey(kSettingLastRoute)).toString();
     if (!last.isEmpty() && QFileInfo::exists(last)) {
@@ -486,7 +489,9 @@ double RlvSession::progress() const
 double RlvSession::gradePercent() const
 {
     // the grade at the rider, looking slightly ahead (a descent is felt when it starts)
-    return hasRoute() ? m_route.gradeAheadAtDistance(m_distance) : 0.0;
+    if (!hasRoute())
+        return 0.0;
+    return m_returning ? m_route.gradeBackAtDistance(m_distance) : m_route.gradeAheadAtDistance(m_distance);
 }
 
 double RlvSession::effectiveGradePercent() const
@@ -503,8 +508,118 @@ double RlvSession::elevationM() const
 
 double RlvSession::ascentDoneM() const
 {
-    return hasRoute() ? std::max(0.0, m_route.ascentAtDistance(m_distance) - m_route.ascentAtDistance(m_startDistance))
-                      : 0.0;
+    return hasRoute() ? m_ascentBase + lapAscent() : 0.0;
+}
+
+double RlvSession::lapAscent() const
+{
+    if (!m_returning)
+        return std::max(0.0, m_route.ascentAtDistance(m_distance) - m_route.ascentAtDistance(m_lapFrom));
+    // backwards from m_lapFrom: the route's descents on [m_distance, m_lapFrom] are the climbs
+    const double up = m_route.ascentAtDistance(m_lapFrom) - m_route.ascentAtDistance(m_distance);
+    const double rise = m_route.elevationAtDistance(m_lapFrom) - m_route.elevationAtDistance(m_distance);
+    return std::max(0.0, up - rise);
+}
+
+void RlvSession::setLoop(bool on)
+{
+    on = on && isGpx();
+    if (on == m_loop || active())
+        return;
+    m_loop = on;
+    m_db->setSetting(settingKey(kSettingLoop), on);
+    emit loopChanged();
+}
+
+void RlvSession::clearLaps()
+{
+    m_ridden = 0;
+    m_returning = false;
+    m_lapsDone = 0;
+    m_lapStartMs = 0;
+    m_lastLapSec = 0;
+    m_ascentBase = 0;
+    m_lapFrom = m_distance;
+    m_lapRecordIds.clear();
+    for (TimedSegment &seg : m_segments)
+        seg.rearm = false;
+    emit lapChanged();
+}
+
+void RlvSession::lapDone(double atMs)
+{
+    ++m_lapsDone;
+    m_lastLapSec = std::round((atMs - m_lapStartMs) / 10.0) / 100.0;   // 0.01 s
+    m_lapStartMs = atMs;
+    m_completed = true;
+    DiagLog::write("RIDE", QStringLiteral("lap %1: %2 s").arg(m_lapsDone).arg(m_lastLapSec, 0, 'f', 2));
+    emit lapCompleted(m_lapsDone, m_lastLapSec);
+    emit lapChanged();
+}
+
+// Moves the rider step metres on (from d0 at t0, the tick's start). Without
+// a loop to the route's end; looping, over each lap's finish line into the
+// next lap: a round trip from the start again, any other route back
+// towards the start (m_distance then falls) and from there out again.
+void RlvSession::advance(double step, double d0, qint64 t0)
+{
+    const double total = totalDistanceM();
+    if (!m_loopRide) {
+        m_distance = std::min(total, m_distance + step);
+        m_ridden += std::max(0.0, m_distance - d0);
+        updateSegments(d0, t0);
+        return;
+    }
+    m_ridden += step;
+    // when in the tick the rider was `left` metres on
+    auto crossing = [&](double left) {
+        return step > 0 ? double(t0) + double(m_activeMs - t0) * std::clamp(left / step, 0.0, 1.0) : double(m_activeMs);
+    };
+    auto newLap = [&](double from) {
+        m_lapFrom = from;
+        if (from == 0)   // out again: the sprints and KOMs are timed again
+            for (TimedSegment &seg : m_segments)
+                seg.rearm = true;
+    };
+    if (!m_returning) {
+        const double d = m_distance + step;
+        if (d < total) {
+            m_distance = d;
+            updateSegments(d0, t0);
+            return;
+        }
+        const double atMs = crossing(total - d0);
+        m_distance = total;
+        updateSegments(d0, t0);   // (a KOM to the very end)
+        m_ascentBase += lapAscent();
+        lapDone(atMs);
+        const double over = std::min(d - total, total);
+        if (roundTrip()) {
+            newLap(0);
+            m_distance = over;
+            updateSegments(0.0, qint64(atMs));
+        } else {
+            m_returning = true;
+            newLap(total);
+            m_distance = total - over;
+            emit lapChanged();
+        }
+        return;
+    }
+    const double d = m_distance - step;
+    if (d > 0) {
+        m_distance = d;
+        return;
+    }
+    const double atMs = crossing(d0);
+    m_distance = 0;
+    m_ascentBase += lapAscent();
+    lapDone(atMs);
+    m_returning = false;
+    newLap(0);
+    m_distance = std::min(-d, total);
+    updateSegments(0.0, qint64(atMs));
+    emit lapChanged();
 }
 
 QString RlvSession::currentInformation() const
@@ -764,6 +879,7 @@ void RlvSession::clearRecording()
     m_energyJ = 0;
     m_powerSum = 0;
     m_maxWatts = 0;
+    clearLaps();
     emit tick();
 }
 
@@ -794,6 +910,7 @@ bool RlvSession::start()
     if (m_state == State::Finished || m_distance >= totalDistanceM())
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
+    m_loopRide = isGpx() && m_loop;   // (fixed for the ride)
     clearRecording();
     loadBests(m_rideProfile.id);
     resetSegments();
@@ -877,7 +994,7 @@ qint64 RlvSession::finish(bool save)
         return -1;
     // the last time slice only when the ride is kept: its step may reach the
     // route end, which finishes and saves by itself - not for a discard
-    if (save && running() && !m_manualClock && !m_completed)
+    if (save && running() && !m_manualClock && (!m_completed || m_loopRide))
         process(sessionClockStep(m_clock.restart()));
     if (!active())
         return m_lastRideId;   // finished at the route end inside process()
@@ -1038,8 +1155,7 @@ void RlvSession::process(int ms)
         const qint64 t0 = m_activeMs;
         m_activeMs += ms;
         const double total = totalDistanceM();
-        m_distance = std::min(total, m_distance + m_speed * dt);
-        updateSegments(d0, t0);
+        advance(m_speed * dt, d0, t0);
         m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
         advanceWorkout(ms);
@@ -1048,7 +1164,7 @@ void RlvSession::process(int ms)
         updateVideo(ms);
         applyTarget();
         emit tick();
-        if (m_distance >= total) {
+        if (!m_loopRide && m_distance >= total) {
             m_completed = true;
             emit metricsChanged();
             finish(true);   // route end: save automatically
@@ -1168,6 +1284,9 @@ qint64 RlvSession::saveRide()
     for (const TimedSegment &seg : m_segments)
         if (m_lastRideId >= 0 && seg.recordId >= 0)
             m_db->setSegmentRideId(seg.recordId, m_lastRideId);
+    for (qint64 id : std::as_const(m_lapRecordIds))   // (earlier laps)
+        if (m_lastRideId >= 0)
+            m_db->setSegmentRideId(id, m_lastRideId);
     if (m_lastRideId >= 0) {
         emit lastRideIdChanged();
         emit rideSaved(m_lastRideId);
@@ -1314,6 +1433,9 @@ void RlvSession::voidSegments()
 void RlvSession::discardSegments()
 {
     bool sprints = false, koms = false;
+    for (qint64 id : std::as_const(m_lapRecordIds))   // (earlier laps)
+        m_db->deleteSegmentRecord(id);
+    m_lapRecordIds.clear();
     for (TimedSegment &seg : m_segments) {
         if (seg.recordId < 0)
             continue;
@@ -1358,6 +1480,15 @@ bool RlvSession::stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finish
     if (!seg.valid())
         return false;
     const double d1 = m_distance, t1 = double(m_activeMs);
+    if (seg.rearm && seg.phase != SegmentPhase::Running) {
+        // a new lap: the last lap's result stays until its start line comes again
+        if (!std::isfinite(sprint::crossingMs(d0, d1, double(t0), t1, seg.start)))
+            return false;
+        if (seg.recordId >= 0)
+            m_lapRecordIds.append(seg.recordId);
+        resetTimed(seg);
+        seg.rearm = false;
+    }
     if (seg.phase == SegmentPhase::Idle) {
         const double at = sprint::crossingMs(d0, d1, double(t0), t1, seg.start);
         if (!std::isfinite(at))

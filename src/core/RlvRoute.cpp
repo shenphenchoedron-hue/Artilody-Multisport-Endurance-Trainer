@@ -883,6 +883,27 @@ double RlvRoute::gradeAheadAtDistance(double d) const
 }
 
 double RlvRoute::elevationAtDistance(double d) const { return interpolate(d, &RlvPoint::elevation); }
+double RlvRoute::gradeBackAtDistance(double d) const
+{
+    if (m_points.size() < 2)
+        return 0.0;
+    const double total = totalDistance();
+    const double a = std::clamp(d - kFeltAheadM, 0.0, total);
+    const double b = std::clamp(d + kFeltBehindM, 0.0, total);
+    if (b - a <= 5.0)
+        return -gradeAtDistance(d);
+    const double g = (interpolate(a, &RlvPoint::elevation) - interpolate(b, &RlvPoint::elevation)) / (b - a) * 100.0;
+    return std::clamp(g, kMinGrade, kMaxGrade);
+}
+
+bool RlvRoute::isRoundTrip() const
+{
+    if (m_points.size() < 2)
+        return false;
+    const RlvPoint &a = m_points.constFirst(), &b = m_points.constLast();
+    return haversine(a.lat, a.lon, b.lat, b.lon) < kRoundTripM;
+}
+
 double RlvRoute::ascentAtDistance(double d) const { return interpolate(d, &RlvPoint::ascent); }
 
 double RlvRoute::recordedSpeedAtDistance(double d) const

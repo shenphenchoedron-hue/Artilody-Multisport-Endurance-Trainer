@@ -98,10 +98,14 @@ public:
         std::shared_ptr<const route3d::Route> route;
         QVector<double> appDistance;    // ascending
         QVector<double> drawnDistance;  // matching distance on the drawn road
+        QVector<double> backDistance;   // looped there and back: the same on the way back (else empty)
     };
-    static Built build(const RlvRoute &route);
-    // App distance (m) -> distance on the drawn road (m), linear between points.
-    static double mapDistance(const Built &b, double appDistanceM);
+    // loop (GPX Ride loop): the drawn road is one closed lap - a round trip
+    // closed back to its start, any other route out and back again.
+    static Built build(const RlvRoute &route, bool loop = false);
+    // App distance (m) -> distance on the drawn road (m), linear between
+    // points; returning: on the way back of a looped there-and-back road.
+    static double mapDistance(const Built &b, double appDistanceM, bool returning = false);
 
 signals:
     void sessionChanged();
@@ -136,6 +140,7 @@ private:
     int m_builtPoints = 0;
     double m_builtLength = 0;
     double m_builtGrade = 0;
+    bool m_builtLoop = false;
     QVector<RouteSegment> m_builtSegments;
     int m_marksVersion = 0;
     void buildMarks();

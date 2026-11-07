@@ -193,6 +193,11 @@ void Route3DItem::setSession(QObject *object)
         connect(s, SIGNAL(positionChanged()), this, SLOT(onPosition()));
         connect(s, SIGNAL(metricsChanged()), this, SLOT(onPosition()));
         connect(s, SIGNAL(stateChanged()), this, SLOT(onPosition()));
+        // GPX Ride loop: a closed lap is drawn (RlvSession only)
+        if (s->metaObject()->indexOfSignal("loopChanged()") >= 0)
+            connect(s, SIGNAL(loopChanged()), this, SLOT(rebuildRoute()));
+        if (s->metaObject()->indexOfSignal("lapChanged()") >= 0)
+            connect(s, SIGNAL(lapChanged()), this, SLOT(onPosition()));
     }
     emit sessionChanged();
     rebuildRoute();
@@ -208,7 +213,7 @@ void Route3DItem::setRendererError(const QString &error)
         QMetaObject::invokeMethod(this, &Route3DItem::errorChanged, Qt::QueuedConnection);   // (may run on the render thread)
 }
 
-Route3DItem::Built Route3DItem::build(const RlvRoute &route)
+Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
 {
     const QVector<RlvPoint> &pts = route.points();
     if (pts.size() < 2)
@@ -252,7 +257,25 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route)
     // the run-out: the road goes on straight past the finish (same height),
     // unless the route is a loop (the finish is at the start, the road goes on)
     const size_t ridden = geo.size();
-    {
+    const bool roundTrip = loop && route.isRoundTrip();
+    const bool thereAndBack = loop && !roundTrip;
+    if (roundTrip) {
+        // round and round: the road closes back to the start (no run-out)
+        const route3d::GeoPoint end = geo.back(), first = geo.front();
+        const double gap = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon);
+        const int steps = int(std::ceil(gap / 10.0));
+        for (int k = 1; k < steps; ++k) {
+            const double t = double(k) / steps;
+            geo.push_back({ end.lat + (first.lat - end.lat) * t, end.lon + (first.lon - end.lon) * t,
+                            end.elevation + (first.elevation - end.elevation) * t });
+        }
+        if (gap > 0.5)
+            geo.push_back(first);
+    } else if (thereAndBack) {
+        // out and back again: the same points backwards (no run-out)
+        for (size_t k = ridden - 1; k-- > 0;)
+            geo.push_back(geo[k]);
+    } else {
         const route3d::GeoPoint end = geo.back();
         const route3d::GeoPoint &first = geo.front();
         const bool loop = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon) < 60.0;
@@ -272,8 +295,10 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route)
     // road: app distance -> drawn distance, point by point.
     std::vector<double> drawnAt;
     auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt));
-    if (geo.size() > ridden)
+    if (!loop && geo.size() > ridden)
         drawn->finishDistance = drawnAt[ridden - 1];
+    if (thereAndBack)
+        drawn->turnDistance = drawnAt[ridden - 1];
     drawn->biome = int(biomeOf(route));
     b.route = drawn;
     b.appDistance.reserve(pts.size());
@@ -285,6 +310,18 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route)
         b.appDistance.append(pts.at(i).distance);
         b.drawnDistance.append(last);
     }
+    if (roundTrip && drawnAt[ridden - 1] > 0) {
+        // the lap's end is the drawn road's end (= its start): the closing
+        // metres are spread over the lap (a fraction of a percent)
+        const double stretch = b.route->length() / drawnAt[ridden - 1];
+        for (double &d : b.drawnDistance)
+            d = std::min(b.route->length(), d * stretch);
+    } else if (thereAndBack) {
+        // forward geo point k comes back at 2 (ridden - 1) - k
+        b.backDistance.reserve(pts.size());
+        for (int i = 0; i < pts.size(); ++i)
+            b.backDistance.append(drawnAt[2 * (ridden - 1) - size_t(geoIndexOf[i])]);
+    }
     return b;
 }
 
@@ -293,22 +330,23 @@ double Route3DItem::frameWalkRunKmh() const
     return m_session && m_sessionObject ? m_session->walkRunKmh() : m_walkRunKmh;
 }
 
-double Route3DItem::mapDistance(const Built &b, double d)
+double Route3DItem::mapDistance(const Built &b, double d, bool returning)
 {
     const int n = b.appDistance.size();
     if (!b.route || n == 0)
         return 0.0;
+    const QVector<double> &to = returning && b.backDistance.size() == n ? b.backDistance : b.drawnDistance;
     if (d <= b.appDistance.constFirst())
-        return b.drawnDistance.constFirst();
+        return to.constFirst();
     if (d >= b.appDistance.constLast())
-        return b.drawnDistance.constLast();
+        return to.constLast();
     // last point with app distance <= d
     const auto it = std::upper_bound(b.appDistance.cbegin(), b.appDistance.cend(), d);
     const int i = std::max(0, int(it - b.appDistance.cbegin()) - 1);
     const int j = std::min(n - 1, i + 1);
     const double a = b.appDistance.at(i), c = b.appDistance.at(j);
     const double t = c > a ? (d - a) / (c - a) : 0.0;
-    return b.drawnDistance.at(i) + (b.drawnDistance.at(j) - b.drawnDistance.at(i)) * t;
+    return to.at(i) + (to.at(j) - to.at(i)) * t;
 }
 
 // The GPX Workshop's sprints and KOMs on the drawn road (the announce line:
@@ -344,8 +382,9 @@ void Route3DItem::rebuildRoute()
     // the elevation cleaning's limit changes the profile (GPX Workshop)
     const double grade = m_session && m_session->hasRoute() ? m_session->route().maxCleanGrade() : 0.0;
     const QVector<RouteSegment> segments = m_session ? m_session->routeSegments() : QVector<RouteSegment>();
+    const bool loop = m_session && m_session->hasRoute() && m_session->loopRide();
     if (m_builtValid && path == m_builtPath && pointCount == m_builtPoints && length == m_builtLength
-        && grade == m_builtGrade) {
+        && grade == m_builtGrade && loop == m_builtLoop) {
         if (segments != m_builtSegments) {   // only the sprints / KOMs: the marks, not the terrain
             m_builtSegments = segments;
             buildMarks();
@@ -359,6 +398,7 @@ void Route3DItem::rebuildRoute()
     m_builtPoints = pointCount;
     m_builtLength = length;
     m_builtGrade = grade;
+    m_builtLoop = loop;
     m_builtSegments = segments;
     const bool hadScene = hasScene();
     const QString before = error();
@@ -370,7 +410,7 @@ void Route3DItem::rebuildRoute()
     m_kmDrawn.clear();
     if (m_session && m_session->hasRoute()) {
         try {
-            m_built = build(m_session->route());
+            m_built = build(m_session->route(), loop);
             m_route = m_built.route;
             buildMarks();
             const double total = m_session->route().totalDistance();
@@ -394,7 +434,7 @@ void Route3DItem::rebuildRoute()
 void Route3DItem::onPosition()
 {
     const double old = m_baseDistance;
-    m_baseDistance = m_session && m_route ? mapDistance(m_built, m_session->distanceMeters()) : 0.0;
+    m_baseDistance = m_session && m_route ? mapDistance(m_built, m_session->distanceMeters(), m_session->returning()) : 0.0;
     m_startDrawn = m_session && m_route ? mapDistance(m_built, m_session->startDistanceM()) : 0.0;
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
     const bool running = m_session && m_session->running();

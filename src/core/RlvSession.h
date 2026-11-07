@@ -198,6 +198,17 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(double effectiveGradePercent READ effectiveGradePercent NOTIFY positionChanged)
     Q_PROPERTY(double elevationM READ elevationM NOTIFY positionChanged)
     Q_PROPERTY(double ascentDoneM READ ascentDoneM NOTIFY positionChanged)
+    // GPX Ride loop: ride the route lap after lap until Finish (a round trip
+    // round and round, any other route there and back); every lap ends on a
+    // finish line. Set before the start (kept in the settings).
+    Q_PROPERTY(bool loop READ loop WRITE setLoop NOTIFY loopChanged)
+    Q_PROPERTY(bool canLoop READ canLoop NOTIFY routeChanged)
+    Q_PROPERTY(bool roundTrip READ roundTrip NOTIFY routeChanged)
+    Q_PROPERTY(bool looping READ looping NOTIFY stateChanged)            // this ride loops
+    Q_PROPERTY(int lap READ lap NOTIFY lapChanged)                       // 1, 2, ... (the one being ridden)
+    Q_PROPERTY(bool returning READ returning NOTIFY lapChanged)          // there and back: on the way back
+    Q_PROPERTY(double lastLapSec READ lastLapSec NOTIFY lapChanged)      // the last finished lap, 0 = none
+    Q_PROPERTY(double lapElapsedSec READ lapElapsedSec NOTIFY tick)
     Q_PROPERTY(QString currentInformation READ currentInformation NOTIFY informationChanged)
     Q_PROPERTY(int currentInformationIndex READ currentInformationIndex NOTIFY informationChanged)
 
@@ -439,8 +450,21 @@ public:
 
     double startDistanceM() const override { return m_startDistance; }
     double distanceMeters() const override { return m_distance; }
-    double riddenMeters() const { return std::max(0.0, m_distance - m_startDistance); }
-    double remainingMeters() const { return std::max(0.0, totalDistanceM() - m_distance); }
+    double riddenMeters() const { return m_ridden; }
+    // to the route's end (looping: to this lap's finish line)
+    double remainingMeters() const { return std::max(0.0, m_returning ? m_distance : totalDistanceM() - m_distance); }
+
+    bool loop() const { return m_loop; }
+    void setLoop(bool on);
+    bool canLoop() const { return isGpx() && hasRoute(); }
+    bool roundTrip() const { return m_route.isRoundTrip(); }
+    bool looping() const { return m_loopRide; }
+    bool loopRide() const override { return isGpx() && (active() || m_state == State::Finished ? m_loopRide : m_loop); }
+    bool returning() const override { return m_returning; }
+    int lap() const { return m_lapsDone + 1; }
+    int lapsDone() const { return m_lapsDone; }
+    double lastLapSec() const { return m_lastLapSec; }
+    double lapElapsedSec() const { return std::max(0.0, (double(m_activeMs) - m_lapStartMs) / 1000.0); }
     double progress() const;
     double gradePercent() const;
     double effectiveGradePercent() const;
@@ -642,6 +666,9 @@ signals:
     void sprintFinished(double timeSec, double previousBestSec, bool newBest);
     void komChanged();
     void komFinished(double timeSec, double previousBestSec, bool newBest);
+    void loopChanged();
+    void lapChanged();
+    void lapCompleted(int lap, double timeSec);   // looping: lap (1, 2, ...) just finished
 
 private:
     void setState(State s);
@@ -694,6 +721,7 @@ private:
         bool newBest = false;
         int attempts = 0;
         qint64 recordId = -1;       // this ride's saved time (linked to the ride on save)
+        bool rearm = false;         // looping: a new lap - timed again from its start line
         bool valid() const { return !key.isEmpty(); }
         double length() const { return finish - start; }
     };
@@ -711,6 +739,10 @@ private:
     // one riding step from (d0, t0): true when seg changed; finished = timed now
     bool stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished);
     void updateSegments(double d0, qint64 t0);
+    double lapAscent() const;                          // climbed on this lap so far
+    void clearLaps();
+    void advance(double step, double d0, qint64 t0);   // move along the route (laps)
+    void lapDone(double atMs);
     QString timedState(const TimedSegment &seg) const;
     double timedElapsed(const TimedSegment &seg) const;
 
@@ -745,6 +777,18 @@ private:
     double m_speed = 0;
     double m_startDistance = 0;
     double m_distance = 0;
+    double m_ridden = 0;            // metres ridden this ride (all laps)
+
+    // loop (GPX Ride)
+    bool m_loop = false;            // the setting
+    bool m_loopRide = false;        // this ride loops (m_loop at the start)
+    bool m_returning = false;       // there and back: on the way back (m_distance falls)
+    int m_lapsDone = 0;
+    double m_lapStartMs = 0;        // m_activeMs at this lap's start
+    double m_lastLapSec = 0;
+    double m_ascentBase = 0;        // metres climbed on the laps before this one
+    double m_lapFrom = 0;           // where this lap began on the route
+    QVector<qint64> m_lapRecordIds; // sprint / KOM times of earlier laps (linked / discarded with the ride)
     int m_infoIndex = -1;
 
     // video sync

@@ -144,6 +144,12 @@ Item {
         target: Profiles
         function onProfileChanged() { page.reloadWorkouts() }
     }
+    // GPX Ride loop: each lap's time as it is finished
+    Connections {
+        target: page.gpx ? page.session : null
+        ignoreUnknownSignals: true
+        function onLapCompleted(lap, timeSec) { page.toast("Lap " + lap + " – " + Theme.clock(Math.round(timeSec))) }
+    }
     property bool plusDown: false
     property bool minusDown: false
 
@@ -1816,7 +1822,7 @@ Item {
                         spacing: 22
                         // static model, live values inside the delegate
                         Repeater {
-                            model: ["Distance", "To go", "Elevation", "Climbed", "Grade"]
+                            model: ["Distance", page.session.looping && page.session.active ? "Lap to go" : "To go", "Elevation", "Climbed", "Grade"]
                             Row {
                                 // room for the tab selector
                                 visible: index !== 2 || !bottomTabs.visible
@@ -1833,7 +1839,9 @@ Item {
                                         if (!page.session.hasRoute)
                                             return "–"
                                         switch (index) {
-                                        case 0: return page.kmText(page.session.distanceMeters, 2) + " / " + page.kmText(page.session.totalDistanceM, 1) + " km"
+                                        case 0: return page.session.looping && page.session.active
+                                                       ? page.kmText(page.session.riddenMeters, 2) + " km • lap " + page.session.lap
+                                                       : page.kmText(page.session.distanceMeters, 2) + " / " + page.kmText(page.session.totalDistanceM, 1) + " km"
                                         case 1: return page.kmText(page.session.remainingMeters, 2) + " km"
                                         case 2: return Math.round(page.session.elevationM) + " m"
                                         case 3: return Math.round(page.session.ascentDoneM) + " / " + Math.round(page.session.totalAscentM) + " m"
@@ -1971,6 +1979,47 @@ Item {
                                 enabled: page.finished
                                 onClicked: page.session.reset()
                             }
+                        }
+                        // GPX Ride: loop the route until Finish (set before the start)
+                        Item {
+                            visible: page.gpx && page.session.hasRoute
+                            width: parent.width
+                            height: 34
+                            Row {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 8
+                                Icon { name: "refresh"; size: 18; color: Theme.textSecondary; anchors.verticalCenter: parent.verticalCenter }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "Loop route"
+                                    color: Theme.text
+                                    font.pixelSize: 16
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            ToggleSwitch {
+                                objectName: page.namePrefix + "LoopSwitch"
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                accessibleName: "Loop route"
+                                onColor: Theme.accent
+                                enabled: !page.session.active
+                                checked: page.session.loop
+                                onToggled: (on) => page.session.loop = on
+                            }
+                        }
+                        Text {
+                            visible: page.gpx && page.session.hasRoute && (page.session.loop || page.session.looping)
+                            width: parent.width
+                            text: page.session.looping && page.session.active
+                                  ? "Lap " + page.session.lap + (page.session.returning ? " (the way back)" : "")
+                                    + " – " + Theme.clock(Math.floor(page.session.lapElapsedSec))
+                                    + (page.session.lastLapSec > 0 ? "  •  last lap " + Theme.clock(Math.round(page.session.lastLapSec)) : "")
+                                  : page.session.roundTrip ? "Round and round until you press Finish – a finish line at the end of every lap."
+                                  : "Out and back again until you press Finish – a finish line at the end and back at the start."
+                            color: Theme.textSecondary
+                            font.pixelSize: 14
+                            wrapMode: Text.WordWrap
                         }
                         // Start disabled by a session on another page: why, and the fix
                         SessionBlockNotice {

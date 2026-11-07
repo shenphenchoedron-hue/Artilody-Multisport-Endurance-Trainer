@@ -33,6 +33,12 @@ public:
     // The route's sprints and KOMs (GPX Ride, from the GPX Workshop; the 3D
     // view draws their lines, signs and arches): none by default.
     virtual QVector<RouteSegment> routeSegments() const { return {}; }
+    // GPX Ride loop (RlvSession::loop): the 3D view draws the road as one
+    // closed lap - a round trip closed at the start, any other route there
+    // and back - and returning() says the rider is on the way back (the
+    // position then counts back from the route's end).
+    virtual bool loopRide() const { return false; }
+    virtual bool returning() const { return false; }
 };
 
 } // namespace watt

@@ -852,6 +852,9 @@ void Route3DScene::buildGates()
     m_startGateCount = int(m_gateVertices.size());
     const double finishArch = std::max(0.0, m_route->finish() - 1.0);
     arch(m_gateVertices, finishArch, FinishArch);
+    // a looped there-and-back road: a lap also ends where it turns back
+    if (m_route->turnDistance > 30)
+        arch(m_gateVertices, m_route->turnDistance - 3.0, FinishArch);
     m_finishGateEnd = int(m_gateVertices.size());
     displayBike(m_gateVertices);
     for (const SprintMarks &s : m_sprints)

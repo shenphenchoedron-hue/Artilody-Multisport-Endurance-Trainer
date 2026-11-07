@@ -143,6 +143,14 @@ public:
     // Grade over [d - kFeltBehindM, d + kFeltAheadM] of the smoothed
     // elevation (shrinks at the route ends), clamped like gradeAtDistance().
     double gradeAheadAtDistance(double distanceM) const;
+    // The same felt grade riding the route backwards (an out-and-back loop's
+    // way back): over [d - kFeltAheadM, d + kFeltBehindM], climbing = towards
+    // the start.
+    double gradeBackAtDistance(double distanceM) const;
+    // Start and end within kRoundTripM: a lap ends where the next begins
+    // (GPX Ride loop: round and round; otherwise there and back).
+    static constexpr double kRoundTripM = 60.0;
+    bool isRoundTrip() const;
     double elevationAtDistance(double distanceM) const;
     double recordedSpeedAtDistance(double distanceM) const;   // m/s, filmed speed
     double ascentAtDistance(double distanceM) const;           // cumulative ascent

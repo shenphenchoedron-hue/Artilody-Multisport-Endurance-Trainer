@@ -847,6 +847,124 @@ private slots:
         QVERIFY(threw);
     }
 
+    void loopThereAndBack()
+    {
+        // a route that ends far from its start, looped: out, back, out again
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("climb.gpx"));
+        QVERIFY(writeGpx(path, 60, 10, 4));   // 590 m at 4 %
+        QVERIFY(f.gpx->selectPath(path));
+        QVERIFY(!f.gpx->roundTrip());
+        f.rlv->setLoop(true);
+        QVERIFY(!f.rlv->loop());   // the video ride never loops
+        f.gpx->setLoop(true);
+        QVERIFY(f.gpx->loop());
+        QVERIFY(f.db.setting(QStringLiteral("gpx/loop")).toBool());
+        const double total = f.gpx->totalDistanceM();
+        QSignalSpy laps(f.gpx.get(), &RlvSession::lapCompleted);
+        f.hub->updateCadence(90);
+        f.hub->updatePower(250);
+        QVERIFY(f.gpx->start());
+        QVERIFY(f.gpx->looping());
+        QCOMPARE(f.gpx->lap(), 1);
+        int steps = 0;
+        while (f.gpx->lap() == 1 && f.gpx->running() && steps++ < 4000)
+            f.gpx->advanceClock(250);
+        QVERIFY(f.gpx->running());   // the route's end does not finish the ride
+        QCOMPARE(laps.count(), 1);
+        QVERIFY(f.gpx->lastLapSec() > 30);
+        QVERIFY(f.gpx->completed());
+        QVERIFY(f.gpx->returning());
+        f.ride_for(f.gpx.get(), 10000);
+        QVERIFY(f.gpx->distanceMeters() < total - 20);   // on the way back
+        QVERIFY(f.gpx->gradePercent() < -2);             // downhill now
+        QVERIFY(std::abs(f.gpx->remainingMeters() - f.gpx->distanceMeters()) < 1e-9);
+        steps = 0;
+        while (f.gpx->lap() == 2 && f.gpx->running() && steps++ < 4000)
+            f.gpx->advanceClock(250);
+        QCOMPARE(f.gpx->lap(), 3);
+        QVERIFY(!f.gpx->returning());
+        QVERIFY(f.gpx->riddenMeters() > 2 * total);
+        // up once, down once: climbed about the route's ascent
+        QVERIFY(std::abs(f.gpx->ascentDoneM() - f.gpx->totalAscentM()) < 5);
+        const double ridden = f.gpx->riddenMeters();
+        const qint64 id = f.gpx->finish(true);
+        QVERIFY(id >= 0);
+        QVERIFY(std::abs(f.db.ride(id)->distanceM - ridden) < 50);
+
+        // the 3D road: out and back again, the way back mapped onto the back half
+        RlvRoute route;
+        QVERIFY(route.load(path));
+        const Route3DItem::Built b = Route3DItem::build(route, true);
+        QCOMPARE(b.backDistance.size(), b.appDistance.size());
+        QVERIFY(b.route->turnDistance > 0);
+        QVERIFY(b.route->finishDistance < 0);
+        QVERIFY(std::abs(b.route->length() - 2 * b.route->turnDistance) < 30);
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->turnDistance) < 1);
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, total, true) - b.route->turnDistance) < 1);
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, 0, true) - b.route->length()) < 1);
+        // without the loop: drawn as before (a run-out, no way back)
+        const Route3DItem::Built plain = Route3DItem::build(route);
+        QVERIFY(plain.backDistance.isEmpty());
+        QVERIFY(plain.route->turnDistance < 0);
+    }
+
+    void loopRoundTrip()
+    {
+        // a round trip, looped: round and round, sprints timed every lap
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("round.gpx"));
+        {
+            QByteArray gpx = "<?xml version=\"1.0\"?>\n<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">"
+                             "<trk><name>round</name><trkseg>\n";
+            const double r = 160, mPerDegLon = kMPerDegLat * std::cos(55.0 * M_PI / 180.0);
+            for (int i = 0; i < 100; ++i) {   // ~1 km, ending 10 m before the start
+                const double a = 2 * M_PI * i / 101.0;
+                gpx += QStringLiteral("<trkpt lat=\"%1\" lon=\"%2\"><ele>20</ele></trkpt>\n")
+                           .arg(55.0 + r * std::sin(a) / kMPerDegLat, 0, 'f', 8)
+                           .arg(12.0 + r * (1 - std::cos(a)) / mPerDegLon, 0, 'f', 8)
+                           .toUtf8();
+            }
+            gpx += "</trkseg></trk></gpx>\n";
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(gpx);
+        }
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 300, 500, QStringLiteral("Lap sprint")) }));
+        QVERIFY(f.gpx->selectPath(path));
+        QVERIFY(f.gpx->roundTrip());
+        f.gpx->setLoop(true);
+        const double total = f.gpx->totalDistanceM();
+        QSignalSpy sprints(f.gpx.get(), &RlvSession::sprintFinished);
+        f.hub->updateCadence(90);
+        f.hub->updatePower(250);
+        QVERIFY(f.gpx->start());
+        int steps = 0;
+        while (f.gpx->lap() < 3 && f.gpx->running() && steps++ < 8000)
+            f.gpx->advanceClock(250);
+        QCOMPARE(f.gpx->lap(), 3);
+        QVERIFY(!f.gpx->returning());
+        QVERIFY(f.gpx->distanceMeters() < total / 2);   // from the start again
+        QCOMPARE(sprints.count(), 2);                    // once per lap
+        QVERIFY(f.gpx->riddenMeters() > 2 * total);
+        const QString key = f.gpx->sprintKey();
+        const double start = f.gpx->sprintStartM(), length = f.gpx->sprintLengthM();
+        QVERIFY(f.gpx->finish(true) >= 0);
+        // both laps' sprint times are kept
+        QCOMPARE(f.db.segmentAttempts(f.profiles->profileId(), QStringLiteral("sprint"), key, start, length), 2);
+
+        // the 3D road closes back to the start: the lap's end is its start
+        RlvRoute route;
+        QVERIFY(route.load(path));
+        const Route3DItem::Built b = Route3DItem::build(route, true);
+        QVERIFY(b.backDistance.isEmpty());
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->length()) < 1e-6);
+        const auto a0 = b.route->at(0), a1 = b.route->at(b.route->length());
+        QVERIFY(std::hypot(a0.x - a1.x, a0.z - a1.z) < 3.0);
+    }
+
     void route3dPicksTheLandscape_data()
     {
         QTest::addColumn<double>("lat");
