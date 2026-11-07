@@ -260,7 +260,7 @@ constexpr float kArchTube = .48f;       // inflated tube radius
 constexpr float kBannerHalfWidth = 2.6f;   // banner height: from its printed face (arch())
 constexpr double kArchClearM = 10.0;       // a KOM arch this close to START / FINISH is left out
 constexpr double kLoopStartArchM = 150.0;  // closed lap: no START arch this close after the FINISH arch
-constexpr double kLapBoardAfterM = 45.0;   // the lap board: this far after the finish line (time to see the number change)
+constexpr double kLapBoardAfterM = 25.0;   // the lap board: this far after the finish line (time to see the number change)
 
 // The one banner texture (1024 x 1024 RGBA, mipmapped) holds every printed
 // face, so the arches, the bike's label, the sprint and the KOM add no
