@@ -96,7 +96,7 @@ private slots:
                 QVERIFY(w.sport == QStringLiteral("cycling") || w.sport == QStringLiteral("running"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 9);
+        QCOMPARE(Database::kSchemaVersion, 10);
         QVERIFY(columns(path, QStringLiteral("run_workouts")).isEmpty());   // v7: running workouts live in workouts
         QVERIFY(columns(path, QStringLiteral("ant_tests")).contains(QStringLiteral("speed_kmh")));
         for (const char *c : { "kind", "route_path", "route_name", "planned_duration_sec", "options" })
@@ -109,6 +109,33 @@ private slots:
         for (const char *c : { "kind", "route_key", "start_m", "length_m", "time_sec", "ride_id" })   // v8
             QVERIFY(columns(path, QStringLiteral("segment_records")).contains(QString::fromLatin1(c)));
         QVERIFY(columns(path, QStringLiteral("sprint_records")).isEmpty());
+        for (const char *c : { "ride_id", "lap", "time_sec", "distance_m" })   // v10
+            QVERIFY(columns(path, QStringLiteral("ride_laps")).contains(QString::fromLatin1(c)));
+    }
+    void upgradesV9ToV10RideLaps()
+    {
+        // v9 -> v10: the lap table is added, the rides stay
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v9.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+        }
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v9"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE ride_laps")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 9")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v9"));
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
+        QVERIFY(db.hasTable(QStringLiteral("ride_laps")));
     }
 
     void upgradesV1WithoutDataLoss()

@@ -181,6 +181,7 @@ void HistoryManager::selectRide(qint64 id)
 {
     m_selected = RideRecord();
     m_selSamples.clear();
+    m_selLaps.clear();
     m_selPower.clear();
     m_selTarget.clear();
     m_selHr.clear();
@@ -193,6 +194,7 @@ void HistoryManager::selectRide(qint64 id)
         if (auto r = m_db->ride(id)) {
             m_selected = *r;
             m_selSamples = m_db->rideSamples(id);
+            m_selLaps = m_db->rideLaps(id);
             for (const Sample &s : m_selSamples) {
                 m_selPower.append(s.power);
                 m_selTarget.append(s.targetPower);
@@ -251,6 +253,22 @@ QVariantMap HistoryManager::selectedRide() const
     m.insert(QStringLiteral("estimatedFtp"), m_selEstimatedFtp);
     m.insert(QStringLiteral("best20min"), m_selBest20min);
     m.insert(QStringLiteral("ftpTestMethod"), m_selFtpMethod);   // "ramp" / "20min" / ""
+    // a looped GPX Ride's laps: lap, timeSec, timeText, best (the fastest), delta (s behind it)
+    QVariantList laps;
+    double best = 0;
+    for (const RideLap &l : m_selLaps)
+        best = best > 0 ? std::min(best, l.timeSec) : l.timeSec;
+    for (const RideLap &l : m_selLaps) {
+        const int s = int(std::lround(l.timeSec));
+        laps.append(QVariantMap { { QStringLiteral("lap"), l.lap },
+                                  { QStringLiteral("timeSec"), l.timeSec },
+                                  { QStringLiteral("timeText"), QStringLiteral("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QLatin1Char('0')) },
+                                  { QStringLiteral("distanceM"), l.distanceM },
+                                  { QStringLiteral("best"), m_selLaps.size() > 1 && l.timeSec == best },
+                                  { QStringLiteral("delta"), l.timeSec - best } });
+    }
+    m.insert(QStringLiteral("laps"), laps);
+    m.insert(QStringLiteral("bestLapSec"), best);
     return m;
 }
 

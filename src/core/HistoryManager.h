@@ -96,6 +96,7 @@ private:
     QString m_sportFilter = QStringLiteral("all");
     QVector<RideRecord> m_rides;
     RideRecord m_selected;
+    QVector<RideLap> m_selLaps;
     QVector<Sample> m_selSamples;
     QVariantList m_selPower, m_selTarget, m_selHr;
     bool m_selIsFtpTest = false;

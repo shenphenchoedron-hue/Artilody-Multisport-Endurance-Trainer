@@ -38,7 +38,7 @@ public:
     //      speed); run_workouts is copied over and dropped
     //   8  segment_records (GPX Ride sprint / KOM times per profile and route)
     //   9  development builds' sprint_records copied into segment_records
-    static constexpr int kSchemaVersion = 9;
+    static constexpr int kSchemaVersion = 10;
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -83,6 +83,9 @@ public:
     std::optional<RideRecord> ride(qint64 id) const;
     QVector<Sample> rideSamples(qint64 rideId) const;
     bool deleteRide(qint64 id);   // reopens plan entries completed by the ride
+    // A looped GPX Ride's lap times (deleted with the ride).
+    bool saveRideLaps(qint64 rideId, const QVector<RideLap> &laps);
+    QVector<RideLap> rideLaps(qint64 rideId) const;
 
     // Workout plan (calendar). Workout entries whose workout no longer exists
     // are never returned and are deleted together with the workout; Free Ride
@@ -158,6 +161,7 @@ private:
     bool migrateToV7();
     bool migrateToV8();
     bool migrateToV9();
+    bool migrateToV10();
     bool columnNotNull(const QString &table, const QString &column) const;
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);

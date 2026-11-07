@@ -895,6 +895,14 @@ private slots:
         const qint64 id = f.gpx->finish(true);
         QVERIFY(id >= 0);
         QVERIFY(std::abs(f.db.ride(id)->distanceM - ridden) < 50);
+        // the lap times are saved with the ride (History), deleted with it
+        const QVector<RideLap> saved = f.db.rideLaps(id);
+        QCOMPARE(saved.size(), 2);
+        QCOMPARE(saved[0].lap, 1);
+        QCOMPARE(saved[1].timeSec, f.gpx->lapTimes().at(1).toDouble());
+        QVERIFY(std::abs(saved[0].distanceM - total) < 1e-6);
+        QVERIFY(f.db.deleteRide(id));
+        QVERIFY(f.db.rideLaps(id).isEmpty());
 
         // the 3D road: out and back again, the way back mapped onto the back half
         RlvRoute route;

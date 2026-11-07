@@ -256,7 +256,7 @@ bool Database::migrate()
                            { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 },
                            { 5, &Database::migrateToV5 }, { 6, &Database::migrateToV6 },
                            { 7, &Database::migrateToV7 }, { 8, &Database::migrateToV8 },
-                           { 9, &Database::migrateToV9 } };
+                           { 9, &Database::migrateToV9 }, { 10, &Database::migrateToV10 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -454,6 +454,15 @@ bool Database::migrateToV9()
                                " CASE WHEN ride_id IN (SELECT id FROM rides) THEN ride_id END, created_at"
                                " FROM sprint_records WHERE profile_id IN (SELECT id FROM profiles) ORDER BY id"))
         && exec(QStringLiteral("DROP TABLE sprint_records"));
+}
+
+bool Database::migrateToV10()
+{
+    // the lap times of looped GPX Rides
+    return exec(QStringLiteral("CREATE TABLE IF NOT EXISTS ride_laps ("
+                               " ride_id INTEGER NOT NULL REFERENCES rides(id) ON DELETE CASCADE,"
+                               " lap INTEGER NOT NULL, time_sec REAL NOT NULL, distance_m REAL NOT NULL DEFAULT 0,"
+                               " PRIMARY KEY (ride_id, lap))"));
 }
 
 bool Database::migrateToV5()
@@ -894,6 +903,45 @@ QVector<Sample> Database::rideSamples(qint64 rideId) const
     while (q.next())
         out.append({ q.value(0).toInt(), q.value(1).toInt(), q.value(2).toInt(), q.value(3).toInt(), q.value(4).toInt(),
                      q.value(5).isNull() ? 0.0 : q.value(5).toDouble() });
+    return out;
+}
+
+bool Database::saveRideLaps(qint64 rideId, const QVector<RideLap> &laps)
+{
+    if (rideId < 0)
+        return false;
+    QSqlDatabase d = db();
+    if (!d.transaction()) {
+        setError(QStringLiteral("saveRideLaps"), d.lastError().text());
+        return false;
+    }
+    QSqlQuery q(d);
+    q.prepare(QStringLiteral("INSERT OR REPLACE INTO ride_laps (ride_id, lap, time_sec, distance_m) VALUES (?, ?, ?, ?)"));
+    for (const RideLap &l : laps) {
+        q.addBindValue(rideId);
+        q.addBindValue(l.lap);
+        q.addBindValue(l.timeSec);
+        q.addBindValue(l.distanceM);
+        if (!q.exec()) {
+            setError(QStringLiteral("saveRideLaps"), q.lastError().text());
+            d.rollback();
+            return false;
+        }
+    }
+    return d.commit();
+}
+
+QVector<RideLap> Database::rideLaps(qint64 rideId) const
+{
+    QVector<RideLap> out;
+    QSqlQuery q(db());
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral("SELECT lap, time_sec, distance_m FROM ride_laps WHERE ride_id = ? ORDER BY lap"));
+    q.addBindValue(rideId);
+    if (!q.exec())
+        return out;
+    while (q.next())
+        out.append({ q.value(0).toInt(), q.value(1).toDouble(), q.value(2).toDouble() });
     return out;
 }
 

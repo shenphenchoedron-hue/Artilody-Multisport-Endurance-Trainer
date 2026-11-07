@@ -1289,6 +1289,12 @@ qint64 RlvSession::saveRide()
     for (qint64 id : std::as_const(m_lapRecordIds))   // (earlier laps)
         if (m_lastRideId >= 0)
             m_db->setSegmentRideId(id, m_lastRideId);
+    if (m_lastRideId >= 0 && m_loopRide && !m_lapTimes.isEmpty()) {   // the lap times (History)
+        QVector<RideLap> laps;
+        for (int i = 0; i < m_lapTimes.size(); ++i)
+            laps.append({ i + 1, m_lapTimes.at(i).toDouble(), totalDistanceM() });
+        m_db->saveRideLaps(m_lastRideId, laps);
+    }
     if (m_lastRideId >= 0) {
         emit lastRideIdChanged();
         emit rideSaved(m_lastRideId);

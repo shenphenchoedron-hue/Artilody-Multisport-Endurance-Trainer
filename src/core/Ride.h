@@ -46,4 +46,13 @@ struct RideRecord
     double distanceM = 0;                         // rowing / free ride distance in metres (0 = unknown)
 };
 
+// A finished lap of a looped GPX Ride (schema v10, table ride_laps).
+struct RideLap
+{
+    int lap = 0;          // 1, 2, ...
+    double timeSec = 0;
+    double distanceM = 0;
+    bool operator==(const RideLap &o) const { return lap == o.lap && timeSec == o.timeSec && distanceM == o.distanceM; }
+};
+
 } // namespace watt

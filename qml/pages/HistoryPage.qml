@@ -9,6 +9,7 @@ Item {
     signal message(string text)
 
     readonly property var ride: History.selectedRide
+    readonly property var rideLaps: ride.laps || []
     readonly property bool hasRide: ride.rideId !== undefined
     readonly property bool rideRowing: ride.sport === "rowing"
     readonly property bool rideRunning: ride.sport === "running"
@@ -493,6 +494,7 @@ Item {
                       + (page.rideRowing ? Theme.thousands(page.ride.distanceM || 0) + " m rowed"
                          : page.rideRunning ? ((page.ride.distanceM || 0) / 1000).toFixed(2) + " km run"
                          : page.ride.blocks + " blocks")
+                      + (page.rideLaps.length > 0 ? "  •  " + page.rideLaps.length + " laps" : "")
                 color: Theme.text
                 font.pixelSize: 16
             }
@@ -532,7 +534,8 @@ Item {
         id: rideDialog
         title: page.ride.name || ""
         panelWidth: page.ride.isFtpTest ? 860 : 760   // FTP tests show an extra "Use as FTP" button
-        panelHeight: page.ride.isFtpTest ? 646 : 560
+        // (+ the lap times of a looped GPX Ride)
+        panelHeight: (page.ride.isFtpTest ? 646 : 560) + (page.rideLaps.length > 0 ? lapsBlock.height + 18 : 0)
 
         Text {
             x: 28; y: 72
@@ -619,7 +622,72 @@ Item {
                 }
             }
         }
+        // a looped GPX Ride: every lap's time, the fastest in gold
+        Column {
+            id: lapsBlock
+            visible: page.rideLaps.length > 0
+            x: 28
+            y: zonesTitle.y + 76 + zonesGrid.height + 22
+            width: rideDialog.panelWidth - 56
+            spacing: 10
+            Text {
+                text: "Lap times" + (page.ride.bestLapSec > 0 && page.rideLaps.length > 1
+                                     ? "  ·  best " + Theme.clock(Math.round(page.ride.bestLapSec)) : "")
+                color: Theme.text
+                font.pixelSize: 18
+                font.weight: Font.Bold
+            }
+            Flickable {
+                width: parent.width
+                height: Math.min(lapFlow.height, 5 * 36 - 6)
+                contentHeight: lapFlow.height
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: parent.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+                Flow {
+                    id: lapFlow
+                    width: parent.width
+                    spacing: 6
+                    Repeater {
+                        model: page.rideLaps
+                        Rectangle {
+                            width: (lapFlow.width - 3 * 6) / 4
+                            height: 30
+                            radius: 8
+                            color: modelData.best ? Qt.rgba(1, 0.82, 0.25, 0.22) : Theme.field
+                            border.color: modelData.best ? "#e0a800" : Theme.fieldBorder
+                            Text {
+                                x: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Lap " + modelData.lap
+                                color: Theme.textSecondary
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.horizontalCenterOffset: 6
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.timeText
+                                color: Theme.text
+                                font.pixelSize: 14
+                                font.weight: Font.Bold
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.best ? "best" : modelData.delta >= 0.05 ? "+" + (modelData.delta < 60 ? modelData.delta.toFixed(1) + " s" : Theme.clock(Math.round(modelData.delta))) : ""
+                                color: modelData.best ? "#c99400" : Theme.danger
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Grid {
+            id: zonesGrid
             x: 28; y: zonesTitle.y + 76
             columns: 3
             columnSpacing: 30
