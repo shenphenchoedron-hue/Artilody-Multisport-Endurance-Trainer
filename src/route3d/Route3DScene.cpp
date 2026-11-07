@@ -206,6 +206,7 @@ void main(){
     float diffuse=mat==8?clamp((ndl+.45)/1.45,0.,1.):max(ndl,0.);
     vec3 ambient=mix(ambientGround,ambientSky,n.y*.5+.5);
     vec3 lit=base*(ambient*.95+sunLight*diffuse*.92);
+    if(mat==9&&edge>.5)lit=max(lit,base*1.08);   // reflective sign (the km posts): bright in the shade too
     if(mat==1||mat==4){
         float spec=pow(max(dot(reflect(-sunDir,n),-view/dist),0.),20.);
         lit+=vec3(1.,.95,.85)*spec*.06;
@@ -303,7 +304,8 @@ constexpr TexRect kYellowDigit(int digit)
 {
     return texPixels(kYellowDigitX + digit * kDigitCell + 5, kDigitRow + 1, kDigitCell - 10, 30);
 }
-constexpr QRgb kKmYellow = 0xfff2c21b;   // the kilometre posts' plate
+constexpr QRgb kKmYellow = 0xffffd400;   // the kilometre posts' plate (signal yellow)
+constexpr TexRect kYellowPlate = texPixels(kYellowDigitX + 1, kDigitRow + 4, 2, 24);   // plain yellow (a digit cell's margin)
 constexpr TexRect kLapsLabel = texPixels(420, kDigitRow + 1, 184, 30);
 constexpr TexRect cellFace(int x, int row)
 {
@@ -1105,8 +1107,7 @@ void Route3DScene::kmPosts()
 {
     const Route &route = *m_route;
     const double length = route.length();
-    const QColor y = QColor::fromRgb(kKmYellow);
-    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateYellow(y.redF(), y.greenF(), y.blueF());
+    const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f);
     for (size_t i = 0; i < m_kmPosts.size(); ++i) {
         double d = m_kmPosts[i][0];
         // not into a sign or an arch
@@ -1138,18 +1139,22 @@ void Route3DScene::kmPosts()
         const QVector3D plate = foot + up * (1.15f + ph) + n * .07f;
         box(plate - n * .045f, r * (pw + .02f), up * (ph + .02f), n * .015f, black);   // dark rim and back (well behind the face: no depth fighting)
         const QVector3D front = plate + n * .001f;
-        face(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, n, plateYellow);
+        // the plate and its digits: reflective (blend 1: bright in the shade too)
+        auto quad = [&](QVector3D c0, QVector3D c1, QVector3D c2, QVector3D c3, const TexRect &t) {
+            const QVector3D tl(t.u0, t.v0, 0), tr(t.u1, t.v0, 0), bl(t.u0, t.v1, 0), br(t.u1, t.v1, 0);
+            put(c0, n, bl, Banner, 1);
+            put(c1, n, br, Banner, 1);
+            put(c2, n, tr, Banner, 1);
+            put(c0, n, bl, Banner, 1);
+            put(c2, n, tr, Banner, 1);
+            put(c3, n, tl, Banner, 1);
+        };
+        quad(front - r * pw - up * ph, front + r * pw - up * ph, front + r * pw + up * ph, front - r * pw + up * ph, kYellowPlate);
         float x = -number.size() * dw * .5f;
         for (const QChar ch : number) {
             const TexRect t = kYellowDigit(ch.digitValue());
             const QVector3D c0 = front + n * .025f + r * x - up * (dh * .5f), c1 = c0 + r * dw, c2 = c1 + up * dh, c3 = c0 + up * dh;
-            const QVector3D tl(t.u0, t.v0, 0), tr(t.u1, t.v0, 0), bl(t.u0, t.v1, 0), br(t.u1, t.v1, 0);
-            put(c0, n, bl, Banner, 0);
-            put(c1, n, br, Banner, 0);
-            put(c2, n, tr, Banner, 0);
-            put(c0, n, bl, Banner, 0);
-            put(c2, n, tr, Banner, 0);
-            put(c3, n, tl, Banner, 0);
+            quad(c0, c1, c2, c3, t);
             x += dw;
         }
     }
