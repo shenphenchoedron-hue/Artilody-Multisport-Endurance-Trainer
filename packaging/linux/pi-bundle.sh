@@ -114,6 +114,9 @@ cat > "$root/usr/bin/$name" <<EOF
 #!/bin/sh
 # Artilody Multisport Endurance Trainer (self-contained, $prefix)
 d=$prefix/usr
+# (the app puts the original back for the programs it starts: main.cpp)
+export ARTILODY_BUNDLE=1
+export ARTILODY_ORIGINAL_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="\$d/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 export GST_PLUGIN_SYSTEM_PATH_1_0="\$d/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="\$d/lib/gstreamer-1.0"

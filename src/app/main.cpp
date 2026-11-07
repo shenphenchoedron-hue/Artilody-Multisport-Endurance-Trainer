@@ -238,6 +238,22 @@ QString probeComboClick(QQuickWindow *window, const QString &name)
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_LINUX
+    // The self-contained Raspberry Pi package's launcher sets LD_LIBRARY_PATH
+    // to its own libraries (packaging/linux/pi-bundle.sh). The dynamic loader
+    // has read it already (it keeps it for the plugins loaded later), so put
+    // back the user's value: programs the app starts (the file manager for
+    // "Open folder", a browser) must use the system's libraries, not ours.
+    if (qEnvironmentVariableIsSet("ARTILODY_BUNDLE")) {
+        const QByteArray original = qgetenv("ARTILODY_ORIGINAL_LD_LIBRARY_PATH");
+        if (original.isEmpty())
+            qunsetenv("LD_LIBRARY_PATH");
+        else
+            qputenv("LD_LIBRARY_PATH", original);
+        qunsetenv("ARTILODY_ORIGINAL_LD_LIBRARY_PATH");
+        qunsetenv("ARTILODY_BUNDLE");
+    }
+#endif
 #ifdef Q_OS_MACOS
     if (!sanitizeQpaPlatform())
         return 1;

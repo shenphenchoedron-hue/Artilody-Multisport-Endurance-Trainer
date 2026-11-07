@@ -1,6 +1,14 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.8.2
+## What's new in 1.8.3
+
+**Raspberry Pi: opening files and folders works again.**
+
+- **Opening a GPX file, a video or a folder** crashed the self-contained Raspberry Pi package from 1.8.1 / 1.8.2: Qt's file and folder dialogs need a QML module (Qt.labs.folderlistmodel) the package lacked. It is included now, and the build checks that every QML module the bundled ones load is there.
+- **Open folder** (logs, music, videos) on the Raspberry Pi starts the file manager with the system's libraries, not the app's.
+- No database change – install over 1.8.2.
+
+## Also included from 1.8.2
 
 **Raspberry Pi: the self-contained package starts on the Wayland desktop.**
 
