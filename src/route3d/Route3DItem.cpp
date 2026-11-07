@@ -261,6 +261,61 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     const bool roundTrip = loop && route.isRoundTrip();
     const bool thereAndBack = loop && !roundTrip;
     size_t seam = ridden - 1;   // round trip: the last ridden geo point drawn (the lap's end on the road)
+    size_t turnIn = 0, turnOut = 0, backStart = 0;   // there and back: around the roundabouts
+    // A roundabout at geo point `at` (the track arrives there going away from
+    // geo[at + step]): the road runs on into a ring of kRingR m round an
+    // island, counter-clockwise, and comes back out onto itself at `at`
+    // heading back. Appends the points after `at`, the last one = geo[at].
+    auto roundabout = [&](size_t at, int step) {
+        constexpr double kRingR = 12.0, kLead = 8.0, kMPerDeg = 111320.0;
+        const route3d::GeoPoint e = geo[at];
+        const double mLon = kMPerDeg * std::cos(e.lat * M_PI / 180.0);
+        // the arriving direction (east, north; unit) over ~20 m
+        size_t k = at;
+        while (int(k) + step >= 0 && size_t(int(k) + step) < geo.size()
+               && RlvRoute::haversine(geo[k].lat, geo[k].lon, e.lat, e.lon) < 20.0)
+            k = size_t(int(k) + step);
+        double fe = (e.lon - geo[k].lon) * mLon, fn = (e.lat - geo[k].lat) * kMPerDeg;
+        const double fl = std::hypot(fe, fn);
+        if (fl < 1.0)
+            return;
+        fe /= fl;
+        fn /= fl;
+        const double ce = fe * (kRingR + kLead), cn = fn * (kRingR + kLead);   // the island's centre
+        auto put = [&](double pe, double pn) { geo.push_back({ e.lat + pn / kMPerDeg, e.lon + pe / mLon, e.elevation }); };
+        // Hermite p0 -> p1 (tangents t0, t1, unit; scaled to the chord), the points after p0
+        auto curve = [&](double p0e, double p0n, double t0e, double t0n, double p1e, double p1n, double t1e, double t1n,
+                         bool last) {
+            const double chord = std::hypot(p1e - p0e, p1n - p0n);
+            const int steps = std::max(2, int(std::ceil(chord / 2.5)));
+            for (int i = 1; i <= steps - (last ? 0 : 1); ++i) {
+                const double t = double(i) / steps, t2 = t * t, t3 = t2 * t;
+                const double h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+                put(h00 * p0e + h10 * chord * t0e + h01 * p1e + h11 * chord * t1e,
+                    h00 * p0n + h10 * chord * t0n + h01 * p1n + h11 * chord * t1n);
+            }
+        };
+        const double a0 = std::atan2(-fn, -fe);                       // the ring's near point
+        const double aIn = a0 + 40 * M_PI / 180, aOut = a0 + 320 * M_PI / 180;   // in on the right, out on the left
+        auto ring = [&](double a, double &pe, double &pn, double &te, double &tn) {
+            pe = ce + kRingR * std::cos(a);
+            pn = cn + kRingR * std::sin(a);
+            te = -std::sin(a);   // counter-clockwise
+            tn = std::cos(a);
+        };
+        double ie, in, ite, itn, oe, on, ote, otn;
+        ring(aIn, ie, in, ite, itn);
+        ring(aOut, oe, on, ote, otn);
+        curve(0, 0, fe, fn, ie, in, ite, itn, false);   // in
+        const int arc = int(std::ceil(kRingR * (aOut - aIn) / 2.5));
+        for (int i = 0; i <= arc; ++i) {
+            double pe, pn, te, tn;
+            ring(aIn + (aOut - aIn) * i / arc, pe, pn, te, tn);
+            put(pe, pn);
+        }
+        curve(oe, on, ote, otn, 0, 0, -fe, -fn, true);   // out, back onto the road
+        geo.back() = e;
+    };
     if (roundTrip) {
         // round and round: the road closes back to the start (no run-out) on
         // a curve that leaves the end the way the track arrives and meets the
@@ -317,9 +372,17 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
         if (gap > 0.5)
             geo.push_back(first);
     } else if (thereAndBack) {
-        // out and back again: the same points backwards (no run-out)
+        // out and back again: at each end a roundabout to turn in (round the
+        // island, keeping it on the left), then the same points backwards;
+        // after the roundabout at the start the road goes out again - one
+        // closed lap: out, turn, back, turn
+        turnIn = ridden - 1;
+        roundabout(ridden - 1, -1);
+        turnOut = geo.size() - 1;   // (the end point again)
         for (size_t k = ridden - 1; k-- > 0;)
             geo.push_back(geo[k]);
+        backStart = geo.size() - 1;   // (the start point, coming back)
+        roundabout(0, 1);             // (ends on the start point: the seam)
     } else {
         const route3d::GeoPoint end = geo.back();
         const route3d::GeoPoint &first = geo.front();
@@ -343,14 +406,16 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt, thereAndBack ? 400000 : 200000));
     if (!loop && geo.size() > ridden)
         drawn->finishDistance = drawnAt[ridden - 1];
-    if (thereAndBack)
-        drawn->turnDistance = drawnAt[ridden - 1];
-    if (roundTrip) {
+    if (roundTrip || thereAndBack) {
         // the seam: the last point is the first (at() goes on round)
         drawn->points.back().x = drawn->points.front().x;
         drawn->points.back().y = drawn->points.front().y;
         drawn->points.back().z = drawn->points.front().z;
         drawn->closed = true;
+        if (roundTrip)
+            drawn->lapLines = { drawn->length() };
+        else   // in the middle of each roundabout
+            drawn->lapLines = { .5 * (drawnAt[turnIn] + drawnAt[turnOut]), .5 * (drawnAt[backStart] + drawn->length()) };
     }
     drawn->biome = int(biomeOf(route));
     b.route = drawn;
@@ -387,10 +452,25 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
                 d = std::clamp(d + extra * (d - from) / std::max(1e-6, E - from), 0.0, L);
         b.drawnDistance.last() = L;
     } else if (thereAndBack) {
-        // forward geo point k comes back at 2 (ridden - 1) - k
+        // forward geo point k comes back at turnOut + (ridden - 1 - k)
         b.backDistance.reserve(pts.size());
         for (int i = 0; i < pts.size(); ++i)
-            b.backDistance.append(drawnAt[2 * (ridden - 1) - size_t(geoIndexOf[i])]);
+            b.backDistance.append(drawnAt[turnOut + (ridden - 1 - size_t(geoIndexOf[i]))]);
+        // the roundabouts: the app turns at once (the route's end, its start),
+        // the road goes round the ring - the metres around it are spread over
+        // the last / first kSpreadM of the route, the lap line in the middle
+        const double total = pts.constLast().distance, L = b.route->length();
+        const double spread = std::min(150.0, total / 3);
+        const double turnLine = b.route->lapLines[0], startLine = b.route->lapLines[1] - L;   // (before 0: wraps)
+        const double outEnd = b.drawnDistance.constLast(), backEnd = b.backDistance.constFirst();
+        const double backTurn = b.backDistance.constLast(), outStart = b.drawnDistance.constFirst();
+        for (int i = 0; i < pts.size(); ++i) {
+            const double a = pts.at(i).distance;
+            const double near = spread > 0 ? std::clamp((a - (total - spread)) / spread, 0.0, 1.0) : 0.0;
+            const double nearStart = spread > 0 ? std::clamp((spread - a) / spread, 0.0, 1.0) : 0.0;
+            b.drawnDistance[i] += (turnLine - outEnd) * near + (startLine - outStart) * nearStart;
+            b.backDistance[i] += (turnLine - backTurn) * near + (b.route->lapLines[1] - backEnd) * nearStart;
+        }
     }
     return b;
 }

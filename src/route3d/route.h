@@ -21,9 +21,10 @@ public:
     // drawn road may go on past it (a visual run-out after the finish).
     double finishDistance=-1;
     double finish() const { return finishDistance>=0?std::min(finishDistance,length()):length(); }
-    // A looped there-and-back road (GPX Ride loop): where it turns back, a
-    // second finish line (a lap ends there too); < 0 = none.
-    double turnDistance=-1;
+    // A closed lap's finish lines (GPX Ride loop): where a lap ends on the
+    // drawn road - a round trip at its end (= its start), a there-and-back
+    // road in the middle of its two roundabouts (the turn, the start).
+    std::vector<double> lapLines;
     // A closed lap (GPX Ride loop of a round trip): the road's end is its
     // start; at() goes on round (distances wrap, the spline runs through
     // the seam), so the rider and the camera ride over it without a jolt.

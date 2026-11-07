@@ -879,10 +879,12 @@ void Route3DScene::buildGates()
         arch(m_gateVertices, m_builtStartGate, StartArch);
     m_startGateCount = int(m_gateVertices.size());
     const double finishArch = std::max(0.0, m_route->finish() - 1.0);
-    arch(m_gateVertices, finishArch, FinishArch);
-    // a looped there-and-back road: a lap also ends where it turns back
-    if (m_route->turnDistance > 30)
-        arch(m_gateVertices, m_route->turnDistance - 3.0, FinishArch);
+    if (m_route->lapLines.empty()) {
+        arch(m_gateVertices, finishArch, FinishArch);
+    } else {   // a closed lap: a FINISH arch on each line a lap ends on (a there-and-back's in its roundabouts)
+        for (double line : m_route->lapLines)
+            arch(m_gateVertices, m_route->wrap(line - 1.0), FinishArch);
+    }
     m_finishGateEnd = int(m_gateVertices.size());
     if (m_laps < 0)   // (a loop: the lap board stands there)
         displayBike(m_gateVertices);
@@ -1053,8 +1055,8 @@ void Route3DScene::finishTunnel(double finishArch)
     const Route &route = *m_route;
     const double from = std::max(0.0, finishArch - 40.0);
     const double to = std::min(route.length() - kTaperM - 2.0, finishArch + 45.0);
-    if (to <= from + 5 || std::abs(finishArch - m_builtStartGate) < 60)
-        return;   // (no run-out, or a loop: start and finish at one place)
+    if (to <= from + 5 || std::abs(finishArch - m_builtStartGate) < 60 || route.lapLines.size() > 1)
+        return;   // (no run-out, or a loop: start and finish at one place; no barriers in a roundabout)
     const QVector3D up(0, 1, 0), steel(.62f, .64f, .67f);
     static const QVector3D banners[] = { { .80f, .10f, .09f }, { .95f, .95f, .93f }, { .10f, .30f, .72f }, { .98f, .78f, .10f } };
     constexpr double panel = 2.4;
@@ -1179,11 +1181,9 @@ void Route3DScene::lapBoards()
         return;   // (no loop; from the start on: LAPS 0)
     const Route &route = *m_route;
     const double length = route.length();
-    std::vector<double> at { kLapBoardAfterM };   // after the start / the closed lap's seam
-    if (route.turnDistance > 0)
-        at.push_back(route.turnDistance + kLapBoardAfterM);
-    if (!route.closed && route.turnDistance <= 0)
-        return;   // (a loop is always one of the two)
+    std::vector<double> at;   // after each line a lap ends on
+    for (double line : route.lapLines)
+        at.push_back(route.wrap(line + kLapBoardAfterM));
     const QVector3D white(.92f, .92f, .89f), black(.10f, .10f, .10f), plateWhite(1, 1, 1), up(0, 1, 0);
     const QString number = QString::number(m_laps);
     const TexRect d0 = kDigit(0);

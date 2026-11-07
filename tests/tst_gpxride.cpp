@@ -909,12 +909,33 @@ private slots:
         QVERIFY(route.load(path));
         const Route3DItem::Built b = Route3DItem::build(route, true);
         QCOMPARE(b.backDistance.size(), b.appDistance.size());
-        QVERIFY(b.route->turnDistance > 0);
         QVERIFY(b.route->finishDistance < 0);
-        QVERIFY(std::abs(b.route->length() - 2 * b.route->turnDistance) < 30);
-        QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - b.route->turnDistance) < 1);
-        QVERIFY(std::abs(Route3DItem::mapDistance(b, total, true) - b.route->turnDistance) < 1);
-        QVERIFY(std::abs(Route3DItem::mapDistance(b, 0, true) - b.route->length()) < 1);
+        // one closed lap: out, a roundabout at the end, back, a roundabout at the start
+        QVERIFY(b.route->closed);
+        QCOMPARE(int(b.route->lapLines.size()), 2);
+        const double L = b.route->length();
+        QVERIFY(L > 2 * total + 100 && L < 2 * total + 260);
+        const double turnLine = b.route->lapLines[0], startLine = b.route->lapLines[1];
+        QVERIFY(turnLine > total && turnLine < L / 2 + 50);
+        // the lap lines in the roundabouts: out and back meet there
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, total) - turnLine) < 1e-6);
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, total, true) - turnLine) < 1e-6);
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, 0, true) - startLine) < 1e-6);
+        QVERIFY(std::abs(b.route->wrap(Route3DItem::mapDistance(b, 0)) - startLine) < 1e-6);
+        // riding on, the drawn road always goes forwards (out up, back up too)
+        for (int i = 1; i < b.appDistance.size(); ++i) {
+            QVERIFY(b.drawnDistance[i] > b.drawnDistance[i - 1]);
+            QVERIFY(b.backDistance[i] < b.backDistance[i - 1]);
+        }
+        // no U-turn: the road never turns sharper than round the ring (12 m)
+        auto heading = [&](double d) {
+            const auto p = b.route->at(d - 2), q = b.route->at(d + 2);
+            return std::atan2(q.z - p.z, q.x - p.x);
+        };
+        for (double d = 0; d < L; d += 2) {
+            const double turn = std::abs(std::remainder(heading(d + 4) - heading(d - 4), 2 * M_PI));
+            QVERIFY2(turn < 1.1, qPrintable(QStringLiteral("turn %1 rad at %2 of %3 m").arg(turn).arg(d).arg(L)));
+        }
         // the km posts count on: out 0.59 km + back = 1.18 km a cycle
         auto posts = Route3DItem::kmPosts(b, total, true, 0, 100, false);
         QCOMPARE(int(posts.size()), 1);                       // km 1 on the way back
@@ -929,7 +950,8 @@ private slots:
         // without the loop: drawn as before (a run-out, no way back)
         const Route3DItem::Built plain = Route3DItem::build(route);
         QVERIFY(plain.backDistance.isEmpty());
-        QVERIFY(plain.route->turnDistance < 0);
+        QVERIFY(plain.route->lapLines.empty());
+        QVERIFY(!plain.route->closed);
     }
 
     // A circle of radius r near (55, 12): points at 2 pi i / 101 for i < n
