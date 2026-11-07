@@ -886,6 +886,9 @@ private slots:
         QCOMPARE(f.gpx->lap(), 3);
         QVERIFY(!f.gpx->returning());
         QVERIFY(f.gpx->riddenMeters() > 2 * total);
+        QCOMPARE(f.gpx->lapTimes().size(), 2);   // the lap HUD's times
+        QCOMPARE(f.gpx->lapTimes().constLast().toDouble(), f.gpx->lastLapSec());
+        QVERIFY(f.gpx->lapTimes().constFirst().toDouble() > f.gpx->lastLapSec());   // up slower than down
         // up once, down once: climbed about the route's ascent
         QVERIFY(std::abs(f.gpx->ascentDoneM() - f.gpx->totalAscentM()) < 5);
         const double ridden = f.gpx->riddenMeters();

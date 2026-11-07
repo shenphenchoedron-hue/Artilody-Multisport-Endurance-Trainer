@@ -538,6 +538,7 @@ void RlvSession::clearLaps()
     m_lapsDone = 0;
     m_lapStartMs = 0;
     m_lastLapSec = 0;
+    m_lapTimes.clear();
     m_ascentBase = 0;
     m_lapFrom = m_distance;
     m_lapRecordIds.clear();
@@ -551,6 +552,7 @@ void RlvSession::lapDone(double atMs)
     ++m_lapsDone;
     m_lastLapSec = std::round((atMs - m_lapStartMs) / 10.0) / 100.0;   // 0.01 s
     m_lapStartMs = atMs;
+    m_lapTimes.append(m_lastLapSec);
     m_completed = true;
     DiagLog::write("RIDE", QStringLiteral("lap %1: %2 s").arg(m_lapsDone).arg(m_lastLapSec, 0, 'f', 2));
     emit lapCompleted(m_lapsDone, m_lastLapSec);

@@ -209,6 +209,7 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(bool returning READ returning NOTIFY lapChanged)          // there and back: on the way back
     Q_PROPERTY(double lastLapSec READ lastLapSec NOTIFY lapChanged)      // the last finished lap, 0 = none
     Q_PROPERTY(double lapElapsedSec READ lapElapsedSec NOTIFY tick)
+    Q_PROPERTY(QVariantList lapTimes READ lapTimes NOTIFY lapChanged)   // finished laps' times (s), lap 1 first
     Q_PROPERTY(QString currentInformation READ currentInformation NOTIFY informationChanged)
     Q_PROPERTY(int currentInformationIndex READ currentInformationIndex NOTIFY informationChanged)
 
@@ -464,6 +465,7 @@ public:
     int lap() const { return m_lapsDone + 1; }
     int lapsDone() const override { return m_lapsDone; }
     double lastLapSec() const { return m_lastLapSec; }
+    QVariantList lapTimes() const { return m_lapTimes; }
     double lapElapsedSec() const { return std::max(0.0, (double(m_activeMs) - m_lapStartMs) / 1000.0); }
     double progress() const;
     double gradePercent() const;
@@ -786,6 +788,7 @@ private:
     int m_lapsDone = 0;
     double m_lapStartMs = 0;        // m_activeMs at this lap's start
     double m_lastLapSec = 0;
+    QVariantList m_lapTimes;
     double m_ascentBase = 0;        // metres climbed on the laps before this one
     double m_lapFrom = 0;           // where this lap began on the route
     QVector<qint64> m_lapRecordIds; // sprint / KOM times of earlier laps (linked / discarded with the ride)

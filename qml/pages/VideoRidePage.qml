@@ -1442,6 +1442,106 @@ Item {
                     }
                 }
 
+                // GPX Ride loop: the lap times (the lap being ridden, the
+                // finished ones newest first, the best in gold)
+                Rectangle {
+                    id: lapHud
+                    objectName: page.namePrefix + "LapHud"
+                    readonly property var times: page.session.lapTimes || []
+                    readonly property real best: times.length ? Math.min.apply(null, times) : 0
+                    readonly property int shown: Math.min(times.length, 8)
+                    visible: page.gpx && videoCard.showOverlay && page.session.looping
+                             && (page.session.active || page.finished)
+                    x: page.fullscreen && page.hudVisible ? 16 + 236 + 12 : 16
+                    y: page.fullscreen && page.hudVisible ? 64 : 60
+                    width: 168
+                    height: lapCol.implicitHeight + 20
+                    radius: 12
+                    color: Qt.rgba(0, 0, 0, 0.55)
+                    function delta(t) {
+                        const d = t - lapHud.best
+                        return d < 0.05 ? "" : "+" + (d < 60 ? d.toFixed(1) + " s" : Theme.clock(Math.round(d)))
+                    }
+                    Column {
+                        id: lapCol
+                        x: 12
+                        y: 10
+                        width: parent.width - 24
+                        spacing: 3
+                        Text {
+                            text: "LAP TIMES"
+                            color: "#c8cde0"
+                            font.pixelSize: 12
+                            font.weight: Font.Black
+                            font.letterSpacing: 1
+                        }
+                        // the lap being ridden
+                        Item {
+                            visible: page.session.active
+                            width: parent.width
+                            height: 22
+                            Text {
+                                text: "Lap " + page.session.lap + (page.session.returning ? " ←" : "")
+                                color: "white"
+                                font.pixelSize: 15
+                                font.weight: Font.Bold
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Theme.clock(Math.floor(page.session.lapElapsedSec))
+                                color: "white"
+                                font.pixelSize: 15
+                                font.weight: Font.Bold
+                            }
+                        }
+                        Rectangle {
+                            visible: lapHud.shown > 0 && page.session.active
+                            width: parent.width
+                            height: 1
+                            color: Qt.rgba(1, 1, 1, 0.18)
+                        }
+                        Repeater {
+                            model: lapHud.shown
+                            Item {
+                                readonly property int lapIndex: lapHud.times.length - 1 - index   // newest first
+                                readonly property real t: lapHud.times[lapIndex]
+                                readonly property bool isBest: lapHud.times.length > 1 && t === lapHud.best
+                                width: lapCol.width
+                                height: 20
+                                Text {
+                                    text: (lapIndex + 1) + ""
+                                    color: parent.isBest ? "#ffd23f" : "#c8cde0"
+                                    font.pixelSize: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Text {
+                                    x: 26
+                                    text: Theme.clock(Math.round(parent.t))
+                                    color: parent.isBest ? "#ffd23f" : "white"
+                                    font.pixelSize: 14
+                                    font.weight: parent.isBest ? Font.Bold : Font.Normal
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Text {
+                                    anchors.right: parent.right
+                                    text: parent.isBest ? "best" : lapHud.delta(parent.t)
+                                    color: parent.isBest ? "#ffd23f" : "#ff9a8a"
+                                    font.pixelSize: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+                        }
+                        Text {
+                            visible: lapHud.times.length > lapHud.shown
+                            text: "+ " + (lapHud.times.length - lapHud.shown) + " earlier"
+                            color: "#9aa3c0"
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+
                 // full screen: the numbers on the left, the button, the bar
                 RideHud {
                     visible: page.fullscreen && page.hudVisible && videoCard.showOverlay
