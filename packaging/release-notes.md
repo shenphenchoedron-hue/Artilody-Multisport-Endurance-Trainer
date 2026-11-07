@@ -1,6 +1,13 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.0
+## What's new in 1.9.1
+
+**GPX Ride loop: roundabouts instead of U-turns.**
+
+- **Out-and-back loops**: a looped route that does not end where it starts now turns in a **roundabout** at each end – round the island and back onto the road – instead of an abrupt U-turn. The 3D road is one closed lap (out, roundabout, back, roundabout), so the rider rides through without a stop; the lap's finish line and FINISH arch are in the roundabout, the *LAPS* board just after it. The grade, distance and lap times are unchanged.
+- No database change – install over 1.9.0.
+
+## Also included from 1.9.0
 
 **GPX Ride: loop a route, with lap times.**
 

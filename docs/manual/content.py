@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.0 source code (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.1 source code (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1812,7 +1812,7 @@ def build(s, env):
         "road in front of you. Each landscape has its own birds.",
         "<b>Loop route</b>: switch it on before the start to ride the route lap after lap until you press "
         "<i>Finish</i>. A round trip (start and end within 60 m) goes round and round – the road runs on "
-        "smoothly over the finish line; any other route goes out and back. Every lap ends on a finish line; "
+        "smoothly over the finish line; any other route goes out and back, turning in a roundabout at each end (no U-turn). Every lap ends on a finish line; "
         "a <i>LAPS</i> board after it shows the laps done, the yellow kilometre posts count on lap after lap, "
         "sprints and KOMs are timed every lap. A <i>Lap times</i> panel on the 3D view shows the lap being "
         "ridden and every finished lap (the fastest in gold).",
@@ -2226,7 +2226,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.0",
+  "app": "Artilody Multisport Endurance Trainer 1.9.1",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
