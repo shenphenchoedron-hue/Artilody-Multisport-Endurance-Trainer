@@ -1,4 +1,5 @@
 #include "FitExporter.h"
+#include "CsvExporter.h"
 
 #include <QFile>
 #include <QMap>
@@ -310,6 +311,44 @@ private slots:
         QCOMPARE(rec.last().fields.value(5), quint64(123456));
         for (int i = 1; i < rec.size(); ++i)
             QVERIFY(rec[i].fields.value(5) >= rec[i - 1].fields.value(5));
+    }
+
+    void loopLaps()
+    {
+        // a looped GPX Ride: 100 s at 200 W, 90 s at 300 W, then 25 s unfinished
+        QVector<Sample> s;
+        for (int t = 0; t < 215; ++t)
+            s.append({ t, t < 100 ? 200 : t < 190 ? 300 : 150, 0, 90, 140 });
+        RideRecord r = makeRide(215);
+        r.distanceM = 2300;
+        const QVector<RideLap> laps { { 1, 100.0, 1000.0 }, { 2, 90.0, 1000.0 } };
+        const FitFile f = parse(fit::encodeActivity(r, s, laps));
+        QVERIFY2(f.ok, qPrintable(f.error));
+        const auto lap = f.of(19);
+        QCOMPARE(lap.size(), 3);   // two laps + the unfinished rest
+        QCOMPARE(lap[0].fields.value(2), kStartFit);
+        QCOMPARE(lap[0].fields.value(7), quint64(100000));
+        QCOMPARE(lap[0].fields.value(19), quint64(200));
+        QCOMPARE(lap[0].fields.value(9), quint64(100000));   // 1000 m
+        QCOMPARE(lap[1].fields.value(2), kStartFit + 100);
+        QCOMPARE(lap[1].fields.value(7), quint64(90000));
+        QCOMPARE(lap[1].fields.value(19), quint64(300));
+        QCOMPARE(lap[1].fields.value(254), quint64(1));      // message_index
+        QCOMPARE(lap[2].fields.value(7), quint64(25000));
+        QCOMPARE(lap[2].fields.value(9), quint64(30000));    // the rest: 300 m
+        QCOMPARE(lap[2].fields.value(253), kStartFit + 215);
+        QCOMPARE(f.of(18)[0].fields.value(26), quint64(3));   // num_laps
+        // the CSV: a header line per lap, the lap column
+        const QString csv = csv::samplesToCsv(r, s, laps);
+        QVERIFY(csv.contains(QStringLiteral("# lap,1,1:40.00,100.00,1000.0\n")));
+        QVERIFY(csv.contains(QStringLiteral("# lap,2,1:30.00,90.00,1000.0\n")));
+        QVERIFY(csv.contains(QStringLiteral(",heart_rate_bpm,lap\n")));
+        QVERIFY(csv.contains(QStringLiteral("\n99,00:01:39,200,0,90,140,1\n")));
+        QVERIFY(csv.contains(QStringLiteral("\n100,00:01:40,300,0,90,140,2\n")));
+        QVERIFY(csv.contains(QStringLiteral("\n190,00:03:10,150,0,90,140,3\n")));
+        const QString summary = csv::ridesToCsv({ r }, [&](qint64) { return laps; });
+        QVERIFY(summary.contains(QStringLiteral(",ftp_w,laps,best_lap_s\n")));
+        QVERIFY(summary.trimmed().endsWith(QStringLiteral(",2,90.00")));
     }
 
     void rowingWithoutDistance()

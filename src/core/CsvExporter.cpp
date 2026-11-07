@@ -3,6 +3,7 @@
 #include <QSaveFile>
 #include <QTextStream>
 #include <algorithm>
+#include <cmath>
 
 namespace watt::csv {
 
@@ -21,9 +22,16 @@ QString num(double v, int decimals = 1)
 {
     return QString::number(v, 'f', decimals);
 }
+
+QString lapClock(double sec)
+{
+    const double r = std::round(sec * 100.0) / 100.0;
+    const int m = int(r / 60);
+    return QStringLiteral("%1:%2").arg(m).arg(r - m * 60, 5, 'f', 2, QLatin1Char('0'));
+}
 } // namespace
 
-QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples)
+QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples, const QVector<RideLap> &laps)
 {
     QString out;
     QTextStream s(&out);
@@ -34,7 +42,16 @@ QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples)
     const bool withSpeed = std::any_of(samples.cbegin(), samples.cend(), [](const Sample &x) { return x.speedMps > 0; });
     if (ride.distanceM > 0)
         s << "# distance_m," << num(ride.distanceM) << "\n";
-    s << "seconds,elapsed,power_w,target_w,cadence_rpm,heart_rate_bpm" << (withSpeed ? ",speed_kmh" : "") << "\n";
+    // looped GPX Ride: the laps (number, time, seconds, distance)
+    std::vector<double> lapEnds;   // where each lap ends (s)
+    double at = 0;
+    for (const RideLap &l : laps) {
+        at += std::max(0.0, l.timeSec);
+        lapEnds.push_back(at);
+        s << "# lap," << l.lap << ',' << lapClock(l.timeSec) << ',' << num(l.timeSec, 2) << ',' << num(l.distanceM) << "\n";
+    }
+    s << "seconds,elapsed,power_w,target_w,cadence_rpm,heart_rate_bpm" << (withSpeed ? ",speed_kmh" : "")
+      << (laps.isEmpty() ? "" : ",lap") << "\n";
     for (const Sample &x : samples) {
         const QString elapsed = QStringLiteral("%1:%2:%3")
                                     .arg(x.t / 3600, 2, 10, QLatin1Char('0'))
@@ -44,23 +61,33 @@ QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples)
           << x.heartRate;
         if (withSpeed)
             s << ',' << num(x.speedMps * 3.6);
+        if (!laps.isEmpty())   // (after the last: the unfinished lap)
+            s << ',' << (std::upper_bound(lapEnds.begin(), lapEnds.end(), double(x.t)) - lapEnds.begin()) + 1;
         s << "\n";
     }
     return out;
 }
 
-QString ridesToCsv(const QVector<RideRecord> &rides)
+QString ridesToCsv(const QVector<RideRecord> &rides, const std::function<QVector<RideLap>(qint64)> &lapsOf)
 {
     QString out;
     QTextStream s(&out);
     s << "date,workout,duration_s,mode,avg_power_w,max_power_w,normalized_power_w,avg_hr_bpm,max_hr_bpm,"
-         "avg_cadence_rpm,energy_kj,intensity_factor,tss,ftp_w\n";
+         "avg_cadence_rpm,energy_kj,intensity_factor,tss,ftp_w" << (lapsOf ? ",laps,best_lap_s" : "") << "\n";
     for (const RideRecord &r : rides) {
         s << r.startedAt.toString(Qt::ISODate) << ',' << escape(r.workoutName) << ',' << r.durationSec << ','
           << (r.ergMode ? "ERG" : "Free Ride") << ',' << num(r.avgPower) << ',' << r.maxPower << ','
           << num(r.normalizedPower) << ',' << num(r.avgHeartRate) << ',' << r.maxHeartRate << ','
           << num(r.avgCadence) << ',' << num(r.kilojoules) << ',' << num(r.intensityFactor, 3) << ','
-          << num(r.tss) << ',' << r.ftp << "\n";
+          << num(r.tss) << ',' << r.ftp;
+        if (lapsOf) {
+            const QVector<RideLap> laps = lapsOf(r.id);
+            double best = 0;
+            for (const RideLap &l : laps)
+                best = best > 0 ? std::min(best, l.timeSec) : l.timeSec;
+            s << ',' << laps.size() << ',' << (laps.isEmpty() ? QString() : num(best, 2));
+        }
+        s << "\n";
     }
     return out;
 }

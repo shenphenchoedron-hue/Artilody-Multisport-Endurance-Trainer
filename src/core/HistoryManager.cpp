@@ -338,7 +338,7 @@ bool HistoryManager::exportSelectedCsv(const QUrl &file)
     }
     QString err;
     const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
-    if (!csv::writeFile(path, csv::samplesToCsv(m_selected, m_selSamples), &err)) {
+    if (!csv::writeFile(path, csv::samplesToCsv(m_selected, m_selSamples, m_selLaps), &err)) {
         setMessage(QStringLiteral("Export failed: %1").arg(err));
         return false;
     }
@@ -350,7 +350,7 @@ bool HistoryManager::exportSummaryCsv(const QUrl &file)
 {
     QString err;
     const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
-    if (!csv::writeFile(path, csv::ridesToCsv(m_rides), &err)) {
+    if (!csv::writeFile(path, csv::ridesToCsv(m_rides, [this](qint64 id) { return m_db->rideLaps(id); }), &err)) {
         setMessage(QStringLiteral("Export failed: %1").arg(err));
         return false;
     }
@@ -366,7 +366,7 @@ bool HistoryManager::exportSelectedFit(const QUrl &file)
     }
     QString err;
     const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
-    if (!fit::writeFile(path, m_selected, m_selSamples, &err)) {
+    if (!fit::writeFile(path, m_selected, m_selSamples, &err, m_selLaps)) {
         setMessage(QStringLiteral("Export failed: %1").arg(err));
         return false;
     }
@@ -395,7 +395,7 @@ int HistoryManager::exportAllFit(const QUrl &folder)
             name.insert(name.size() - 4, QStringLiteral("-%1").arg(r.id));
         used.insert(name);
         QString err;
-        if (fit::writeFile(dir.filePath(name), r, m_db->rideSamples(r.id), &err))
+        if (fit::writeFile(dir.filePath(name), r, m_db->rideSamples(r.id), &err, m_db->rideLaps(r.id)))
             ++written;
         else if (firstError.isEmpty())
             firstError = err;

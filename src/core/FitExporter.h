@@ -10,7 +10,8 @@
 // format read by Garmin Connect, Strava, TrainingPeaks, intervals.icu, ...).
 // Only the subset needed for an indoor ride or row is produced:
 //   file_id, device_info, sport, event (timer start / stop_all), record (1 Hz),
-//   lap (one, covering the ride), session, activity.
+//   lap (one covering the ride; a looped GPX Ride: one per lap, the
+//   unfinished rest a last one), session, activity.
 // RideRecord::sport "rowing" is written as sport rowing / indoor_rowing,
 // anything else as cycling / indoor_cycling. RideRecord::distanceM > 0 adds
 // total_distance + avg_speed to lap and session; for rows a cumulative record
@@ -24,10 +25,11 @@ constexpr qint64 kFitEpochOffset = 631065600;
 quint16 crc16(const QByteArray &data, quint16 crc = 0);
 
 // Encodes a complete FIT activity file (header, messages, trailing CRC).
-QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples);
+// laps: a looped GPX Ride's finished laps (their times split the samples).
+QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples, const QVector<RideLap> &laps = {});
 
 // Encodes and writes atomically (QSaveFile). Returns false and sets error on failure.
 bool writeFile(const QString &path, const RideRecord &ride, const QVector<Sample> &samples,
-               QString *error = nullptr);
+               QString *error = nullptr, const QVector<RideLap> &laps = {});
 
 } // namespace watt::fit

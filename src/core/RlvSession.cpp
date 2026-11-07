@@ -1292,7 +1292,7 @@ qint64 RlvSession::saveRide()
     if (m_lastRideId >= 0 && m_loopRide && !m_lapTimes.isEmpty()) {   // the lap times (History)
         QVector<RideLap> laps;
         for (int i = 0; i < m_lapTimes.size(); ++i)
-            laps.append({ i + 1, m_lapTimes.at(i).toDouble(), totalDistanceM() });
+            laps.append({ i + 1, m_lapTimes.at(i).toDouble(), totalDistanceM() - (i == 0 ? m_startDistance : 0.0) });   // (lap 1 from the start point)
         m_db->saveRideLaps(m_lastRideId, laps);
     }
     if (m_lastRideId >= 0) {

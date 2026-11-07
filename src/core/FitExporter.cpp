@@ -58,6 +58,8 @@ constexpr quint64 kSubSportTreadmill = 1;
 constexpr quint64 kEventTimer = 0;
 constexpr quint64 kEventSession = 8;
 constexpr quint64 kEventLap = 9;
+constexpr quint64 kLapTriggerPositionLap = 4;   // lap_trigger: a lap of a course
+constexpr quint64 kLapTriggerSessionEnd = 7;
 constexpr quint64 kEventActivity = 26;
 constexpr quint64 kEventTypeStart = 0;
 constexpr quint64 kEventTypeStop = 1;
@@ -257,7 +259,7 @@ quint16 crc16(const QByteArray &data, quint16 crc)
     return crc;
 }
 
-QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples)
+QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples, const QVector<RideLap> &rideLaps)
 {
     const QDateTime started = ride.startedAt.isValid() ? ride.startedAt : QDateTime::currentDateTimeUtc();
     const qint64 startUnix = started.toSecsSinceEpoch();
@@ -363,29 +365,83 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     const quint64 avgCad = u8(ride.avgCadence);
     const quint64 np = u16OrInvalid(ride.normalizedPower);
 
-    std::vector<Field> lap {
-              { kFieldMessageIndex, UInt16, 0 },
-              { kFieldTimestamp, UInt32, end },
+    // The laps: one covering the ride, or a looped GPX Ride's laps (their
+    // times split the samples: second t belongs to the lap running then)
+    // and the unfinished rest after the last.
+    struct Span { qint64 from, to; double distance; bool whole; };
+    std::vector<Span> spans;
+    if (rideLaps.isEmpty()) {
+        spans.push_back({ 0, elapsedSec, distanceM, true });
+    } else {
+        double at = 0, covered = 0;
+        for (const RideLap &l : rideLaps) {
+            const double to = at + std::max(0.0, l.timeSec);
+            spans.push_back({ qint64(std::llround(at)), std::min<qint64>(elapsedSec, qint64(std::llround(to))), l.distanceM, false });
+            at = to;
+            covered += l.distanceM;
+        }
+        if (qint64(std::llround(at)) + 1 < elapsedSec)   // the rest (Finish in the middle of a lap)
+            spans.push_back({ qint64(std::llround(at)), elapsedSec, std::max(0.0, distanceM - covered), false });
+    }
+    for (size_t k = 0; k < spans.size(); ++k) {
+        const Span &sp = spans[k];
+        const qint64 secs = std::max<qint64>(0, sp.to - sp.from);
+        const quint64 ms = u32(double(secs) * 1000.0);
+        quint64 lAvgPower = avgPower, lMaxPower = maxPower, lAvgHr = avgHr, lMaxHr = maxHr, lAvgCad = avgCad, lNp = np;
+        quint64 lWork = workJ, lCalories = calories;
+        if (!sp.whole) {   // this lap's own figures from its samples
+            double power = 0, hr = 0, cad = 0;
+            int n = 0, nHr = 0, nCad = 0, peak = 0, peakHr = 0;
+            for (const Sample &x : samples) {
+                if (x.t < sp.from || x.t >= sp.to)
+                    continue;
+                ++n;
+                power += std::max(0, x.power);
+                peak = std::max(peak, x.power);
+                if (x.heartRate > 0) {
+                    hr += x.heartRate;
+                    ++nHr;
+                    peakHr = std::max(peakHr, x.heartRate);
+                }
+                if (x.cadence > 0) {
+                    cad += x.cadence;
+                    ++nCad;
+                }
+            }
+            lAvgPower = u16(n ? power / n : 0.0);
+            lMaxPower = u16(peak);
+            lAvgHr = nHr ? u8OrInvalid(hr / nHr) : invalidFor(UInt8);
+            lMaxHr = nHr ? u8OrInvalid(peakHr) : invalidFor(UInt8);
+            lAvgCad = u8(nCad ? (runningSport ? cad / nCad / 2 : cad / nCad) : 0.0);
+            lNp = invalidFor(UInt16);
+            lWork = u32(power);           // 1 s per sample: J
+            lCalories = u16(power / 1000.0);
+        }
+        std::vector<Field> lap {
+              { kFieldMessageIndex, UInt16, quint64(k) },
+              { kFieldTimestamp, UInt32, fitTime(startUnix + sp.to) },
               { 0, Enum, kEventLap },
               { 1, Enum, kEventTypeStop },
-              { 2, UInt32, start },
-              { 7, UInt32, elapsedMs },
-              { 8, UInt32, elapsedMs },
-              { 11, UInt16, calories },
-              { 15, UInt8, avgHr },
-              { 16, UInt8, maxHr },
-              { 17, UInt8, avgCad },
-              { 19, UInt16, avgPower },
-              { 20, UInt16, maxPower },
+              { 2, UInt32, fitTime(startUnix + sp.from) },
+              { 7, UInt32, ms },
+              { 8, UInt32, ms },
+              { 11, UInt16, lCalories },
+              { 15, UInt8, lAvgHr },
+              { 16, UInt8, lMaxHr },
+              { 17, UInt8, lAvgCad },
+              { 19, UInt16, lAvgPower },
+              { 20, UInt16, lMaxPower },
+              { 24, Enum, sp.whole ? kLapTriggerSessionEnd : kLapTriggerPositionLap },
               { 25, Enum, sport },
-              { 33, UInt16, np },
+              { 33, UInt16, lNp },
               { 39, Enum, subSport },
-              { 41, UInt32, workJ } };
-    if (hasDistance) {
-        lap.push_back({ 9, UInt32, totalDistance });   // total_distance
-        lap.push_back({ 13, UInt16, avgSpeed });       // avg_speed
+              { 41, UInt32, lWork } };
+        if (hasDistance) {
+            lap.push_back({ 9, UInt32, u32(sp.distance * 100.0) });   // total_distance
+            lap.push_back({ 13, UInt16, secs > 0 ? u16(sp.distance / double(secs) * 1000.0) : invalidFor(UInt16) });   // avg_speed
+        }
+        e.write(LLap, MesgLap, lap);
     }
-    e.write(LLap, MesgLap, lap);
 
     std::vector<Field> session {
               { kFieldMessageIndex, UInt16, 0 },
@@ -404,7 +460,7 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
               { 20, UInt16, avgPower },
               { 21, UInt16, maxPower },
               { 25, UInt16, 0 },   // first_lap_index
-              { 26, UInt16, 1 },   // num_laps
+              { 26, UInt16, quint64(spans.size()) },   // num_laps
               { 34, UInt16, np },
               { 35, UInt16, u16OrInvalid(ride.tss * 10.0) },
               { 36, UInt16, u16OrInvalid(ride.intensityFactor * 1000.0) },
@@ -429,7 +485,8 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     return e.finish();
 }
 
-bool writeFile(const QString &path, const RideRecord &ride, const QVector<Sample> &samples, QString *error)
+bool writeFile(const QString &path, const RideRecord &ride, const QVector<Sample> &samples, QString *error,
+               const QVector<RideLap> &laps)
 {
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
@@ -437,7 +494,7 @@ bool writeFile(const QString &path, const RideRecord &ride, const QVector<Sample
             *error = f.errorString();
         return false;
     }
-    const QByteArray data = encodeActivity(ride, samples);
+    const QByteArray data = encodeActivity(ride, samples, laps);
     if (f.write(data) != data.size() || !f.commit()) {
         if (error)
             *error = f.errorString();
