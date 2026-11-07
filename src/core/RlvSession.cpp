@@ -245,11 +245,14 @@ void RlvSession::setState(State s)
 {
     if (m_state == s)
         return;
+    const bool loopBefore = loopRide();
     m_state = s;
     m_clock.start();
     updateTimer();
     syncRideProfile();
     emit stateChanged();
+    if (loopRide() != loopBefore)
+        emit loopChanged();   // (the 3D view draws the road for the mode in use)
     if (!active())
         updateHold();   // idle / finished: ERG on the open page holds the target
 }
@@ -508,7 +511,9 @@ double RlvSession::elevationM() const
 
 double RlvSession::ascentDoneM() const
 {
-    return hasRoute() ? m_ascentBase + lapAscent() : 0.0;
+    if (!hasRoute() || !(active() || m_state == State::Finished))
+        return 0.0;   // (before the start: nothing climbed)
+    return m_ascentBase + lapAscent();
 }
 
 double RlvSession::lapAscent() const
@@ -540,7 +545,7 @@ void RlvSession::clearLaps()
     m_lastLapSec = 0;
     m_lapTimes.clear();
     m_ascentBase = 0;
-    m_lapFrom = m_distance;
+    m_lapFrom = m_startDistance;
     m_lapRecordIds.clear();
     for (TimedSegment &seg : m_segments)
         seg.rearm = false;
@@ -565,6 +570,8 @@ void RlvSession::lapDone(double atMs)
 // towards the start (m_distance then falls) and from there out again.
 void RlvSession::advance(double step, double d0, qint64 t0)
 {
+    // a new lap starts just before 0 m: a sprint / KOM starting at 0 m is crossed
+    constexpr double kBeforeStart = -1e-6;
     const double total = totalDistanceM();
     if (!m_loopRide) {
         m_distance = std::min(total, m_distance + step);
@@ -592,14 +599,14 @@ void RlvSession::advance(double step, double d0, qint64 t0)
         }
         const double atMs = crossing(total - d0);
         m_distance = total;
-        updateSegments(d0, t0);   // (a KOM to the very end)
+        updateSegments(d0, double(t0), atMs);   // (a KOM to the very end: timed at the lap line)
         m_ascentBase += lapAscent();
         lapDone(atMs);
         const double over = std::min(d - total, total);
         if (roundTrip()) {
             newLap(0);
             m_distance = over;
-            updateSegments(0.0, qint64(atMs));
+            updateSegments(kBeforeStart, atMs, double(m_activeMs));
         } else {
             m_returning = true;
             newLap(total);
@@ -620,7 +627,7 @@ void RlvSession::advance(double step, double d0, qint64 t0)
     m_returning = false;
     newLap(0);
     m_distance = std::min(-d, total);
-    updateSegments(0.0, qint64(atMs));
+    updateSegments(kBeforeStart, atMs, double(m_activeMs));
     emit lapChanged();
 }
 
@@ -1317,7 +1324,7 @@ void RlvSession::segmentsRouteChanged()
             t.kind = r.kindName();
             t.name = r.displayName(++numbers[r.kind]);
             t.start = r.start;
-            t.finish = r.finish;
+            t.finish = std::min(r.finish, totalDistanceM());   // (validate allows +0.5 m: the rider stops at the end)
             t.key = m_segmentKey;
             m_segments.append(t);
         }
@@ -1470,7 +1477,7 @@ QString RlvSession::timedState(const TimedSegment &seg) const
     case SegmentPhase::Idle: break;
     }
     // (the start line is crossed coming from before it: a ride starting on it is too late)
-    return m_distance < seg.start ? QStringLiteral("ahead") : QStringLiteral("passed");
+    return m_distance < seg.start && !m_returning ? QStringLiteral("ahead") : QStringLiteral("passed");
 }
 
 double RlvSession::timedElapsed(const TimedSegment &seg) const
@@ -1482,12 +1489,12 @@ double RlvSession::timedElapsed(const TimedSegment &seg) const
     return std::max(0.0, (double(m_activeMs) - seg.startMs) / 1000.0);
 }
 
-bool RlvSession::stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished)
+bool RlvSession::stepTimed(TimedSegment &seg, double d0, double t0, double t1, bool &finished)
 {
     finished = false;
     if (!seg.valid())
         return false;
-    const double d1 = m_distance, t1 = double(m_activeMs);
+    const double d1 = m_distance;
     if (seg.rearm && seg.phase != SegmentPhase::Running) {
         // a new lap: the last lap's result stays until its start line comes again
         if (!std::isfinite(sprint::crossingMs(d0, d1, double(t0), t1, seg.start)))
@@ -1534,12 +1541,17 @@ bool RlvSession::stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finish
 
 void RlvSession::updateSegments(double d0, qint64 t0)
 {
+    updateSegments(d0, double(t0), double(m_activeMs));
+}
+
+void RlvSession::updateSegments(double d0, double t0, double t1)
+{
     bool changed[2] = { false, false };
     int finishedIndex[2] = { -1, -1 };
     for (int i = 0; i < m_segments.size(); ++i) {
         TimedSegment &seg = m_segments[i];
         bool finished = false;
-        if (stepTimed(seg, d0, t0, finished)) {
+        if (stepTimed(seg, d0, t0, t1, finished)) {
             changed[seg.kindId] = true;
             if (finished) {
                 finishedIndex[seg.kindId] = i;

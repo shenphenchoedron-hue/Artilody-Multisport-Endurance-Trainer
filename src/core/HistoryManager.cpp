@@ -255,17 +255,20 @@ QVariantMap HistoryManager::selectedRide() const
     m.insert(QStringLiteral("ftpTestMethod"), m_selFtpMethod);   // "ramp" / "20min" / ""
     // a looped GPX Ride's laps: lap, timeSec, timeText, best (the fastest), delta (s behind it)
     QVariantList laps;
-    double best = 0;
+    const double best = bestLapSec(m_selLaps);   // (whole laps only)
+    double full = 0;
     for (const RideLap &l : m_selLaps)
-        best = best > 0 ? std::min(best, l.timeSec) : l.timeSec;
+        full = std::max(full, l.distanceM);
     for (const RideLap &l : m_selLaps) {
+        const bool partial = l.distanceM < full - 1.0;
         const int s = int(std::lround(l.timeSec));
         laps.append(QVariantMap { { QStringLiteral("lap"), l.lap },
                                   { QStringLiteral("timeSec"), l.timeSec },
                                   { QStringLiteral("timeText"), QStringLiteral("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QLatin1Char('0')) },
                                   { QStringLiteral("distanceM"), l.distanceM },
-                                  { QStringLiteral("best"), m_selLaps.size() > 1 && l.timeSec == best },
-                                  { QStringLiteral("delta"), l.timeSec - best } });
+                                  { QStringLiteral("best"), m_selLaps.size() > 1 && !partial && l.timeSec == best },
+                                  { QStringLiteral("partial"), partial },
+                                  { QStringLiteral("delta"), partial || best <= 0 ? 0.0 : l.timeSec - best } });
     }
     m.insert(QStringLiteral("laps"), laps);
     m.insert(QStringLiteral("bestLapSec"), best);

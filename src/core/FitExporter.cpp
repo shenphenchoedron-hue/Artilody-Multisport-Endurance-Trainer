@@ -373,15 +373,18 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
     if (rideLaps.isEmpty()) {
         spans.push_back({ 0, elapsedSec, distanceM, true });
     } else {
+        // (lap ends on whole seconds, as in the CSV's lap column: csv::lapEnds)
         double at = 0, covered = 0;
+        qint64 from = 0;
         for (const RideLap &l : rideLaps) {
-            const double to = at + std::max(0.0, l.timeSec);
-            spans.push_back({ qint64(std::llround(at)), std::min<qint64>(elapsedSec, qint64(std::llround(to))), l.distanceM, false });
-            at = to;
+            at += std::max(0.0, l.timeSec);
+            const qint64 to = std::min<qint64>(elapsedSec, qint64(std::llround(at)));
+            spans.push_back({ from, to, l.distanceM, false });
+            from = to;
             covered += l.distanceM;
         }
-        if (qint64(std::llround(at)) + 1 < elapsedSec)   // the rest (Finish in the middle of a lap)
-            spans.push_back({ qint64(std::llround(at)), elapsedSec, std::max(0.0, distanceM - covered), false });
+        if (from < elapsedSec)   // the rest (Finish in the middle of a lap)
+            spans.push_back({ from, elapsedSec, std::max(0.0, distanceM - covered), false });
     }
     for (size_t k = 0; k < spans.size(); ++k) {
         const Span &sp = spans[k];
@@ -431,7 +434,8 @@ QByteArray encodeActivity(const RideRecord &ride, const QVector<Sample> &samples
               { 17, UInt8, lAvgCad },
               { 19, UInt16, lAvgPower },
               { 20, UInt16, lMaxPower },
-              { 24, Enum, sp.whole ? kLapTriggerSessionEnd : kLapTriggerPositionLap },
+              { 24, Enum, sp.whole || (k + 1 == spans.size() && k >= size_t(rideLaps.size())) ? kLapTriggerSessionEnd
+                                                                                             : kLapTriggerPositionLap },
               { 25, Enum, sport },
               { 33, UInt16, lNp },
               { 39, Enum, subSport },

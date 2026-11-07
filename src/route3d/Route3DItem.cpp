@@ -260,12 +260,12 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     const size_t ridden = geo.size();
     const bool roundTrip = loop && route.isRoundTrip();
     const bool thereAndBack = loop && !roundTrip;
+    size_t seam = ridden - 1;   // round trip: the last ridden geo point drawn (the lap's end on the road)
     if (roundTrip) {
         // round and round: the road closes back to the start (no run-out) on
         // a curve that leaves the end the way the track arrives and meets the
         // start the way the track leaves it (no corner at the seam)
-        const route3d::GeoPoint end = geo.back(), first = geo.front();
-        const double gap = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon);
+        const route3d::GeoPoint first = geo.front();
         // the direction (degrees per metre) over ~20 m from point `from` going `step`
         auto heading = [&](size_t from, int step, double &dLat, double &dLon) {
             size_t k = from;
@@ -279,12 +279,39 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
         double eLat, eLon, sLat, sLon;
         heading(ridden - 1, -1, eLat, eLon);   // arriving at the end
         heading(0, 1, sLat, sLon);             // leaving the start
+        // metres along (dLat, dLon) from a to b (degrees -> metres, locally)
+        const double mLon = std::cos(first.lat * M_PI / 180.0);
+        auto along = [&](const route3d::GeoPoint &a, const route3d::GeoPoint &b, double dLat, double dLon) {
+            const double n = std::hypot(dLat, dLon * mLon);
+            return n > 0 ? ((b.lat - a.lat) * dLat + (b.lon - a.lon) * dLon * mLon * mLon) / n * 111320.0 : 0.0;
+        };
+        // a track ending past the start (on the same road): the tail beyond
+        // it is left out - the closing curve would fold back on itself
+        while (seam > ridden / 2 && RlvRoute::haversine(geo[seam].lat, geo[seam].lon, first.lat, first.lon) < 60.0
+               && along(geo[seam], first, eLat, eLon) < 1.0)
+            --seam;
+        geo.resize(seam + 1);
+        // the end's height drifts from the start's (GPS): spread the step
+        // over the last ~200 m (no ramp at the finish line)
+        {
+            const double rise = first.elevation - geo[seam].elevation;
+            double back = 0;
+            for (size_t k = seam; k > 0 && back < 200.0; --k) {
+                geo[k].elevation += rise * (1.0 - back / 200.0);
+                back += RlvRoute::haversine(geo[k].lat, geo[k].lon, geo[k - 1].lat, geo[k - 1].lon);
+            }
+        }
+        const route3d::GeoPoint end = geo[seam];
+        const double gap = RlvRoute::haversine(first.lat, first.lon, end.lat, end.lon);
+        // tangents no longer than the way the chord goes (no loop in the curve)
+        const double te = gap * std::clamp(along(end, first, eLat, eLon) / std::max(gap, 1e-6), .25, 1.0);
+        const double ts = gap * std::clamp(along(end, first, sLat, sLon) / std::max(gap, 1e-6), .25, 1.0);
         const int steps = int(std::ceil(gap / 5.0));
         for (int k = 1; k < steps; ++k) {
             const double t = double(k) / steps, t2 = t * t, t3 = t2 * t;
             const double h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
-            geo.push_back({ h00 * end.lat + h10 * gap * eLat + h01 * first.lat + h11 * gap * sLat,
-                            h00 * end.lon + h10 * gap * eLon + h01 * first.lon + h11 * gap * sLon,
+            geo.push_back({ h00 * end.lat + h10 * te * eLat + h01 * first.lat + h11 * ts * sLat,
+                            h00 * end.lon + h10 * te * eLon + h01 * first.lon + h11 * ts * sLon,
                             end.elevation + (first.elevation - end.elevation) * (3 * t2 - 2 * t3) });
         }
         if (gap > 0.5)
@@ -312,7 +339,8 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     // fromGeo reports where each input point lies on the drawn (smoothed)
     // road: app distance -> drawn distance, point by point.
     std::vector<double> drawnAt;
-    auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt));
+    // (a looped there-and-back road is drawn out and back: up to twice the 200 km)
+    auto drawn = std::make_shared<route3d::Route>(route3d::Route::fromGeo(geo, &drawnAt, thereAndBack ? 400000 : 200000));
     if (!loop && geo.size() > ridden)
         drawn->finishDistance = drawnAt[ridden - 1];
     if (thereAndBack)
@@ -330,17 +358,23 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
     b.drawnDistance.reserve(pts.size());
     double last = 0;
     for (int i = 0; i < pts.size(); ++i) {
-        // (never backwards: the app distance is monotonic, so is the drawn one)
-        last = std::max(last, std::min(b.route->finish(), drawnAt[size_t(geoIndexOf[i])]));
+        // (never backwards: the app distance is monotonic, so is the drawn one;
+        // a round trip's tail past the start: the lap's end)
+        const size_t g = size_t(geoIndexOf[i]);
+        const double at = roundTrip && g > seam ? b.route->length() : drawnAt[g];
+        last = std::max(last, std::min(b.route->finish(), at));
         b.appDistance.append(pts.at(i).distance);
         b.drawnDistance.append(last);
     }
-    if (roundTrip && drawnAt[ridden - 1] > 0) {
+    if (roundTrip && drawnAt[seam] > 0) {
         // the lap's end is the drawn road's end (= its start): the closing
-        // metres are spread over the lap (a fraction of a percent)
-        const double stretch = b.route->length() / drawnAt[ridden - 1];
+        // metres are spread over the lap's last 200 m (the rider stays where
+        // the grade is felt everywhere else)
+        const double L = b.route->length(), E = drawnAt[seam], extra = L - E;
+        const double from = std::max(0.0, E - 200.0);
         for (double &d : b.drawnDistance)
-            d = std::min(b.route->length(), d * stretch);
+            if (d > from)
+                d = d >= E ? L : std::min(L, d + extra * (d - from) / std::max(1e-6, E - from));
     } else if (thereAndBack) {
         // forward geo point k comes back at 2 (ridden - 1) - k
         b.backDistance.reserve(pts.size());

@@ -233,7 +233,7 @@ private:
     std::vector<SprintMarks> m_sprints;   // drawn with the arches (m_gateBuffer)
     std::vector<KomMarks> m_koms;
     std::vector<std::array<double, 2>> m_kmPosts;   // drawn metres, km number
-    int m_laps = -1;                         // laps on the lap board (-1: none)
+    int m_laps = -1;                         // laps on the lap board (-1: no loop; 0: none yet)
     std::vector<route3d::BenchSpec> m_benches;   // per route (setRoute), read by the tile job
     std::vector<Vertex> *m_target = &m_build;
     double m_startDistance = 0;

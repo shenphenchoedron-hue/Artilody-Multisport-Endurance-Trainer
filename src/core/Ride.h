@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "Zones.h"
 
 #include <QDateTime>
@@ -54,5 +56,18 @@ struct RideLap
     double distanceM = 0;
     bool operator==(const RideLap &o) const { return lap == o.lap && timeSec == o.timeSec && distanceM == o.distanceM; }
 };
+
+// The fastest whole lap (a lap 1 begun inside the route is shorter: left
+// out); 0 = none.
+inline double bestLapSec(const QVector<RideLap> &laps)
+{
+    double full = 0, best = 0;
+    for (const RideLap &l : laps)
+        full = std::max(full, l.distanceM);
+    for (const RideLap &l : laps)
+        if (l.distanceM >= full - 1.0 && l.timeSec > 0)
+            best = best > 0 ? std::min(best, l.timeSec) : l.timeSec;
+    return best;
+}
 
 } // namespace watt

@@ -47,7 +47,7 @@ QString samplesToCsv(const RideRecord &ride, const QVector<Sample> &samples, con
     double at = 0;
     for (const RideLap &l : laps) {
         at += std::max(0.0, l.timeSec);
-        lapEnds.push_back(at);
+        lapEnds.push_back(double(std::llround(at)));   // (whole seconds: as the FIT laps)
         s << "# lap," << l.lap << ',' << lapClock(l.timeSec) << ',' << num(l.timeSec, 2) << ',' << num(l.distanceM) << "\n";
     }
     s << "seconds,elapsed,power_w,target_w,cadence_rpm,heart_rate_bpm" << (withSpeed ? ",speed_kmh" : "")
@@ -82,10 +82,8 @@ QString ridesToCsv(const QVector<RideRecord> &rides, const std::function<QVector
           << num(r.tss) << ',' << r.ftp;
         if (lapsOf) {
             const QVector<RideLap> laps = lapsOf(r.id);
-            double best = 0;
-            for (const RideLap &l : laps)
-                best = best > 0 ? std::min(best, l.timeSec) : l.timeSec;
-            s << ',' << laps.size() << ',' << (laps.isEmpty() ? QString() : num(best, 2));
+            const double best = bestLapSec(laps);   // (whole laps only)
+            s << ',' << laps.size() << ',' << (best > 0 ? num(best, 2) : QString());
         }
         s << "\n";
     }

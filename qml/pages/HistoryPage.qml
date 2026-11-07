@@ -677,8 +677,8 @@ Item {
                                 anchors.right: parent.right
                                 anchors.rightMargin: 8
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: modelData.best ? "best" : modelData.delta >= 0.05 ? "+" + (modelData.delta < 60 ? modelData.delta.toFixed(1) + " s" : Theme.clock(Math.round(modelData.delta))) : ""
-                                color: modelData.best ? "#c99400" : Theme.danger
+                                text: modelData.best ? "best" : modelData.partial ? "part" : modelData.delta >= 0.05 ? "+" + (modelData.delta < 60 ? modelData.delta.toFixed(1) + " s" : Theme.clock(Math.round(modelData.delta))) : ""
+                                color: modelData.best ? "#c99400" : modelData.partial ? Theme.textMuted : Theme.danger
                                 font.pixelSize: 12
                             }
                         }

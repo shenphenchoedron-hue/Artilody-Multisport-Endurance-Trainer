@@ -932,6 +932,161 @@ private slots:
         QVERIFY(plain.route->turnDistance < 0);
     }
 
+    // A circle of radius r near (55, 12): points at 2 pi i / 101 for i < n
+    // (n = 100: ends 10 m before the start; n > 101: past it); the height
+    // climbs `drift` metres over the lap (GPS drift: the end is higher).
+    static bool writeRound(const QString &path, int n, double drift = 0, double r = 160)
+    {
+        QByteArray gpx = "<?xml version=\"1.0\"?>\n<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">"
+                         "<trk><name>round</name><trkseg>\n";
+        const double mPerDegLon = kMPerDegLat * std::cos(55.0 * M_PI / 180.0);
+        for (int i = 0; i < n; ++i) {
+            const double a = 2 * M_PI * i / 101.0;
+            gpx += QStringLiteral("<trkpt lat=\"%1\" lon=\"%2\"><ele>%3</ele></trkpt>\n")
+                       .arg(55.0 + r * std::sin(a) / kMPerDegLat, 0, 'f', 8)
+                       .arg(12.0 + r * (1 - std::cos(a)) / mPerDegLon, 0, 'f', 8)
+                       .arg(20.0 + drift * i / (n - 1), 0, 'f', 2)
+                       .toUtf8();
+        }
+        gpx += "</trkseg></trk></gpx>\n";
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+            return false;
+        return file.write(gpx) == gpx.size();
+    }
+
+    void loopModeFollowsTheRide()
+    {
+        // Loop switched on after a finished ride: the next ride loops, and
+        // the 3D view hears of it (loopChanged) when it starts
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("climb.gpx"));
+        QVERIFY(writeGpx(path, 60, 10, 4));
+        QVERIFY(f.gpx->selectPath(path));
+        f.hub->updateCadence(90);
+        f.hub->updatePower(250);
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 5000);
+        f.gpx->finish(false);
+        QVERIFY(!f.gpx->loopRide());
+        QSignalSpy loopSpy(f.gpx.get(), &RlvSession::loopChanged);
+        f.gpx->setLoop(true);
+        QVERIFY(f.gpx->start());
+        QVERIFY(f.gpx->looping());
+        QVERIFY(f.gpx->loopRide());
+        QVERIFY(loopSpy.count() >= 1);
+        const int before = loopSpy.count();
+        f.gpx->pause();   // pause and resume: still looping, no mode change
+        f.gpx->resume();
+        QCOMPARE(loopSpy.count(), before);
+    }
+
+    void loopFromInsideTheRoute()
+    {
+        // a start point inside the route: lap 1 is shorter (not the best lap),
+        // the climb counts from there, pausing keeps the laps going
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("round.gpx"));
+        QVERIFY(writeRound(path, 100));
+        QVERIFY(f.gpx->selectPath(path));
+        f.gpx->setLoop(true);
+        f.gpx->seekToDistance(600);
+        QCOMPARE(f.gpx->ascentDoneM(), 0.0);   // nothing climbed before the start
+        f.hub->updateCadence(90);
+        f.hub->updatePower(250);
+        QVERIFY(f.gpx->start());
+        QVERIFY(f.gpx->firstLapPartial());
+        int steps = 0;
+        while (f.gpx->lap() < 2 && steps++ < 4000)
+            f.gpx->advanceClock(250);
+        f.gpx->pause();
+        f.gpx->advanceClock(5000);   // (paused: the lap clock stands)
+        f.gpx->resume();
+        steps = 0;
+        while (f.gpx->lap() < 4 && steps++ < 8000)
+            f.gpx->advanceClock(250);
+        QCOMPARE(f.gpx->lap(), 4);
+        const QVariantList t = f.gpx->lapTimes();
+        QCOMPARE(t.size(), 3);
+        QVERIFY(t[0].toDouble() < t[1].toDouble() * 0.6);   // lap 1: ~40 % of the lap
+        const qint64 id = f.gpx->finish(true);
+        QVERIFY(id >= 0);
+        const QVector<RideLap> laps = f.db.rideLaps(id);
+        QCOMPARE(laps.size(), 3);
+        QVERIFY(laps[0].distanceM < laps[1].distanceM - 100);
+        // the best lap is a whole one
+        QCOMPARE(bestLapSec(laps), std::min(laps[1].timeSec, laps[2].timeSec));
+    }
+
+    void loopSegmentsAtTheEnds()
+    {
+        // a sprint from 0 m and a KOM to the very end, looped: timed every
+        // lap; a discarded ride takes every lap's times with it
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("round.gpx"));
+        QVERIFY(writeRound(path, 100));
+        RlvRoute probe;
+        QVERIFY(probe.load(path));
+        const double total = probe.totalDistance();
+        QVERIFY(addSegments(path, { seg(RouteSegment::Sprint, 0, 200, QStringLiteral("Start sprint")),
+                                    seg(RouteSegment::Kom, total - 250, total + 0.4, QStringLiteral("End KOM")) }));
+        QVERIFY(f.gpx->selectPath(path));
+        f.gpx->setLoop(true);
+        QSignalSpy sprints(f.gpx.get(), &RlvSession::sprintFinished);
+        QSignalSpy koms(f.gpx.get(), &RlvSession::komFinished);
+        f.hub->updateCadence(90);
+        f.hub->updatePower(250);
+        QVERIFY(f.gpx->start());
+        int steps = 0;
+        while (f.gpx->lap() < 4 && steps++ < 8000)
+            f.gpx->advanceClock(250);
+        QCOMPARE(f.gpx->lap(), 4);
+        QVERIFY(f.gpx->distanceMeters() < 150);
+        QCOMPARE(sprints.count(), 2);   // laps 2-3 (a ride starting on the line is too late for it; lap 4 under way)
+        QCOMPARE(koms.count(), 3);
+        QVERIFY(f.gpx->komState() != QStringLiteral("running"));
+        const qint64 profile = f.profiles->profileId();
+        const QString key = f.gpx->sprintKey();
+        QCOMPARE(f.db.segmentAttempts(profile, QStringLiteral("sprint"), key, 0, 200), 2);
+        f.gpx->finish(false);   // discarded: all laps' times go
+        QCOMPARE(f.db.segmentAttempts(profile, QStringLiteral("sprint"), key, 0, 200), 0);
+    }
+
+    void loopSeamWithOvershoot()
+    {
+        // a recorded loop ending 15 m past the start, 4 m higher: the 3D road
+        // closes without folding back or a step at the finish line
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("over.gpx"));
+        QVERIFY(writeRound(path, 103, 4.0));
+        RlvRoute route;
+        QVERIFY(route.load(path));
+        QVERIFY(route.isRoundTrip());
+        const Route3DItem::Built b = Route3DItem::build(route, true);
+        QVERIFY(b.route->closed);
+        const double L = b.route->length();
+        QVERIFY(L > 900 && L < 1050);   // (the overshoot left out)
+        auto heading = [&](double d) {
+            const auto p = b.route->at(d - 2), q = b.route->at(d + 2);
+            return std::atan2(q.z - p.z, q.x - p.x);
+        };
+        auto turn = [&](double d) { return std::abs(std::remainder(heading(d + 4) - heading(d - 4), 2 * M_PI)); };
+        const double normal = turn(L / 2);
+        for (double d = L - 40; d <= L + 40; d += 2)
+            QVERIFY2(turn(d) < normal * 2.5 + 0.03, qPrintable(QStringLiteral("turn %1 at %2").arg(turn(d)).arg(d - L)));
+        // no step: the grade over the seam like elsewhere (the drift spread over 200 m)
+        for (double d = L - 30; d <= L + 30; d += 5)
+            QVERIFY(std::abs(b.route->grade(d)) < 3.0);
+        // the end of the ride maps to the lap's end
+        QVERIFY(std::abs(Route3DItem::mapDistance(b, route.totalDistance()) - L) < 1e-6);
+        // the mapping never runs backwards
+        for (int i = 1; i < b.drawnDistance.size(); ++i)
+            QVERIFY(b.drawnDistance[i] >= b.drawnDistance[i - 1]);
+    }
+
     void loopRoundTrip()
     {
         // a round trip, looped: round and round, sprints timed every lap

@@ -210,6 +210,8 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(double lastLapSec READ lastLapSec NOTIFY lapChanged)      // the last finished lap, 0 = none
     Q_PROPERTY(double lapElapsedSec READ lapElapsedSec NOTIFY tick)
     Q_PROPERTY(QVariantList lapTimes READ lapTimes NOTIFY lapChanged)   // finished laps' times (s), lap 1 first
+    // lap 1 began inside the route (a start point): shorter, not a lap time to compare
+    Q_PROPERTY(bool firstLapPartial READ firstLapPartial NOTIFY lapChanged)
     Q_PROPERTY(QString currentInformation READ currentInformation NOTIFY informationChanged)
     Q_PROPERTY(int currentInformationIndex READ currentInformationIndex NOTIFY informationChanged)
 
@@ -466,6 +468,7 @@ public:
     int lapsDone() const override { return m_lapsDone; }
     double lastLapSec() const { return m_lastLapSec; }
     QVariantList lapTimes() const { return m_lapTimes; }
+    bool firstLapPartial() const { return m_loopRide && m_startDistance > 1.0; }
     double lapElapsedSec() const { return std::max(0.0, (double(m_activeMs) - m_lapStartMs) / 1000.0); }
     double progress() const;
     double gradePercent() const;
@@ -739,8 +742,10 @@ private:
     void voidSegments();                               // paused / stopped: a running one is void
     void discardSegments();                            // the ride is discarded: its saved times too
     // one riding step from (d0, t0): true when seg changed; finished = timed now
-    bool stepTimed(TimedSegment &seg, double d0, qint64 t0, bool &finished);
-    void updateSegments(double d0, qint64 t0);
+    // (t0..t1: the times the rider was at d0 .. m_distance)
+    bool stepTimed(TimedSegment &seg, double d0, double t0, double t1, bool &finished);
+    void updateSegments(double d0, qint64 t0);   // t1 = now
+    void updateSegments(double d0, double t0, double t1);
     double lapAscent() const;                          // climbed on this lap so far
     void clearLaps();
     void advance(double step, double d0, qint64 t0);   // move along the route (laps)

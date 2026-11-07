@@ -1448,7 +1448,10 @@ Item {
                     id: lapHud
                     objectName: page.namePrefix + "LapHud"
                     readonly property var times: page.session.lapTimes || []
-                    readonly property real best: times.length ? Math.min.apply(null, times) : 0
+                    // the fastest whole lap (a lap 1 begun inside the route is shorter)
+                    readonly property bool firstPartial: page.session.firstLapPartial
+                    readonly property var whole: firstPartial ? times.slice(1) : times
+                    readonly property real best: whole.length ? Math.min.apply(null, whole) : 0
                     readonly property int shown: Math.min(times.length, 8)
                     visible: page.gpx && videoCard.showOverlay && page.session.looping
                              && (page.session.active || page.finished)
@@ -1507,7 +1510,8 @@ Item {
                             Item {
                                 readonly property int lapIndex: lapHud.times.length - 1 - index   // newest first
                                 readonly property real t: lapHud.times[lapIndex]
-                                readonly property bool isBest: lapHud.times.length > 1 && t === lapHud.best
+                                readonly property bool partial: lapIndex === 0 && lapHud.firstPartial
+                                readonly property bool isBest: !partial && lapHud.whole.length > 1 && t === lapHud.best
                                 width: lapCol.width
                                 height: 20
                                 Text {
@@ -1526,7 +1530,7 @@ Item {
                                 }
                                 Text {
                                     anchors.right: parent.right
-                                    text: parent.isBest ? "best" : lapHud.delta(parent.t)
+                                    text: parent.isBest ? "best" : parent.partial ? "part" : lapHud.whole.length > 1 ? lapHud.delta(parent.t) : ""
                                     color: parent.isBest ? "#ffd23f" : "#ff9a8a"
                                     font.pixelSize: 12
                                     anchors.verticalCenter: parent.verticalCenter

@@ -84,7 +84,8 @@ public:
     // returned (smoothed, densified) road - follows each stage below, so the
     // mapping is local (bends that the smoothing shortens are accounted for
     // where they are, not spread over the whole route).
-    static Route fromGeo(const std::vector<GeoPoint>& input, std::vector<double>* inputDistance=nullptr) {
+    // maxLength: the longest road (a looped there-and-back road is drawn out and back: twice the track)
+    static Route fromGeo(const std::vector<GeoPoint>& input, std::vector<double>* inputDistance=nullptr, double maxLength=200000) {
         if(input.size()<2) throw std::runtime_error("The route needs at least two points.");
         constexpr double rad=3.14159265358979323846/180.0, earth=6371000;
         double lat0=input.front().lat,lon0=input.front().lon;
@@ -109,7 +110,7 @@ public:
             inputRaw.push_back(p.distance);
         }
         if(raw.length()<20) throw std::runtime_error("The route must be at least 20 m long.");
-        if(raw.length()>200000) throw std::runtime_error("The 3D view supports routes up to 200 km.");
+        if(raw.length()>maxLength) throw std::runtime_error("The 3D view supports routes up to 200 km.");
         Route out; out.flatFallback=raw.flatFallback;
         std::vector<double> outRaw;   // raw distance each resampled point was taken at
         for(double d=0;d<raw.length();d+=5) { out.points.push_back(raw.at(d)); outRaw.push_back(d); }

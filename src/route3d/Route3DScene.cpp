@@ -884,7 +884,8 @@ void Route3DScene::buildGates()
     if (m_route->turnDistance > 30)
         arch(m_gateVertices, m_route->turnDistance - 3.0, FinishArch);
     m_finishGateEnd = int(m_gateVertices.size());
-    displayBike(m_gateVertices);
+    if (m_laps < 0)   // (a loop: the lap board stands there)
+        displayBike(m_gateVertices);
     for (const SprintMarks &s : m_sprints)
         sprintMarks(m_gateVertices, s);
     // the KOM: polka-dot arch at the foot of the climb, red at the top (not
@@ -1174,8 +1175,8 @@ void Route3DScene::setLaps(int laps)
 // riding on is the lap just completed.
 void Route3DScene::lapBoards()
 {
-    if (m_laps < 0)
-        return;
+    if (m_laps <= 0)
+        return;   // (no lap finished yet: nothing to count)
     const Route &route = *m_route;
     const double length = route.length();
     std::vector<double> at { kLapBoardAfterM };   // after the start / the closed lap's seam
