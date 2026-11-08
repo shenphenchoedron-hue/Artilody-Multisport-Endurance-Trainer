@@ -550,6 +550,21 @@ bool RlvRoute::gravelAt(double d) const
     return false;
 }
 
+double RlvRoute::gravelBlend(double d, double rampM) const
+{
+    for (const RouteSegment &g : m_gravel) {
+        if (d < g.start)
+            return 0.0;
+        if (d < g.finish) {
+            const double ramp = std::min(rampM, 0.5 * g.length());
+            if (ramp <= 0)
+                return 1.0;
+            return std::clamp(std::min(d - g.start, g.finish - d) / ramp, 0.0, 1.0);
+        }
+    }
+    return 0.0;
+}
+
 QVector<RouteSegment> RlvRoute::allSegments() const
 {
     QVector<RouteSegment> all = m_segments;

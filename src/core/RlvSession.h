@@ -493,6 +493,7 @@ public:
     double gravelGradePercent() const;
     double rideGradePercent() const { return effectiveGradePercent() + gravelGradePercent(); }
     int gravelWatts() const;
+    double gravelBlend() const;   // 0..1 along the section's ramps (segments::kGravelRampM)
     // The road surface this ride asks of the trainer (road feel, Tacx NEO):
     // gravel while riding (not paused) with gravelEffort, else smooth. Set on
     // the hub only when it changes, so an idle session never overrides

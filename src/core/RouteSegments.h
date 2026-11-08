@@ -62,6 +62,10 @@ constexpr double kDefaultSprintM = 200.0;
 // ~29 W). (Rough / loose gravel would be 0.01-0.02 more.)
 constexpr double kGravelExtraCrr = 0.005;
 constexpr double kGravelGradePercent = kGravelExtraCrr * 100.0;
+// The extra resistance builds up over the first kGravelRampM of a section and
+// fades over its last kGravelRampM (no step in watts at the edge; ~4 s at
+// 27 km/h). The road feel starts and stops at the edge itself.
+constexpr double kGravelRampM = 30.0;
 
 // Sorted by start; true when every segment lies inside [0, total], is at
 // least kMinLengthM long and none overlaps another of its class (sprints and

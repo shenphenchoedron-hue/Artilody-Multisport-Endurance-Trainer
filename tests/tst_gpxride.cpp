@@ -662,6 +662,15 @@ private slots:
         QCOMPARE(r.gravel().at(0).name, QStringLiteral("Forest track"));
         QVERIFY(r.gravel().at(1).finish <= r.totalDistance() + 0.5);
         QVERIFY(r.gravelAt(400) && r.gravelAt(1399) && !r.gravelAt(1400) && !r.gravelAt(399) && r.gravelAt(3600));
+        // the resistance ramps in and out over kGravelRampM (no step in watts)
+        const double ramp = segments::kGravelRampM;
+        QCOMPARE(r.gravelBlend(399, ramp), 0.0);
+        QCOMPARE(r.gravelBlend(400, ramp), 0.0);
+        QVERIFY(std::abs(r.gravelBlend(400 + ramp / 2, ramp) - 0.5) < 1e-9);
+        QCOMPARE(r.gravelBlend(400 + ramp, ramp), 1.0);
+        QCOMPARE(r.gravelBlend(900, ramp), 1.0);
+        QVERIFY(std::abs(r.gravelBlend(1400 - ramp / 2, ramp) - 0.5) < 1e-9);
+        QCOMPARE(r.gravelBlend(1400, ramp), 0.0);
         QVERIFY(ws.open(path));
         QCOMPARE(ws.gravelCount(), 2);
         QVERIFY(!ws.dirty());

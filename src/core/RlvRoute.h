@@ -121,6 +121,10 @@ public:
     // not overlapping each other - they may overlap sprints / KOMs)
     const QVector<RouteSegment> &gravel() const { return m_gravel; }
     bool gravelAt(double distanceM) const;
+    // 0..1: how much of the gravel's resistance counts at distanceM - 0 off
+    // gravel, rising linearly over rampM after a section's start and falling
+    // over rampM before its end (at most half the section each way)
+    double gravelBlend(double distanceM, double rampM) const;
     // all of them, as the GPX Workshop edits them (sorted by start)
     QVector<RouteSegment> allSegments() const;
     double totalDistance() const { return m_points.isEmpty() ? 0.0 : m_points.constLast().distance; }

@@ -1,12 +1,22 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.2
+## What's new in 1.9.3
+
+**Gravel: more realistic resistance, and the Tacx NEO rumbles.**
+
+- **Rolling resistance instead of a fixed 12 W**: gravel now adds fine gravel's extra rolling resistance (Crr +0.005 over asphalt), ridden as **+0.5 % more gradient**. Rolling resistance and climbing both grow with your weight, so the extra watts follow from your weight and speed: for a 77 kg rider about 20 W at 20 km/h and 30 W at 30 km/h. The extra resistance builds up over the first 30 m of a section and fades over its last 30 m – no sudden jump in watts. The grade badge shows the live estimate (*gravel +29 W*); the gradient shown stays the road's.
+- **Tacx NEO road feel**: on the gravel sections a Tacx NEO vibrates like gravel (NEO Road Feel at a moderate 30 %, scaled by the trainer with your speed). The app finds Tacx's FE-C over Bluetooth service by itself; *Bluetooth Diagnostics* shows *Road feel: yes*. The NEO must be plugged in. Other trainers get the resistance only.
+- **Gravel in the profile**: the elevation profile on the GPX Ride page (and the full-screen HUD) shows gravel sections in gravel colour with a line at each end.
+- Both resistance and road feel only outside ERG mode and workouts; the rumble stops while paused.
+- No database change – install over 1.9.2.
+
+## Also included from 1.9.2
 
 **GPX Workshop: gravel sections.**
 
 - **Placed like a KOM**: choose **Gravel** in the GPX Workshop and click the profile twice – where the gravel starts and where it ends (Esc cancels). Name and edit them in the list; they are saved in the GPX file with the sprints and KOMs (the track is not changed). Gravel may lie over sprints and KOMs, not over other gravel, and is not timed.
 - **A gravel road in 3D**: GPX Ride draws the road there as gravel – packed wheel tracks, loose stones, no painted lines – and the grade badge shows *gravel +12 W*.
-- **12 W more**: on gravel the trainer takes 12 W more at the speed you ride (a small extra gradient – about 0.2 % at 27 km/h; the gradient shown stays the road's). In the same gear and cadence your watts rise by about 12 W; at the same power you ride about 1 km/h slower. Works with gradient simulation, virtual gears and the Zwift hub; **not in ERG mode and not while riding a workout**.
+- **Harder on gravel**: the trainer takes more on gravel (in 1.9.3: fine gravel's rolling resistance, see above). Works with gradient simulation, virtual gears and the Zwift hub; **not in ERG mode and not while riding a workout**.
 - No database change – install over 1.9.1. Older versions read gravel sections in a GPX file as sprints.
 
 ## Also included from 1.9.1

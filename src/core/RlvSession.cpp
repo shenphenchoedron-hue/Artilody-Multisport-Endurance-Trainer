@@ -522,7 +522,7 @@ bool RlvSession::gravelEffort() const
 
 double RlvSession::gravelGradePercent() const
 {
-    return gravelEffort() ? segments::kGravelGradePercent : 0.0;
+    return gravelEffort() ? segments::kGravelGradePercent * gravelBlend() : 0.0;
 }
 
 void RlvSession::updateRoadSurface()
@@ -534,6 +534,11 @@ void RlvSession::updateRoadSurface()
     m_hub->setRoadSurface(want);
 }
 
+double RlvSession::gravelBlend() const
+{
+    return m_route.gravelBlend(m_distance, segments::kGravelRampM);
+}
+
 int RlvSession::gravelWatts() const
 {
     if (!gravelEffort())
@@ -541,7 +546,7 @@ int RlvSession::gravelWatts() const
     // ΔCrr·m·g·v/η
     const road::Model m = roadModel(0.0);
     const double eff = m.efficiency > 0 ? m.efficiency : 1.0;
-    return int(std::lround(segments::kGravelExtraCrr * m.massKg * road::kGravity * m_speed / eff));
+    return int(std::lround(segments::kGravelExtraCrr * gravelBlend() * m.massKg * road::kGravity * m_speed / eff));
 }
 
 double RlvSession::elevationM() const
