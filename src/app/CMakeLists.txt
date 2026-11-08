@@ -151,6 +151,14 @@ qt_add_resources(ArtilodyWattTrainer "models"
     FILES ${WATT_FIGURE_MODELS}
 )
 
+# GPX Ride road sounds: rolling on asphalt / gravel, looped while riding
+# (mono 16-bit WAV, made seamless at the loop point, for QML SoundEffect).
+qt_add_resources(ArtilodyWattTrainer "sounds"
+    PREFIX "/sounds"
+    BASE ${PROJECT_SOURCE_DIR}/assets/sounds
+    FILES ${PROJECT_SOURCE_DIR}/assets/sounds/asphalt.wav ${PROJECT_SOURCE_DIR}/assets/sounds/gravel.wav
+)
+
 qt_add_qml_module(ArtilodyWattTrainer
     URI Artilody
     VERSION 1.0

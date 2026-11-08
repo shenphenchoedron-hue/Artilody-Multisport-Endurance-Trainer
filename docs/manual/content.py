@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.3 source code (incl. gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.4 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -46,7 +46,7 @@ def build(s, env):
         f"{UI('Shows live data')} – power, cadence, heart rate, elapsed time, the workout profile and a "
         "timeline of all intervals.",
         f"{UI('Records and analyses')} – every second of every ride is stored. History shows totals, charts, "
-        "time in zones, Normalized Power, Intensity Factor and Training Stress Score. Rides can be exported as FIT "
+        "time in zones, distance, Effort Power, Intensity Ratio and Training Load. Rides can be exported as FIT "
         "files (for Strava, Garmin Connect, TrainingPeaks, intervals.icu …) or as CSV files.",
         f"{UI('Rides filmed routes')} – Real Life Videos play at your speed while the trainer simulates the "
         "gradient of the road (Video Ride page).",
@@ -929,7 +929,7 @@ def build(s, env):
           "block again from the Add Block panel.")
 
     s.section("Summary, preview and saving")
-    s.p(f"{UI('Workout Summary')} shows the average intensity (% FTP), the estimated TSS, the total duration "
+    s.p(f"{UI('Workout Summary')} shows the average intensity (% FTP), the estimated Training Load, the total duration "
         f"and the number of blocks. {UI('Preview')} opens a large chart of the workout with a "
         f"{UI('Save Workout')} button.")
     s.p(f"Click {UI('Save Workout')} to store the workout (a dot – <i>Save Workout •</i> – indicates unsaved "
@@ -1015,23 +1015,23 @@ def build(s, env):
         f"{UI('Selected Workout')} – a chart of the selected ride with <i>Target Power</i>, <i>Actual Power</i> and "
         "<i>Heart Rate</i>, and a line with date, duration, number of blocks and mode. After a ride, the new "
         "ride is selected automatically.",
-        f"{UI('Recent Workouts')} – date, workout, duration and average power. Click a row to select the ride; "
+        f"{UI('Recent Workouts')} – date, workout, duration, distance and average power. Click a row to select the ride; "
         f"{UI('View All')} / {UI('Show Less')} toggles between recent and all rides in the period.",
         f"{UI('Weekly Training Time')} – hours ridden per weekday (Monday–Sunday) within the period.",
         f"{UI('Power Zones')} – time and share of time spent in each power zone during the period.",
-        f"{UI('Selected Workout Details')} – average and maximum heart rate, Normalized Power and average "
-        "cadence of the selected ride.",
+        f"{UI('Selected Workout Details')} – average and maximum heart rate, Effort Power and average "
+        "cadence of the selected ride, with its distance in the line above.",
     ])
     s.section("Ride details")
-    s.p(f"{UI('View Details')} opens a dialog with date, start time and duration, and these values:")
+    s.p(f"{UI('View Details')} opens a dialog with date, start time, duration and distance, and these values:")
     s.table(["Value", "Meaning"], [
         ["Avg Power / Max Power", "Mean and highest one-second power. Seconds without pedaling count as 0 W."],
-        ["Normalized (NP)", "Normalized Power – see below."],
+        ["Effort Power", "A weighted average power – see below."],
         ["Energy", "Mechanical work in kilojoules (sum of watts per second ÷ 1000). Roughly equal to the food "
                    "energy burned in kcal."],
-        ["Intensity (IF)", "Intensity Factor = NP ÷ FTP."],
+        ["Intensity Ratio", "Effort Power ÷ FTP."],
         ["SPM", "Strokes per minute – the stroke rate when rowing."],
-        ["TSS", "Training Stress Score – see below."],
+        ["Training Load", "Load from duration and intensity – see below."],
         ["Avg / Max HR", "Mean and highest heart rate (seconds without data are ignored)."],
         ["Avg Cadence", "Mean cadence while pedaling (zero cadence is ignored)."],
         ["Best 1 min, Estimated FTP", "Only for FTP-test rides (chapter 8)."],
@@ -1039,18 +1039,22 @@ def build(s, env):
     s.p("A <b>Time in zones</b> bar shows how the ride was distributed across the six power zones. Buttons: "
         f"{UI('Delete ride')}, {UI('Use as FTP')} (FTP tests only), {UI('Export FIT')}, {UI('Export CSV')} and "
         f"{UI('Close')}.")
-    s.sub("NP, IF and TSS explained")
+    s.sub("Effort Power, Intensity Ratio and Training Load explained")
     s.bullets([
-        "<b>Normalized Power (NP)</b> estimates the power you could have held at a constant output for the same "
+        "<b>Effort Power</b> estimates the power you could have held at a constant output for the same "
         "physiological cost. It is calculated from 30-second rolling averages of power, raised to the 4th power, "
         "averaged, and the 4th root taken. Rides shorter than 30 seconds use simple average power.",
-        "<b>Intensity Factor (IF)</b> = NP ÷ FTP. 0.75 is an endurance ride, about 0.9 a hard interval session, "
+        "<b>Intensity Ratio</b> = Effort Power ÷ FTP. 0.75 is an endurance ride, about 0.9 a hard interval session, "
         "1.0 equals a one-hour all-out effort.",
-        "<b>Training Stress Score (TSS)</b> = duration (s) × NP × IF ÷ (FTP × 3600) × 100. One hour at FTP "
-        "gives 100 TSS.",
+        "<b>Training Load</b> = duration (s) × Effort Power × Intensity Ratio ÷ (FTP × 3600) × 100. One hour "
+        "at FTP gives a Training Load of 100.",
     ])
     s.p("All three use the FTP stored with the ride (your FTP when the ride started). The Builder and the "
-        "library show an <i>estimated</i> TSS calculated from the workout targets.")
+        "library show an <i>estimated</i> Training Load calculated from the workout targets.")
+    s.p("<b>Distance</b>: Free Ride, Video Ride and GPX Ride record the distance of the virtual road you "
+        "ride. A Watt Training workout rides a virtual flat road: the speed your power gives there (your "
+        "weight and bike setup) is recorded, and its distance is saved with the ride. Rides saved before "
+        "version 1.9.4 show – when no distance was recorded.")
 
     s.section("Exporting rides")
     s.p(f"Click {UI('Export')} at the top of the History page and choose:")
@@ -1092,16 +1096,16 @@ def build(s, env):
         "One record per second with <b>power</b>, <b>heart rate</b> and <b>cadence</b> (heart rate is "
         "left out for seconds without data).",
         "One lap covering the whole ride and a session summary: average and maximum power and heart rate, "
-        "average cadence, Normalized Power, TSS, IF, the FTP (threshold power) used for the ride, total work "
+        "average cadence, Effort Power, Training Load, Intensity Ratio, the FTP (threshold power) used for the ride, total work "
         "and calories (estimated as 1 kcal per kJ of work).",
     ])
     s.sub("Limitations")
     s.bullets([
-        "<b>No GPS, distance or speed</b> for rides – an indoor ride has no speed model. Platforms show a "
-        "distance of 0 and no map. Rows contain distance, but no GPS or map.",
+        "<b>No GPS or map</b>: rides contain the speed and distance of the virtual road (Watt Training: a "
+        "flat road at your power), rows their distance – but no GPS position.",
         "The workout's intervals are not written as separate laps; the whole ride is one lap.",
         "Pauses are not part of the file: it contains the recorded riding time only.",
-        "Platforms often calculate NP, TSS and IF again with the FTP stored in <i>your account there</i>, so "
+        "Platforms often calculate these metrics again with the FTP stored in <i>your account there</i>, so "
         "their values can differ from the ones in the app.",
         "The target power of each second is not included (use the CSV export if you need it).",
     ])
@@ -1134,14 +1138,15 @@ def build(s, env):
         [C("date"), "Start date and time (ISO 8601)"],
         [C("workout"), "Workout name"],
         [C("duration_s"), "Recorded duration in seconds"],
+        [C("distance_km"), "Distance in km (empty when none was recorded)"],
         [C("mode"), "ERG or Free Ride"],
-        [C("avg_power_w") + ", " + C("max_power_w") + ", " + C("normalized_power_w"), "Average, maximum and "
-                                                                                       "normalized power"],
+        [C("avg_power_w") + ", " + C("max_power_w") + ", " + C("effort_power_w"), "Average, maximum and "
+                                                                                   "Effort Power"],
         [C("avg_hr_bpm") + ", " + C("max_hr_bpm"), "Average and maximum heart rate"],
         [C("avg_cadence_rpm"), "Average cadence"],
         [C("energy_kj"), "Energy in kJ"],
-        [C("intensity_factor"), "IF (3 decimals)"],
-        [C("tss"), "Training Stress Score"],
+        [C("intensity_ratio"), "Intensity Ratio (3 decimals)"],
+        [C("training_load"), "Training Load"],
         [C("ftp_w"), "FTP used for the ride"],
     ], [2.6, 3.2])
     s.section("Deleting rides")
@@ -1423,7 +1428,7 @@ def build(s, env):
 
     s.section("Rowing FTP")
     s.p(f"Every profile has a separate {UI('Rowing FTP')} (50 – 600 W, default 150 W) in the {UI('User Profile')} "
-        "dialog, next to the cycling FTP. Rowing workouts, the Builder in rowing mode and the zones and TSS of "
+        "dialog, next to the cycling FTP. Rowing workouts, the Builder in rowing mode and the zones and Training Load of "
         "rows use it; cycling uses the normal FTP. Rowing power is usually much lower than cycling power for "
         "the same effort, which is why the two are kept apart.")
     s.tip("No rowing FTP yet? A common estimate is 95 % of the average watts of an all-out 20-minute row, or "
@@ -1804,6 +1809,10 @@ def build(s, env):
         "yes</i>. Other trainers only get the extra resistance. The rumble stops while paused. "
         "<b>Not in ERG</b> (the trainer holds the watts) and <b>not while riding a workout</b> – then the "
         "badge only says <i>gravel</i>. Gravel is not timed.",
+        "<b>Road sound</b>: while you ride you hear the tyres rolling on the road – on asphalt, and the "
+        "crunch of gravel on a gravel section (cross-faded at its edge). It gets louder with your speed and "
+        "is silent when you pause or stand still. The speaker button at the bottom right of the 3D view "
+        "switches it off and on (remembered).",
         "<b>Sprint</b>: a sprint placed in the GPX Workshop. 200 m before "
         "it the road says <i>SPRINT IN 200 m</i> behind a thin green line; the sprint starts at a thick green "
         "line with <i>SPRINT</i> on the road and a green sign on the verge, and ends at a red line with a "
@@ -1979,7 +1988,7 @@ def build(s, env):
         "Used for the displayed watts on the Watt Training page power card (including the deviation from the target and "
         "the zone colour of its bar), the Free Ride power tile and ERG panel (<i>Actual … W</i>), the sidebar "
         "status box and the live trainer values on the Devices page (<i>Power 3s</i>).",
-        "<b>Not</b> used for recording: rides keep the raw per-second power, so averages, NP, IF, TSS, zones, "
+        "<b>Not</b> used for recording: rides keep the raw per-second power, so averages, Effort Power, Intensity Ratio, Training Load, zones, "
         "FIT/CSV export, the FTP test (best 1-minute power), ERG control and virtual gearing are unchanged.",
         "Rowing is not affected – the PM5 already reports power per stroke.",
         f"Change it in the Settings dialog ({UI('Smooth power')}: switch plus 1 / 3 / 5 / 10 s) or click the "
@@ -2159,20 +2168,20 @@ def build(s, env):
                  "control)."],
         ["FTP", "Functional Threshold Power – the highest power you can sustain for about one hour. Kept "
                 "separately for cycling and rowing (Rowing FTP)."],
+        ["Effort Power", "A weighted average power that reflects the physiological cost of a variable ride "
+                         "(30 s rolling average, 4th-power mean)."],
         ["Gear ratio", "Chainring teeth ÷ cog teeth; a higher ratio means more distance per pedal stroke."],
         ["Ghost", "A replay of your personal best row that you race against."],
         ["HRS", "Heart Rate Service – the standard Bluetooth profile for heart-rate sensors."],
-        ["IF", "Intensity Factor = Normalized Power ÷ FTP."],
+        ["Intensity Ratio", "Effort Power ÷ FTP."],
         ["Karvonen", "Method for heart-rate zones based on the heart-rate reserve (max HR − resting HR)."],
         ["kJ", "Kilojoules of mechanical work; roughly equal to kcal of food energy burned."],
         ["Pace", "Rowing speed as time per 500 m (e.g. 2:04 /500m)."],
         ["PM5", "Performance Monitor 5 – the Bluetooth display of Concept2 rowing machines."],
-        ["NP", "Normalized Power – a weighted average power that reflects the physiological cost of a "
-               "variable ride."],
         ["RLV", "Real Life Video – a filmed route (video + GPS track) that plays at your riding speed "
                 "(Video Ride page)."],
         ["RPE", "Rating of Perceived Exertion – how hard an effort feels on a scale of 1 to 10."],
-        ["TSS", "Training Stress Score – training load from duration and intensity; one hour at FTP = 100."],
+        ["Training Load", "Load from duration and intensity; one hour at FTP = 100."],
         ["Virtual gears", "Gears simulated by the app: speed from cadence and gear, trainer power from the speed "
                           "on the virtual road (Free Ride and Video Ride pages)."],
         ["W/kg", "Watts per kilogram of body weight – power relative to weight."],
@@ -2250,7 +2259,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.3",
+  "app": "Artilody Multisport Endurance Trainer 1.9.4",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -2306,7 +2315,8 @@ def build(s, env):
         "Uses the Bluetooth SIG's open Fitness Machine and Heart Rate service specifications and Concept2's "
         "public PM5 Bluetooth Smart Interface Definition. Concept2, PM5 and RowErg are trademarks of "
         "Concept2, Inc.; this project is not affiliated with Concept2.",
-        "The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.",
+        "Effort Power, Intensity Ratio and Training Load are the app's own names; they are calculated with "
+        "the widely published 4th-power-mean method for weighted average power.",
     ])
     s.p(f"Source code, releases and issue tracker: {L(REPO)}")
     s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")

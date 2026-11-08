@@ -211,6 +211,8 @@ class RlvSession : public QObject, public RouteProgressSource
     // round and round, any other route there and back); every lap ends on a
     // finish line. Set before the start (kept in the settings).
     Q_PROPERTY(bool loop READ loop WRITE setLoop NOTIFY loopChanged)
+    // GPX Ride: the rolling sound of the road (asphalt / gravel) while riding (saved; on by default)
+    Q_PROPERTY(bool roadSound READ roadSound WRITE setRoadSound NOTIFY roadSoundChanged)
     Q_PROPERTY(bool canLoop READ canLoop NOTIFY routeChanged)
     Q_PROPERTY(bool roundTrip READ roundTrip NOTIFY routeChanged)
     Q_PROPERTY(bool looping READ looping NOTIFY stateChanged)            // this ride loops
@@ -469,6 +471,8 @@ public:
 
     bool loop() const { return m_loop; }
     void setLoop(bool on);
+    bool roadSound() const { return m_roadSound; }
+    void setRoadSound(bool on);
     bool canLoop() const { return isGpx() && hasRoute(); }
     bool roundTrip() const { return m_route.isRoundTrip(); }
     bool looping() const { return m_loopRide; }
@@ -493,7 +497,9 @@ public:
     double gravelGradePercent() const;
     double rideGradePercent() const { return effectiveGradePercent() + gravelGradePercent(); }
     int gravelWatts() const;
-    double gravelBlend() const;   // 0..1 along the section's ramps (segments::kGravelRampM)
+    double gravelBlend() const;
+    // gravel at this distance (m along the route; the road sound looks a little ahead)
+    Q_INVOKABLE bool gravelAt(double distanceM) const { return isGpx() && hasRoute() && m_route.gravelAt(distanceM); }   // 0..1 along the section's ramps (segments::kGravelRampM)
     // The road surface this ride asks of the trainer (road feel, Tacx NEO):
     // gravel while riding (not paused) with gravelEffort, else smooth. Set on
     // the hub only when it changes, so an idle session never overrides
@@ -699,6 +705,7 @@ signals:
     void komChanged();
     void komFinished(double timeSec, double previousBestSec, bool newBest);
     void loopChanged();
+    void roadSoundChanged();
     void lapChanged();
     void lapCompleted(int lap, double timeSec);   // looping: lap (1, 2, ...) just finished
 
@@ -818,6 +825,7 @@ private:
     // loop (GPX Ride)
     bool m_loop = false;            // the setting
     bool m_loopRide = false;        // this ride loops (m_loop at the start)
+    bool m_roadSound = true;
     bool m_returning = false;       // there and back: on the way back (m_distance falls)
     int m_lapsDone = 0;
     double m_lapStartMs = 0;        // m_activeMs at this lap's start

@@ -57,7 +57,7 @@ AppDialog {
         }
 
         // Display smoothing of the cycling power (SensorHub.displayPower).
-        // Recording, averages/NP/TSS, ERG and the FTP test use the raw power.
+        // Recording, averages/Effort Power/Training Load, ERG and the FTP test use the raw power.
         Item {
             width: parent.width
             height: 46

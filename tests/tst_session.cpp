@@ -161,6 +161,9 @@ private slots:
         QCOMPARE(db->rideSamples(id).size(), 120);
         QCOMPARE(db->rideSamples(id).at(10).targetPower, 125);
         QCOMPARE(session->powerSeries().size(), 120);
+        // the virtual flat road: 200 W for 2 min is ~1 km (about 31-33 km/h once up to speed)
+        QVERIFY2(r->distanceM > 850 && r->distanceM < 1150, qPrintable(QString::number(r->distanceM)));
+        QVERIFY(db->rideSamples(id).last().speedMps > 8.0);
     }
 
     void pauseDoesNotRecord()

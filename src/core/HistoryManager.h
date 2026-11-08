@@ -25,6 +25,7 @@ class HistoryManager : public QObject
     Q_PROPERTY(QString totalTimeText READ totalTimeText NOTIFY dataChanged)
     Q_PROPERTY(int avgPower READ avgPower NOTIFY dataChanged)
     Q_PROPERTY(int totalKj READ totalKj NOTIFY dataChanged)
+    Q_PROPERTY(double totalDistanceM READ totalDistanceM NOTIFY dataChanged)   // all rides in range
     Q_PROPERTY(int totalTss READ totalTss NOTIFY dataChanged)
     Q_PROPERTY(QVariantList rides READ rides NOTIFY dataChanged)
     Q_PROPERTY(QVariantList weeklyHours READ weeklyHours NOTIFY dataChanged)
@@ -50,6 +51,7 @@ public:
     QString totalTimeText() const;
     int avgPower() const;
     int totalKj() const;
+    double totalDistanceM() const;
     int totalTss() const;
     QVariantList rides() const;
     QVariantList weeklyHours() const;

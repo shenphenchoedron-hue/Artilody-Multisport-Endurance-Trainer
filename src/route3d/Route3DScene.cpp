@@ -2277,10 +2277,21 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         // the run-out after the finish (not ridden): the road narrows to
         // nothing over its last kTaperM, the lines stop where it starts to
         const float ta = runOutTaper(d), tb = runOutTaper(e);
-        // a gravel section (GPX Workshop): a gravel road, no painted lines
+        // a gravel section (GPX Workshop): a gravel road, no painted lines.
+        // The road surface is split exactly at a section's start / end (the
+        // segments are ~5 m: by its middle alone the gravel would begin up to
+        // 2.5 m off); the rest of the segment goes by its middle.
+        std::vector<double> cuts { d };
+        for (const auto &g : route.gravel)
+            for (double c : { g.first, g.second })
+                if (c > d + 1e-3 && c < e - 1e-3)
+                    cuts.push_back(c);
+        std::sort(cuts.begin(), cuts.end());
+        cuts.push_back(e);
         const bool dirt = !route.gravel.empty() && route.gravelAt(.5 * (d + e));
+        const bool anyDirt = dirt || cuts.size() > 2;
         const int surface = dirt ? GravelRoad : Asphalt;
-        const bool lined = ta >= 1 && tb >= 1 && !dirt;
+        const bool lined = ta >= 1 && tb >= 1 && !anyDirt;
         sa *= ta;
         sb *= tb;
         // on the inside of a tight bend (a hairpin) the cross section is
@@ -2328,7 +2339,14 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         a.setY(a.y() + .025f);
         b.setY(b.y() + .025f);
         // blend carries the lateral position (-1..1) for wheel tracks and edge wear.
-        quad(a - saL * 3, b - sbL * 3, b + sbR * 3, a + saR * 3, QVector3D(1, 1, 1), surface, -1, -1, 1, 1);
+        for (size_t c = 0; c + 1 < cuts.size(); ++c) {
+            const float f0 = float((cuts[c] - d) / std::max(1e-9, e - d)), f1 = float((cuts[c + 1] - d) / std::max(1e-9, e - d));
+            const QVector3D p0 = a + (b - a) * f0, p1 = a + (b - a) * f1;
+            const QVector3D l0 = saL + (sbL - saL) * f0, l1 = saL + (sbL - saL) * f1;
+            const QVector3D r0 = saR + (sbR - saR) * f0, r1 = saR + (sbR - saR) * f1;
+            const int piece = !route.gravel.empty() && route.gravelAt(.5 * (cuts[c] + cuts[c + 1])) ? GravelRoad : Asphalt;
+            quad(p0 - l0 * 3, p1 - l1 * 3, p1 + r1 * 3, p0 + r0 * 3, QVector3D(1, 1, 1), piece, -1, -1, 1, 1);
+        }
         // joining side: the rounded corner, in a few steps along the segment
         for (int k = 0; k < 2; ++k) {
             if (!join[k])

@@ -1,4 +1,6 @@
 #include "TrainingSession.h"
+#include "VirtualGears.h"
+#include "Gearing.h"
 
 #include "Database.h"
 #include "ProfileManager.h"
@@ -211,6 +213,8 @@ void TrainingSession::clearRecording()
     m_rideMs = 0;
     m_energyJ = 0;
     m_powerSum = 0;
+    m_virtualSpeed = 0;
+    m_distanceM = 0;
     m_lastSentTarget = -1;
     emit seriesChanged();
 }
@@ -435,6 +439,18 @@ void TrainingSession::recordUpTo(int second)
         s.heartRate = m_hub->heartRate();
         // the target actually requested (includes the intensity adjustment)
         s.targetPower = m_engine.isFreeRide() ? 0 : m_engine.targetWatts();
+        // the virtual flat road (cycling): speed and distance from the power
+        if (sport::normalize(m_engine.workout().sport) == QLatin1String("cycling")) {
+            road::Model model;
+            const Profile &p = m_rideProfile;
+            if (m_gears)
+                model = m_gears->roadModel(0.0, p.weightKg, p.heightCm);
+            else if (p.weightKg > 0)
+                model.massKg = p.weightKg + road::kDefaultBikeKg;
+            m_virtualSpeed = road::integrateSpeed(model, m_virtualSpeed, std::max(0, s.power), 1.0);
+            s.speedMps = m_virtualSpeed;
+            m_distanceM += m_virtualSpeed;
+        }
         m_samples.append(s);
         m_powerData.append(s.power);
         m_hrData.append(s.heartRate);
@@ -495,6 +511,8 @@ qint64 TrainingSession::saveRide()
     r.sport = sport::normalize(m_engine.workout().sport);
     r.ftp = p.ftpFor(r.sport);
     analysis::applyStats(r, analysis::analyze(m_samples, r.ftp, p.zones));
+    if (m_distanceM > 0)
+        r.distanceM = m_distanceM;
     m_lastRideId = m_db->saveRide(r, m_samples);
     if (m_lastRideId >= 0)
         emit rideSaved(m_lastRideId);

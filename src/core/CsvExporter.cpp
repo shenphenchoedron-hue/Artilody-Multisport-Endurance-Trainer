@@ -72,10 +72,11 @@ QString ridesToCsv(const QVector<RideRecord> &rides, const std::function<QVector
 {
     QString out;
     QTextStream s(&out);
-    s << "date,workout,duration_s,mode,avg_power_w,max_power_w,normalized_power_w,avg_hr_bpm,max_hr_bpm,"
-         "avg_cadence_rpm,energy_kj,intensity_factor,tss,ftp_w" << (lapsOf ? ",laps,best_lap_s" : "") << "\n";
+    s << "date,workout,duration_s,distance_km,mode,avg_power_w,max_power_w,effort_power_w,avg_hr_bpm,max_hr_bpm,"
+         "avg_cadence_rpm,energy_kj,intensity_ratio,training_load,ftp_w" << (lapsOf ? ",laps,best_lap_s" : "") << "\n";
     for (const RideRecord &r : rides) {
         s << r.startedAt.toString(Qt::ISODate) << ',' << escape(r.workoutName) << ',' << r.durationSec << ','
+          << (r.distanceM > 0 ? num(r.distanceM / 1000.0, 2) : QString()) << ','
           << (r.ergMode ? "ERG" : "Free Ride") << ',' << num(r.avgPower) << ',' << r.maxPower << ','
           << num(r.normalizedPower) << ',' << num(r.avgHeartRate) << ',' << r.maxHeartRate << ','
           << num(r.avgCadence) << ',' << num(r.kilojoules) << ',' << num(r.intensityFactor, 3) << ','

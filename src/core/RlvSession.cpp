@@ -26,6 +26,7 @@ const char *const kSettingDifficulty = "difficulty";
 const char *const kSettingErgWatts = "ergWatts";
 const char *const kSettingLastRoute = "lastRoute";
 const char *const kSettingLoop = "loop";
+const char *const kSettingRoadSound = "roadSound";
 } // namespace
 
 QString RlvSession::settingKey(const char *name) const
@@ -128,6 +129,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     m_ergTarget = storedErg > 0 ? std::clamp(storedErg, int(kMinErgWatts), int(kMaxWatts)) : defaultErgTarget();
     m_difficulty = std::clamp(m_db->setting(settingKey(kSettingDifficulty), kDefaultDifficulty).toInt(), 0, 100);
     m_loop = isGpx() && m_db->setting(settingKey(kSettingLoop), false).toBool();
+    m_roadSound = m_db->setting(settingKey(kSettingRoadSound), true).toBool();
 
     const QString last = m_db->setting(settingKey(kSettingLastRoute)).toString();
     if (!last.isEmpty() && QFileInfo::exists(last)) {
@@ -579,6 +581,15 @@ void RlvSession::setLoop(bool on)
     m_loop = on;
     m_db->setSetting(settingKey(kSettingLoop), on);
     emit loopChanged();
+}
+
+void RlvSession::setRoadSound(bool on)
+{
+    if (on == m_roadSound)
+        return;
+    m_roadSound = on;
+    m_db->setSetting(settingKey(kSettingRoadSound), on);
+    emit roadSoundChanged();
 }
 
 void RlvSession::clearLaps()

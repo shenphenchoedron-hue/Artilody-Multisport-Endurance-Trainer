@@ -16,7 +16,7 @@ set(CPACK_PACKAGE_DESCRIPTION
 "Artilody Multisport Endurance Trainer is a desktop app for structured indoor cycling
 workouts and rowing. It connects to Bluetooth LE smart trainers (FTMS, ERG
 mode), Concept2 PM5 rowing monitors and heart-rate sensors, drives interval workouts by power, records rides to a
-local SQLite database, analyses them (NP, TSS, zones) and plays local music
+local SQLite database, analyses them (Effort Power, Training Load, zones) and plays local music
 while you ride. Built with Qt 6 / QML.")
 set(CPACK_PACKAGE_CONTACT "Artilody <noreply@artilody.app>")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer")

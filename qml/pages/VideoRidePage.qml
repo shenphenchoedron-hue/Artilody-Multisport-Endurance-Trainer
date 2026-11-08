@@ -586,6 +586,75 @@ Item {
         id: audioOut
         volume: 0.7
     }
+    // GPX Ride: the rolling sound of the road, looped while riding - asphalt,
+    // or gravel on a gravel section; louder with speed, silent when paused,
+    // standing still, muted or off this page.
+    // The edge: the ride's position comes every 250 ms, so the sound follows
+    // its own position, extrapolated with the speed every 30 ms (as the 3D
+    // view draws the rider), kLeadSec ahead for the audio output's latency
+    // (QSoundEffect plays a few hundred ms after it is asked to).
+    // The two sounds cross-fade in kFadeMs at equal power (no dip between them).
+    Item {
+        id: roadSounds
+        readonly property bool want: page.gpx && page.session.roadSound && page.session.running
+                                     && page.session.speedKmh > 3 && page.visible
+        // measured on a ride: with 0.2 s the sound changed 2-3 m (~0.3 s at
+        // 28 km/h) after the edge - the audio output buffers that much more
+        readonly property real kLeadSec: 0.55
+        readonly property int kFadeMs: 150
+        readonly property real level: 0.32 * Math.min(1, 0.35 + page.session.speedKmh / 40)
+        property real baseDistance: 0
+        property real baseTime: 0
+        property bool gravel: false
+        property real mix: gravel ? 1 : 0      // 0 asphalt .. 1 gravel
+        Behavior on mix { NumberAnimation { duration: roadSounds.kFadeMs } }
+        function rebase() {
+            baseDistance = page.session.distanceMeters
+            baseTime = Date.now()
+        }
+        function track() {
+            const v = page.session.speedKmh / 3.6
+            const since = Math.min(0.5, (Date.now() - baseTime) / 1000)
+            gravel = page.session.gravelAt(baseDistance + v * (since + kLeadSec))
+        }
+        function update() {
+            for (const s of [asphaltSound, gravelSound]) {
+                if (want && !s.playing)
+                    s.play()
+                else if (!want && s.playing)
+                    s.stop()
+            }
+        }
+        onWantChanged: {
+            rebase()
+            track()
+            update()
+        }
+        Connections {
+            target: page.session
+            function onPositionChanged() { roadSounds.rebase() }
+        }
+        Timer {
+            interval: 30
+            repeat: true
+            running: roadSounds.want
+            onTriggered: roadSounds.track()
+        }
+        SoundEffect {
+            id: asphaltSound
+            source: "qrc:/sounds/asphalt.wav"
+            loops: SoundEffect.Infinite
+            volume: roadSounds.level * Math.cos(roadSounds.mix * Math.PI / 2)
+            onStatusChanged: if (status === SoundEffect.Ready) roadSounds.update()
+        }
+        SoundEffect {
+            id: gravelSound
+            source: "qrc:/sounds/gravel.wav"
+            loops: SoundEffect.Infinite
+            volume: roadSounds.level * Math.sin(roadSounds.mix * Math.PI / 2)
+            onStatusChanged: if (status === SoundEffect.Ready) roadSounds.update()
+        }
+    }
     Connections {
         target: videoOut.videoSink
         function onVideoFrameChanged() {
@@ -1388,6 +1457,38 @@ Item {
                     ToolTip.text: page.audioOn ? "Mute the video" : "Play the video's sound"
                 }
 
+                // GPX Ride: the road sound on / off
+                Rectangle {
+                    visible: page.gpx && page.session.hasRoute
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 16
+                    width: 36
+                    height: 32
+                    radius: 16
+                    color: roadSoundMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.75) : Qt.rgba(0, 0, 0, 0.55)
+                    Icon {
+                        anchors.centerIn: parent
+                        name: page.session.roadSound ? "volume" : "mute"
+                        size: 18
+                        color: "white"
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: page.session.roadSound ? "Mute the road sound" : "Play the road sound"
+                    Accessible.onPressAction: page.session.roadSound = !page.session.roadSound
+                    MouseArea {
+                        id: roadSoundMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: page.session.roadSound = !page.session.roadSound
+                    }
+                    ToolTip.visible: roadSoundMouse.containsMouse
+                    ToolTip.delay: 600
+                    ToolTip.text: page.session.roadSound ? "Mute the road sound (asphalt / gravel)" : "Play the road sound (asphalt / gravel)"
+                }
+
                 // the file opened but no frame could be decoded
                 Flickable {
                     id: noPicFlick
@@ -1594,7 +1695,7 @@ Item {
                 }
                 FullscreenControls {
                     visible: videoCard.showOverlay
-                    buttonRightMargin: videoCard.showVideo ? 62 : 14   // left of the sound button
+                    buttonRightMargin: videoCard.showVideo || (page.gpx && page.session.hasRoute) ? 62 : 14   // left of the sound button
                     fullscreen: page.fullscreen
                     hudVisible: page.hudVisible
                     canPause: page.session.active

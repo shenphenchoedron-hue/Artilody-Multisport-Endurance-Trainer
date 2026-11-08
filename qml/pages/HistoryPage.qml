@@ -13,6 +13,8 @@ Item {
     readonly property bool hasRide: ride.rideId !== undefined
     readonly property bool rideRowing: ride.sport === "rowing"
     readonly property bool rideRunning: ride.sport === "running"
+    // distance of any ride as km text ("–" when none was recorded)
+    function km(r) { return r && r.distanceM > 0 ? (r.distanceM / 1000).toFixed(r.distanceM >= 100000 ? 0 : 1) + " km" : "–" }
     function runKmh(r) { return r.durationSec > 0 && r.distanceM > 0 ? r.distanceM / r.durationSec * 3.6 : 0 }
     function runPace(r) {
         var v = runKmh(r)
@@ -161,6 +163,11 @@ Item {
         }
         StatTile {
             Layout.fillWidth: true; Layout.fillHeight: true; large: true
+            iconName: "mapPin"; iconColor: Theme.success; caption: "Total Distance"
+            value: Theme.thousands(Math.round(History.totalDistanceM / 1000)) + " km"
+        }
+        StatTile {
+            Layout.fillWidth: true; Layout.fillHeight: true; large: true
             iconName: "bolt"; iconColor: Theme.warning; caption: "Avg Power"; value: History.avgPower + " W"
         }
         StatTile {
@@ -213,7 +220,8 @@ Item {
             Text {
                 text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  "
                       + (page.rideRowing ? "Rowing  •  " + Theme.thousands(page.ride.distanceM || 0) + " m"
-                                         : page.ride.blocks + " blocks  •  " + page.ride.mode)
+                                         : (page.ride.distanceM > 0 ? page.km(page.ride) + "  •  " : "")
+                                           + page.ride.blocks + " blocks  •  " + page.ride.mode)
                 color: Theme.text
                 font.pixelSize: 17
                 anchors.verticalCenter: parent.verticalCenter
@@ -284,7 +292,7 @@ Item {
             x: 18
             y: 58
             Repeater {
-                model: [{ t: "Date", w: 84 }, { t: "Workout", w: 166 }, { t: "Duration", w: 82 }, { t: "Avg Power", w: 70 }]
+                model: [{ t: "Date", w: 80 }, { t: "Workout", w: 124 }, { t: "Duration", w: 70 }, { t: "Distance", w: 70 }, { t: "Power", w: 58 }]
                 Text {
                     width: modelData.w
                     text: modelData.t
@@ -314,9 +322,9 @@ Item {
                 Row {
                     x: 12
                     anchors.verticalCenter: parent.verticalCenter
-                    Text { width: 84; text: modelData.date; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
+                    Text { width: 80; text: modelData.date; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
                     Item {
-                        width: 166
+                        width: 124
                         height: 22
                         Icon {
                             anchors.verticalCenter: parent.verticalCenter
@@ -337,8 +345,9 @@ Item {
                             font.weight: isSel ? Font.Bold : Font.Normal
                         }
                     }
-                    Text { width: 82; text: modelData.durationMin + " min"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
-                    Text { width: 70; text: modelData.sport === "running" ? (modelData.distanceM > 0 ? (modelData.distanceM / 1000).toFixed(1) + " km" : "–") : modelData.avgPower + " W"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
+                    Text { width: 70; text: modelData.durationMin + " min"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
+                    Text { width: 70; text: page.km(modelData); color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
+                    Text { width: 58; text: modelData.avgPower > 0 ? modelData.avgPower + " W" : "–"; color: Theme.text; font.pixelSize: 16; font.weight: isSel ? Font.Bold : Font.Normal }
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -493,7 +502,7 @@ Item {
                 text: page.ride.date + "  •  " + page.ride.durationMin + " min  •  "
                       + (page.rideRowing ? Theme.thousands(page.ride.distanceM || 0) + " m rowed"
                          : page.rideRunning ? ((page.ride.distanceM || 0) / 1000).toFixed(2) + " km run"
-                         : page.ride.blocks + " blocks")
+                         : (page.ride.distanceM > 0 ? page.km(page.ride) + "  •  " : "") + page.ride.blocks + " blocks")
                       + (page.rideLaps.length > 0 ? "  •  " + page.rideLaps.length + " laps" : "")
                 color: Theme.text
                 font.pixelSize: 16
@@ -510,7 +519,7 @@ Item {
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "heart"; iconColor: Theme.danger; iconSize: 30; caption: "Avg HR"; value: (page.ride.avgHr || 0) + " BPM" }
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: "heart"; iconColor: Theme.danger; iconSize: 30; caption: "Max HR"; value: (page.ride.maxHr || 0) + " BPM" }
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: page.rideRunning ? "timer" : "bolt"; iconColor: Theme.warning; iconSize: 30
-                       caption: page.rideRunning ? "Avg Pace" : "Normalized Power"
+                       caption: page.rideRunning ? "Avg Pace" : "Effort Power"
                        value: page.rideRunning ? page.runPace(page.ride) + " /km" : (page.ride.np || 0) + " W" }
             StatTile { Layout.fillWidth: true; Layout.fillHeight: true; iconName: page.rideRunning ? "gauge" : "cadence"; iconColor: Theme.accentLight; iconSize: 30
                        caption: page.rideRunning ? "Avg Speed" : page.rideRowing ? "Stroke Rate" : "Cadence"
@@ -542,7 +551,7 @@ Item {
             text: (page.ride.date || "") + " at " + (page.ride.time || "") + "  •  " + Theme.clock(page.ride.durationSec || 0)
                   + (page.rideRowing ? "  •  Rowing" + (page.ride.distanceM > 0 ? " " + Theme.thousands(page.ride.distanceM) + " m" : "")
                      : page.rideRunning ? "  •  Treadmill run " + ((page.ride.distanceM || 0) / 1000).toFixed(2) + " km"
-                     : (page.ride.mode ? "  •  " + page.ride.mode : ""))
+                     : (page.ride.distanceM > 0 ? "  •  " + page.km(page.ride) : "") + (page.ride.mode ? "  •  " + page.ride.mode : ""))
                   + (page.rideRunning ? "" : "  •  " + (page.rideRowing ? "Rowing FTP " : "FTP ")
                      + (page.ride.ftp || (page.rideRowing ? Profiles.rowingFtp : Profiles.ftp)) + " W")
             color: Theme.textSecondary
@@ -561,17 +570,17 @@ Item {
                     { c: "Avg Speed", v: page.runKmh(page.ride).toFixed(1) + " km/h", i: "gauge" },
                     { c: "Avg Pace", v: page.runPace(page.ride) + " /km", i: "timer" },
                     { c: "Energy", v: Theme.thousands(page.ride.kj || 0) + " kcal", i: "flame" },
-                    { c: "Intensity (IF)", v: (page.ride.if || 0).toFixed(2), i: "trendUp" },
-                    { c: "rTSS", v: "" + (page.ride.tss || 0), i: "chart" },
+                    { c: "Intensity Ratio", v: (page.ride.if || 0).toFixed(2), i: "trendUp" },
+                    { c: "Training Load", v: "" + (page.ride.tss || 0), i: "chart" },
                     { c: "Avg / Max HR", v: (page.ride.avgHr || 0) + " / " + (page.ride.maxHr || 0), i: "heart" },
                     { c: "Avg Cadence", v: (page.ride.cadence || 0) + " SPM", i: "cadence" }
                 ] : [
                     { c: "Avg Power", v: (page.ride.avgPower || 0) + " W", i: "bolt" },
                     { c: "Max Power", v: (page.ride.maxPower || 0) + " W", i: "bolt" },
-                    { c: "Normalized", v: (page.ride.np || 0) + " W", i: "bolt" },
+                    { c: "Effort Power", v: (page.ride.np || 0) + " W", i: "bolt" },
                     { c: "Energy", v: Theme.thousands(page.ride.kj || 0) + " kJ", i: "flame" },
-                    { c: "Intensity (IF)", v: (page.ride.if || 0).toFixed(2), i: "trendUp" },
-                    { c: "TSS", v: "" + (page.ride.tss || 0), i: "chart" },
+                    { c: "Intensity Ratio", v: (page.ride.if || 0).toFixed(2), i: "trendUp" },
+                    { c: "Training Load", v: "" + (page.ride.tss || 0), i: "chart" },
                     { c: "Avg / Max HR", v: (page.ride.avgHr || 0) + " / " + (page.ride.maxHr || 0), i: "heart" },
                     page.rideRowing ? { c: "Avg Stroke Rate", v: (page.ride.cadence || 0) + " SPM", i: "waves" }
                                     : { c: "Avg Cadence", v: (page.ride.cadence || 0) + " RPM", i: "cadence" }

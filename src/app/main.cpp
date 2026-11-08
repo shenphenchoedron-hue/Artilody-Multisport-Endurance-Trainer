@@ -396,6 +396,7 @@ int main(int argc, char *argv[])
     // Virtual shifting: one gear setup / current gear for the free ride and
     // the video ride, configured on the Devices page.
     VirtualGears gears(&db, &profiles);
+    training.setVirtualGears(&gears);   // Watt Training's virtual distance
     gears.setHub(&hub);   // rider + bike -> SensorHub::riderMassKg (virtual trainer)
     // Free ride (simulated road / ERG); exclusive with workouts and rowing.
     FreeRideSession freeRide(&db, &profiles, &hub, &gears);

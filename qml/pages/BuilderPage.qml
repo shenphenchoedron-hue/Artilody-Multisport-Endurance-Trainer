@@ -1076,7 +1076,7 @@ Item {
             anchors.leftMargin: 10
             horizontalAlignment: Text.AlignRight
             // "% Rowing FTP" does not fit next to the title: shorter label for rowing
-            text: Builder.intensity + "%" + (page.rowing ? "" : " " + page.ftpLabel) + "  •  TSS " + Builder.tss
+            text: Builder.intensity + "%" + (page.rowing ? "" : " " + page.ftpLabel) + "  •  Training Load " + Builder.tss
             color: Theme.textSecondary
             font.pixelSize: 14
             elide: Text.ElideLeft
@@ -1130,7 +1130,7 @@ Item {
             x: 28
             y: 72
             text: Math.round(Builder.totalDurationSec / 60) + " min  •  " + Builder.blockCount + " blocks  •  "
-                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated TSS " + Builder.tss + "  •  " + page.ftpLabel + " "
+                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated Training Load " + Builder.tss + "  •  " + page.ftpLabel + " "
                   + (page.running ? Builder.antSpeedKmh.toFixed(1) + " km/h" : Builder.ftp + " W")
             color: Theme.textSecondary
             font.pixelSize: 17

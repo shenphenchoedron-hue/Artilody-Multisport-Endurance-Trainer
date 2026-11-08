@@ -117,6 +117,9 @@ private slots:
 
         const QString summary = csv::ridesToCsv({ r });
         QCOMPARE(summary.count(QLatin1Char('\n')), 2);
+        QVERIFY(summary.startsWith(QStringLiteral("date,workout,duration_s,distance_km,mode,")));
+        QVERIFY(summary.contains(QStringLiteral(",effort_power_w,")));
+        QVERIFY(summary.contains(QStringLiteral(",intensity_ratio,training_load,")));
 
         QTemporaryDir dir;
         const QString path = dir.filePath(QStringLiteral("out.csv"));

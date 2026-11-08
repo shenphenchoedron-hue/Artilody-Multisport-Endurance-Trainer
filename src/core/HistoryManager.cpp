@@ -105,6 +105,14 @@ int HistoryManager::totalKj() const
     return int(std::lround(kj));
 }
 
+double HistoryManager::totalDistanceM() const
+{
+    double m = 0;
+    for (const RideRecord &r : m_rides)
+        m += std::max(0.0, r.distanceM);
+    return m;
+}
+
 int HistoryManager::totalTss() const
 {
     double t = 0;

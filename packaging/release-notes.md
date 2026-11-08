@@ -1,6 +1,17 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.3
+## What's new in 1.9.4
+
+**History: distance and new metric names; GPX Ride road sound.**
+
+- **Distance in History**: every saved ride shows its distance – a new *Distance* column in the workout list, a *Total Distance* tile, the km in the ride details and a `distance_km` column in the CSV export.
+- **Watt Training gets a distance**: a workout now rides a virtual flat road – the speed your power gives there (your weight and bike setup) is recorded each second and its distance is saved with the ride (also in the FIT file). Rides saved before 1.9.4 without a distance show –.
+- **New metric names**: Effort Power (weighted average power), Intensity Ratio and Training Load – the same calculations as before. The CSV columns are now `effort_power_w`, `intensity_ratio` and `training_load`.
+- **GPX Ride road sound**: while riding you hear your tyres – rolling on asphalt, crunching on gravel sections – louder with speed, silent when paused or standing still. The speaker button on the 3D view switches it off and on (remembered). The sound changes right at the edge of a gravel section.
+- **Gravel edges in 3D**: the drawn gravel road now starts and ends exactly where the section does.
+- No database change – install over 1.9.3.
+
+## Also included from 1.9.3
 
 **Gravel: more realistic resistance, and the Tacx NEO rumbles.**
 
@@ -309,7 +320,7 @@ Earlier releases (1.1.4 PM5 stroke-rate fix, 1.1.3 PM5 on Raspberry Pi / Linux, 
 - **Workout library and builder**: ready-made workouts plus a visual drag-and-edit builder with warm-up, steady, interval, recovery, ramp and cool-down blocks. Targets can be set in watts or % of FTP, with cadence and RPE. Workouts can be shared as `.awt` or Zwift `.zwo` files.
 - **Live Watt Training page**: power, heart rate, cadence, the current interval and the time left, power zones, and a workout chart that updates as you ride.
 - **FTP test and profiles**: run the built-in FTP test, keep several rider profiles, and have training zones calculated automatically.
-- **History and analysis**: every ride is saved to a local SQLite database. You get average/max/normalized power, TSS, time in zones and charts, and you can export rides as FIT (Strava, Garmin Connect, TrainingPeaks, …) or CSV.
+- **History and analysis**: every ride is saved to a local SQLite database. You get distance, average/max power, Effort Power, Training Load, time in zones and charts, and you can export rides as FIT (Strava, Garmin Connect, TrainingPeaks, …) or CSV.
 - **Music while you ride**: plays your own music library and playlists. Two sample tracks are included.
 - **Private by design**: no account, no cloud, no tracking. Your data stays on your computer.
 - Light and dark themes, built with Qt 6 / QML.

@@ -14,6 +14,8 @@
 
 namespace watt {
 
+class VirtualGears;
+
 class Database;
 class ProfileManager;
 class SensorHub;
@@ -75,6 +77,12 @@ public:
     Q_ENUM(State)
 
     TrainingSession(Database *db, ProfileManager *profiles, SensorHub *hub, QObject *parent = nullptr);
+    // The rider's bike setup for the virtual distance (optional: defaults otherwise).
+    void setVirtualGears(VirtualGears *gears) { m_gears = gears; }
+    // Cycling workouts ride a virtual flat road: the speed the rider's power
+    // gives there (road::integrateSpeed, the bike setup of VirtualGears) is
+    // recorded per second, and its distance is saved with the ride (History km).
+    double distanceMeters() const { return m_distanceM; }
 
     int state() const { return int(m_engine.state()); }
     bool active() const { return running() || paused(); }
@@ -214,6 +222,9 @@ private:
     Database *m_db;
     ProfileManager *m_profiles;
     SensorHub *m_hub;
+    VirtualGears *m_gears = nullptr;
+    double m_virtualSpeed = 0;   // m/s on the virtual flat road
+    double m_distanceM = 0;
     WorkoutEngine m_engine;
     QTimer m_timer;
     QElapsedTimer m_clock;

@@ -38,15 +38,24 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Video Ride (Real Life Video)** | Ride filmed routes (video + GPS) at the speed you ride, with gradient simulation or ERG – and optionally a watts workout with **Workout ERG** on top. |
 | **Treadmill Run** | Run on any FTMS treadmill through the same 3D world – GPX routes or the built-in *Artilody Lakeside 10K*. Running workouts in % of your **AnT** (anaerobic threshold) or km/h, a built-in 30-min AnT test with reminders, running zones. The treadmill is only read, never controlled. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
-| **History & export** | NP / IF / TSS, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
+| **History & export** | Distance, Effort Power / Intensity Ratio / Training Load, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
 | **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
 | **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
 
 ---
 
-## What's new in 1.9.3
+## What's new in 1.9.4
+
+**History: distance, and new metric names** – every saved ride shows its distance: a new *Distance* column in the workout list, a *Total Distance* tile, and the km in the ride details and the CSV export. Watt Training workouts now record the distance of a virtual flat road at your power (your weight and bike setup); rides saved earlier without a distance show –. The metrics are renamed **Effort Power**, **Intensity Ratio** and **Training Load** (same calculation as before).
+
+**GPX Ride road sound** – while riding you hear your tyres on the road: rolling on asphalt, crunching on gravel sections (cross-faded at the edge), louder with speed and silent when paused or standing still. The speaker button on the 3D view switches it off and on. No database change – see the [1.9.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.9.4).
+
+<details>
+<summary><b>What's new in 1.9.3</b> – gravel rolling resistance, Tacx NEO road feel</summary>
 
 **Gravel: more realistic, and the Tacx NEO rumbles** – gravel now adds fine gravel's extra rolling resistance (Crr +0.005, ridden as +0.5 % gradient) instead of a fixed 12 W, so the cost follows your weight and speed: about 20 W at 20 km/h and 30 W at 30 km/h for a 77 kg rider. It builds up over the first 30 m of gravel and fades over the last 30 m – no sudden jump in watts. The grade badge shows the live estimate (*gravel +29 W*). A **Tacx NEO** vibrates like gravel on the gravel sections (NEO Road Feel through Tacx's FE-C over Bluetooth service; other trainers just get the resistance). Both only outside ERG and workouts, and the rumble stops while paused. The GPX Ride profile shows gravel sections in gravel colour. No database change – see the [1.9.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.9.3).
+
+</details>
 
 <details>
 <summary><b>What's new in 1.9.2</b> – GPX Workshop gravel sections</summary>
@@ -366,7 +375,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.9.3](#whats-new-in-193)
+- [What's new in 1.9.4](#whats-new-in-194)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -538,8 +547,8 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ### Analyse
 - **History** with a sport filter (All / Cycling / Rowing), totals, a chart of the selected ride (target, actual power and heart rate), weekly training time and time in zones.
-- **Ride metrics**: average/max power, Normalized Power (NP), Intensity Factor (IF), Training Stress Score (TSS) and more.
-- **FIT export** for Garmin Connect, Strava, TrainingPeaks, intervals.icu and other platforms: export the selected ride, or every ride in the selected period as one `.fit` file per ride. The file contains 1-second power, heart rate and cadence plus a session summary (NP, TSS, IF, threshold power, work).
+- **Ride metrics**: distance, average/max power, Effort Power (weighted average power), Intensity Ratio, Training Load and more.
+- **FIT export** for Garmin Connect, Strava, TrainingPeaks, intervals.icu and other platforms: export the selected ride, or every ride in the selected period as one `.fit` file per ride. The file contains 1-second power, heart rate and cadence plus a session summary (Effort Power, Training Load, Intensity Ratio, threshold power, work).
 - **CSV export** of every second of a ride, or a summary of all rides. You can also delete rides.
 
 ### Devices & profiles
@@ -574,7 +583,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
   <tr>
     <td align="center" width="50%">
       <img src="docs/screenshots/history.png" alt="History and analysis"><br>
-      <sub><b>History</b>: ride analysis, zones, NP / IF / TSS</sub>
+      <sub><b>History</b>: ride analysis, zones, distance, Training Load</sub>
     </td>
     <td align="center" width="50%">
       <img src="docs/screenshots/devices.png" alt="Devices"><br>
@@ -615,18 +624,18 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Download & install
 
-The current version is **1.9.3**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
+The current version is **1.9.4**. All files are on the **[Releases page](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest)**; direct links:
 
 | Platform | Download |
 |---|---|
-| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.9.3-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/ArtilodyMultisportEnduranceTrainer-1.9.3-windows-x64-setup.exe) |
-| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.9.3-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/ArtilodyMultisportEnduranceTrainer-1.9.3-windows-x64.zip) |
-| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.9.3-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/ArtilodyMultisportEnduranceTrainer-1.9.3-macOS-universal.dmg) |
-| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.9.3_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/artilody-watts-trainer_1.9.3_ubuntu24.04_amd64.deb) |
-| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.9.3_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/artilody-watts-trainer_1.9.3_debian12_amd64.deb) |
-| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.9.3_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/artilody-watts-trainer_1.9.3_raspberrypi-os-bookworm_arm64.deb) |
-| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
-| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.3/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
+| **Windows 10/11** (64-bit), installer | [`ArtilodyMultisportEnduranceTrainer-1.9.4-windows-x64-setup.exe`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/ArtilodyMultisportEnduranceTrainer-1.9.4-windows-x64-setup.exe) |
+| **Windows 10/11** (64-bit), portable | [`ArtilodyMultisportEnduranceTrainer-1.9.4-windows-x64.zip`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/ArtilodyMultisportEnduranceTrainer-1.9.4-windows-x64.zip) |
+| **macOS 12 Monterey or newer** (Apple Silicon and Intel) | [`ArtilodyMultisportEnduranceTrainer-1.9.4-macOS-universal.dmg`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/ArtilodyMultisportEnduranceTrainer-1.9.4-macOS-universal.dmg) |
+| **Ubuntu 24.04 LTS** (amd64) | [`artilody-watts-trainer_1.9.4_ubuntu24.04_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/artilody-watts-trainer_1.9.4_ubuntu24.04_amd64.deb) |
+| **Debian 12 Bookworm** (amd64) | [`artilody-watts-trainer_1.9.4_debian12_amd64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/artilody-watts-trainer_1.9.4_debian12_amd64.deb) |
+| **Raspberry Pi OS 64-bit Bookworm** (Pi 3 / 4 / 5 / 400) | [`artilody-watts-trainer_1.9.4_raspberrypi-os-bookworm_arm64.deb`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/artilody-watts-trainer_1.9.4_raspberrypi-os-bookworm_arm64.deb) |
+| User manual (PDF) | [`Artilody-Multisport-Endurance-Trainer-Manual.pdf`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/Artilody-Multisport-Endurance-Trainer-Manual.pdf) |
+| Checksums | [`SHA256SUMS.txt`](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/download/v1.9.4/SHA256SUMS.txt) – verify with `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or `shasum -a 256 <file>` (macOS) |
 
 **System requirements:** Windows 10/11 (x64) · macOS 12 Monterey or newer (Apple Silicon or Intel) · Debian 12 or Ubuntu 24.04 LTS (amd64) · Raspberry Pi OS 64-bit Bookworm (arm64, Pi 3/4/5/400) · a Bluetooth LE adapter for real devices · minimum window size 800 × 480.
 
@@ -636,7 +645,7 @@ The current version is **1.9.3**. All files are on the **[Releases page](https:/
 <details>
 <summary><b>Windows</b></summary>
 
-1. Run `ArtilodyMultisportEnduranceTrainer-1.9.3-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
+1. Run `ArtilodyMultisportEnduranceTrainer-1.9.4-windows-x64-setup.exe`. It adds a Start menu entry and, if you choose, a desktop shortcut.
    If you'd rather not install anything, extract the ZIP and run `Artilody Multisport Endurance Trainer.exe` from the extracted folder.
 2. **SmartScreen:** the app is not code-signed yet, so Windows may show *"Windows protected your PC"*. Click **More info → Run anyway**.
 3. Turn on Bluetooth under *Settings → Bluetooth & devices*. Bluetooth LE requires Windows 10 or newer.
@@ -662,8 +671,8 @@ The current version is **1.9.3**. All files are on the **[Releases page](https:/
 Install the matching package with `apt`. It also installs the Qt 6 libraries the app needs:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.9.3_ubuntu24.04_amd64.deb   # Ubuntu 24.04
-sudo apt install ./artilody-watts-trainer_1.9.3_debian12_amd64.deb      # Debian 12
+sudo apt install ./artilody-watts-trainer_1.9.4_ubuntu24.04_amd64.deb   # Ubuntu 24.04
+sudo apt install ./artilody-watts-trainer_1.9.4_debian12_amd64.deb      # Debian 12
 ```
 
 Start **Artilody Multisport Endurance Trainer** from the application menu or run `artilody-watts-trainer`.
@@ -680,7 +689,7 @@ Requires **Raspberry Pi OS (64-bit) Bookworm** with the desktop on a Raspberry P
 The package is **self-contained**: Qt, GStreamer (music and video decoders) and every other library the app needs are inside it (in `/opt/artilody-watts-trainer`), so installing it downloads nothing – no internet connection needed. It only uses what Raspberry Pi OS already has (graphics driver, fonts, Bluetooth service). Install it, also over an older version:
 
 ```sh
-sudo apt install ./artilody-watts-trainer_1.9.3_raspberrypi-os-bookworm_arm64.deb
+sudo apt install ./artilody-watts-trainer_1.9.4_raspberrypi-os-bookworm_arm64.deb
 ```
 
 The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate sensors. Make sure Bluetooth is turned on in the desktop panel.
@@ -724,7 +733,7 @@ An `.awt` file is plain UTF-8 JSON:
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.3",
+  "app": "Artilody Multisport Endurance Trainer 1.9.4",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
@@ -835,7 +844,7 @@ The UI and the application logic are kept completely separate. The C++ libraries
 
 ```
 src/core    watt_core         Domain model (Workout, Interval, Zones), SQLite database, ride analysis
-                              (NP/IF/TSS), CSV and FIT export, workout import/export (.awt/.zwo),
+                              (Effort Power, Training Load), CSV and FIT export, workout import/export (.awt/.zwo),
                               WorkoutEngine (pure state machine), WorkoutPlanner (calendar),
                               TrainingSession, RowingSession + RowingRecords (watt_rowing),
                               FreeRideSession, RlvSession (Real Life Video, workout + Workout ERG),
@@ -869,6 +878,6 @@ Artilody Multisport Endurance Trainer is free software, licensed under the **GNU
 - Built with the [Qt](https://www.qt.io/) framework (Qt Quick, Qt Bluetooth, Qt Multimedia, Qt SQL), used under the LGPL/GPL.
 - Data storage by [SQLite](https://sqlite.org/).
 - Uses the Bluetooth SIG's open **Fitness Machine** and **Heart Rate** service specifications and Concept2's public *PM5 Bluetooth Smart Interface Definition*. Concept2, PM5 and RowErg are trademarks of Concept2, Inc.; this project is not affiliated with Concept2.
-- The training metrics NP, IF and TSS follow the widely used definitions by Dr. Andrew Coggan.
+- Effort Power, Intensity Ratio and Training Load are the app's own names; they are calculated with the widely published 4th-power-mean method for weighted average power.
 - FIT is a file format by Garmin; the FIT encoder in this project was written independently. Zwift is a trademark of Zwift, Inc.; `.zwo` support is for interoperability only. This project is not affiliated with Garmin or Zwift.
 - Zwift Click support (virtual shifting) is an independent C++ implementation based on public protocol research: [jat255/zwift_click_handling](https://github.com/jat255/zwift_click_handling) (MIT License, © 2024 Joshua Taillon), Makinolo's articles on the [Zwift Play](https://www.makinolo.com/blog/2023/10/08/connecting-to-zwift-play-controllers/) and [Zwift Ride](https://www.makinolo.com/blog/2024/07/26/zwift-ride-protocol/) protocols, [ajchellew/zwiftplay](https://github.com/ajchellew/zwiftplay), [OpenBikeControl/bikecontrol](https://github.com/OpenBikeControl/bikecontrol) and [qdomyos-zwift](https://github.com/cagnulein/qdomyos-zwift). Zwift Click is a trademark of Zwift, Inc.
