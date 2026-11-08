@@ -365,7 +365,22 @@ private slots:
         QCOMPARE(VirtualGears::startGearFor(75, anne, 2105), 9);    // 42 W (gear 12: 78 W)
         QCOMPARE(VirtualGears::startGearFor(0, anne, 2105), 12);    // FTP unknown: Zwift's 12
         QCOMPARE(VirtualGears::startGearFor(400, anne, 2105), 12);  // never harder than 12
-        QCOMPARE(VirtualGears::startGearFor(20, anne, 2105), VirtualGears::kMinStartGear);
+        QCOMPARE(VirtualGears::startGearFor(5, anne, 2105), VirtualGears::kMinStartGear);
+        // Zwift protocol, gears like Zwift on a big chainring (50 on the Cog:
+        // the trainer brakes ×1.47): the start gear accounts for it, and for the
+        // weight (at most 1.2 W/kg)
+        const double bigRing = (50.0 / 14) / (34.0 / 14);
+        auto watts = [&](const road::Model &m, int gear, double load) {
+            return road::powerForSpeed(m, Gearing::speedFor(85, zwiftgears::ratio(gear) * load, 2105));
+        };
+        const int anneHub = VirtualGears::startGearFor(75, anne, 2105, 53, bigRing);
+        QVERIFY(anneHub < 9);
+        QVERIFY(watts(anne, anneHub, bigRing) <= 45);
+        road::Model beginner;   // default profile: FTP 250, 75 kg
+        beginner.massKg = 75 + 9;
+        const int newbie = VirtualGears::startGearFor(250, beginner, 2105, 75, bigRing);
+        QVERIFY2(watts(beginner, newbie, bigRing) <= 90, qPrintable(QString::number(watts(beginner, newbie, bigRing))));
+        QVERIFY(newbie < VirtualGears::startGearFor(250, beginner, 2105));   // lighter than without the cap
         road::Model lone;
         lone.massKg = 68 + 9;
         lone.cda = 0.30;

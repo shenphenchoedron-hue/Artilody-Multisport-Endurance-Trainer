@@ -128,6 +128,16 @@ class VirtualGears : public QObject
     Q_PROPERTY(bool zwiftAvailable READ zwiftAvailable NOTIFY shiftingChanged)
     // the Zwift protocol carries the virtual gear right now
     Q_PROPERTY(bool zwiftActive READ zwiftActive NOTIFY shiftingChanged)
+    // Zwift protocol: how the virtual gear relates to the real chainring on
+    // the trainer (Devices). "zwift" (default, 1.9.6): like Zwift - the gear
+    // goes out as it is, the real chainring makes the gears heavier or
+    // lighter (a big ring: ~50 % heavier); the trainer then works where it
+    // follows small changes (gravel) at once. "compensate": the gear adapted
+    // to the measured real gear (HubGearCompensation), gears feel like a real
+    // bike's - lighter, but on a big ring the trainer (Victory) then often
+    // sits at loads where it hardly follows small changes. The real gear is
+    // measured in both modes (the start gear uses it). Saved ("gears/hubRealGear").
+    Q_PROPERTY(QString hubRealGearMode READ hubRealGearMode WRITE setHubRealGearMode NOTIFY detectionChanged)
     // Advanced override (Bluetooth diagnostics): "auto" (default) | "off"
     // (never the Zwift protocol, FTMS gradient only). Saved ("gears/zwiftProtocol").
     Q_PROPERTY(QString hubOverride READ hubOverride WRITE setHubOverride NOTIFY shiftingChanged)
@@ -244,6 +254,15 @@ public:
     bool zwiftActive() const;
     QString hubOverride() const { return m_hubOverride; }
     void setHubOverride(const QString &mode);   // "auto" | "off"
+    QString hubRealGearMode() const { return m_hubCompensate ? QStringLiteral("compensate") : QStringLiteral("zwift"); }
+    void setHubRealGearMode(const QString &mode);   // "zwift" | "compensate"
+    // How much heavier the trainer brakes than the virtual gear says at the
+    // start of a Zwift-protocol ride: real gear / HubGearCompensation::
+    // kTrainerRatio in "zwift" mode (the real gear unknown: kAssumedRealRatio,
+    // a 53×14 - rather too light a start than too hard), 1 otherwise.
+    double startLoadFactor() const;
+    bool hubStartPath() const;   // a ride now would use the Zwift protocol (Click + trainer with it)
+    static constexpr double kAssumedRealRatio = 53.0 / 14.0;
     bool referenceNeeded() const { return shiftingMode() == QLatin1String("ftms"); }
     // The method for a stored "gears/method" value: Gradient when nothing was
     // chosen (invalid QVariant) or the value is unknown; "auto" / "erg" only
@@ -353,15 +372,22 @@ public:
     Q_INVOKABLE bool setGearIndex(int index);
     // --- start gear from the rider's FTP ------------------------------------------
     // The virtual gear a ride starts in: the hardest of Zwift's gears whose
-    // flat-road power at kStartGearCadenceRpm is at most kStartGearFtpShare of
-    // the FTP (rider + bike, CdA, Crr of the profile's road model), clamped to
+    // flat-road power at kStartGearCadenceRpm is at most the start target
+    // (rider + bike, CdA, Crr of the profile's road model), clamped to
     // kMinStartGear..zwiftgears::kStartGear (12: never harder than Zwift's
-    // start). Anne (FTP 75, 53 kg): gear 9 (42 W) instead of 12 (78 W ≈ her
-    // FTP). FTP <= 0 (unknown): 12.
+    // start). Target: kStartGearFtpShare of the FTP, but at most
+    // kStartGearWattsPerKg × the rider's weight (riderKg > 0) - a beginner
+    // with the default FTP 250 or a small rider does not start at 150 W.
+    // FTP <= 0 (unknown): the weight's target, without a weight 12.
+    // loadFactor: the trainer brakes for a gear that much heavier
+    // (startLoadFactor(), Zwift protocol on a big chainring).
+    // Anne (FTP 75, 53 kg): gear 9 (42 W) instead of 12 (78 W ≈ her FTP).
     static constexpr double kStartGearCadenceRpm = 85;
     static constexpr double kStartGearFtpShare = 0.6;
-    static constexpr int kMinStartGear = 6;
-    static int startGearFor(int ftp, const road::Model &flat, int circumferenceMm);
+    static constexpr double kStartGearWattsPerKg = 1.2;
+    static constexpr int kMinStartGear = 1;
+    static int startGearFor(int ftp, const road::Model &flat, int circumferenceMm, double riderKg = 0,
+                            double loadFactor = 1.0);
     int startGear() const;
     // Sets the start gear (another rider loaded).
     void applyStartGear(const QString &why);
@@ -448,6 +474,7 @@ private:
     bool m_forced = false;
     bool m_clickConnected = false;
     QString m_hubOverride = QStringLiteral("auto");
+    bool m_hubCompensate = false;     // hubRealGearMode() "compensate"
     QString m_lastMode;          // shiftingMode() last logged
     QString m_activePage;
     QString m_lastError;

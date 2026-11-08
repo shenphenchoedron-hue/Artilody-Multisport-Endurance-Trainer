@@ -1564,6 +1564,41 @@ Item {
                     onActivated: (v) => Gears.hubOverride = v
                 }
             }
+            // Zwift protocol: gears like Zwift (default) or adapted to the real chainring
+            Item {
+                width: parent.width
+                height: 44
+                Text {
+                    text: "Gears with the Zwift protocol"
+                    color: Theme.text
+                    font.pixelSize: 15
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                SegmentedControl {
+                    objectName: "hubRealGearSelector"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 40
+                    fontSize: 14
+                    segmentPadding: 12
+                    options: [
+                        { value: "zwift", label: "Like Zwift (default)" },
+                        { value: "compensate", label: "Adapted to the chainring" }
+                    ]
+                    value: Gears.hubRealGearMode
+                    onActivated: (v) => Gears.hubRealGearMode = v
+                }
+            }
+            Text {
+                width: parent.width
+                text: "Like Zwift: the gears feel as in Zwift – on the big chainring heavier than a real bike's, and the "
+                      + "trainer follows small changes such as gravel at once. Adapted: the gears feel like a real bike's on "
+                      + "any chainring, but on a big chainring some trainers (JetBlack Victory) then hardly follow small "
+                      + "changes at low power. Either way a ride starts in a light gear for your FTP and weight."
+                color: Theme.textSecondary
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
             // the real-gear assessment of the connected trainer (speed type,
             // real gear, self-calibration) is saved per trainer: start over
             Item {

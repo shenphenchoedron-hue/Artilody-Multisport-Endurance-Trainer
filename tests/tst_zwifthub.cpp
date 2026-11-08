@@ -1498,6 +1498,10 @@ private slots:
         hub.setClockForTesting([&clock] { return clock; });
         VirtualGears gears(&db, &profiles);
         gears.setHub(&hub);
+        QCOMPARE(gears.hubRealGearMode(), QStringLiteral("zwift"));   // default (1.9.6): like Zwift
+        QVERIFY(gears.hubGearKnown());
+        QCOMPARE(gears.hubGearFactor(), 1.0);
+        gears.setHubRealGearMode(QStringLiteral("compensate"));      // the compensation below
         auto connectTo = [&](const QString &id) {
             hub.setTrainerConnected(false);
             hub.setTrainerId(id);

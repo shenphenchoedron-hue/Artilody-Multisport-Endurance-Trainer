@@ -22,6 +22,7 @@ const QString kSettingHubOverride = QStringLiteral("gears/zwiftProtocol");
 // the real-gear record of one trainer (HubGearCompensation::Record):
 // "<ratio>;<speedVerified 0/1>;<calibrates 0/1>", key + the trainer's id
 const QString kSettingHubGearPrefix = QStringLiteral("gears/hubGear/");
+const QString kSettingHubRealGear = QStringLiteral("gears/hubRealGear");
 
 QVector<int> toIntList(const QVariantList &list, bool *ok)
 {
@@ -73,6 +74,7 @@ VirtualGears::VirtualGears(Database *db, ProfileManager *profiles, QObject *pare
     m_method = RideResistance::GearMethod::Gradient;   // always simulation by default
     m_hubOverride = m_db->setting(kSettingHubOverride, QStringLiteral("auto")).toString() == QLatin1String("off")
                         ? QStringLiteral("off") : QStringLiteral("auto");
+    m_hubCompensate = m_db->setting(kSettingHubRealGear, QStringLiteral("zwift")).toString() == QLatin1String("compensate");
     connect(this, &VirtualGears::enabledChanged, this, &VirtualGears::updateShifting);
     connect(this, &VirtualGears::shiftMethodChanged, this, &VirtualGears::updateShifting);
     m_detectClock.start();
@@ -121,6 +123,33 @@ void VirtualGears::syncHubBackend()
     // trainer supports it
     if (m_hub)
         m_hub->setZwiftHubWanted(enabled() && m_hubOverride != QLatin1String("off"));
+}
+
+void VirtualGears::setHubRealGearMode(const QString &mode)
+{
+    const bool compensate = mode == QLatin1String("compensate");
+    if (compensate == m_hubCompensate)
+        return;
+    m_hubCompensate = compensate;
+    m_db->setSetting(kSettingHubRealGear, hubRealGearMode());
+    DiagLog::write("GEAR", QStringLiteral("Zwift protocol real gear: %1").arg(compensate
+        ? QStringLiteral("gears adapted to the real chainring (compensate)")
+        : QStringLiteral("gears like Zwift (no real-gear correction)")));
+    emit detectionChanged();   // the sessions resend the gear (ramped)
+}
+
+bool VirtualGears::hubStartPath() const
+{
+    return enabled() && m_hubOverride != QLatin1String("off") && m_hub && m_hub->trainerConnected()
+           && m_hub->trainerHasZwiftHub();
+}
+
+double VirtualGears::startLoadFactor() const
+{
+    if (!hubStartPath() || m_hubCompensate)
+        return 1.0;
+    const double real = m_hubComp.realRatio() > 0 ? m_hubComp.realRatio() : kAssumedRealRatio;
+    return std::max(0.5, real / HubGearCompensation::kTrainerRatio);
 }
 
 void VirtualGears::setHubOverride(const QString &mode)
@@ -384,7 +413,7 @@ double VirtualGears::hubRealRatio() const
 
 double VirtualGears::hubGearFactor() const
 {
-    return m_hubComp.factor();
+    return m_hubCompensate ? m_hubComp.factor() : 1.0;
 }
 
 void VirtualGears::addHubGearSample(const TrainerSample &sample)
@@ -426,6 +455,8 @@ void VirtualGears::noteHubGearChanges(int changes)
 
 bool VirtualGears::hubGearKnown() const
 {
+    if (!m_hubCompensate)
+        return true;   // like Zwift: the gear goes out as it is (the soft start still begins light)
     if (m_hubComp.realRatio() > 0 || m_hubComp.calibrates() || m_hubComp.speed() == HubGearCompensation::Speed::FollowsGear)
         return true;
     // a trainer that reports neither cadence nor speed can never be measured:
@@ -768,14 +799,18 @@ void VirtualGears::load()
     emit gearChanged();
 }
 
-int VirtualGears::startGearFor(int ftp, const road::Model &flat, int circumferenceMm)
+int VirtualGears::startGearFor(int ftp, const road::Model &flat, int circumferenceMm, double riderKg,
+                               double loadFactor)
 {
-    if (ftp <= 0)
+    double target = ftp > 0 ? ftp * kStartGearFtpShare : -1;
+    if (riderKg > 0)
+        target = target > 0 ? std::min(target, riderKg * kStartGearWattsPerKg) : riderKg * kStartGearWattsPerKg;
+    if (!(target > 0))
         return zwiftgears::kStartGear;
-    const double target = ftp * kStartGearFtpShare;
+    const double load = loadFactor > 0 ? loadFactor : 1.0;
     int best = kMinStartGear;
     for (int g = kMinStartGear; g <= zwiftgears::kStartGear; ++g) {
-        const double v = Gearing::speedFor(kStartGearCadenceRpm, zwiftgears::ratio(g), circumferenceMm);
+        const double v = Gearing::speedFor(kStartGearCadenceRpm, zwiftgears::ratio(g) * load, circumferenceMm);
         if (road::powerForSpeed(flat, v) <= target)
             best = g;
     }
@@ -784,16 +819,21 @@ int VirtualGears::startGearFor(int ftp, const road::Model &flat, int circumferen
 
 int VirtualGears::startGear() const
 {
-    return startGearFor(m_profiles->ftp(), roadModel(0.0), m_gearing.setup().circumferenceMm);
+    // the weight cap on the Zwift-protocol path (its gears are Zwift's,
+    // uncorrected: a beginner with the default FTP must not start hard)
+    return startGearFor(m_profiles->ftp(), roadModel(0.0), m_gearing.setup().circumferenceMm,
+                        hubStartPath() ? m_profiles->weight() : 0.0, startLoadFactor());
 }
 
 void VirtualGears::applyStartGear(const QString &why)
 {
     const int gear = startGear();
-    DiagLog::write("VSHIFT", QStringLiteral("start gear %1 (%2) for FTP %3 W (%4)")
+    DiagLog::write("VSHIFT", QStringLiteral("start gear %1 (%2) for FTP %3 W, %4 kg, trainer load × %5 (%6)")
                                .arg(gear)
                                .arg(zwiftgears::ratio(gear), 0, 'f', 2)
                                .arg(m_profiles->ftp())
+                               .arg(m_profiles->weight(), 0, 'f', 0)
+                               .arg(startLoadFactor(), 0, 'f', 2)
                                .arg(why));
     m_gearChosen = false;
     if (m_gearing.isZwift() && m_gearing.zwiftGear() == gear)

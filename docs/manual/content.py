@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.5 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.6 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -447,8 +447,17 @@ def build(s, env):
         "Incyclist does) and FTMS delivers the riding data, but while the Zwift protocol is in use (also during "
         "its handshake, at a pause and as the start state) no FTMS start, gradient, neutral or ERG command is "
         "sent – Zwift sends none either. Speed and video follow your measured power on the route (road "
-        "physics with inertia). The gear starts at 12 when the app starts and only the Click changes it – "
-        "never a stop or a pause.")
+        "physics with inertia). Only the Click changes the gear – never a stop or a pause.")
+    s.p("<b>Gears with the Zwift protocol</b> (Devices → advanced). <i>Like Zwift</i> (default): the gear ratio "
+        "goes to the trainer as it is, exactly as Zwift sends it, so the gears feel as in Zwift – on the big "
+        "chainring heavier than on a real bike – and the trainer follows small changes such as gravel at once. "
+        "<i>Adapted to the chainring</i>: the app measures the real chainring on the Cog and lightens the gears "
+        "so they feel like a real bike's; on a big chainring some trainers (JetBlack Victory) then hardly follow "
+        "small changes at low power. Either way a ride starts in a <b>light start gear</b>: the hardest gear "
+        "whose flat-road power at 85 rpm is at most 60 % of your FTP and at most 1.2 W per kg of your weight, "
+        "counting the real chainring (unknown: a 53-tooth ring is assumed). A complete beginner with the default "
+        "FTP or a small rider therefore starts at about 40–75 W, and the first pedal strokes still begin in a "
+        "light gear that ramps up over 4 s.")
     s.p("<b>FTMS gradient.</b> On other trainers the app sends a gear-adjusted grade: with the bike in the "
         "reference gear the trainer's flywheel turns at v<sub>ref</sub> = cadence × R<sub>reference</sub> × wheel "
         "circumference, the virtual bike rides at v<sub>v</sub> = cadence × R<sub>virtual</sub> × wheel "
@@ -2259,7 +2268,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.5",
+  "app": "Artilody Multisport Endurance Trainer 1.9.6",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
