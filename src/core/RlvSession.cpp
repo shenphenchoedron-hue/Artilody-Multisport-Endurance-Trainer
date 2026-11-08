@@ -64,6 +64,11 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &RlvSession::onTimer);
 
+    // road feel (gravel) follows the position, the state, ERG and the workout
+    connect(this, &RlvSession::positionChanged, this, &RlvSession::updateRoadSurface);
+    connect(this, &RlvSession::stateChanged, this, &RlvSession::updateRoadSurface);
+    connect(this, &RlvSession::modeChanged, this, &RlvSession::updateRoadSurface);
+    connect(this, &RlvSession::workoutChanged, this, &RlvSession::updateRoadSurface);
     connect(m_hub, &SensorHub::powerChanged, this, &RlvSession::metricsChanged);
     connect(m_hub, &SensorHub::displayPowerChanged, this, &RlvSession::metricsChanged);
     connect(m_hub, &SensorHub::cadenceChanged, this, &RlvSession::metricsChanged);
@@ -517,12 +522,26 @@ bool RlvSession::gravelEffort() const
 
 double RlvSession::gravelGradePercent() const
 {
+    return gravelEffort() ? segments::kGravelGradePercent : 0.0;
+}
+
+void RlvSession::updateRoadSurface()
+{
+    const int want = running() && gravelEffort() ? SensorHub::RoadGravel : SensorHub::RoadSmooth;
+    if (want == m_roadSurface)
+        return;
+    m_roadSurface = want;
+    m_hub->setRoadSurface(want);
+}
+
+int RlvSession::gravelWatts() const
+{
     if (!gravelEffort())
-        return 0.0;
+        return 0;
+    // ΔCrr·m·g·v/η
     const road::Model m = roadModel(0.0);
     const double eff = m.efficiency > 0 ? m.efficiency : 1.0;
-    const double v = std::max(m_speed, kGravelMinSpeedMps);
-    return m.massKg > 0 ? segments::kGravelWatts * eff / (m.massKg * road::kGravity * v) * 100.0 : 0.0;
+    return int(std::lround(segments::kGravelExtraCrr * m.massKg * road::kGravity * m_speed / eff));
 }
 
 double RlvSession::elevationM() const

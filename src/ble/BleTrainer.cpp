@@ -1,5 +1,6 @@
 #include "BleTrainer.h"
 #include "ZwiftHubLink.h"
+#include "TacxFecProtocol.h"
 
 #include "BleLink.h"
 #include "DiagLog.h"
@@ -116,6 +117,7 @@ void BleTrainer::init()
         emit logMessage(QStringLiteral("Zwift protocol failed (%1) – using FTMS gradient simulation").arg(reason), false);
     });
     connect(m_link, &GattLink::otherServicesDiscovered, this, [this] {
+        applyRoadFeel();
         m_zhub->detect();
         maybeStartHub();
         resolveDeferredNeutral();
@@ -171,6 +173,7 @@ void BleTrainer::init()
             m_mode = Mode::Unknown;
             m_problem.clear();
             m_zhub->reset();   // detected again after the next discovery
+            m_roadFeelSent = -1;   // the trainer forgets it
             // re-apply the last command after a reconnect
             restorePendingCommand();
         }
@@ -311,9 +314,40 @@ void BleTrainer::onServiceReady()
     }
     emit capabilitiesChanged();
     if (m_link->otherServicesInspected()) {
+        applyRoadFeel();
         m_zhub->detect();
         maybeStartHub();
     }
+}
+
+// --- road feel (Tacx NEO, FE-C over BLE) --------------------------------------------------
+
+bool BleTrainer::hasRoadFeel() const
+{
+    return state() == LinkState::Connected && m_link->hasCharacteristic(tacxfec::writeUuid());
+}
+
+void BleTrainer::setRoadSurface(int surface)
+{
+    m_roadSurface = surface;
+    applyRoadFeel();
+}
+
+void BleTrainer::applyRoadFeel()
+{
+    if (!hasRoadFeel() || m_roadSurface == m_roadFeelSent)
+        return;
+    if (m_roadFeelSent < 0 && m_roadSurface == SensorHub::RoadSmooth) {
+        m_roadFeelSent = m_roadSurface;   // nothing to switch off on a new connection
+        return;
+    }
+    const bool gravel = m_roadSurface == SensorHub::RoadGravel;
+    const QByteArray msg = tacxfec::encodeRoadFeel(gravel ? tacxfec::Gravel : tacxfec::SurfaceOff,
+                                                   gravel ? tacxfec::kGravelIntensity : 0);
+    const bool ok = m_link->write(tacxfec::writeUuid(), msg, false);
+    DiagLog::write("TACX", QStringLiteral("%1: %2%3").arg(m_name, tacxfec::describe(msg), ok ? QString() : QStringLiteral(" – not sent")));
+    if (ok)
+        m_roadFeelSent = m_roadSurface;
 }
 
 // --- Zwift hub protocol ------------------------------------------------------------------

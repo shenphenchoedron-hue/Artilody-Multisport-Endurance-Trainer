@@ -24,7 +24,8 @@ namespace watt {
 //
 // A gravel section (kind="gravel") is not timed: a stretch of gravel road.
 // GPX Ride draws the road there as gravel and, outside ERG (no ERG mode, no
-// workout), the trainer takes kGravelWatts more (RlvSession::gravelGradePercent).
+// workout), the trainer gets the gravel's extra rolling resistance
+// (RlvSession::gravelGradePercent) and a Tacx NEO its road feel.
 // Gravel sections may overlap sprints and KOMs, not each other.
 struct RouteSegment
 {
@@ -54,7 +55,13 @@ namespace segments {
 inline constexpr char kNamespace[] = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/gpx/1";
 constexpr double kMinLengthM = 50.0;
 constexpr double kDefaultSprintM = 200.0;
-constexpr double kGravelWatts = 12.0;   // extra crank power on gravel (resistance modes only)
+// Fine, packed gravel rolls with Crr ~0.009 against ~0.004 on good asphalt:
+// kGravelExtraCrr more. Rolling resistance and climbing both scale with m·g,
+// so it is ridden as kGravelExtraCrr·100 % more gradient (+0.5 %): the extra
+// watts follow from rider weight and speed, ΔCrr·m·g·v/η (77 kg at 27 km/h:
+// ~29 W). (Rough / loose gravel would be 0.01-0.02 more.)
+constexpr double kGravelExtraCrr = 0.005;
+constexpr double kGravelGradePercent = kGravelExtraCrr * 100.0;
 
 // Sorted by start; true when every segment lies inside [0, total], is at
 // least kMinLengthM long and none overlaps another of its class (sprints and

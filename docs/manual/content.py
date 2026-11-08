@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.2 source code (incl. GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.2 source code plus gravel rolling resistance and Tacx NEO road feel (incl. GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1790,10 +1790,17 @@ def build(s, env):
         "what is saved; a route without any has none. Sprints and KOMs may not overlap each other; gravel "
         "may lie over sprints and KOMs but not over other gravel.",
         "<b>Gravel</b>: on a gravel section the road is drawn as a gravel road – packed wheel tracks, loose "
-        "stones, no painted lines – and the grade badge shows <i>gravel +12 W</i>. The trainer then takes "
-        "12 W more at the speed you ride: the app adds the small extra gradient that costs 12 W at the "
-        "cranks (about 0.2 % at 27 km/h), so in the same gear and cadence your watts rise by about 12 W, "
-        "and at the same power you ride about 1 km/h slower. The gradient shown stays the road's. "
+        "stones, no painted lines – the elevation profile shows the section in gravel colour, and the grade "
+        "badge shows what it costs right now (<i>gravel +29 W</i>). Fine gravel rolls harder than asphalt "
+        "(rolling resistance Crr about 0.009 instead of 0.004). Because rolling resistance and climbing both "
+        "grow with your weight, the app rides that difference as <b>+0.5 % more gradient</b>: the extra watts "
+        "then follow from your weight and speed – for a 77 kg rider about 20 W at 20 km/h and 30 W at "
+        "30 km/h. In the same gear and cadence your watts rise; at the same power you ride slower. The "
+        "gradient shown stays the road's. "
+        "<b>Tacx NEO road feel</b>: on a NEO the trainer also vibrates like gravel on the section (NEO Road "
+        "Feel, at a moderate 30 %; the NEO scales it with your speed). The app finds Tacx's FE-C over "
+        "Bluetooth service on the trainer by itself – the Bluetooth Diagnostics report shows <i>Road feel: "
+        "yes</i>. Other trainers only get the extra resistance. The rumble stops while paused. "
         "<b>Not in ERG</b> (the trainer holds the watts) and <b>not while riding a workout</b> – then the "
         "badge only says <i>gravel</i>. Gravel is not timed.",
         "<b>Sprint</b>: a sprint placed in the GPX Workshop. 200 m before "

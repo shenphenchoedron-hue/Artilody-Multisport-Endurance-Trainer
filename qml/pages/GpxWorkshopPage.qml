@@ -306,8 +306,8 @@ Item {
                     y: parent.contentTop
                     text: page.tool === "sprint" ? "Click the profile where a " + page.sprintLength + " m sprint should start."
                           : page.tool === "gravel" ? (page.pendingStart < 0
-                                                      ? "Click the profile where the gravel road starts (+" + GpxWorkshop.gravelWatts
-                                                        + " W there, not in ERG / workouts)."
+                                                      ? "Click the profile where the gravel road starts (rides like +" + GpxWorkshop.gravelGradePercent.toFixed(1)
+                                                        + " % there, not in ERG / workouts)."
                                                       : "Now click where the gravel road ends (Esc cancels).")
                           : page.pendingStart < 0 ? "Click the profile at the foot of the climb."
                           : "Now click the top of the climb (Esc cancels)."
@@ -474,7 +474,7 @@ Item {
                                     text: "m   (at " + page.km(modelData.start) + ")"
                                           + (rowItem.kom ? "  ·  " + modelData.grade.toFixed(1) + " %  ·  "
                                                            + Math.round(modelData.gain) + " m up"
-                                             : rowItem.gravel ? "  ·  gravel road, +" + GpxWorkshop.gravelWatts + " W" : "")
+                                             : rowItem.gravel ? "  ·  gravel road, like +" + GpxWorkshop.gravelGradePercent.toFixed(1) + " %" : "")
                                     color: Theme.textMuted
                                     font.pixelSize: 15
                                 }
@@ -501,7 +501,7 @@ Item {
                 text: "Saving writes the sprints, KOMs and gravel sections into the GPX file as a GPX extension (other "
                       + "apps ignore it); the track itself is not changed, so your saved times on the route are kept. A "
                       + "segment that is moved or changed in length starts with a new best time. On gravel GPX Ride draws "
-                      + "a gravel road and the trainer takes " + GpxWorkshop.gravelWatts + " W more – not in ERG mode or "
+                      + "a gravel road with fine gravel's rolling resistance (rides like +" + GpxWorkshop.gravelGradePercent.toFixed(1) + " %: about 20-35 W more, depending on your weight and speed) and a Tacx NEO rumbles – not in ERG mode or "
                       + "while riding a workout. Gravel may overlap sprints and KOMs."
                 color: Theme.textMuted
                 font.pixelSize: 14

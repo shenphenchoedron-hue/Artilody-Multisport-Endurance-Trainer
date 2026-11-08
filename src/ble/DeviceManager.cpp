@@ -212,6 +212,11 @@ DeviceManager::DeviceManager(Database *db, SensorHub *hub, QObject *parent)
         if (m_trainer && sessionOwnsTrainer())
             m_trainer->setHubSimulation(p);
     });
+    // road feel (Tacx NEO): the surface of the ride's road
+    connect(m_hub, &SensorHub::roadSurfaceRequested, this, [this](int surface) {
+        if (m_trainer)
+            m_trainer->setRoadSurface(surface);
+    });
     // safety net: a forgotten ERG test does not hold the trainer forever
     m_ergTestTimeout.setSingleShot(true);
     m_ergTestTimeout.setInterval(kErgTestTimeoutMs);
@@ -1046,6 +1051,9 @@ QString DeviceManager::diagnosticsReport() const
             << "\n";
         if (!m_trainer->inclinationNote().isEmpty())
             out << "Note: " << m_trainer->inclinationNote() << "\n";
+        out << "Road feel (Tacx FE-C over BLE): "
+            << (m_trainer->hasRoadFeel() ? "yes – vibrates on GPX Ride gravel" : "no (no Tacx FE-C service found)")
+            << "  now: " << (m_hub->roadSurface() == SensorHub::RoadGravel ? "gravel" : "smooth road") << "\n";
         static const char *hubNames[] = { "not available (no Zwift service with 0002/0003/0004 on this trainer)",
                                           "available (not in use)", "handshake running", "ACTIVE (trainer does the physics)",
                                           "FAILED" };
@@ -1856,6 +1864,7 @@ void DeviceManager::attachTrainer(TrainerDevice *t)
     connect(t, &TrainerDevice::zwiftHubChanged, this, hubState);
     m_hub->setTrainerZwiftHub(SensorHub::HubNone, QString());
     t->setZwiftHubEnabled(m_hub->zwiftHubWanted());
+    t->setRoadSurface(m_hub->roadSurface());
     connect(t, &TrainerDevice::rssiChanged, this, [this, t](int rssi) {
         m_trainers.setRssi(t->id(), rssi);
         emit devicesChanged();

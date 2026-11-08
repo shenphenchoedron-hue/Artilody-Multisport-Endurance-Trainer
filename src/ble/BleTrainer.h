@@ -78,6 +78,11 @@ public:
     void setZwiftHubEnabled(bool on) override;
     void setHubSimulation(const watt::HubSimulation &p) override;
     ZwiftHubLink *zwiftHub() const { return m_zhub; }
+    // Road feel through Tacx FE-C over BLE (TacxFecProtocol, page 252) when
+    // the trainer has the Tacx FE-C service (found when the other services are
+    // inspected); sent on every change and again after a reconnect.
+    void setRoadSurface(int surface) override;
+    bool hasRoadFeel() const override;
     bool hasControl() const { return m_hasControl; }   // FTMS control granted
 
     // Rowing machine check after service discovery (public for tests).
@@ -185,6 +190,9 @@ private:
     QElapsedTimer m_modeRepairClock;  // last re-send because the status showed another mode
     QElapsedTimer m_reacquireClock;   // last control re-request after "control lost" / reset
 
+    void applyRoadFeel();
+    int m_roadSurface = 0;        // SensorHub::RoadSurface wanted
+    int m_roadFeelSent = -1;      // what the trainer has (-1: nothing sent on this connection)
     ZwiftHubLink *m_zhub = nullptr;
     bool m_zhubEnabled = false;
     HubSimulation m_lastHub;

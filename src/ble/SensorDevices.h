@@ -110,6 +110,12 @@ public:
     // (no FTMS 0x11 / 0x05 meanwhile; FTMS still provides control and data).
     virtual void setHubSimulation(const watt::HubSimulation &p) { Q_UNUSED(p) }
 
+    // --- road feel (Tacx NEO: the motor vibrates like the road surface) ---
+    // SensorHub::RoadSurface: 0 = smooth road (off), RoadGravel ... Ignored
+    // by trainers without it; hasRoadFeel(): this trainer can.
+    virtual void setRoadSurface(int surface) { Q_UNUSED(surface) }
+    virtual bool hasRoadFeel() const { return false; }
+
 signals:
     void zwiftHubChanged();
     // trainerMode() / controlStatus() / controlProblem() / inclination range changed

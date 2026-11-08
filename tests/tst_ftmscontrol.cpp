@@ -7,6 +7,7 @@
 #include "FtmsProtocol.h"
 #include "GradientTest.h"
 #include "SensorHub.h"
+#include "TacxFecProtocol.h"
 
 #include <QSignalSpy>
 #include <QTest>
@@ -473,6 +474,54 @@ private slots:
         QCOMPARE(ftms::rejectionText(0x05, 0x04), QStringLiteral("Trainer rejected the target power command (Operation failed)"));
         QVERIFY(ftms::rejectionText(0x00, 0x05).startsWith(QStringLiteral("Trainer refused control")));
         QCOMPARE(ftms::timeoutText(0x11, 2000), QStringLiteral("Trainer did not answer the gradient command (no response within 2 s)"));
+    }
+
+    void tacxRoadFeelMessage()
+    {
+        const QByteArray m = tacxfec::encodeRoadFeel(tacxfec::Gravel, 30);
+        QCOMPARE(m.size(), 13);
+        QCOMPARE(m.left(5), bytes({ 0xA4, 0x09, 0x4F, 0x05, 0xFC }));
+        QCOMPARE(quint8(m.at(9)), quint8(7));    // gravel
+        QCOMPARE(quint8(m.at(10)), quint8(30));  // intensity
+        QCOMPARE(tacxfec::checksum(m), quint8(0));   // XOR over the whole message incl. its checksum
+        QCOMPARE(quint8(tacxfec::encodeRoadFeel(tacxfec::Gravel, 250).at(10)), quint8(100));   // clamped
+    }
+
+    void roadFeelOnlyOnTacxAndOnChange()
+    {
+        // a trainer with the Tacx FE-C service: gravel, then off; again after a reconnect
+        QList<QBluetoothUuid> chars = victoryChars();
+        chars << tacxfec::writeUuid() << tacxfec::notifyUuid();
+        Rig r = makeRig(chars);
+        QHash<int, int> results;
+        installResponder(r, &results);
+        r.trainer->setRoadSurface(SensorHub::RoadGravel);   // before the connection: kept
+        r.trainer->connectDevice();
+        QVERIFY(r.trainer->hasRoadFeel());
+        r.link->finishOtherServices();
+        QTRY_COMPARE(r.link->writesTo(tacxfec::writeUuid()).size(), 1);
+        QCOMPARE(quint8(r.link->writesTo(tacxfec::writeUuid()).constLast().at(9)), quint8(tacxfec::Gravel));
+        r.trainer->setRoadSurface(SensorHub::RoadGravel);   // unchanged: not sent again
+        QCOMPARE(r.link->writesTo(tacxfec::writeUuid()).size(), 1);
+        r.trainer->setRoadSurface(SensorHub::RoadSmooth);
+        QCOMPARE(r.link->writesTo(tacxfec::writeUuid()).size(), 2);
+        QCOMPARE(quint8(r.link->writesTo(tacxfec::writeUuid()).constLast().at(9)), quint8(tacxfec::SurfaceOff));
+        r.trainer->setRoadSurface(SensorHub::RoadGravel);
+        r.trainer->disconnectDevice();
+        r.trainer->connectDevice();
+        r.link->finishOtherServices();
+        QTRY_COMPARE(r.link->writesTo(tacxfec::writeUuid()).size(), 4);   // re-sent after the reconnect
+        delete r.trainer;
+
+        // no Tacx service: nothing written, no road feel
+        Rig plain = makeRig();
+        installResponder(plain, &results);
+        plain.trainer->connectDevice();
+        plain.link->finishOtherServices();
+        plain.trainer->setRoadSurface(SensorHub::RoadGravel);
+        QVERIFY(!plain.trainer->hasRoadFeel());
+        QCOMPARE(plain.link->writesTo(tacxfec::writeUuid()).size(), 0);
+        delete plain.trainer;
     }
 };
 

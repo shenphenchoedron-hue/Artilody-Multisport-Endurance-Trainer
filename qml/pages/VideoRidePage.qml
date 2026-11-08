@@ -1099,7 +1099,7 @@ Item {
                             color: Qt.rgba(1, 1, 1, 0.75)
                             font.pixelSize: Theme.small(13)
                         }
-                        // GPX Ride on a gravel section (GPX Workshop): +12 W outside ERG / workouts
+                        // GPX Ride on a gravel section (GPX Workshop): its extra watts at your speed, outside ERG / workouts
                         Row {
                             visible: page.gpx && page.session.onGravel
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -1111,7 +1111,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
-                                text: page.session.gravelEffort ? "gravel +" + GpxWorkshop.gravelWatts + " W" : "gravel"
+                                text: page.session.gravelEffort ? "gravel +" + page.session.gravelWatts + " W" : "gravel"
                                 color: "#e0bf8a"
                                 font.pixelSize: Theme.small(13)
                                 font.weight: Font.DemiBold

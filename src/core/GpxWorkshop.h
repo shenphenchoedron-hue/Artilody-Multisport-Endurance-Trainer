@@ -32,7 +32,8 @@ class GpxWorkshop : public QObject
     Q_PROPERTY(int sprintCount READ sprintCount NOTIFY segmentsChanged)
     Q_PROPERTY(int komCount READ komCount NOTIFY segmentsChanged)
     Q_PROPERTY(int gravelCount READ gravelCount NOTIFY segmentsChanged)
-    Q_PROPERTY(int gravelWatts READ gravelWatts CONSTANT)
+    // the gravel's extra rolling resistance as gradient (+0.5 %)
+    Q_PROPERTY(double gravelGradePercent READ gravelGradePercent CONSTANT)
     Q_PROPERTY(bool dirty READ dirty NOTIFY segmentsChanged)            // unsaved changes
     // elevation cleaning: the gradient limit (%, the route's own or the
     // default), the steepest 40 m grade as recorded and as ridden now
@@ -58,7 +59,7 @@ public:
     int sprintCount() const;
     int komCount() const;
     int gravelCount() const;
-    int gravelWatts() const { return int(segments::kGravelWatts); }
+    double gravelGradePercent() const { return segments::kGravelGradePercent; }
     bool dirty() const { return m_segments != m_saved || m_route.ownMaxCleanGrade() != m_savedMaxGrade; }
     double maxGrade() const { return m_route.maxCleanGrade(); }
     void setMaxGrade(double percent);   // recomputes the profile (default value: no own limit)
@@ -77,7 +78,7 @@ public:
     Q_INVOKABLE QString addSprint(double startM, double lengthM, const QString &name = QString());
     Q_INVOKABLE QString addKom(double startM, double finishM, const QString &name = QString());
     // a gravel section from start to finish, placed like a KOM (not timed:
-    // the road is gravel, +kGravelWatts outside ERG / workouts)
+    // the road is gravel, extra rolling resistance outside ERG / workouts)
     Q_INVOKABLE QString addGravel(double startM, double finishM, const QString &name = QString());
     Q_INVOKABLE QString setSegment(int index, double startM, double finishM, const QString &name);
     Q_INVOKABLE void removeSegment(int index);

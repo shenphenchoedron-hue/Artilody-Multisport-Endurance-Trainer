@@ -178,6 +178,11 @@ public:
         HubActive = 3,      // handshake done: virtual shifting can use it
         HubFailed = 4,      // handshake failed / trainer silent -> FTMS gradient
     };
+    // Road surface under the ride (GPX Ride gravel): a trainer with road feel
+    // (Tacx NEO) vibrates like it. Off when no ride wants it.
+    enum RoadSurface { RoadSmooth = 0, RoadGravel = 1 };
+    int roadSurface() const { return m_roadSurface; }
+    void setRoadSurface(int surface);
     bool zwiftHubWanted() const { return m_hubWanted; }
     void setZwiftHubWanted(bool on);
     int trainerZwiftHubState() const { return m_hubState; }
@@ -241,6 +246,7 @@ signals:
     void freeRideRequested();
     void simulationRequested(double gradePercent, double windSpeedMps, double crr, double cwKgPerM);
     void hubSimulationRequested(const watt::HubSimulation &p);
+    void roadSurfaceRequested(int surface);
     void zwiftHubChanged();
 
 private:
@@ -260,6 +266,7 @@ private:
     int m_simSupport = -1;
     bool m_hubSimActive = false;
     HubSimulation m_hubSim;
+    int m_roadSurface = RoadSmooth;
     bool m_hubWanted = false;
     int m_hubState = HubNone;
     QString m_hubStatus;

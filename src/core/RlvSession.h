@@ -199,10 +199,12 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(double gradePercent READ gradePercent NOTIFY positionChanged)
     Q_PROPERTY(double effectiveGradePercent READ effectiveGradePercent NOTIFY positionChanged)
     // GPX Ride on a gravel section (GPX Workshop): the road is gravel here;
-    // gravelEffort: and it takes segments::kGravelWatts more right now (not in
-    // ERG mode, not while riding a workout)
+    // gravelEffort: and its rolling resistance counts right now (not in ERG
+    // mode, not while riding a workout); gravelWatts: what that costs at the
+    // cranks at the bike's speed now (0 without gravelEffort)
     Q_PROPERTY(bool onGravel READ onGravel NOTIFY positionChanged)
     Q_PROPERTY(bool gravelEffort READ gravelEffort NOTIFY positionChanged)
+    Q_PROPERTY(int gravelWatts READ gravelWatts NOTIFY positionChanged)
     Q_PROPERTY(double elevationM READ elevationM NOTIFY positionChanged)
     Q_PROPERTY(double ascentDoneM READ ascentDoneM NOTIFY positionChanged)
     // GPX Ride loop: ride the route lap after lap until Finish (a round trip
@@ -483,15 +485,19 @@ public:
     double effectiveGradePercent() const;
     bool onGravel() const;
     bool gravelEffort() const;
-    // The grade that makes the gravel's extra kGravelWatts at the cranks at the
-    // bike's speed (0 off gravel / without gravelEffort):
-    //   m·g·Δg·v / η = kGravelWatts   (v at least kGravelMinSpeedMps)
-    // Added to the grade of the ride's physics and resistance (rideGradePercent),
-    // so every resistance path (simulation, virtual gears, Zwift hub) and the
-    // speed take it; the grade shown stays the road's.
+    // The gravel's extra rolling resistance as gradient: segments::
+    // kGravelGradePercent with gravelEffort, else 0. Added to the grade of the
+    // ride's physics and resistance (rideGradePercent), so every resistance
+    // path (simulation, virtual gears, Zwift hub) and the speed take it; the
+    // grade shown stays the road's.
     double gravelGradePercent() const;
     double rideGradePercent() const { return effectiveGradePercent() + gravelGradePercent(); }
-    static constexpr double kGravelMinSpeedMps = 2.0;
+    int gravelWatts() const;
+    // The road surface this ride asks of the trainer (road feel, Tacx NEO):
+    // gravel while riding (not paused) with gravelEffort, else smooth. Set on
+    // the hub only when it changes, so an idle session never overrides
+    // another one.
+    int roadSurface() const { return m_roadSurface; }
     double elevationM() const;
     double ascentDoneM() const;
     QString currentInformation() const;
@@ -777,6 +783,8 @@ private:
     Database *m_db;
     ProfileManager *m_profiles;
     SensorHub *m_hub;
+    int m_roadSurface = 0;   // SensorHub::RoadSurface last set by this session
+    void updateRoadSurface();
     VirtualGears *m_gears;
     RideResistance m_res;
     QPointer<RlvLibrary> m_library;

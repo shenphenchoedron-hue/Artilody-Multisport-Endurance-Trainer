@@ -17,6 +17,7 @@ qt_add_library(watt_ble STATIC
     BleTrainer.h BleTrainer.cpp
     GradientTest.h GradientTest.cpp
     ZwiftHubLink.h ZwiftHubLink.cpp
+    TacxFecProtocol.h TacxFecProtocol.cpp
     BleHeartRateSensor.h BleHeartRateSensor.cpp
     Pm5Rower.h Pm5Rower.cpp
     BleTreadmill.h BleTreadmill.cpp

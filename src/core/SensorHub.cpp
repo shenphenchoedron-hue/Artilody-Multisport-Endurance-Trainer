@@ -246,6 +246,14 @@ void SensorHub::setTrainerSimulationSupport(int support)
     emit trainerSimulationSupportChanged();
 }
 
+void SensorHub::setRoadSurface(int surface)
+{
+    if (m_roadSurface == surface)
+        return;
+    m_roadSurface = surface;
+    emit roadSurfaceRequested(surface);
+}
+
 void SensorHub::setZwiftHubWanted(bool on)
 {
     if (m_hubWanted == on)

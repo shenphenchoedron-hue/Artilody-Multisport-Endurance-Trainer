@@ -678,7 +678,7 @@ private slots:
         QVERIFY(drawn.at(0).second > drawn.at(0).first + 900);
     }
 
-    void gravelTakesTwelveWattsOutsideErg()
+    void gravelRollingResistanceOutsideErg()
     {
         Fixture f;
         QVERIFY(f.init());
@@ -694,16 +694,27 @@ private slots:
         QVERIFY(f.gpx->start());
         f.ride_for(f.gpx.get(), 60000);
         QVERIFY(f.gpx->gravelEffort());
-        // at the bike's speed the ride grade costs exactly kGravelWatts more at the cranks
+        QCOMPARE(f.gpx->gravelGradePercent(), segments::kGravelGradePercent);
+        QCOMPARE(f.hub->roadSurface(), int(SensorHub::RoadGravel));   // road feel while riding
+        // the extra grade costs the gravel's extra rolling resistance at the cranks: ΔCrr·m·g·v/η
         const double v = f.gpx->speedMps();
         QVERIFY(v > 5);
+        const road::Model m = f.gpx->roadModel(0.0);
         const double extra = road::powerForSpeed(f.gpx->roadModel(f.gpx->rideGradePercent()), v)
                            - road::powerForSpeed(f.gpx->roadModel(f.gpx->effectiveGradePercent()), v);
-        QVERIFY2(std::abs(extra - segments::kGravelWatts) < 0.3, qPrintable(QString::number(extra)));
+        const double expected = segments::kGravelExtraCrr * m.massKg * road::kGravity * v / m.efficiency;
+        QVERIFY2(std::abs(extra - expected) < 0.5, qPrintable(QStringLiteral("%1 vs %2").arg(extra).arg(expected)));
+        QVERIFY(std::abs(f.gpx->gravelWatts() - expected) <= 1.0);
+        QVERIFY(f.gpx->gravelWatts() > 15);   // more than the old fixed 12 W at this speed
+        f.gpx->pause();
+        QCOMPARE(f.hub->roadSurface(), int(SensorHub::RoadSmooth));   // no rumble while paused
+        f.gpx->resume();
+        QCOMPARE(f.hub->roadSurface(), int(SensorHub::RoadGravel));
         // the grade shown stays the road's
         QVERIFY(std::abs(f.gpx->effectiveGradePercent()) < 0.05);
         const double gravelDistance = f.gpx->distanceMeters();
         f.gpx->finish(false);
+        QCOMPARE(f.hub->roadSurface(), int(SensorHub::RoadSmooth));
         // the same ride on asphalt goes further
         QVERIFY(addSegments(path, {}));
         QVERIFY(f.gpx->selectPath(path));
