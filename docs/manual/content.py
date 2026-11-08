@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.1 source code (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.1 source code plus GPX Workshop gravel sections (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1781,12 +1781,28 @@ def build(s, env):
         "side to side with the pedal stroke – a little more on climbs steeper than 6 %.",
         "<b>After the finish</b>: on a point-to-point route the road runs on about 50 m past the FINISH arch "
         "(drawn only – the ride ends at the arch).",
-        "<b>Sprint</b>: every route of at least 1 km has a 200 m sprint a quarter into the route. 200 m before "
+        "<b>GPX Workshop</b> (sidebar, under the Builder): open a GPX route, see its elevation profile and "
+        "place your own sprints, KOMs and gravel sections on it. Choose <i>Sprint</i> and click where it "
+        "starts (its length is set next to it), or choose <i>KOM</i> or <i>Gravel</i> and click twice: where "
+        "it starts and where it ends (Esc cancels). Name and edit them in the list, then <i>Save to GPX "
+        "file</i> – they are written into the GPX file as an extension (other apps ignore it; the track is "
+        "not changed, so your times are kept). <i>Longest climb</i> suggests a KOM. GPX Ride uses exactly "
+        "what is saved; a route without any has none. Sprints and KOMs may not overlap each other; gravel "
+        "may lie over sprints and KOMs but not over other gravel.",
+        "<b>Gravel</b>: on a gravel section the road is drawn as a gravel road – packed wheel tracks, loose "
+        "stones, no painted lines – and the grade badge shows <i>gravel +12 W</i>. The trainer then takes "
+        "12 W more at the speed you ride: the app adds the small extra gradient that costs 12 W at the "
+        "cranks (about 0.2 % at 27 km/h), so in the same gear and cadence your watts rise by about 12 W, "
+        "and at the same power you ride about 1 km/h slower. The gradient shown stays the road's. "
+        "<b>Not in ERG</b> (the trainer holds the watts) and <b>not while riding a workout</b> – then the "
+        "badge only says <i>gravel</i>. Gravel is not timed.",
+        "<b>Sprint</b>: a sprint placed in the GPX Workshop. 200 m before "
         "it the road says <i>SPRINT IN 200 m</i> behind a thin green line; the sprint starts at a thick green "
         "line with <i>SPRINT</i> on the road and a green sign on the verge, and ends at a red line with a "
         "<i>SPRINT FINISH</i> sign. A panel shows the distance to the sprint, the running time and, at the "
         "finish, your time and the difference to your best on this route.",
-        "<b>KOM</b>: the route's longest climb averaging at least 2.5 % is its KOM – a white arch with red "
+        "<b>KOM</b>: a climb placed in the GPX Workshop (<i>Longest climb</i> suggests the route's longest "
+        "climb averaging at least 2.5 %) – a white arch with red "
         "polka dots at the foot of the climb and a red <i>KOM FINISH</i> arch at the top. The panel shows "
         "the climb's length, average grade and height gain before it, the running time and the distance to "
         "the top on the way up, and your time against your best at the top.",

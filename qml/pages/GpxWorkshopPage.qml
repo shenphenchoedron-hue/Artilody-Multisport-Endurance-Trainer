@@ -3,24 +3,29 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import Artilody.Backend
 
-// GPX Workshop: place sprints and KOMs on a GPX route and save them in the
-// GPX file (GpxWorkshop). GPX Ride draws and times exactly these.
+// GPX Workshop: place sprints, KOMs and gravel sections on a GPX route and
+// save them in the GPX file (GpxWorkshop). GPX Ride draws and times exactly
+// these; on gravel the road is drawn as gravel and (outside ERG) is harder.
 //   1. choose a route (or open a file)
-//   2. choose Sprint or KOM, click the profile: a sprint is placed with the
-//      length set; a KOM needs a second click for its top
+//   2. choose Sprint, KOM or Gravel, click the profile: a sprint is placed
+//      with the length set; a KOM / gravel section needs a second click for its end
 //   3. edit names and distances in the list, then Save
 Item {
     id: page
     signal message(string text)
 
-    property string tool: "sprint"        // "sprint" / "kom"
+    property string tool: "sprint"        // "sprint" / "kom" / "gravel"
     property real sprintLength: 200
-    property real komStart: -1            // first click of a KOM, waiting for the top
+    property real pendingStart: -1        // first click of a KOM / gravel section, waiting for its end
     property int selected: -1             // index in GpxWorkshop.segments
 
     readonly property var segs: GpxWorkshop.segments
     readonly property color sprintColor: "#2fd35a"
     readonly property color komColor: "#ff5a4f"
+    readonly property color gravelColor: "#c8a26a"
+    function tint(kind) { return kind === "kom" ? komColor : kind === "gravel" ? gravelColor : sprintColor }
+    function ink(kind) { return kind === "kom" ? "white" : kind === "gravel" ? "#2b1d0b" : "#0b2a14" }
+    function kindIcon(kind) { return kind === "kom" ? "mountain" : kind === "gravel" ? "gravel" : "bolt" }
 
     function km(m) { return GpxWorkshop.formatDistance(m) }
     function report(error, ok) {
@@ -35,30 +40,36 @@ Item {
             return
         if (page.tool === "sprint") {
             if (report(GpxWorkshop.addSprint(meters, page.sprintLength, ""), ""))
-                page.selected = indexAt(meters)
+                page.selected = indexOf("sprint", meters)
             return
         }
-        if (page.komStart < 0) {
-            page.komStart = meters
+        if (page.pendingStart < 0) {
+            page.pendingStart = meters
             return
         }
-        const a = page.komStart
-        page.komStart = -1
+        const a = page.pendingStart
+        page.pendingStart = -1
+        if (page.tool === "gravel") {
+            if (report(GpxWorkshop.addGravel(a, meters, ""), ""))
+                page.selected = indexOf("gravel", Math.min(a, meters))
+            return
+        }
         if (report(GpxWorkshop.addKom(a, meters, ""), ""))
-            page.selected = indexAt(Math.min(a, meters))
+            page.selected = indexOf("kom", Math.min(a, meters))
     }
-    function indexAt(meters) {
+    // the segment of this kind placed at `meters` (gravel may overlap sprints / KOMs)
+    function indexOf(kind, meters) {
         for (let i = 0; i < segs.length; ++i)
-            if (meters >= segs[i].start - 1 && meters <= segs[i].finish + 1)
+            if (segs[i].kind === kind && meters >= segs[i].start - 1 && meters <= segs[i].finish + 1)
                 return i
         return -1
     }
-    onToolChanged: komStart = -1
+    onToolChanged: pendingStart = -1
 
     Connections {
         target: GpxWorkshop
-        function onRouteChanged() { page.selected = -1; page.komStart = -1 }
-        function onSaved() { page.message("Saved in " + GpxWorkshop.title + ". GPX Ride uses these sprints and KOMs.") }
+        function onRouteChanged() { page.selected = -1; page.pendingStart = -1 }
+        function onSaved() { page.message("Saved in " + GpxWorkshop.title + ". GPX Ride uses these sprints, KOMs and gravel sections.") }
     }
 
     FileDialog {
@@ -67,7 +78,7 @@ Item {
         nameFilters: ["GPX routes (*.gpx *.GPX)"]
         currentFolder: GpxRoutes.libraryFolderUrl
         onAccepted: {
-            if (GpxWorkshop.dirty) {   // unsaved sprints / KOMs / limit: ask first
+            if (GpxWorkshop.dirty) {   // unsaved sprints / KOMs / gravel / limit: ask first
                 page.pendingFile = selectedFile.toString()
                 page.pendingRow = -1
                 discardDialog.open()
@@ -83,7 +94,7 @@ Item {
         y: 30
         width: parent.width - 2 * Theme.pageMargin - 8
         title: "GPX Workshop"
-        subtitle: "Place sprints and KOMs on a GPX route"
+        subtitle: "Place sprints, KOMs and gravel sections on a GPX route"
     }
 
     Flickable {
@@ -139,7 +150,7 @@ Item {
                         visible: GpxWorkshop.loaded
                         text: page.km(GpxWorkshop.totalM) + "  ·  " + GpxWorkshop.sprintCount + " sprint"
                               + (GpxWorkshop.sprintCount === 1 ? "" : "s") + "  ·  " + GpxWorkshop.komCount + " KOM"
-                              + (GpxWorkshop.komCount === 1 ? "" : "s")
+                              + (GpxWorkshop.komCount === 1 ? "" : "s") + "  ·  " + GpxWorkshop.gravelCount + " gravel"
                         color: Theme.textSecondary
                         font.pixelSize: 16
                     }
@@ -157,7 +168,8 @@ Item {
                         SegmentedControl {
                             anchors.verticalCenter: parent.verticalCenter
                             options: [{ value: "sprint", label: "Sprint", icon: "bolt", color: page.sprintColor, textColor: "#0b2a14" },
-                                      { value: "kom", label: "KOM", icon: "mountain", color: page.komColor }]
+                                      { value: "kom", label: "KOM", icon: "mountain", color: page.komColor },
+                                      { value: "gravel", label: "Gravel", icon: "gravel", color: page.gravelColor, textColor: "#2b1d0b" }]
                             value: page.tool
                             fontSize: 15
                             onActivated: (v) => page.tool = v
@@ -233,18 +245,20 @@ Item {
                         showPosition: false
                         showPositionLabel: false
                         hoverPrefix: page.tool === "sprint" ? "Sprint from "
-                                     : page.komStart < 0 ? "KOM from " : "KOM to "
+                                     : page.tool === "gravel" ? (page.pendingStart < 0 ? "Gravel from " : "Gravel to ")
+                                     : page.pendingStart < 0 ? "KOM from " : "KOM to "
                         onStartChosen: (meters) => page.clicked(meters)
                     }
                     // the segments over the profile
                     Repeater {
                         model: page.segs
                         Item {
-                            readonly property bool kom: modelData.kind === "kom"
-                            readonly property color tint: kom ? page.komColor : page.sprintColor
+                            readonly property bool gravel: modelData.kind === "gravel"
+                            readonly property color tint: page.tint(modelData.kind)
                             x: profile.xOf(modelData.start)
                             width: Math.max(3, profile.xOf(modelData.finish) - x)
                             height: profile.plotH
+                            z: gravel ? 0 : 1   // sprints / KOMs (and their labels) over gravel
                             Rectangle {
                                 anchors.fill: parent
                                 color: parent.tint
@@ -253,7 +267,8 @@ Item {
                             Rectangle { width: 2; height: parent.height; color: parent.tint }
                             Rectangle { x: parent.width - 2; width: 2; height: parent.height; color: parent.tint }
                             Rectangle {
-                                y: -30
+                                // gravel labels a row lower: sprints / KOMs may lie over them
+                                y: parent.gravel ? -2 : -30
                                 x: Math.max(-parent.x, Math.min(plot.width - parent.x - width, (parent.width - width) / 2))
                                 width: label.implicitWidth + 14
                                 height: 24
@@ -263,7 +278,7 @@ Item {
                                     id: label
                                     anchors.centerIn: parent
                                     text: modelData.label
-                                    color: parent.parent.kom ? "white" : "#0b2a14"
+                                    color: page.ink(modelData.kind)
                                     font.pixelSize: 13
                                     font.weight: Font.Bold
                                 }
@@ -277,11 +292,12 @@ Item {
                     }
                     // a KOM waiting for its top
                     Rectangle {
-                        visible: page.komStart >= 0
-                        x: profile.xOf(page.komStart) - 1
+                        visible: page.pendingStart >= 0
+                        x: profile.xOf(page.pendingStart) - 1
+                        // (the first click of a KOM / gravel section)
                         width: 2
                         height: profile.plotH
-                        color: page.komColor
+                        color: page.tint(page.tool)
                     }
                 }
                 Text {
@@ -289,7 +305,11 @@ Item {
                     x: 18
                     y: parent.contentTop
                     text: page.tool === "sprint" ? "Click the profile where a " + page.sprintLength + " m sprint should start."
-                          : page.komStart < 0 ? "Click the profile at the foot of the climb."
+                          : page.tool === "gravel" ? (page.pendingStart < 0
+                                                      ? "Click the profile where the gravel road starts (+" + GpxWorkshop.gravelWatts
+                                                        + " W there, not in ERG / workouts)."
+                                                      : "Now click where the gravel road ends (Esc cancels).")
+                          : page.pendingStart < 0 ? "Click the profile at the foot of the climb."
                           : "Now click the top of the climb (Esc cancels)."
                     color: Theme.textSecondary
                     font.pixelSize: 15
@@ -349,7 +369,7 @@ Item {
             Card {
                 width: parent.width
                 height: Math.max(150, contentTop + listCol.height + 18)
-                title: "Sprints and KOMs"
+                title: "Sprints, KOMs and gravel"
                 headerRight: [
                     Row {
                         spacing: 10
@@ -378,7 +398,7 @@ Item {
                     spacing: 8
                     Text {
                         visible: GpxWorkshop.loaded && page.segs.length === 0
-                        text: "None yet – this route has no sprint or KOM in GPX Ride."
+                        text: "None yet – this route has no sprint, KOM or gravel in GPX Ride."
                         color: Theme.textMuted
                         font.pixelSize: 16
                     }
@@ -387,11 +407,12 @@ Item {
                         Rectangle {
                             id: rowItem
                             readonly property bool kom: modelData.kind === "kom"
+                            readonly property bool gravel: modelData.kind === "gravel"
                             width: listCol.width
                             height: 56
                             radius: 10
                             color: index === page.selected ? Theme.menuBackground : "transparent"
-                            border.color: index === page.selected ? (kom ? page.komColor : page.sprintColor) : Theme.faintLine
+                            border.color: index === page.selected ? page.tint(modelData.kind) : Theme.faintLine
                             MouseArea { anchors.fill: parent; onClicked: page.selected = index }
                             Row {
                                 x: 12
@@ -399,9 +420,9 @@ Item {
                                 spacing: 12
                                 Icon {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    name: rowItem.kom ? "mountain" : "bolt"
+                                    name: page.kindIcon(modelData.kind)
                                     size: 22
-                                    color: rowItem.kom ? page.komColor : page.sprintColor
+                                    color: page.tint(modelData.kind)
                                 }
                                 AppTextField {
                                     width: 220
@@ -452,7 +473,8 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "m   (at " + page.km(modelData.start) + ")"
                                           + (rowItem.kom ? "  ·  " + modelData.grade.toFixed(1) + " %  ·  "
-                                                           + Math.round(modelData.gain) + " m up" : "")
+                                                           + Math.round(modelData.gain) + " m up"
+                                             : rowItem.gravel ? "  ·  gravel road, +" + GpxWorkshop.gravelWatts + " W" : "")
                                     color: Theme.textMuted
                                     font.pixelSize: 15
                                 }
@@ -476,9 +498,11 @@ Item {
             Text {
                 width: parent.width
                 wrapMode: Text.WordWrap
-                text: "Saving writes the sprints and KOMs into the GPX file as a GPX extension (other apps ignore it); "
-                      + "the track itself is not changed, so your saved times on the route are kept. A segment that is "
-                      + "moved or changed in length starts with a new best time."
+                text: "Saving writes the sprints, KOMs and gravel sections into the GPX file as a GPX extension (other "
+                      + "apps ignore it); the track itself is not changed, so your saved times on the route are kept. A "
+                      + "segment that is moved or changed in length starts with a new best time. On gravel GPX Ride draws "
+                      + "a gravel road and the trainer takes " + GpxWorkshop.gravelWatts + " W more – not in ERG mode or "
+                      + "while riding a workout. Gravel may overlap sprints and KOMs."
                 color: Theme.textMuted
                 font.pixelSize: 14
             }
@@ -490,7 +514,7 @@ Item {
     ConfirmDialog {
         id: discardDialog
         title: "Discard changes?"
-        message: "The sprints and KOMs of " + GpxWorkshop.title + " have not been saved."
+        message: "The sprints, KOMs and gravel sections of " + GpxWorkshop.title + " have not been saved."
         acceptText: "Discard"
         acceptKind: "danger"
         onAccepted: {
@@ -500,5 +524,5 @@ Item {
         }
     }
 
-    Keys.onEscapePressed: page.komStart = -1
+    Keys.onEscapePressed: page.pendingStart = -1
 }

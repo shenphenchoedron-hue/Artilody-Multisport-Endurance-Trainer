@@ -13,7 +13,7 @@ class RlvLibrary;
 class RlvSession;
 
 // The GPX Workshop (sidebar, under the Workout Builder): open a GPX route,
-// see its elevation profile, place sprints and KOMs on it and save them in
+// see its elevation profile, place sprints, KOMs and gravel sections on it and save them in
 // the GPX file (segments::writeToGpx; the track itself is not changed, so the
 // route keeps its sprint / KOM times). GPX Ride draws and times exactly these
 // (RlvRoute::segments()); a route without any has none.
@@ -27,10 +27,12 @@ class GpxWorkshop : public QObject
     Q_PROPERTY(double minEle READ minEle NOTIFY routeChanged)
     Q_PROPERTY(double maxEle READ maxEle NOTIFY routeChanged)
     Q_PROPERTY(QVariantList profile READ profile NOTIFY routeChanged)   // [{d, ele}]
-    // [{kind "sprint"/"kom", start, finish, length, name, label, gain, grade}], sorted by start
+    // [{kind "sprint"/"kom"/"gravel", start, finish, length, name, label, gain, grade}], sorted by start
     Q_PROPERTY(QVariantList segments READ segments NOTIFY segmentsChanged)
     Q_PROPERTY(int sprintCount READ sprintCount NOTIFY segmentsChanged)
     Q_PROPERTY(int komCount READ komCount NOTIFY segmentsChanged)
+    Q_PROPERTY(int gravelCount READ gravelCount NOTIFY segmentsChanged)
+    Q_PROPERTY(int gravelWatts READ gravelWatts CONSTANT)
     Q_PROPERTY(bool dirty READ dirty NOTIFY segmentsChanged)            // unsaved changes
     // elevation cleaning: the gradient limit (%, the route's own or the
     // default), the steepest 40 m grade as recorded and as ridden now
@@ -55,6 +57,8 @@ public:
     QVariantList segments() const;
     int sprintCount() const;
     int komCount() const;
+    int gravelCount() const;
+    int gravelWatts() const { return int(segments::kGravelWatts); }
     bool dirty() const { return m_segments != m_saved || m_route.ownMaxCleanGrade() != m_savedMaxGrade; }
     double maxGrade() const { return m_route.maxCleanGrade(); }
     void setMaxGrade(double percent);   // recomputes the profile (default value: no own limit)
@@ -72,6 +76,9 @@ public:
     // Each returns "" when done, else why not (nothing is changed then).
     Q_INVOKABLE QString addSprint(double startM, double lengthM, const QString &name = QString());
     Q_INVOKABLE QString addKom(double startM, double finishM, const QString &name = QString());
+    // a gravel section from start to finish, placed like a KOM (not timed:
+    // the road is gravel, +kGravelWatts outside ERG / workouts)
+    Q_INVOKABLE QString addGravel(double startM, double finishM, const QString &name = QString());
     Q_INVOKABLE QString setSegment(int index, double startM, double finishM, const QString &name);
     Q_INVOKABLE void removeSegment(int index);
     // a KOM on the longest climb averaging >= 2.5 % (climb::longest) that is still free

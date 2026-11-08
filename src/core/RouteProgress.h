@@ -33,6 +33,9 @@ public:
     // The route's sprints and KOMs (GPX Ride, from the GPX Workshop; the 3D
     // view draws their lines, signs and arches): none by default.
     virtual QVector<RouteSegment> routeSegments() const { return {}; }
+    // The route's gravel sections (GPX Ride, from the GPX Workshop; the 3D
+    // view draws the road there as gravel): none by default.
+    virtual QVector<RouteSegment> routeGravel() const { return {}; }
     // GPX Ride loop (RlvSession::loop): the 3D view draws the road as one
     // closed lap - a round trip closed at the start, any other route there
     // and back - and returning() says the rider is on the way back (the

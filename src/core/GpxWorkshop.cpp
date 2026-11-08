@@ -44,7 +44,7 @@ bool GpxWorkshop::open(const QString &pathOrUrl)
     m_path = file;
     m_savedMaxGrade = m_route.ownMaxCleanGrade();
     rebuildProfile();
-    m_segments = m_saved = m_route.segments();
+    m_segments = m_saved = m_route.allSegments();
     setError(QString());
     emit routeChanged();
     emit segmentsChanged();
@@ -104,7 +104,7 @@ QString GpxWorkshop::formatDistance(double meters) const
 QVariantList GpxWorkshop::segments() const
 {
     QVariantList out;
-    int numbers[2] = { 0, 0 };
+    int numbers[3] = { 0, 0, 0 };
     for (const RouteSegment &s : m_segments) {
         const double gain = m_route.elevationAtDistance(s.finish) - m_route.elevationAtDistance(s.start);
         out.append(QVariantMap {
@@ -128,7 +128,12 @@ int GpxWorkshop::sprintCount() const
 
 int GpxWorkshop::komCount() const
 {
-    return int(m_segments.size()) - sprintCount();
+    return int(std::count_if(m_segments.begin(), m_segments.end(), [](const RouteSegment &s) { return s.kind == RouteSegment::Kom; }));
+}
+
+int GpxWorkshop::gravelCount() const
+{
+    return int(std::count_if(m_segments.begin(), m_segments.end(), [](const RouteSegment &s) { return s.kind == RouteSegment::Gravel; }));
 }
 
 QString GpxWorkshop::apply(QVector<RouteSegment> next)
@@ -161,6 +166,18 @@ QString GpxWorkshop::addKom(double startM, double finishM, const QString &name)
 {
     RouteSegment s;
     s.kind = RouteSegment::Kom;
+    s.start = metre(std::clamp(std::min(startM, finishM), 0.0, totalM()));
+    s.finish = metre(std::clamp(std::max(startM, finishM), 0.0, totalM()));
+    s.name = name.trimmed();
+    QVector<RouteSegment> next = m_segments;
+    next.append(s);
+    return apply(next);
+}
+
+QString GpxWorkshop::addGravel(double startM, double finishM, const QString &name)
+{
+    RouteSegment s;
+    s.kind = RouteSegment::Gravel;
     s.start = metre(std::clamp(std::min(startM, finishM), 0.0, totalM()));
     s.finish = metre(std::clamp(std::max(startM, finishM), 0.0, totalM()));
     s.name = name.trimmed();

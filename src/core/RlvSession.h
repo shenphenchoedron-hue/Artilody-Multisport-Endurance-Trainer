@@ -196,6 +196,11 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(double progress READ progress NOTIFY positionChanged)              // 0..1 of the route
     Q_PROPERTY(double gradePercent READ gradePercent NOTIFY positionChanged)
     Q_PROPERTY(double effectiveGradePercent READ effectiveGradePercent NOTIFY positionChanged)
+    // GPX Ride on a gravel section (GPX Workshop): the road is gravel here;
+    // gravelEffort: and it takes segments::kGravelWatts more right now (not in
+    // ERG mode, not while riding a workout)
+    Q_PROPERTY(bool onGravel READ onGravel NOTIFY positionChanged)
+    Q_PROPERTY(bool gravelEffort READ gravelEffort NOTIFY positionChanged)
     Q_PROPERTY(double elevationM READ elevationM NOTIFY positionChanged)
     Q_PROPERTY(double ascentDoneM READ ascentDoneM NOTIFY positionChanged)
     // GPX Ride loop: ride the route lap after lap until Finish (a round trip
@@ -473,6 +478,17 @@ public:
     double progress() const;
     double gradePercent() const;
     double effectiveGradePercent() const;
+    bool onGravel() const;
+    bool gravelEffort() const;
+    // The grade that makes the gravel's extra kGravelWatts at the cranks at the
+    // bike's speed (0 off gravel / without gravelEffort):
+    //   m·g·Δg·v / η = kGravelWatts   (v at least kGravelMinSpeedMps)
+    // Added to the grade of the ride's physics and resistance (rideGradePercent),
+    // so every resistance path (simulation, virtual gears, Zwift hub) and the
+    // speed take it; the grade shown stays the road's.
+    double gravelGradePercent() const;
+    double rideGradePercent() const { return effectiveGradePercent() + gravelGradePercent(); }
+    static constexpr double kGravelMinSpeedMps = 2.0;
     double elevationM() const;
     double ascentDoneM() const;
     QString currentInformation() const;
@@ -596,6 +612,7 @@ public:
     // timed segments: the sprints and KOMs of the route
     enum class SegmentPhase { Idle, Running, Done, Void };
     QVector<RouteSegment> routeSegments() const override { return m_route.segments(); }
+    QVector<RouteSegment> routeGravel() const override { return isGpx() ? m_route.gravel() : QVector<RouteSegment>(); }
     QString segmentKey() const { return m_segmentKey; }   // sprint::routeKey() of the route ("" = no segments)
     QString sprintKey() const { return sprintCount() ? m_segmentKey : QString(); }
     QString komKey() const { return komCount() ? m_segmentKey : QString(); }

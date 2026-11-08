@@ -13,7 +13,8 @@ QString RouteSegment::displayName(int number) const
 {
     if (!name.trimmed().isEmpty())
         return name.trimmed();
-    return (kind == Kom ? QStringLiteral("KOM %1") : QStringLiteral("Sprint %1")).arg(number);
+    return (kind == Kom ? QStringLiteral("KOM %1") : kind == Gravel ? QStringLiteral("Gravel %1") : QStringLiteral("Sprint %1"))
+        .arg(number);
 }
 
 namespace segments {
@@ -25,16 +26,23 @@ bool validate(QVector<RouteSegment> &list, double totalM, QString *error)
             *error = e;
         return false;
     };
-    std::sort(list.begin(), list.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
+    std::stable_sort(list.begin(), list.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
+    int numbers[3] = { 0, 0, 0 };   // per kind, for the names
+    // per class (timed / gravel): the one before
+    int previous[2] = { -1, -1 };
+    QString previousName[2];
     for (int i = 0; i < list.size(); ++i) {
         const RouteSegment &s = list.at(i);
-        const QString what = s.displayName(i + 1);
+        const QString what = s.displayName(++numbers[s.kind]);
         if (!std::isfinite(s.start) || !std::isfinite(s.finish) || s.start < 0 || s.finish > totalM + 0.5)
             return fail(QStringLiteral("%1 lies outside the route.").arg(what));
         if (s.length() < kMinLengthM)
             return fail(QStringLiteral("%1 is shorter than %2 m.").arg(what).arg(int(kMinLengthM)));
-        if (i > 0 && s.start < list.at(i - 1).finish)
-            return fail(QStringLiteral("%1 overlaps %2.").arg(what, list.at(i - 1).displayName(i)));
+        const int cls = s.timed() ? 0 : 1;
+        if (previous[cls] >= 0 && s.start < list.at(previous[cls]).finish)
+            return fail(QStringLiteral("%1 overlaps %2.").arg(what, previousName[cls]));
+        previous[cls] = i;
+        previousName[cls] = what;
     }
     return true;
 }

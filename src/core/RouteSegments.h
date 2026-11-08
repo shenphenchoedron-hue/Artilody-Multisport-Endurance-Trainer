@@ -21,15 +21,28 @@ namespace watt {
 //   </extensions>
 //
 // The positions are informative (other tools); the app uses the distances.
+//
+// A gravel section (kind="gravel") is not timed: a stretch of gravel road.
+// GPX Ride draws the road there as gravel and, outside ERG (no ERG mode, no
+// workout), the trainer takes kGravelWatts more (RlvSession::gravelGradePercent).
+// Gravel sections may overlap sprints and KOMs, not each other.
 struct RouteSegment
 {
-    enum Kind { Sprint, Kom };
+    enum Kind { Sprint, Kom, Gravel };
     Kind kind = Sprint;
     double start = 0, finish = 0;   // m along the route
     QString name;                   // optional
     double length() const { return finish - start; }
-    QString kindName() const { return kind == Kom ? QStringLiteral("kom") : QStringLiteral("sprint"); }
-    // "Sprint 2" / "KOM 1" when unnamed (number: 1-based among its kind)
+    bool timed() const { return kind != Gravel; }
+    QString kindName() const
+    {
+        return kind == Kom ? QStringLiteral("kom") : kind == Gravel ? QStringLiteral("gravel") : QStringLiteral("sprint");
+    }
+    static Kind kindFromName(QStringView name)
+    {
+        return name == QLatin1String("kom") ? Kom : name == QLatin1String("gravel") ? Gravel : Sprint;
+    }
+    // "Sprint 2" / "KOM 1" / "Gravel 3" when unnamed (number: 1-based among its kind)
     QString displayName(int number) const;
     bool operator==(const RouteSegment &o) const
     {
@@ -41,9 +54,11 @@ namespace segments {
 inline constexpr char kNamespace[] = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/gpx/1";
 constexpr double kMinLengthM = 50.0;
 constexpr double kDefaultSprintM = 200.0;
+constexpr double kGravelWatts = 12.0;   // extra crank power on gravel (resistance modes only)
 
 // Sorted by start; true when every segment lies inside [0, total], is at
-// least kMinLengthM long and none overlaps another (error: why not).
+// least kMinLengthM long and none overlaps another of its class (sprints and
+// KOMs among themselves, gravel sections among themselves; error: why not).
 bool validate(QVector<RouteSegment> &list, double totalM, QString *error = nullptr);
 // Writes the segments into the GPX file at path (replacing segments written
 // before; an empty list removes them). The track itself is not touched.

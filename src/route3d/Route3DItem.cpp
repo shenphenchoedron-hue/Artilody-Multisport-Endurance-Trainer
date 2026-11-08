@@ -521,6 +521,32 @@ void Route3DItem::buildMarks()
     }
 }
 
+std::vector<std::pair<double, double>> Route3DItem::gravelDrawn(const Built &b, const QVector<RouteSegment> &gravel)
+{
+    std::vector<std::pair<double, double>> out;
+    const bool back = !b.backDistance.isEmpty();
+    for (const RouteSegment &g : gravel) {
+        out.emplace_back(mapDistance(b, g.start), mapDistance(b, g.finish));
+        if (back)   // a looped there-and-back road: the same gravel on the way back
+            out.emplace_back(mapDistance(b, g.finish, true), mapDistance(b, g.start, true));
+    }
+    for (auto &r : out)
+        if (r.second < r.first)
+            std::swap(r.first, r.second);
+    std::sort(out.begin(), out.end());
+    // merged: sorted and not overlapping (Route::gravelAt)
+    std::vector<std::pair<double, double>> merged;
+    for (const auto &r : out) {
+        if (r.second - r.first < 1e-6)
+            continue;
+        if (!merged.empty() && r.first <= merged.back().second)
+            merged.back().second = std::max(merged.back().second, r.second);
+        else
+            merged.push_back(r);
+    }
+    return merged;
+}
+
 void Route3DItem::rebuildRoute()
 {
     // RlvSession also emits routeChanged after every library scan (its
@@ -533,8 +559,19 @@ void Route3DItem::rebuildRoute()
     const double grade = m_session && m_session->hasRoute() ? m_session->route().maxCleanGrade() : 0.0;
     const QVector<RouteSegment> segments = m_session ? m_session->routeSegments() : QVector<RouteSegment>();
     const bool loop = m_session && m_session->hasRoute() && m_session->loopRide();
+    // the gravel sections change the road itself (its tiles): a new build -
+    // only where they lie, not their names
+    const QVector<RouteSegment> gravel = m_session ? m_session->routeGravel() : QVector<RouteSegment>();
+    auto sameGravel = [&] {
+        if (gravel.size() != m_builtGravel.size())
+            return false;
+        for (int i = 0; i < gravel.size(); ++i)
+            if (gravel.at(i).start != m_builtGravel.at(i).start || gravel.at(i).finish != m_builtGravel.at(i).finish)
+                return false;
+        return true;
+    };
     if (m_builtValid && path == m_builtPath && pointCount == m_builtPoints && length == m_builtLength
-        && grade == m_builtGrade && loop == m_builtLoop) {
+        && grade == m_builtGrade && loop == m_builtLoop && sameGravel()) {
         if (segments != m_builtSegments) {   // only the sprints / KOMs: the marks, not the terrain
             m_builtSegments = segments;
             buildMarks();
@@ -550,6 +587,7 @@ void Route3DItem::rebuildRoute()
     m_builtGrade = grade;
     m_builtLoop = loop;
     m_builtSegments = segments;
+    m_builtGravel = gravel;
     const bool hadScene = hasScene();
     const QString before = error();
     m_built = Built();
@@ -561,6 +599,11 @@ void Route3DItem::rebuildRoute()
     if (m_session && m_session->hasRoute()) {
         try {
             m_built = build(m_session->route(), loop);
+            if (!gravel.isEmpty()) {
+                auto withGravel = std::make_shared<route3d::Route>(*m_built.route);
+                withGravel->gravel = gravelDrawn(m_built, gravel);
+                m_built.route = withGravel;
+            }
             m_route = m_built.route;
             buildMarks();
             m_kmDrawn = kmPosts();

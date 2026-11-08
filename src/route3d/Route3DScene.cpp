@@ -175,6 +175,16 @@ void main(){
         }
     }
     if(mat==3)base=texture(gravelMap,uv*.75).rgb;
+    if(mat==14){   // a gravel road (GPX Workshop): edge = lateral position -1..1
+        float lat=abs(edge);
+        base=texture(gravelMap,uv*.75).rgb*vec3(1.05,.98,.86);
+        // two packed wheel tracks: darker and finer; loose stones between them and at the edges
+        float tracks=smoothstep(.16,.28,lat)*(1.-smoothstep(.40,.54,lat));
+        float fine=texture(gravelMap,uv*2.3).r;
+        base=mix(base,vec3(.50,.45,.37)*(.86+.28*fine),tracks*.55);
+        base*=.90+.20*texture(noiseMap,uv*.05).r;   // damp / dusty patches
+        base*=1.+.10*smoothstep(.82,1.,lat);       // loose, lighter edges
+    }
     if(mat==4){float grain=texture(asphaltMap,uv*.8).r;base=col*(.9+grain*.35);}
     if(mat==9){
         vec4 t=texture(bannerMap,col.rg);
@@ -2267,7 +2277,10 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         // the run-out after the finish (not ridden): the road narrows to
         // nothing over its last kTaperM, the lines stop where it starts to
         const float ta = runOutTaper(d), tb = runOutTaper(e);
-        const bool lined = ta >= 1 && tb >= 1;
+        // a gravel section (GPX Workshop): a gravel road, no painted lines
+        const bool dirt = !route.gravel.empty() && route.gravelAt(.5 * (d + e));
+        const int surface = dirt ? GravelRoad : Asphalt;
+        const bool lined = ta >= 1 && tb >= 1 && !dirt;
         sa *= ta;
         sb *= tb;
         // on the inside of a tight bend (a hairpin) the cross section is
@@ -2315,7 +2328,7 @@ void Route3DScene::buildTile(int tileX, int tileZ)
         a.setY(a.y() + .025f);
         b.setY(b.y() + .025f);
         // blend carries the lateral position (-1..1) for wheel tracks and edge wear.
-        quad(a - saL * 3, b - sbL * 3, b + sbR * 3, a + saR * 3, QVector3D(1, 1, 1), Asphalt, -1, -1, 1, 1);
+        quad(a - saL * 3, b - sbL * 3, b + sbR * 3, a + saR * 3, QVector3D(1, 1, 1), surface, -1, -1, 1, 1);
         // joining side: the rounded corner, in a few steps along the segment
         for (int k = 0; k < 2; ++k) {
             if (!join[k])
@@ -2367,9 +2380,9 @@ void Route3DScene::buildTile(int tileX, int tileZ)
                 const QVector3D i0 = c0e + s0e * (sign * 2.9f), i1 = c1e + s1e * (sign * 2.9f);
                 const QVector3D o0 = c0e + s0e * (sign * (kRoadHalfM + w0e)), o1 = c1e + s1e * (sign * (kRoadHalfM + w1e));
                 if (k)
-                    quad(i0, i1, o1, o0, QVector3D(1, 1, 1), Asphalt, 0, 0, 0, 0);
+                    quad(i0, i1, o1, o0, QVector3D(1, 1, 1), surface, 0, 0, 0, 0);
                 else
-                    quad(o0, o1, i1, i0, QVector3D(1, 1, 1), Asphalt, 0, 0, 0, 0);
+                    quad(o0, o1, i1, i0, QVector3D(1, 1, 1), surface, 0, 0, 0, 0);
                 // the verge beyond the curve, down to the terrain (not on the other road)
                 if (q0 > kRoadHalfM + .6 && q1 > kRoadHalfM + .6) {
                     const float r0 = kRoadHalfM + w0e + (kVergeEdgeM - kGravelEdgeM), r1 = kRoadHalfM + w1e + (kVergeEdgeM - kGravelEdgeM);

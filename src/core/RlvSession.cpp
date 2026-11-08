@@ -367,7 +367,7 @@ double RlvSession::gearSimulationGrade() const
 
 double RlvSession::simulationGradeToSend() const
 {
-    const double g = std::clamp(effectiveGradePercent(), kMinSimGrade, kMaxSimGrade);
+    const double g = std::clamp(rideGradePercent(), kMinSimGrade, kMaxSimGrade);
     return std::round(g * 100.0) / 100.0;
 }
 
@@ -502,6 +502,27 @@ double RlvSession::effectiveGradePercent() const
     // ERG: the trainer holds the watts, the difficulty only applies to the
     // resistance modes - the speed uses the real gradient
     return ergNow() ? gradePercent() : gradePercent() * m_difficulty / 100.0;
+}
+
+bool RlvSession::onGravel() const
+{
+    return isGpx() && hasRoute() && m_route.gravelAt(m_distance);
+}
+
+bool RlvSession::gravelEffort() const
+{
+    // not with ERG (the trainer holds the watts) and not riding a workout
+    return active() && onGravel() && !ergNow() && !(m_hasWorkout && !m_workoutFinished);
+}
+
+double RlvSession::gravelGradePercent() const
+{
+    if (!gravelEffort())
+        return 0.0;
+    const road::Model m = roadModel(0.0);
+    const double eff = m.efficiency > 0 ? m.efficiency : 1.0;
+    const double v = std::max(m_speed, kGravelMinSpeedMps);
+    return m.massKg > 0 ? segments::kGravelWatts * eff / (m.massKg * road::kGravity * v) * 100.0 : 0.0;
 }
 
 double RlvSession::elevationM() const
@@ -705,7 +726,7 @@ double RlvSession::speedMps() const
     if (virtualGears() && cad >= kCoastCadenceRpm && path() != RideResistance::Path::GearHub)
         return gearing().virtualSpeed(cad);
     const int p = m_hub->power();
-    return p > 0 ? solveSpeedForPower(p, effectiveGradePercent()) : 0.0;
+    return p > 0 ? solveSpeedForPower(p, rideGradePercent()) : 0.0;
 }
 
 double RlvSession::avgSpeedKmh() const
@@ -723,7 +744,7 @@ int RlvSession::avgWatts() const
 RideResistance::GearDrive RlvSession::gearDrive(double cadenceRpm) const
 {
     RideResistance::GearDrive d;
-    d.road = roadModel(effectiveGradePercent());
+    d.road = roadModel(rideGradePercent());
     d.cadenceRpm = cadenceRpm;
     d.virtualRatio = gearing().ratio();
     d.referenceRatio = m_gears->effectiveReferenceRatio();   // the detected real gear when known
@@ -1097,7 +1118,7 @@ void RlvSession::integratePower(double watts, double dt)
 {
     // m·dv/dt = P·η/v − F(v): the kinetic energy follows the rider's power,
     // so the speed changes smoothly and settles at road::speedForPower().
-    const road::Model model = roadModel(effectiveGradePercent());
+    const road::Model model = roadModel(rideGradePercent());
     m_speed = road::integrateSpeed(model, m_speed, watts, dt, kRotatingMassKg, kMinDriveSpeedMps, kIntegrationStepSec);
     if (m_speed < 0.3 && watts <= 0 && model.gradePercent >= 0)
         m_speed = 0;
@@ -1120,13 +1141,13 @@ void RlvSession::updateModel(double dt)
             in.pedaling = pedaling();
             in.lowPower = power < kPedalPowerWatts;
             in.flywheelStopped = m_gears->hubFlywheelStopped();
-            in.gradePercent = effectiveGradePercent();
+            in.gradePercent = rideGradePercent();
             in.dt = dt;
             m_speed = RideResistance::hubSpeedStep(m_speed, in);
         }
         return;
     }
-    const road::Model model = roadModel(effectiveGradePercent());
+    const road::Model model = roadModel(rideGradePercent());
     const double roll = std::clamp(m_speed - road::coastDeceleration(model, m_speed) * dt, 0.0, road::kMaxSpeedMps);
     if (cad >= kCoastCadenceRpm) {
         const double pedal = gearing().virtualSpeed(cad);

@@ -5,6 +5,7 @@
 #include <vector>
 #include <iterator>
 #include <unordered_map>
+#include <utility>
 
 // Ported from the Route3D prototype (0.7). Geometry only: no Qt Widgets / GL.
 namespace route3d {
@@ -38,6 +39,14 @@ public:
     // route (out-and-back, loops) and lies on it; the earlier pass draws it.
     std::vector<unsigned char> shared;
     bool isShared(size_t i) const { return i<shared.size()&&shared[i]; }
+    // Gravel sections of the road (GPX Workshop): [from, to) in drawn metres,
+    // sorted, not overlapping. The road is drawn as gravel there.
+    std::vector<std::pair<double,double>> gravel;
+    bool gravelAt(double d) const {
+        auto it=std::upper_bound(gravel.begin(),gravel.end(),d,
+            [](double x,const std::pair<double,double> &g){return x<g.first;});
+        return it!=gravel.begin()&&d<std::prev(it)->second;
+    }
     double length() const { return points.empty()?0:points.back().distance; }
     Point at(double distance) const {
         if(points.empty()) return {};

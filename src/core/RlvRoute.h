@@ -117,6 +117,12 @@ public:
     // sprints / KOMs placed in the GPX Workshop (read from the GPX file; sorted,
     // checked: invalid ones are left out)
     const QVector<RouteSegment> &segments() const { return m_segments; }
+    // gravel sections placed in the GPX Workshop (kind Gravel; sorted, checked,
+    // not overlapping each other - they may overlap sprints / KOMs)
+    const QVector<RouteSegment> &gravel() const { return m_gravel; }
+    bool gravelAt(double distanceM) const;
+    // all of them, as the GPX Workshop edits them (sorted by start)
+    QVector<RouteSegment> allSegments() const;
     double totalDistance() const { return m_points.isEmpty() ? 0.0 : m_points.constLast().distance; }
     double ascent() const { return m_ascent; }
     double descent() const { return m_descent; }
@@ -188,6 +194,7 @@ private:
     QVector<RlvPoint> m_points;
     QVector<RlvInformation> m_infos;
     QVector<RouteSegment> m_segments;
+    QVector<RouteSegment> m_gravel;
     double m_ascent = 0, m_descent = 0, m_minEle = 0, m_maxEle = 0;
     int m_spikes = 0, m_limited = 0;
     double m_rawMaxGrade = 0;

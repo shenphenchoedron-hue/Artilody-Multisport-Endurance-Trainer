@@ -13,6 +13,7 @@
 #include "SensorHub.h"
 #include "TrainingSession.h"
 #include "VirtualGears.h"
+#include "Workout.h"
 
 #include <QDir>
 #include <QFile>
@@ -623,6 +624,120 @@ private slots:
         QCOMPARE(ws.komCount(), 1);
         ws.revert();
         QCOMPARE(ws.komCount(), 2);
+    }
+
+    void gravelSectionsPlacedSavedAndRead()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("g.gpx"));
+        QVERIFY(writeGpx(path, 401, 10, 0));   // 4 km
+        // gravel may overlap sprints / KOMs, not other gravel
+        QVector<RouteSegment> ok { seg(RouteSegment::Sprint, 100, 300), seg(RouteSegment::Gravel, 0, 1000),
+                                   seg(RouteSegment::Kom, 800, 1500) };
+        QString error;
+        QVERIFY2(segments::validate(ok, 4000, &error), qPrintable(error));
+        QVector<RouteSegment> bad { seg(RouteSegment::Gravel, 0, 1000), seg(RouteSegment::Gravel, 900, 1200) };
+        QVERIFY(!segments::validate(bad, 4000, &error));
+        QVERIFY(error.contains(QStringLiteral("Gravel 2 overlaps Gravel 1")));
+        GpxWorkshop ws(nullptr, f.gpx.get());
+        QVERIFY(ws.open(path));
+        QCOMPARE(ws.addSprint(500, 200), QString());
+        // from - to, like a KOM (either order)
+        QCOMPARE(ws.addGravel(400, 1400, QStringLiteral("Forest track")), QString());
+        QVERIFY(!ws.addGravel(1200, 1700).isEmpty());   // overlaps the first gravel
+        QCOMPARE(ws.addGravel(4500, 3500), QString());   // reversed, cut at the route's end
+        QCOMPARE(ws.gravelCount(), 2);
+        QCOMPARE(ws.sprintCount(), 1);
+        QCOMPARE(ws.komCount(), 0);
+        const QVariantList list = ws.segments();
+        QCOMPARE(list.size(), 3);
+        QCOMPARE(list.at(0).toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("gravel"));
+        QCOMPARE(list.at(2).toMap().value(QStringLiteral("label")).toString(), QStringLiteral("Gravel 2"));
+        QCOMPARE(ws.save(), QString());
+        RlvRoute r;
+        QVERIFY(r.load(path));
+        QCOMPARE(r.segments().size(), 1);   // timed: the sprint only
+        QCOMPARE(r.gravel().size(), 2);
+        QCOMPARE(r.gravel().at(0).name, QStringLiteral("Forest track"));
+        QVERIFY(r.gravel().at(1).finish <= r.totalDistance() + 0.5);
+        QVERIFY(r.gravelAt(400) && r.gravelAt(1399) && !r.gravelAt(1400) && !r.gravelAt(399) && r.gravelAt(3600));
+        QVERIFY(ws.open(path));
+        QCOMPARE(ws.gravelCount(), 2);
+        QVERIFY(!ws.dirty());
+        // GPX Ride: one sprint, no gravel timing
+        QVERIFY(f.gpx->selectPath(path));
+        QCOMPARE(f.gpx->sprintCount(), 1);
+        QCOMPARE(f.gpx->komCount(), 0);
+        QCOMPARE(f.gpx->routeGravel().size(), 2);
+        // the 3D road: gravel where the sections are
+        const Route3DItem::Built b = Route3DItem::build(r);
+        const auto drawn = Route3DItem::gravelDrawn(b, r.gravel());
+        QCOMPARE(int(drawn.size()), 2);
+        QVERIFY(std::abs(drawn.at(0).first - Route3DItem::mapDistance(b, 400)) < 1e-6);
+        QVERIFY(drawn.at(0).second > drawn.at(0).first + 900);
+    }
+
+    void gravelTakesTwelveWattsOutsideErg()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("gw.gpx"));
+        QVERIFY(writeGpx(path, 401, 10, 0));   // 4 km flat
+        QVERIFY(addSegments(path, { seg(RouteSegment::Gravel, 0, 4000) }));
+        QVERIFY(f.gpx->selectPath(path));
+        QVERIFY(f.gpx->onGravel());
+        QVERIFY(!f.gpx->gravelEffort());   // not riding yet
+        QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        f.hub->updateCadence(90);
+        f.hub->updatePower(200);
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 60000);
+        QVERIFY(f.gpx->gravelEffort());
+        // at the bike's speed the ride grade costs exactly kGravelWatts more at the cranks
+        const double v = f.gpx->speedMps();
+        QVERIFY(v > 5);
+        const double extra = road::powerForSpeed(f.gpx->roadModel(f.gpx->rideGradePercent()), v)
+                           - road::powerForSpeed(f.gpx->roadModel(f.gpx->effectiveGradePercent()), v);
+        QVERIFY2(std::abs(extra - segments::kGravelWatts) < 0.3, qPrintable(QString::number(extra)));
+        // the grade shown stays the road's
+        QVERIFY(std::abs(f.gpx->effectiveGradePercent()) < 0.05);
+        const double gravelDistance = f.gpx->distanceMeters();
+        f.gpx->finish(false);
+        // the same ride on asphalt goes further
+        QVERIFY(addSegments(path, {}));
+        QVERIFY(f.gpx->selectPath(path));
+        QVERIFY(!f.gpx->onGravel());
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 60000);
+        QVERIFY2(f.gpx->distanceMeters() > gravelDistance + 5,
+                 qPrintable(QStringLiteral("%1 vs %2").arg(f.gpx->distanceMeters()).arg(gravelDistance)));
+        f.gpx->finish(false);
+        QVERIFY(addSegments(path, { seg(RouteSegment::Gravel, 0, 4000) }));
+        QVERIFY(f.gpx->selectPath(path));
+        // riding a workout (also with workout ERG off): no gravel effort
+        qint64 workoutId = -1;
+        for (const Workout &w : f.db.workouts())
+            if (w.name == QStringLiteral("Sweet Spot 3 × 12"))
+                workoutId = w.id;
+        QVERIFY(workoutId > 0);
+        QVERIFY(f.gpx->attachWorkout(workoutId));
+        f.gpx->setWorkoutErg(false);
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 5000);
+        QVERIFY(f.gpx->onGravel());
+        QVERIFY(!f.gpx->gravelEffort());
+        QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        f.gpx->finish(false);
+        f.gpx->detachWorkout();
+        // ERG: the trainer holds the watts, no gravel effort
+        f.gpx->setMode(QStringLiteral("erg"));
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 5000);
+        QVERIFY(f.gpx->onGravel());
+        QVERIFY(!f.gpx->gravelEffort());
+        QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        f.gpx->finish(false);
     }
 
     void elevationSpikesAndSteepStepsCleaned()

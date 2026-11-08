@@ -489,7 +489,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
                        && xml.namespaceUri() == QLatin1String(segments::kNamespace)) {
                 const auto a = xml.attributes();
                 RouteSegment s;
-                s.kind = a.value(QLatin1String("kind")) == QLatin1String("kom") ? RouteSegment::Kom : RouteSegment::Sprint;
+                s.kind = RouteSegment::kindFromName(a.value(QLatin1String("kind")));
                 bool okS = false, okF = false;
                 s.start = a.value(QLatin1String("start")).toDouble(&okS);
                 s.finish = a.value(QLatin1String("finish")).toDouble(&okF);
@@ -529,12 +529,33 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
     // the workshop's segments: one by one, so a bad one does not drop the rest
     std::sort(segs.begin(), segs.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
     for (const RouteSegment &s : segs) {
-        QVector<RouteSegment> trial = m_segments;
+        QVector<RouteSegment> &list = s.timed() ? m_segments : m_gravel;
+        QVector<RouteSegment> trial = list;
         trial.append(s);
         if (segments::validate(trial, totalDistance()))
-            m_segments = trial;
+            list = trial;
     }
     return true;
+}
+
+bool RlvRoute::gravelAt(double d) const
+{
+    // (few sections: a scan)
+    for (const RouteSegment &g : m_gravel) {
+        if (d < g.start)
+            return false;
+        if (d < g.finish)
+            return true;
+    }
+    return false;
+}
+
+QVector<RouteSegment> RlvRoute::allSegments() const
+{
+    QVector<RouteSegment> all = m_segments;
+    all += m_gravel;
+    std::stable_sort(all.begin(), all.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
+    return all;
 }
 
 void RlvRoute::fillMissingElevation(QVector<RlvPoint> &pts, const QVector<bool> &hasEle)

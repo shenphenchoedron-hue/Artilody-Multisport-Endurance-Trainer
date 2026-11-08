@@ -108,6 +108,9 @@ public:
     // App distance (m) -> distance on the drawn road (m), linear between
     // points; returning: on the way back of a looped there-and-back road.
     static double mapDistance(const Built &b, double appDistanceM, bool returning = false);
+    // The gravel sections (app metres) on the drawn road (drawn metres; a
+    // looped there-and-back road also on the way back), sorted and merged.
+    static std::vector<std::pair<double, double>> gravelDrawn(const Built &b, const QVector<RouteSegment> &gravel);
     // The kilometre posts (drawn metres, km number) for a rider at app
     // distance d: each whole km of the route; looping, the km count on lap
     // after lap (laps finished, returning: on a there-and-back's way back).
@@ -149,6 +152,7 @@ private:
     double m_builtGrade = 0;
     bool m_builtLoop = false;
     QVector<RouteSegment> m_builtSegments;
+    QVector<RouteSegment> m_builtGravel;
     int m_marksVersion = 0;
     void buildMarks();
     bool m_supported = true;

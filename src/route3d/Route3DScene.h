@@ -117,7 +117,8 @@ private:
                     Polka = 11,     // white with red dots: colour r,g = surface position in dot periods
                     Rotor = 12,     // wind turbine blades, turned in the vertex shader: colour = hub,
                                     // normal = rotor axis, blend = phase (one face, lit from both sides)
-                    BirdBody = 13 }; // birds: less haze (they fly beyond the landscape); normals point up
+                    BirdBody = 13,  // birds: less haze (they fly beyond the landscape); normals point up
+                    GravelRoad = 14 }; // a gravel section of the road (GPX Workshop); blend = lateral position -1..1
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
