@@ -17,6 +17,7 @@ Rectangle {
     property real position: 0
     property real elevation: 0
     property var segments: []
+    property var gravel: []
 
     width: 236
     height: col.implicitHeight + 24
@@ -111,6 +112,7 @@ Rectangle {
             interactive: false
             showPositionLabel: false
             segments: hud.segments
+            gravel: hud.gravel
         }
     }
 }

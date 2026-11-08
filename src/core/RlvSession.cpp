@@ -1380,6 +1380,15 @@ QVariantList RlvSession::segmentMarkers() const
     return out;
 }
 
+QVariantList RlvSession::gravelMarkers() const
+{
+    QVariantList out;
+    for (const RouteSegment &g : routeGravel())
+        out.append(QVariantMap { { QStringLiteral("start"), g.start }, { QStringLiteral("finish"), g.finish },
+                                 { QStringLiteral("name"), g.name } });
+    return out;
+}
+
 int RlvSession::countOf(RouteSegment::Kind kind) const
 {
     return int(std::count_if(m_segments.begin(), m_segments.end(), [kind](const TimedSegment &t) { return t.kindId == kind; }));

@@ -7,6 +7,8 @@ import Artilody.Backend
 //     the ridden part (start -> position) drawn strong, the rest faint
 //   * position marker with a "4.3 / 12.0 km" bubble
 //   * small ticks for the route's information texts, km labels below
+//   * gravel sections (GPX Ride): the profile filled in gravel colour with
+//     stones, a line at each end
 //   * interactive (before the start): hover shows distance + elevation,
 //     a click / drag release chooses the start point (startChosen)
 Item {
@@ -28,6 +30,9 @@ Item {
     // sprints / KOMs: a map pin (green sprint, red KOM) where each starts and
     // a light band to its finish: [{kind, start, finish, name}]
     property var segments: []
+    // gravel sections (GPX Workshop): the profile there in gravel colour: [{start, finish, name}]
+    property var gravel: []
+    readonly property color gravelColor: "#c8a26a"
     property bool showKmLabels: true            // off: a mini profile without the km row (full-screen HUD)
     // the sprint / KOM whose pin the mouse is near (its name goes into the hover bubble), or null
     readonly property var hoverSegment: {
@@ -112,6 +117,37 @@ Item {
             ctx.fill()
             i0 = i1
         }
+        // gravel sections: the same area in gravel colour with a few stones
+        // (instead of the gradient tint), clipped to each section
+        var gs = prof.gravel || []
+        for (var g = 0; g < gs.length; ++g) {
+            var gx0 = gs[g].start / total * w, gx1 = gs[g].finish / total * w
+            if (gx1 - gx0 < 0.5)
+                continue
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(gx0, 0, gx1 - gx0, bottom)
+            ctx.clip()
+            ctx.beginPath()
+            ctx.moveTo(p[0].d / total * w, bottom)
+            for (var q = 0; q < n; ++q)
+                ctx.lineTo(p[q].d / total * w, yOf(p[q].ele))
+            ctx.lineTo(p[n - 1].d / total * w, bottom)
+            ctx.closePath()
+            // (stronger than the faint gradient tint ahead: still sand, not grey, on the dark card)
+            const ga = Math.max(alpha, 0.75)
+            ctx.fillStyle = Qt.rgba(gravelColor.r, gravelColor.g, gravelColor.b, ga)
+            ctx.fill()
+            ctx.clip()   // the stones only under the profile line
+            ctx.fillStyle = Qt.rgba(0.36, 0.26, 0.14, ga * 0.8)
+            for (var sx = Math.floor(gx0 / 7) * 7; sx < gx1; sx += 7)
+                for (var sy = bottom - 3 - (Math.round(sx / 7) % 2) * 3; sy > 0; sy -= 7) {
+                    ctx.beginPath()
+                    ctx.arc(sx + 3, sy, 1.1, 0, 2 * Math.PI)
+                    ctx.fill()
+                }
+            ctx.restore()
+        }
         ctx.strokeStyle = lineColor
         ctx.lineWidth = 2
         ctx.lineJoin = "round"
@@ -160,6 +196,7 @@ Item {
         riddenCanvas.requestPaint()
     }
     onProfileChanged: repaint()
+    onGravelChanged: repaint()
     onTotalChanged: repaint()
     onLoChanged: repaint()
     onHiChanged: repaint()
@@ -233,6 +270,20 @@ Item {
                 }
                 Component.onCompleted: requestPaint()
             }
+        }
+    }
+
+    // gravel: a line at the start and the end of each section
+    Repeater {
+        model: prof.hasData ? prof.gravel : []
+        Item {
+            x: prof.xOf(modelData.start)
+            width: Math.max(2, prof.xOf(modelData.finish) - x)
+            height: prof.plotH
+            Rectangle { x: -1; y: prof.yOf(prof.eleAt(modelData.start)); width: 2
+                        height: Math.max(0, prof.plotH - y); color: prof.gravelColor }
+            Rectangle { x: parent.width - 1; y: prof.yOf(prof.eleAt(modelData.finish)); width: 2
+                        height: Math.max(0, prof.plotH - y); color: prof.gravelColor }
         }
     }
 

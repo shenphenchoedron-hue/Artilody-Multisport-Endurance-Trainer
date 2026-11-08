@@ -185,6 +185,8 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(QVariantList profile READ profile NOTIFY routeChanged)       // [{d, ele}] kProfileSamples
     // the route's sprints and KOMs for the profile: [{kind "sprint"/"kom", start, finish, name}]
     Q_PROPERTY(QVariantList segmentMarkers READ segmentMarkers NOTIFY routeChanged)
+    // the route's gravel sections for the profile (GPX Ride): [{start, finish, name}]
+    Q_PROPERTY(QVariantList gravelMarkers READ gravelMarkers NOTIFY routeChanged)
     Q_PROPERTY(QVariantList informations READ informations NOTIFY routeChanged)   // [{distance, text}]
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
@@ -453,6 +455,7 @@ public:
     double maxElevationM() const { return m_route.maxElevation(); }
     QVariantList profile() const { return m_profile; }
     QVariantList segmentMarkers() const;
+    QVariantList gravelMarkers() const;
     QVariantList informations() const;
     QString lastError() const { return m_lastError; }
 

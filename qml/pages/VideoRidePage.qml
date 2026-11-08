@@ -1590,6 +1590,7 @@ Item {
                     position: page.session.distanceMeters
                     elevation: page.session.elevationM
                     segments: page.gpx ? page.session.segmentMarkers : []
+                    gravel: page.gpx ? page.session.gravelMarkers : []
                 }
                 FullscreenControls {
                     visible: videoCard.showOverlay
@@ -2006,6 +2007,7 @@ Item {
                         informations: page.session.informations
                         currentInformation: page.session.currentInformationIndex
                         segments: page.gpx ? page.session.segmentMarkers : []
+                        gravel: page.gpx ? page.session.gravelMarkers : []
                         onStartChosen: (meters) => page.session.seekToDistance(meters)
                     }
                     Text {
