@@ -1,6 +1,15 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.1
+## What's new in 1.9.2
+
+**GPX Workshop: gravel sections.**
+
+- **Placed like a KOM**: choose **Gravel** in the GPX Workshop and click the profile twice – where the gravel starts and where it ends (Esc cancels). Name and edit them in the list; they are saved in the GPX file with the sprints and KOMs (the track is not changed). Gravel may lie over sprints and KOMs, not over other gravel, and is not timed.
+- **A gravel road in 3D**: GPX Ride draws the road there as gravel – packed wheel tracks, loose stones, no painted lines – and the grade badge shows *gravel +12 W*.
+- **12 W more**: on gravel the trainer takes 12 W more at the speed you ride (a small extra gradient – about 0.2 % at 27 km/h; the gradient shown stays the road's). In the same gear and cadence your watts rise by about 12 W; at the same power you ride about 1 km/h slower. Works with gradient simulation, virtual gears and the Zwift hub; **not in ERG mode and not while riding a workout**.
+- No database change – install over 1.9.1. Older versions read gravel sections in a GPX file as sprints.
+
+## Also included from 1.9.1
 
 **GPX Ride loop: roundabouts instead of U-turns.**
 

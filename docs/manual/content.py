@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.1 source code plus GPX Workshop gravel sections (incl. GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.2 source code (incl. GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -2242,7 +2242,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.1",
+  "app": "Artilody Multisport Endurance Trainer 1.9.2",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",
