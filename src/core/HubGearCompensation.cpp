@@ -71,6 +71,8 @@ void HubGearCompensation::reset(const Record &saved)
     m_last = Window();
     m_powerConfirmed = false;
     m_votes = 0;
+    m_lastIncline = 0;
+    m_inclineChangeMs = -1;
     m_lastSpeed = -1;
     m_lastSpeedMs = 0;
     m_note.clear();
@@ -294,6 +296,12 @@ int HubGearCompensation::powerSample(const Input &in)
         return NoChange;
     const double f = factor();
     const HubSimulation &sent = in.sent;
+    if (m_inclineChangeMs < 0 || std::abs(sent.inclinePercent - m_lastIncline) >= kInclineSettleStep) {
+        m_lastIncline = sent.inclinePercent;
+        m_inclineChangeMs = s.ms;
+    }
+    if (s.ms - m_inclineChangeMs < kInclineSettleMs)
+        return NoChange;   // the power still follows the previous grade
     if (std::abs(f - 1.0) < kPowerMinFactorGap || !(in.virtualRatio > 0) || !(sent.gearRatio > 0))
         return NoChange;   // H1 and H2 hardly differ
     if (std::abs(sent.gearRatio - in.virtualRatio * f) > in.virtualRatio * f * 0.01)
@@ -326,7 +334,9 @@ int HubGearCompensation::powerSample(const Input &in)
         return NoChange;
     const double factorBefore = f;
     const Record recordBefore = m_record;
-    if (m_votes >= kPowerVotes) {
+    if (m_votes >= kPowerVotes && m_powerConfirmed) {
+        m_votes = kPowerVotes;   // confirmed in this connection: not switched off mid-ride
+    } else if (m_votes >= kPowerVotes) {
         m_record.calibrates = true;
         addNote(QStringLiteral("measured power %1 W fits a trainer that calibrates the real gear itself (%2 W) rather than "
                                "%3 W - real-gear compensation OFF for this trainer")

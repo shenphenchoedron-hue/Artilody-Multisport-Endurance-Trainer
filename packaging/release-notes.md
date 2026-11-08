@@ -1,6 +1,10 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.4
+## What's new in 1.9.5
+
+**Fix: sudden much heavier gear with a Zwift Click on a JetBlack Victory (and other Zwift-protocol trainers).** The app's real-gear check could decide in the middle of a ride – right after a change of gradient, while your power still belonged to the previous one – that the trainer corrects the real gear itself, and switch its own correction off: the gear became ~55 % heavier within 4 s (in the reported ride 45 W → over 220 W, about 100 m into a gravel section). Now the check waits 6 s after every gradient change, and once it has confirmed the correction it is not switched off again during that connection. A wrongly saved verdict is checked again once after updating (or: *Devices → Real gear on the trainer → Measure again*). Gravel itself was not the cause – it ramps in as intended. No database change – install over 1.9.4.
+
+## Also included from 1.9.4
 
 **History: distance and new metric names; GPX Ride road sound.**
 

@@ -288,7 +288,20 @@ HubGearCompensation::Record VirtualGears::loadHubGearRecord() const
     const QString key = hubGearKey();
     if (key.isEmpty())
         return HubGearCompensation::Record();   // unknown trainer: nothing is reused
-    return HubGearCompensation::Record::fromString(m_db->setting(key, QString()).toString());
+    HubGearCompensation::Record r = HubGearCompensation::Record::fromString(m_db->setting(key, QString()).toString());
+    // Before 1.9.5 the power check could switch the compensation off in the
+    // middle of a ride on the power right after a grade change (a false
+    // "calibrates"): such a saved verdict is checked again once.
+    const QString recheck = key + QStringLiteral("/recheck195");
+    if (r.calibrates && !m_db->setting(recheck, false).toBool()) {
+        r.calibrates = false;
+        m_db->setSetting(key, r.toString());
+        DiagLog::write("GEAR", QStringLiteral("Zwift protocol real gear: saved \"calibrates itself\" of trainer %1 checked again (1.9.5)")
+                                   .arg(m_hub ? m_hub->trainerId() : QString()));
+    }
+    if (!m_db->setting(recheck, false).toBool())
+        m_db->setSetting(recheck, true);
+    return r;
 }
 
 void VirtualGears::saveHubGearRecord()

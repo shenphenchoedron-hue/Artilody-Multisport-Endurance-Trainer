@@ -1640,13 +1640,39 @@ private slots:
         run(once, 1.0, 0, 30000);
         QVERIFY(once.powerConfirmed());
         QVERIFY(!once.calibrates());
-        QVERIFY(run(once, f, 31000, 90000) & HubGearCompensation::RecordChanged);   // calibrating later
-        QVERIFY(once.record().calibrates);
-        QCOMPARE(once.factor(), 1.0);
+        // confirmed in this connection: a later stretch that looks "calibrated"
+        // does not switch the compensation off mid-ride (a ~50 % heavier gear at once)
+        QVERIFY(!(run(once, f, 31000, 90000) & HubGearCompensation::RecordChanged));
+        QVERIFY(!once.record().calibrates);
+        QCOMPARE(once.factor(), f);
+        // the next connection decides afresh
+        HubGearCompensation later;
+        later.reset(once.record());
+        QVERIFY(run(later, f, 0, 30000) & HubGearCompensation::RecordChanged);
+        QVERIFY(later.record().calibrates);
+        QCOMPARE(later.factor(), 1.0);
         HubGearCompensation twice;
         twice.reset(saved);
         run(twice, f, 0, 30000);
         QVERIFY(twice.calibrates());
+
+        // right after the incline changed the power still follows the old grade: no votes
+        HubGearCompensation settle;
+        settle.reset(saved);
+        const double fs = settle.factor();
+        const double v1 = 80 / 60.0 * circ / 1000.0 * 2.40;
+        const int lowWatts = int(std::lround(roadPower(v1 * fs)));   // looks "calibrated"
+        const double flywheel = 80 / 60.0 * 4.0 * circ / 1000.0;
+        for (qint64 ms = 0; ms <= 60000; ms += 1000) {
+            HubGearCompensation::Input in;
+            in.sample = packet(ms, 80, flywheel, lowWatts);
+            in.sent = sentGear(2.40 * fs);
+            in.sent.inclinePercent = double(ms / 5000) * 0.3;   // a new grade every 5 s
+            in.virtualRatio = 2.40;
+            in.circumferenceMm = circ;
+            settle.update(in);
+        }
+        QVERIFY(!settle.calibrates());
     }
 };
 

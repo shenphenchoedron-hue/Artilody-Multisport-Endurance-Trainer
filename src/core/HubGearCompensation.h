@@ -54,7 +54,11 @@ namespace watt {
 // active samples compare the measured power with the road power of
 // H1 (trainer not calibrated) v = cadence × circumference × virtual ratio and
 // H2 (calibrated itself) v = the same × factor; H2 clearly closer kPowerVotes
-// more often: calibrates (saved, compensation off). Keeps running.
+// more often: calibrates (saved, compensation off). Keeps running - but once
+// this connection confirmed the compensated load (kPowerVotes the other way)
+// it is not turned off during the connection: a sudden ~50 % heavier gear in
+// the middle of a ride (log of 1.9.4: 45 W -> 220 W) is worse than a wrong
+// vote; "Measure again" (Devices) starts over.
 class HubGearCompensation
 {
 public:
@@ -116,6 +120,13 @@ public:
     static constexpr int kSettleMs = 3000;
     static constexpr qint64 kUnverifiedMaxMs = 20000; // provisional R without verification
     static constexpr int kPowerVotes = 20;
+    // No power votes for kInclineSettleMs after the sent incline moved by
+    // kInclineSettleStep or more: the trainer's brake and the rider follow a
+    // new grade with a delay, so the measured power still belongs to the old
+    // one (log of 1.9.4: coming off a -1.5 % descent onto gravel, ~45 W
+    // measured against 119 W expected for the new +0.4 % voted "calibrates").
+    static constexpr int kInclineSettleMs = 6000;
+    static constexpr double kInclineSettleStep = 0.2;
     static constexpr double kPowerMinFactorGap = 0.1;
 
     enum Change { NoChange = 0, FactorChanged = 1, RecordChanged = 2 };
@@ -159,6 +170,8 @@ private:
     Window m_last;
     bool m_powerConfirmed = false;
     int m_votes = 0;
+    double m_lastIncline = 0;            // sent incline when it last moved by kInclineSettleStep
+    qint64 m_inclineChangeMs = -1;
     double m_lastSpeed = -1;
     qint64 m_lastSpeedMs = 0;
     QString m_note;
