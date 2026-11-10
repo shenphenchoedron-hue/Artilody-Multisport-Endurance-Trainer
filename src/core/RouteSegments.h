@@ -27,27 +27,36 @@ namespace watt {
 // workout), the trainer gets the gravel's extra rolling resistance
 // (RlvSession::gravelGradePercent) and a Tacx NEO its road feel.
 // Gravel sections may overlap sprints and KOMs, not each other.
+//
+// A place sign (kind="place") is a point (finish = start) with a name: GPX
+// Ride puts a lit town sign (black on white) beside the road there, so the
+// rider sees where on the real route they are. Not timed; a name is required
+// to save (the GPX Workshop allows it empty while editing); side="left"
+// puts it on the left-hand verge.
 struct RouteSegment
 {
-    enum Kind { Sprint, Kom, Gravel };
+    enum Kind { Sprint, Kom, Gravel, Place };
     Kind kind = Sprint;
     double start = 0, finish = 0;   // m along the route
     QString name;                   // optional
+    bool left = false;              // place sign: on the left-hand verge (default: right)
     double length() const { return finish - start; }
-    bool timed() const { return kind != Gravel; }
+    bool timed() const { return kind == Sprint || kind == Kom; }
     QString kindName() const
     {
-        return kind == Kom ? QStringLiteral("kom") : kind == Gravel ? QStringLiteral("gravel") : QStringLiteral("sprint");
+        return kind == Kom ? QStringLiteral("kom") : kind == Gravel ? QStringLiteral("gravel")
+             : kind == Place ? QStringLiteral("place") : QStringLiteral("sprint");
     }
     static Kind kindFromName(QStringView name)
     {
-        return name == QLatin1String("kom") ? Kom : name == QLatin1String("gravel") ? Gravel : Sprint;
+        return name == QLatin1String("kom") ? Kom : name == QLatin1String("gravel") ? Gravel
+             : name == QLatin1String("place") ? Place : Sprint;
     }
-    // "Sprint 2" / "KOM 1" / "Gravel 3" when unnamed (number: 1-based among its kind)
+    // "Sprint 2" / "KOM 1" / "Gravel 3" / "Place 1" when unnamed (number: 1-based among its kind)
     QString displayName(int number) const;
     bool operator==(const RouteSegment &o) const
     {
-        return kind == o.kind && start == o.start && finish == o.finish && name == o.name;
+        return kind == o.kind && start == o.start && finish == o.finish && name == o.name && left == o.left;
     }
 };
 
@@ -55,6 +64,9 @@ namespace segments {
 inline constexpr char kNamespace[] = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/gpx/1";
 constexpr double kMinLengthM = 50.0;
 constexpr double kDefaultSprintM = 200.0;
+// Place signs: at most kMaxPlaces per route (each name is drawn into one
+// texture in the 3D view).
+constexpr int kMaxPlaces = 20;
 // Fine, packed gravel rolls with Crr ~0.009 against ~0.004 on good asphalt:
 // kGravelExtraCrr more. Rolling resistance and climbing both scale with m·g,
 // so it is ridden as kGravelExtraCrr·100 % more gradient (+0.5 %): the extra
@@ -70,7 +82,9 @@ constexpr double kGravelRampM = 30.0;
 // Sorted by start; true when every segment lies inside [0, total], is at
 // least kMinLengthM long and none overlaps another of its class (sprints and
 // KOMs among themselves, gravel sections among themselves; error: why not).
-bool validate(QVector<RouteSegment> &list, double totalM, QString *error = nullptr);
+// allowUnnamedPlaces: a place sign may still lack its name (the GPX Workshop
+// while editing - it is named in the list; saving checks it).
+bool validate(QVector<RouteSegment> &list, double totalM, QString *error = nullptr, bool allowUnnamedPlaces = false);
 // Writes the segments into the GPX file at path (replacing segments written
 // before; an empty list removes them). The track itself is not touched.
 // positionAt(d) -> (lat, lon) for the informative positions (may be empty).

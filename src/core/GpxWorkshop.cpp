@@ -104,7 +104,7 @@ QString GpxWorkshop::formatDistance(double meters) const
 QVariantList GpxWorkshop::segments() const
 {
     QVariantList out;
-    int numbers[3] = { 0, 0, 0 };
+    int numbers[4] = { 0, 0, 0, 0 };
     for (const RouteSegment &s : m_segments) {
         const double gain = m_route.elevationAtDistance(s.finish) - m_route.elevationAtDistance(s.start);
         out.append(QVariantMap {
@@ -113,6 +113,7 @@ QVariantList GpxWorkshop::segments() const
             { QStringLiteral("finish"), s.finish },
             { QStringLiteral("length"), s.length() },
             { QStringLiteral("name"), s.name },
+            { QStringLiteral("left"), s.left },
             { QStringLiteral("label"), s.displayName(++numbers[s.kind]) },
             { QStringLiteral("gain"), gain },
             { QStringLiteral("grade"), s.length() > 0 ? gain / s.length() * 100.0 : 0.0 },
@@ -136,12 +137,28 @@ int GpxWorkshop::gravelCount() const
     return int(std::count_if(m_segments.begin(), m_segments.end(), [](const RouteSegment &s) { return s.kind == RouteSegment::Gravel; }));
 }
 
+int GpxWorkshop::placeCount() const
+{
+    return int(std::count_if(m_segments.begin(), m_segments.end(), [](const RouteSegment &s) { return s.kind == RouteSegment::Place; }));
+}
+
+QString GpxWorkshop::addPlace(double atM, const QString &name)
+{
+    RouteSegment s;
+    s.kind = RouteSegment::Place;
+    s.start = s.finish = metre(std::clamp(atM, 0.0, totalM()));
+    s.name = name.trimmed();   // (may be empty: named in the list, checked on save)
+    QVector<RouteSegment> next = m_segments;
+    next.append(s);
+    return apply(next);
+}
+
 QString GpxWorkshop::apply(QVector<RouteSegment> next)
 {
     if (!loaded())
         return QStringLiteral("Open a GPX route first.");
     QString error;
-    if (!segments::validate(next, totalM(), &error))
+    if (!segments::validate(next, totalM(), &error, true))
         return error;
     m_segments = next;
     emit segmentsChanged();
@@ -194,7 +211,18 @@ QString GpxWorkshop::setSegment(int index, double startM, double finishM, const 
     RouteSegment &s = next[index];
     s.start = metre(std::clamp(std::min(startM, finishM), 0.0, totalM()));
     s.finish = metre(std::clamp(std::max(startM, finishM), 0.0, totalM()));
+    if (s.kind == RouteSegment::Place)
+        s.finish = s.start = metre(std::clamp(startM, 0.0, totalM()));   // a point
     s.name = name.trimmed();
+    return apply(next);
+}
+
+QString GpxWorkshop::setPlaceSide(int index, bool left)
+{
+    if (index < 0 || index >= m_segments.size() || m_segments.at(index).kind != RouteSegment::Place)
+        return QStringLiteral("No such place sign.");
+    QVector<RouteSegment> next = m_segments;
+    next[index].left = left;
     return apply(next);
 }
 
@@ -221,6 +249,9 @@ QString GpxWorkshop::save()
     if (!loaded())
         return QStringLiteral("Open a GPX route first.");
     QString error;
+    QVector<RouteSegment> check = m_segments;
+    if (!segments::validate(check, totalM(), &error))   // now every place sign needs its name
+        return error;
     auto position = [this](double d) {
         const QPointF p = m_route.positionAtDistance(d);   // (lon, lat)
         return std::make_pair(p.y(), p.x());

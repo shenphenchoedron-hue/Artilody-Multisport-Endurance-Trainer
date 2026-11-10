@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.6 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v1.9.7 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -1822,6 +1822,11 @@ def build(s, env):
         "crunch of gravel on a gravel section (cross-faded at its edge). It gets louder with your speed and "
         "is silent when you pause or stand still. The speaker button at the bottom right of the 3D view "
         "switches it off and on (remembered).",
+        "<b>Place signs</b>: choose <i>Place sign</i> in the GPX Workshop, "
+        "click the profile where the sign should stand; its row appears in the list with the name field ready – type the name and save the file. In GPX Ride a lit town sign – black letters on "
+        "white with a black rim – stands on the verge there – on the right by default, or on the left (the side is chosen in the list) – so you can see where on the real route "
+        "you are even though the 3D landscape is not the real one. At most 20 per route; they are saved in the "
+        "GPX file with the other segments and are not timed.",
         "<b>Sprint</b>: a sprint placed in the GPX Workshop. 200 m before "
         "it the road says <i>SPRINT IN 200 m</i> behind a thin green line; the sprint starts at a thick green "
         "line with <i>SPRINT</i> on the road and a green sign on the verge, and ends at a red line with a "
@@ -2268,7 +2273,7 @@ def build(s, env):
   "format": "artilody-watts-trainer/workout",
   "version": 1,
   "exportedAt": "2026-10-23T12:00:00Z",
-  "app": "Artilody Multisport Endurance Trainer 1.9.6",
+  "app": "Artilody Multisport Endurance Trainer 1.9.7",
   "workouts": [
     {
       "name": "Sweet Spot 3 x 12",

@@ -13,13 +13,14 @@ QString RouteSegment::displayName(int number) const
 {
     if (!name.trimmed().isEmpty())
         return name.trimmed();
-    return (kind == Kom ? QStringLiteral("KOM %1") : kind == Gravel ? QStringLiteral("Gravel %1") : QStringLiteral("Sprint %1"))
+    return (kind == Kom ? QStringLiteral("KOM %1") : kind == Gravel ? QStringLiteral("Gravel %1")
+            : kind == Place ? QStringLiteral("Place %1") : QStringLiteral("Sprint %1"))
         .arg(number);
 }
 
 namespace segments {
 
-bool validate(QVector<RouteSegment> &list, double totalM, QString *error)
+bool validate(QVector<RouteSegment> &list, double totalM, QString *error, bool allowUnnamedPlaces)
 {
     auto fail = [&](const QString &e) {
         if (error)
@@ -27,7 +28,7 @@ bool validate(QVector<RouteSegment> &list, double totalM, QString *error)
         return false;
     };
     std::stable_sort(list.begin(), list.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
-    int numbers[3] = { 0, 0, 0 };   // per kind, for the names
+    int numbers[4] = { 0, 0, 0, 0 };   // per kind, for the names
     // per class (timed / gravel): the one before
     int previous[2] = { -1, -1 };
     QString previousName[2];
@@ -36,6 +37,13 @@ bool validate(QVector<RouteSegment> &list, double totalM, QString *error)
         const QString what = s.displayName(++numbers[s.kind]);
         if (!std::isfinite(s.start) || !std::isfinite(s.finish) || s.start < 0 || s.finish > totalM + 0.5)
             return fail(QStringLiteral("%1 lies outside the route.").arg(what));
+        if (s.kind == RouteSegment::Place) {   // a point with a name
+            if (s.name.trimmed().isEmpty() && !allowUnnamedPlaces)
+                return fail(QStringLiteral("%1 needs a name.").arg(what));
+            if (numbers[RouteSegment::Place] > kMaxPlaces)
+                return fail(QStringLiteral("At most %1 place signs per route.").arg(kMaxPlaces));
+            continue;
+        }
         if (s.length() < kMinLengthM)
             return fail(QStringLiteral("%1 is shorter than %2 m.").arg(what).arg(int(kMinLengthM)));
         const int cls = s.timed() ? 0 : 1;
@@ -103,6 +111,8 @@ bool writeToGpx(const QString &path, const QVector<RouteSegment> &list,
                          .arg(s.finish, 0, 'f', 1);
             if (!s.name.trimmed().isEmpty())
                 block += QStringLiteral(" name=\"%1\"").arg(esc(s.name.trimmed()));
+            if (s.kind == RouteSegment::Place && s.left)
+                block += QStringLiteral(" side=\"left\"");
             if (positionAt) {
                 const auto a = positionAt(s.start), b = positionAt(s.finish);
                 block += QStringLiteral(" startLat=\"%1\" startLon=\"%2\" finishLat=\"%3\" finishLon=\"%4\"")

@@ -494,6 +494,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
                 s.start = a.value(QLatin1String("start")).toDouble(&okS);
                 s.finish = a.value(QLatin1String("finish")).toDouble(&okF);
                 s.name = a.value(QLatin1String("name")).toString();
+                s.left = a.value(QLatin1String("side")) == QLatin1String("left");
                 if (okS && okF)
                     segs.append(s);
             } else if (!inPoint && depthTrk > 0 && n == QLatin1String("name") && trackName.isEmpty()) {
@@ -529,7 +530,7 @@ bool RlvRoute::loadGpx(const QString &path, QString *error)
     // the workshop's segments: one by one, so a bad one does not drop the rest
     std::sort(segs.begin(), segs.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
     for (const RouteSegment &s : segs) {
-        QVector<RouteSegment> &list = s.timed() ? m_segments : m_gravel;
+        QVector<RouteSegment> &list = s.timed() ? m_segments : s.kind == RouteSegment::Place ? m_places : m_gravel;
         QVector<RouteSegment> trial = list;
         trial.append(s);
         if (segments::validate(trial, totalDistance()))
@@ -569,6 +570,7 @@ QVector<RouteSegment> RlvRoute::allSegments() const
 {
     QVector<RouteSegment> all = m_segments;
     all += m_gravel;
+    all += m_places;
     std::stable_sort(all.begin(), all.end(), [](const RouteSegment &a, const RouteSegment &b) { return a.start < b.start; });
     return all;
 }

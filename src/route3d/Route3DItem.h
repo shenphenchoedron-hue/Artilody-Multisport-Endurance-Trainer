@@ -82,6 +82,9 @@ public:
     const std::vector<std::array<double, 3>> &frameSprints() const { return m_sprintDrawn; }
     // the route's KOMs on the drawn road: foot / top (Route3DScene::setKoms())
     const std::vector<std::array<double, 2>> &frameKoms() const { return m_komDrawn; }
+    // place signs: drawn metres, name
+    struct PlaceDrawn { double at; QString name; bool left; };
+    const std::vector<PlaceDrawn> &framePlaces() const { return m_placeDrawn; }
     // the kilometre posts: drawn metres, km number (Route3DScene::setKmPosts())
     const std::vector<std::array<double, 2>> &frameKmPosts() const { return m_kmDrawn; }
     // GPX Ride loop: laps finished (the lap board at the finish line); -1 = no loop
@@ -166,6 +169,7 @@ private:
     double m_startDrawn = 0;       // where the ride starts, drawn metres (START arch)
     std::vector<std::array<double, 3>> m_sprintDrawn;   // per sprint: announce / start / finish, drawn metres
     std::vector<std::array<double, 2>> m_komDrawn;      // per KOM: foot / top, drawn metres
+    std::vector<PlaceDrawn> m_placeDrawn;   // place signs: drawn metres, name, side
     std::vector<std::array<double, 2>> m_kmDrawn;
     std::vector<std::array<double, 2>> kmPosts() const;
     double m_crank = 0;            // pedal angle (radians), integrated from the cadence

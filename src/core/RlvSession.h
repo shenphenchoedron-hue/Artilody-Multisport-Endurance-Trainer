@@ -629,6 +629,7 @@ public:
     enum class SegmentPhase { Idle, Running, Done, Void };
     QVector<RouteSegment> routeSegments() const override { return m_route.segments(); }
     QVector<RouteSegment> routeGravel() const override { return isGpx() ? m_route.gravel() : QVector<RouteSegment>(); }
+    QVector<RouteSegment> routePlaces() const override { return isGpx() ? m_route.places() : QVector<RouteSegment>(); }
     QString segmentKey() const { return m_segmentKey; }   // sprint::routeKey() of the route ("" = no segments)
     QString sprintKey() const { return sprintCount() ? m_segmentKey : QString(); }
     QString komKey() const { return komCount() ? m_segmentKey : QString(); }

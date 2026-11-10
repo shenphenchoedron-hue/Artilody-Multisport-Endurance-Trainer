@@ -687,6 +687,62 @@ private slots:
         QVERIFY(drawn.at(0).second > drawn.at(0).first + 900);
     }
 
+    void placeSignsPlacedSavedAndRead()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("p.gpx"));
+        QVERIFY(writeGpx(path, 401, 10, 0));   // 4 km
+        GpxWorkshop ws(nullptr, f.gpx.get());
+        QVERIFY(ws.open(path));
+        QCOMPARE(ws.addPlace(500, QString()), QString());   // placed first, named in the list
+        QVERIFY(ws.save().contains(QStringLiteral("needs a name")));   // ... before saving
+        ws.removeSegment(0);
+        QCOMPARE(ws.addGravel(400, 1400), QString());
+        QCOMPARE(ws.addPlace(800, QStringLiteral("Roskilde")), QString());   // may stand in gravel
+        QCOMPARE(ws.addPlace(810, QStringLiteral("Æblehave")), QString());   // and close to another
+        QCOMPARE(ws.addKom(2000, 3000), QString());
+        QCOMPARE(ws.addSprint(3200, 200), QString());
+        QCOMPARE(ws.addPlace(2500, QStringLiteral("Bakken")), QString());   // inside a KOM
+        QCOMPARE(ws.addPlace(3300, QStringLiteral("Byen")), QString());     // inside a sprint
+        QCOMPARE(ws.placeCount(), 4);
+        ws.removeSegment(ws.segments().size() - 1);
+        ws.removeSegment(ws.segments().size() - 1);
+        ws.removeSegment(ws.segments().size() - 1);
+        ws.removeSegment(ws.segments().size() - 1);
+        QCOMPARE(ws.placeCount(), 2);
+        QCOMPARE(ws.setSegment(1, 900, 1200, QStringLiteral("Roskilde")), QString());   // stays a point
+        QCOMPARE(ws.setPlaceSide(2, true), QString());   // Roskilde (now after Æblehave): the left-hand verge
+        QCOMPARE(ws.save(), QString());
+        RlvRoute r;
+        QVERIFY(r.load(path));
+        QCOMPARE(r.places().size(), 2);
+        QCOMPARE(r.places().at(0).name, QStringLiteral("Æblehave"));
+        QCOMPARE(r.places().at(1).start, 900.0);
+        QCOMPARE(r.places().at(1).finish, 900.0);
+        QVERIFY(r.places().at(1).left);
+        QVERIFY(!r.places().at(0).left);
+        QCOMPARE(r.gravel().size(), 1);
+        QVERIFY(r.segments().isEmpty());   // not timed
+        QVERIFY(f.gpx->selectPath(path));
+        QCOMPARE(f.gpx->routePlaces().size(), 2);
+        QCOMPARE(f.gpx->sprintCount(), 0);
+        QVERIFY(ws.open(path));
+        QCOMPARE(ws.placeCount(), 2);
+        QVERIFY(!ws.dirty());
+        // at most kMaxPlaces
+        for (int i = 2; i < segments::kMaxPlaces; ++i)
+            QCOMPARE(ws.addPlace(1500 + i * 50, QStringLiteral("P%1").arg(i)), QString());
+        QCOMPARE(ws.placeCount(), segments::kMaxPlaces);
+        QVERIFY(ws.addPlace(3900, QStringLiteral("One too many")).contains(QStringLiteral("At most")));
+        // an older app reads kind="place" as a sprint of 0 m: dropped, not ridden
+        RouteSegment old;
+        old.kind = RouteSegment::Sprint;
+        old.start = old.finish = 900;
+        QVector<RouteSegment> oldList { old };
+        QVERIFY(!segments::validate(oldList, 4000));
+    }
+
     void gravelRollingResistanceOutsideErg()
     {
         Fixture f;

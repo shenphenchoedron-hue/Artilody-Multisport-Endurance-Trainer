@@ -32,6 +32,7 @@ class GpxWorkshop : public QObject
     Q_PROPERTY(int sprintCount READ sprintCount NOTIFY segmentsChanged)
     Q_PROPERTY(int komCount READ komCount NOTIFY segmentsChanged)
     Q_PROPERTY(int gravelCount READ gravelCount NOTIFY segmentsChanged)
+    Q_PROPERTY(int placeCount READ placeCount NOTIFY segmentsChanged)
     // the gravel's extra rolling resistance as gradient (+0.5 %)
     Q_PROPERTY(double gravelGradePercent READ gravelGradePercent CONSTANT)
     Q_PROPERTY(bool dirty READ dirty NOTIFY segmentsChanged)            // unsaved changes
@@ -59,6 +60,7 @@ public:
     int sprintCount() const;
     int komCount() const;
     int gravelCount() const;
+    int placeCount() const;
     double gravelGradePercent() const { return segments::kGravelGradePercent; }
     bool dirty() const { return m_segments != m_saved || m_route.ownMaxCleanGrade() != m_savedMaxGrade; }
     double maxGrade() const { return m_route.maxCleanGrade(); }
@@ -80,6 +82,11 @@ public:
     // a gravel section from start to finish, placed like a KOM (not timed:
     // the road is gravel, extra rolling resistance outside ERG / workouts)
     Q_INVOKABLE QString addGravel(double startM, double finishM, const QString &name = QString());
+    // a place sign at atM: a lit town sign with `name` beside the road in GPX
+    // Ride (name may be empty for now: typed in the list, required to save)
+    Q_INVOKABLE QString addPlace(double atM, const QString &name);
+    // a place sign on the left- (true) or right-hand verge
+    Q_INVOKABLE QString setPlaceSide(int index, bool left);
     Q_INVOKABLE QString setSegment(int index, double startM, double finishM, const QString &name);
     Q_INVOKABLE void removeSegment(int index);
     // a KOM on the longest climb averaging >= 2.5 % (climb::longest) that is still free

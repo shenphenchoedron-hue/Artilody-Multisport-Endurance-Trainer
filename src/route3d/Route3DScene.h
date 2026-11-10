@@ -84,6 +84,17 @@ public:
         bool operator==(const KomMarks &o) const { return start == o.start && finish == o.finish; }
     };
     void setKoms(const std::vector<KomMarks> &marks);
+    // The GPX Workshop's place signs (drawn metres, name): a lit town sign -
+    // black letters on white with a black rim - on two posts on the right-
+    // (or left-) hand verge, turned towards the rider (see placeSigns()).
+    struct PlaceMark
+    {
+        double at = 0;
+        QString name;
+        bool left = false;   // on the left-hand verge
+        bool operator==(const PlaceMark &o) const { return at == o.at && name == o.name && left == o.left; }
+    };
+    void setPlaces(const std::vector<PlaceMark> &marks);
     // A small white kilometre post on the right-hand verge at each given
     // place: drawn metres, the kilometre shown.
     void setKmPosts(const std::vector<std::array<double, 2>> &posts);
@@ -118,7 +129,8 @@ private:
                     Rotor = 12,     // wind turbine blades, turned in the vertex shader: colour = hub,
                                     // normal = rotor axis, blend = phase (one face, lit from both sides)
                     BirdBody = 13,  // birds: less haze (they fly beyond the landscape); normals point up
-                    GravelRoad = 14 }; // a gravel section of the road (GPX Workshop); blend = lateral position -1..1
+                    GravelRoad = 14,   // a gravel section of the road (GPX Workshop); blend = lateral position -1..1
+                    PlaceSign = 15 };  // a place sign's face: colour r,g = texture coordinates in the place-name texture; lit by itself
     struct Vertex { float x, y, z, r, g, b, nx, ny, nz, material, blend; };
 
     static QVector3D v(const route3d::Point &p) { return QVector3D(float(p.x), float(p.y), float(p.z)); }
@@ -225,6 +237,11 @@ private:
     QOpenGLShaderProgram m_shader, m_skyShader;
     QOpenGLShaderProgram m_cutoutShader;   // m_shader with cut-out letters (discard): the gate buffer only
     std::array<std::unique_ptr<QOpenGLTexture>, 4> m_textures;
+    std::unique_ptr<QOpenGLTexture> m_placeTexture;   // the place names, one row each (placeImage())
+    std::vector<PlaceMark> m_places;
+    std::vector<float> m_placeU;    // per name: the used width (0..1) of its row
+    bool m_placeTextureDirty = true;
+    void placeSigns();
     std::unique_ptr<QOpenGLTexture> m_bannerTexture;   // START (top half) / FINISH (bottom half)
     QOpenGLBuffer m_gateBuffer { QOpenGLBuffer::VertexBuffer };
     std::vector<Vertex> m_gateVertices;

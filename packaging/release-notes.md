@@ -1,6 +1,10 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.6
+## What's new in 1.9.7
+
+**GPX Workshop: place signs.** Choose *Place sign*, click the profile where the sign should stand – its row appears in the list with the name field ready – type the name and save the file. GPX Ride puts a lit town sign (black letters on white with a black rim) beside the road there, on the right- or left-hand verge as chosen in the list, so you can see where on the real route you are even though the 3D landscape is not the real one. Up to 20 per route; saved in the GPX file with the sprints, KOMs and gravel sections; not timed. Older versions ignore them. No database change – install over 1.9.6.
+
+## Also included from 1.9.6
 
 **Zwift Click gears like Zwift.** With the Zwift protocol (Zwift Click on a JetBlack Victory, Zwift Hub, KICKR Core …) the gear ratio now goes to the trainer exactly as Zwift sends it: the gears feel as in Zwift, and the trainer follows small changes such as gravel at once – also on the big chainring (before, the app lightened the gears for the real chainring, which put a Victory on a big ring into loads where it hardly reacted). The old correction stays available: *Devices → advanced → Gears with the Zwift protocol → Adapted to the chainring*. Rides start in a **light start gear** for your FTP, your weight (at most 1.2 W/kg) and the real chainring (unknown: a 53-tooth ring assumed), so beginners with the default FTP and small riders never start in a hard gear. No database change – install over 1.9.5.
 

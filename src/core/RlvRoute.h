@@ -127,6 +127,8 @@ public:
     double gravelBlend(double distanceM, double rampM) const;
     // all of them, as the GPX Workshop edits them (sorted by start)
     QVector<RouteSegment> allSegments() const;
+    // place signs (kind Place: start = where, name), sorted
+    const QVector<RouteSegment> &places() const { return m_places; }
     double totalDistance() const { return m_points.isEmpty() ? 0.0 : m_points.constLast().distance; }
     double ascent() const { return m_ascent; }
     double descent() const { return m_descent; }
@@ -199,6 +201,7 @@ private:
     QVector<RlvInformation> m_infos;
     QVector<RouteSegment> m_segments;
     QVector<RouteSegment> m_gravel;
+    QVector<RouteSegment> m_places;
     double m_ascent = 0, m_descent = 0, m_minEle = 0, m_maxEle = 0;
     int m_spikes = 0, m_limited = 0;
     double m_rawMaxGrade = 0;

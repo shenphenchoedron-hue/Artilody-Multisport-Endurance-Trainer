@@ -74,7 +74,7 @@ const char *const kFragmentShaderHead = R"(
 in vec3 col;in vec3 world;in vec3 norm;flat in int mat;in float edge;
 uniform vec3 eye;uniform vec2 uvOrigin;
 uniform sampler2D asphaltMap;uniform sampler2D grassMap;uniform sampler2D gravelMap;uniform sampler2D noiseMap;
-uniform sampler2D bannerMap;
+uniform sampler2D bannerMap;uniform sampler2D placeMap;
 uniform float opacity;uniform float time;
 // the biome (biome.h): light, ground and water
 uniform vec3 sunLight;uniform vec3 ambientSky;uniform vec3 ambientGround;
@@ -193,6 +193,7 @@ void main(){
 #endif
         base=t.rgb;
     }
+    if(mat==15)base=texture(placeMap,col.rg).rgb;   // place sign (lit by itself below)
     if(mat==11){   // polka dots (the KOM arch): col.rg = surface position in dot periods
         vec2 g=col.rg;g.x+=.5*mod(floor(g.y),2.);
         float r=length(fract(g)-.5),w=fwidth(r)*.75+.01;
@@ -217,6 +218,7 @@ void main(){
     vec3 ambient=mix(ambientGround,ambientSky,n.y*.5+.5);
     vec3 lit=base*(ambient*.95+sunLight*diffuse*.92);
     if(mat==9&&edge>.5)lit=max(lit,base*1.08);   // reflective sign (the km posts): bright in the shade too
+    if(mat==15){lit=base*1.05;fog*=.45;}   // place sign: lit from inside - readable in the shade and from afar
     if(mat==1||mat==4){
         float spec=pow(max(dot(reflect(-sunDir,n),-view/dist),0.),20.);
         lit+=vec3(1.,.95,.85)*spec*.06;
@@ -434,6 +436,38 @@ QImage bannerImage()
     return img;
 }
 
+// The place names for the place signs: one 1024 x kPlaceRow row each - black
+// letters on white inside a black rim (a Danish town sign) - from x 0 to the
+// row's used width (u[i], 0..1). Height: the next power of two.
+constexpr int kPlaceRow = 96;
+QImage placeImage(const QStringList &names, std::vector<float> *u)
+{
+    int h = 64;
+    while (h < int(names.size()) * kPlaceRow)
+        h *= 2;
+    QImage img(1024, h, QImage::Format_RGBA8888);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    u->clear();
+    for (int i = 0; i < names.size(); ++i) {
+        const int y = i * kPlaceRow;
+        QFont f = fittedFont(names.at(i), QRect(0, 0, 1024 - 60, kPlaceRow - 30), 62);
+        const int textW = QFontMetrics(f).horizontalAdvance(names.at(i));
+        const int w = std::clamp(textW + 64, 2 * kPlaceRow, 1024);
+        p.setPen(QPen(QColor(16, 16, 16), 7));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRectF(8.5, y + 8.5, w - 17, kPlaceRow - 17), 10, 10);
+        p.setFont(f);
+        p.setPen(QColor(10, 10, 10));
+        p.drawText(QRect(0, y, w, kPlaceRow), Qt::AlignCenter, names.at(i));
+        u->push_back(w / 1024.f);
+    }
+    p.end();
+    return img;
+}
+
 } // namespace
 
 Route3DScene::Route3DScene() = default;
@@ -604,6 +638,8 @@ void Route3DScene::release()
     for (auto &t : m_textures)
         t.reset();
     m_bannerTexture.reset();
+    m_placeTexture.reset();
+    m_placeTextureDirty = true;
     m_gateBuffer.destroy();
     m_buffer.destroy();
     m_ghostBuffer.destroy();
@@ -911,6 +947,7 @@ void Route3DScene::buildGates()
     // kilometre posts (the short put() writes here meanwhile)
     m_target = &m_gateVertices;
     kmPosts();
+    placeSigns();
     lapBoards();
     finishTunnel(finishArch);
     m_target = &m_build;
@@ -1173,6 +1210,91 @@ void Route3DScene::kmPosts()
     }
 }
 
+// Place signs (GPX Workshop): a lit town sign on two black posts on the
+// right- or left-hand verge, turned 20° towards the rider like the kilometre posts,
+// big enough to read from the saddle (0.8 m letters' plate, at most 5 m wide).
+void Route3DScene::placeSigns()
+{
+    if (m_places.empty())
+        return;
+    QStringList names;
+    for (const PlaceMark &p : m_places)
+        if (!names.contains(p.name))
+            names << p.name;
+    if (m_placeTextureDirty || !m_placeTexture) {
+        const QImage img = placeImage(names, &m_placeU);
+        m_placeTexture = std::make_unique<QOpenGLTexture>(img, QOpenGLTexture::GenerateMipMaps);
+        m_placeTexture->setWrapMode(QOpenGLTexture::ClampToEdge);
+        m_placeTexture->setMinificationFilter(QOpenGLTexture::LinearMipMapLinear);
+        m_placeTexture->setMagnificationFilter(QOpenGLTexture::Linear);
+        if (QOpenGLContext::currentContext()->hasExtension(QByteArrayLiteral("GL_EXT_texture_filter_anisotropic"))) {
+            GLfloat limit = 1;   // seen at an angle from afar: sharp letters without shimmer
+            glGetFloatv(0x84FF, &limit);
+            m_placeTexture->setMaximumAnisotropy(std::min(8.f, limit));
+        }
+        m_placeTextureDirty = false;
+    }
+    const float texH = float(m_placeTexture->height());
+    const Route &route = *m_route;
+    const double length = route.length();
+    const QVector3D black(.08f, .08f, .08f), back(.30f, .31f, .32f), up(0, 1, 0);
+    std::vector<double> busy { m_builtStartGate, std::max(0.0, route.finish() - 1.0) };
+    for (const SprintMarks &sp : m_sprints)
+        busy.insert(busy.end(), { sp.start, sp.finish });
+    for (const KomMarks &k : m_koms)
+        busy.insert(busy.end(), { k.start, k.finish });
+    for (const auto &km : m_kmPosts)
+        busy.push_back(km[0]);
+    for (const PlaceMark &place : m_places) {
+        double d = place.at;
+        for (double b : busy)   // not into an arch, a sign or a km post
+            if (std::abs(d - b) < 6)
+                d = b + 8;
+        // at the very start or end of the road: just inside it (not left out)
+        d = std::clamp(d, 1.0, std::max(1.0, length - 1.0));
+        const int row = int(names.indexOf(place.name));
+        if (row < 0 || row >= int(m_placeU.size()))
+            continue;
+        const float uw = m_placeU[size_t(row)];
+        const float aspect = uw * 1024.f / kPlaceRow;
+        float ph = .80f, pw = ph * aspect;
+        if (pw > 5.f) {
+            pw = 5.f;
+            ph = pw / aspect;
+        }
+        QVector3D f = v(route.at(std::min(length, d + 3))) - v(route.at(std::max(0.0, d - 3)));
+        f.setY(0);
+        f = f.lengthSquared() > 1e-6f ? f.normalized() : QVector3D(0, 0, -1);
+        // the verge it stands on (left: the other side), the face turned 20° towards the road
+        const QVector3D out = side(d) * (place.left ? -1.f : 1.f);
+        const QVector3D n = (-f * std::cos(qDegreesToRadians(20.f)) - out * std::sin(qDegreesToRadians(20.f))).normalized();
+        const QVector3D r = QVector3D::crossProduct(up, n);
+        const float lat = kGravelEdgeM + .7f + pw * .5f * .94f;
+        QVector3D foot = v(route.at(d)) + out * lat;
+        foot.setY(vergeHeight(d, place.left ? -lat : lat));
+        const float bottom = 1.45f;
+        // two posts, then the plate's back (a little behind the face)
+        for (float sgn : { -1.f, 1.f }) {
+            const QVector3D post = foot + r * (sgn * pw * .32f);
+            box(post + up * ((bottom + ph) * .5f) - n * .13f, r * .045f, up * ((bottom + ph) * .5f), n * .045f, black);
+        }
+        const QVector3D centre = foot + up * (bottom + ph * .5f);
+        // the back well behind the face (5 cm): no depth fighting far away
+        box(centre - n * .065f, r * (pw * .5f + .015f), up * (ph * .5f + .015f), n * .015f, back);
+        const QVector3D front = centre;
+        const QVector3D hr = r * (pw * .5f), hu = up * (ph * .5f);
+        const float v0 = (row * kPlaceRow + 1) / texH, v1 = ((row + 1) * kPlaceRow - 1) / texH;
+        const QVector3D tl(0, v0, 0), tr(uw, v0, 0), bl(0, v1, 0), br(uw, v1, 0);
+        const QVector3D c0 = front - hr - hu, c1 = front + hr - hu, c2 = front + hr + hu, c3 = front - hr + hu;
+        put(c0, n, bl, PlaceSign, 1);
+        put(c1, n, br, PlaceSign, 1);
+        put(c2, n, tr, PlaceSign, 1);
+        put(c0, n, bl, PlaceSign, 1);
+        put(c2, n, tr, PlaceSign, 1);
+        put(c3, n, tl, PlaceSign, 1);
+    }
+}
+
 void Route3DScene::setLaps(int laps)
 {
     if (laps == m_laps)
@@ -1245,6 +1367,15 @@ void Route3DScene::setKoms(const std::vector<KomMarks> &marks)
     if (marks == m_koms)
         return;
     m_koms = marks;
+    m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
+}
+
+void Route3DScene::setPlaces(const std::vector<PlaceMark> &marks)
+{
+    if (marks == m_places)
+        return;
+    m_places = marks;
+    m_placeTextureDirty = true;
     m_gatesDirty = true;   // rebuilt in scene() (reads the terrain: no tile job then)
 }
 
@@ -2656,6 +2787,8 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     for (int i = 0; i < 4; ++i)
         m_textures[size_t(i)]->bind(uint(i));
     m_bannerTexture->bind(4u);
+    if (m_placeTexture)
+        m_placeTexture->bind(5u);
     // 1. Sky: one full-screen triangle, no depth (own, empty vertex array).
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -2690,6 +2823,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         program->setUniformValue("gravelMap", 2);
         program->setUniformValue("noiseMap", 3);
         program->setUniformValue("bannerMap", 4);
+        program->setUniformValue("placeMap", 5);
         if (m_biomeUniformsDirty)
             setBiomeUniforms(*program, false);
     }
@@ -2816,6 +2950,8 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     for (int i = 0; i < 4; ++i)
         m_textures[size_t(i)]->release(uint(i));
     m_bannerTexture->release(4u);
+    if (m_placeTexture)
+        m_placeTexture->release(5u);
     glActiveTexture(GL_TEXTURE0);
     m_shader.release();
     QOpenGLBuffer::release(QOpenGLBuffer::VertexBuffer);

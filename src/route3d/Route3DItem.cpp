@@ -102,6 +102,10 @@ public:
             for (const auto &k : view->frameKoms())
                 koms.push_back({ k[0], k[1] });
             m_scene.setKoms(koms);
+            std::vector<Route3DScene::PlaceMark> places;
+            for (const auto &p : view->framePlaces())
+                places.push_back({ p.at, p.name, p.left });
+            m_scene.setPlaces(places);
             m_scene.setKmPosts(view->frameKmPosts());
         }
         m_scene.setLaps(view->frameLaps());
@@ -506,10 +510,17 @@ void Route3DItem::buildMarks()
 {
     m_sprintDrawn.clear();
     m_komDrawn.clear();
+    m_placeDrawn.clear();
     if (!m_route)
         return;
     double previousFinish = 0;
     for (const RouteSegment &s : m_builtSegments) {
+        if (s.kind == RouteSegment::Place) {   // a town sign (on a looped there-and-back road also on the way back)
+            m_placeDrawn.push_back({ mapDistance(m_built, s.start), s.name, s.left });
+            if (!m_built.backDistance.isEmpty())   // (on the way back: the same side of the rider)
+                m_placeDrawn.push_back({ mapDistance(m_built, s.start, true), s.name, s.left });
+            continue;
+        }
         if (s.kind == RouteSegment::Sprint) {
             const double at = s.start - sprint::kAnnounceM;
             const double announce = at >= previousFinish + 20 ? mapDistance(m_built, at) : -1;
@@ -557,7 +568,10 @@ void Route3DItem::rebuildRoute()
     const double length = m_session && m_session->hasRoute() ? m_session->route().totalDistance() : 0.0;
     // the elevation cleaning's limit changes the profile (GPX Workshop)
     const double grade = m_session && m_session->hasRoute() ? m_session->route().maxCleanGrade() : 0.0;
-    const QVector<RouteSegment> segments = m_session ? m_session->routeSegments() : QVector<RouteSegment>();
+    // sprints / KOMs and the place signs: marks only (no new terrain)
+    QVector<RouteSegment> segments = m_session ? m_session->routeSegments() : QVector<RouteSegment>();
+    if (m_session)
+        segments += m_session->routePlaces();
     const bool loop = m_session && m_session->hasRoute() && m_session->loopRide();
     // the gravel sections change the road itself (its tiles): a new build -
     // only where they lie, not their names
@@ -595,6 +609,7 @@ void Route3DItem::rebuildRoute()
     m_routeError.clear();
     m_sprintDrawn.clear();
     m_komDrawn.clear();
+    m_placeDrawn.clear();
     m_kmDrawn.clear();
     if (m_session && m_session->hasRoute()) {
         try {
