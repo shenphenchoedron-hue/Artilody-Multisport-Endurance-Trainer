@@ -13,9 +13,8 @@ namespace watt {
 
 // The athlete's look in the 3D views, chosen in the user profile
 // (ProfileManager::avatar3d / runner3d / rower3d, the same keys): which
-// figure - "classic" (the app's own figure: rider.glb / runner.glb /
-// rower.glb, coloured by the app) or a textured avatar ("male", "female":
-// rider_male.glb, ... / runner_male.glb, ... / rower_male.glb, ...) - and the
+// textured figure - "male" or "female" (rider_male.glb, ... /
+// runner_male.glb, ... / rower_male.glb, ...) - and the
 // colours of the avatar's jersey (a runner's / rower's top), shorts, helmet
 // (cyclists), shoes and hair, the bike's frame and the boat's hull
 // ("#rrggbb"; "" = the model's own).
@@ -28,7 +27,7 @@ struct RiderAvatar
 {
     enum Kind { Cyclist, Runner, Rower };
     Kind kind = Cyclist;
-    QString model = QStringLiteral("classic");
+    QString model = QStringLiteral("male");
     route3d::GlbModel::GarmentColors colors;
     // the bike frame's colour ("bike"; a cyclist, any figure); x < 0: the standard blue
     QVector3D bikeColor { -1, 0, 0 };
@@ -39,14 +38,14 @@ struct RiderAvatar
     bool operator==(const RiderAvatar &o) const;
     bool operator!=(const RiderAvatar &o) const { return !(*this == o); }
 
-    // The figure; null when the model is not there or unusable (then the
-    // classic / procedural figure is drawn). A cyclist or a rower can be
+    // The figure (the other one of its kind when the chosen model file is
+    // not there); null when none can be loaded. A cyclist or a rower can be
     // posed (GlbModel::canRide()); a runner is animated. Waits for the load.
     std::shared_ptr<const route3d::GlbModel> figure() const;
     // The same without waiting: null and *pending = true while it loads (the
     // load is started).
     std::shared_ptr<const route3d::GlbModel> figureIfReady(bool *pending) const;
-    // A runner walking: the same figure with the classic walker's motion
+    // A runner walking: the same figure with the walking motion (walker.glb)
     // (null: none). Waiting / not waiting as above.
     std::shared_ptr<const route3d::GlbModel> walkingFigure() const;
     std::shared_ptr<const route3d::GlbModel> walkingFigureIfReady(bool *pending) const;
@@ -56,7 +55,6 @@ struct RiderAvatar
     void preload(std::function<void()> done = {}) const;
     // Its vertex colours in the chosen colours (empty: the model's own).
     std::vector<QVector3D> figureColors(const route3d::GlbModel &figure) const;
-    bool isClassic() const { return model == QLatin1String("classic"); }
 
     // The figures to choose from: { id, name } for those that are there.
     static QVariantList models(Kind kind = Cyclist);

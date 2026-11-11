@@ -288,11 +288,13 @@ protected:
         }
         if(indexedFor!=mesh.size()){index.resize(mesh.size());for(size_t i=0;i<index.size();++i)index[i]=uint32_t(i);indexedFor=mesh.size();}
     }
-    // The .glb rider (GlbModel::poseOnBike) on the bike: the classic one
-    // with a painted red helmet, or a textured avatar with its own.
+    // The .glb rider (GlbModel::poseOnBike) on the bike: the profile's
+    // textured avatar (or, given a classic Outfit::Cyclist figure, one with a
+    // painted red helmet).
     std::shared_ptr<const GlbModel> glbRider;
     std::vector<GhostVertex> riderLocal;
     std::vector<QVector3D> riderColors;
+    bool riderHidden=false;
     size_t modelIndexFor=size_t(-1);
     void buildModelRider(const GhostPose& pose){
         mesh.clear();mesh.reserve(80000);
@@ -307,7 +309,7 @@ protected:
         fit.swayDeg=GlbModel::swayForGrade(horizontal>1e-6?pose.fy/horizontal:0.0);
         GlbModel::HeadPose head;
         glbRider->poseOnBike(fit,riderLocal,&head);
-        // (the classic figure's red helmet with black vents is painted on its head:
+        // (a classic figure's red helmet with black vents is painted on its head:
         // GlbModel, Outfit::Cyclist - a separate shell looked bulky)
         const size_t fixed=mesh.size();
         const bool recolour=riderColors.size()==riderLocal.size();   // (the profile's avatar colours)
@@ -338,13 +340,19 @@ public:
     static constexpr QVector3D kFrameColor{.10f,.24f,.56f};
     void setFrameColor(const QVector3D& c){frameColor=c;}
     const std::shared_ptr<const GlbModel>& riderModel()const{return glbRider;}
+    // Draw the bike alone, without a rider (while the profile's avatar loads).
+    void setRiderHidden(bool hidden){if(hidden!=riderHidden){riderHidden=hidden;indexedFor=size_t(-1);modelIndexFor=size_t(-1);}}
     bool hasRiderModel()const{return glbRider!=nullptr;}
     // Returns world-space vertices; indices() gives the matching triangle list.
     // crank: the pedal angle in radians (the app drives it from the rider's
     // real cadence; the wheels follow the distance)
     const std::vector<GhostVertex>& build(const Route& route,double distance,double speed,double crank){
         auto pose=ghostPose(route,distance,speed);pose.crank=crank;placeFrame(pose);
-        if(glbRider)buildModelRider(pose);
+        if(riderHidden){   // (the bike alone: the rider is loading)
+            mesh.clear();buildBike(pose);modelIndexFor=size_t(-1);
+            if(indexedFor!=mesh.size()){index.resize(mesh.size());for(size_t i=0;i<index.size();++i)index[i]=uint32_t(i);indexedFor=mesh.size();}
+        }
+        else if(glbRider)buildModelRider(pose);
         else{buildProcedural(pose);modelIndexFor=size_t(-1);}
         // Transparency is composited from the front surface by the renderer.
         return mesh;

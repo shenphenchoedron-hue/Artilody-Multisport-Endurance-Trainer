@@ -18,6 +18,7 @@
 #include "Route3DItem.h"
 #include "Rowing3DItem.h"
 #include "AvatarPreviewItem.h"
+#include "RiderAvatar.h"
 #include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
@@ -827,6 +828,15 @@ int main(int argc, char *argv[])
     // --- QML --------------------------------------------------------------
     const char *uri = "Artilody.Backend";
     qmlRegisterSingletonInstance(uri, 1, 0, "Profiles", &profiles);
+    // the profile's 3D figures loaded in the background now, so the 3D views
+    // and the profile dialog have them when they open
+    auto preloadAvatars = [&profiles] {
+        RiderAvatar::fromVariant(profiles.avatar3d(), RiderAvatar::Cyclist).preload();
+        RiderAvatar::fromVariant(profiles.runner3d(), RiderAvatar::Runner).preload();
+        RiderAvatar::fromVariant(profiles.rower3d(), RiderAvatar::Rower).preload();
+    };
+    preloadAvatars();
+    QObject::connect(&profiles, &ProfileManager::profileChanged, &profiles, preloadAvatars);
     qmlRegisterSingletonInstance(uri, 1, 0, "Workouts", &library);
     qmlRegisterSingletonInstance(uri, 1, 0, "Builder", &builder);
     qmlRegisterSingletonInstance(uri, 1, 0, "Training", &training);

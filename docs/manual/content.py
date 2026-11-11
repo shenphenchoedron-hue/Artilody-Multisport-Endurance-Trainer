@@ -312,18 +312,16 @@ def build(s, env):
         f"{UI('Cyclist')} / {UI('Runner')} / {UI('Rower')} at the top. The preview shows the figure as the 3D "
         "view draws it; drag it to turn it round.")
     s.bullets([
-        f"<b>Figure</b> – {UI('Classic')} (the app's own figure, fixed colours) or a male or female figure "
-        "wearing its own textured clothes.",
+        "<b>Figure</b> – a male or a female figure wearing its own textured clothes.",
         "<b>Colours</b> – click a colour box to choose the colour of the jersey (runner and rower: the top), "
         "the shorts, the helmet (cyclists), the shoes (cyclists and runners) and the hair. The folds and shading "
-        f"of the clothes stay. {UI('Reset')} returns that part to the figure's own colour. The Classic figure's "
-        "clothes cannot be recoloured.",
+        f"of the clothes stay. {UI('Reset')} returns that part to the figure's own colour.",
         f"<b>Bike</b> and <b>Boat</b> – the colour of the bike frame (any cyclist) and of the boat's hull (any "
         "rower; the ghost boat too).",
     ])
     s.p(f"The choices are saved with {UI('Save Profile')}, separately for each profile. A newly chosen figure "
-        "loads in the background: the 3D view shows the Classic figure for a moment and then switches by itself. "
-        "If a figure's model file is missing, the list shows it as <i>not installed</i> and the Classic figure "
+        "loads in the background and appears by itself after a moment. "
+        "If a figure's model file is missing, the list shows it as <i>not installed</i> and the other figure "
         "is drawn.")
 
     s.section("Training zones")

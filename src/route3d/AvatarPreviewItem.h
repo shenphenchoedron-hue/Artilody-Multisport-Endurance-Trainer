@@ -28,8 +28,8 @@ class AvatarPreviewItem : public QQuickPaintedItem
     // the figures to choose from: { id, name } (RiderAvatar::models())
     Q_PROPERTY(QVariantList models READ models NOTIFY kindChanged)
     // the chosen figure's garments found in its texture: { jersey: "#rrggbb", ... }
-    // (its own colours; none for the classic figure, which cannot be
-    // recoloured) - and a cyclist's bike ("bike": the standard frame colour)
+    // (its own colours) - and a cyclist's bike ("bike": the standard frame
+    // colour), a rower's boat ("boat": the standard hull colour)
     Q_PROPERTY(QVariantMap ownColors READ ownColors NOTIFY avatarChanged)
     // the figure has a helmet (a cyclist): its colour can be chosen
     Q_PROPERTY(bool helmet READ helmet NOTIFY kindChanged)

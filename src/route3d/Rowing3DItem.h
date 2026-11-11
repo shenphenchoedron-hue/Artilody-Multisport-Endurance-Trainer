@@ -101,10 +101,9 @@ private:
     QTimer m_timer;
 };
 
-// The classic rower (rower.glb; null when there is none) and a figure posed
-// as the Rowing view poses it at stroke phase `phase` (0 = the catch) - for
-// the profile's preview (what is under the water line flattened onto it).
-std::shared_ptr<const route3d::GlbModel> classicRowerModel();
+// A figure posed as the Rowing view poses it at stroke phase `phase` (0 = the
+// catch) - for the profile's preview (what is under the water line flattened
+// onto it).
 void rowerPreviewPose(const route3d::GlbModel &figure, double phase, std::vector<route3d::GhostVertex> &out);
 // The scull's hull (in the boat's colour; x < 0: the standard red) round the
 // seat, +- halfLength along it, in the rower's frame (as rowerPreviewPose()):

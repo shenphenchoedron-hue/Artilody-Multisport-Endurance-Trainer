@@ -221,24 +221,6 @@ void oars(std::vector<V> &out, const Stroke &s)
 }
 
 // --- models (loaded once per process) ---------------------------------------------------------------
-std::shared_ptr<const GlbModel> rowerModel()
-{
-    static const std::shared_ptr<const GlbModel> m = []() -> std::shared_ptr<const GlbModel> {
-        const QString env = qEnvironmentVariable("WATT_ROWER_GLB");
-        const QString path = env.isEmpty() ? QStringLiteral(":/models/rower.glb") : env;
-        if (!QFile::exists(path))
-            return {};
-        auto g = std::make_shared<GlbModel>();
-        QString error;
-        if (!g->loadFile(path, &error, GlbModel::Outfit::Rower) || !g->canRide()) {
-            qWarning("Rowing3D: rower model %s not used: %s", qPrintable(path),
-                     qPrintable(error.isEmpty() ? QStringLiteral("no Mixamo skeleton") : error));
-            return {};
-        }
-        return g;
-    }();
-    return m;
-}
 
 // A single scull in the boat frame (X to the bow, water at Y = 0): 8.2 m, a
 // coloured hull with egg-white decks fore and aft, the open cockpit (dark)
@@ -407,16 +389,14 @@ public:
         }
     }
 
-    // The profile's rower (render thread, our VAO bound): the figure - the
-    // classic one while it loads in the background, or when it is not there
-    // - and its clothes' colours, the boat's colour; both boats posed again.
+    // The profile's rower (render thread, our VAO bound): the figure - none
+    // (the boat alone) while it loads in the background - and its clothes'
+    // colours, the boat's colour; both boats posed again.
     void applyAvatar()
     {
         if (m_figureWanted) {
             bool pending = false;
             auto figure = m_avatar.figureIfReady(&pending);
-            if (!figure)
-                figure = rowerModel();
             m_figureWanted = pending;   // (looked for again next frame)
             if (figure != m_rower) {
                 m_rower = figure;
@@ -432,8 +412,7 @@ public:
         if (!m_avatarDirty)
             return;
         m_avatarDirty = false;
-        m_rowerColors = m_rower && (!m_figureWanted || m_avatar.isClassic()) ? m_avatar.figureColors(*m_rower)
-                                                                              : std::vector<QVector3D>();
+        m_rowerColors = m_rower ? m_avatar.figureColors(*m_rower) : std::vector<QVector3D>();
         // the boat's colour (both boats share the hull)
         std::vector<V> b;
         hull(b, m_avatar.boatColor.x() >= 0 ? m_avatar.boatColor : kHullColor);
@@ -933,11 +912,6 @@ private:
 };
 
 } // namespace
-
-std::shared_ptr<const route3d::GlbModel> classicRowerModel()
-{
-    return rowerModel();
-}
 
 void rowerPreviewPose(const route3d::GlbModel &figure, double phase, std::vector<route3d::GhostVertex> &out)
 {

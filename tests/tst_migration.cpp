@@ -358,7 +358,7 @@ private slots:
         db.seedDefaults();
         ProfileManager profiles(&db);
         profiles.load();
-        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));   // (the default)
         QVERIFY(profiles.saveProfile({ { QStringLiteral("avatar3d"),
                                          QVariantMap { { "model", "Female" }, { "jersey", "#D0202A" }, { "bike", "red" },
                                                        { "evil", "x" } } },
@@ -368,14 +368,17 @@ private slots:
         QCOMPARE(profiles.avatar3d().value(QStringLiteral("bike")).toString(), QString());   // (not #rrggbb)
         QVERIFY(!profiles.avatar3d().contains(QStringLiteral("evil")));
         QCOMPARE(profiles.rower3d().value(QStringLiteral("boat")).toString(), QStringLiteral("#f5c400"));
-        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));
         // a second profile has its own; deleting one removes its avatars
         const qint64 first = profiles.profileId();
         const qint64 second = profiles.createProfileWith({ { QStringLiteral("name"), QStringLiteral("B") },
-                                                           { QStringLiteral("runner3d"), QVariantMap { { "model", "male" } } } });
+                                                           { QStringLiteral("runner3d"), QVariantMap { { "model", "female" } } } });
         QVERIFY(second > 0);
-        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));
-        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("female"));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));
+        // an old "classic" (1.9.8) is read as the male figure
+        QVERIFY(profiles.saveProfile({ { QStringLiteral("rower3d"), QVariantMap { { "model", "classic" } } } }));
+        QCOMPARE(profiles.rower3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));
         QVERIFY(profiles.selectProfile(first) || profiles.profileId() == first);
         QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("female"));
         QVERIFY(profiles.deleteProfile(second));

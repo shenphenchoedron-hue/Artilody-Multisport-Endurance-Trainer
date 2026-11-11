@@ -121,27 +121,13 @@ qt_add_resources(ArtilodyWattTrainer "appicon"
     FILES ${APP_ICON_DIR}/app-icon-256.png
 )
 
-# Treadmill Run: the skinned, animated runner figure (Mixamo rig with a
-# running cycle) for the 3D view (route3d::GlbModel, :/models/runner.glb).
-# Optional walker.glb: the same figure with a walking cycle (used at walking
-# speeds, cross-faded with the run).
+# The 3D figures (route3d::GlbModel, :/models/...): the profile's textured
+# avatars - the cyclist (rider_male.glb, rider_female.glb), the runner
+# (runner_male.glb, runner_female.glb) and the rower (rower_male.glb,
+# rower_female.glb) - and runner.glb / walker.glb, not drawn: their running
+# and walking motion is moved onto the avatar runners.
 set(WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/runner.glb)
-if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
-    list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
-endif()
-# the cyclist (posed on the bike by the app; no animation used): rider.glb
-# (the classic figure, coloured by the app) and the textured avatars the
-# profile chooses between (rider_male.glb, rider_female.glb: their own
-# clothes from the texture, recoloured from the profile)
-# (and the Treadmill Run's textured runners: runner_male.glb, runner_female.glb,
-# and the Rowing page's rowers: rower_male.glb, rower_female.glb)
-foreach(m rider rider_male rider_female runner_male runner_female rower_male rower_female)
-    if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
-        list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
-    endif()
-endforeach()
-# the Rowing page's 3D view: the rower (Mixamo rig, posed by the app)
-foreach(m rower)
+foreach(m walker rider_male rider_female runner_male runner_female rower_male rower_female)
     if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
         list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
     endif()

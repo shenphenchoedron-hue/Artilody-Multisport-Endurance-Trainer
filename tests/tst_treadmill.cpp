@@ -965,24 +965,17 @@ private slots:
                 ++k;
             }
         }
-        if (!dump.isEmpty()) {   // (the classic rower, for comparison)
-            waitForFigure(QVariantMap { { "model", "classic" } }, watt::RiderAvatar::Rower);
-            preview.setAvatar({ { "model", "classic" } });
-            preview.setYaw(0);
-            QImage img(side, side * 15 / 16, QImage::Format_ARGB32_Premultiplied);
-            img.fill(Qt::white);
-            QPainter painter(&img);
-            preview.paint(&painter);
-            painter.end();
-            img.save(QStringLiteral("%1/rower_classic.png").arg(dump));
-            waitForFigure(QVariantMap { { "model", id } }, watt::RiderAvatar::Rower);
-            preview.setAvatar({ { "model", id } });
-        }
+        // no classic figure to choose: male and female only; an old "classic" is the male
+        const QVariantList models = watt::RiderAvatar::models(watt::RiderAvatar::Rower);
+        QVERIFY(!models.isEmpty() && models.size() <= 2);   // (those whose files are found)
+        for (const QVariant &v : models)
+            QVERIFY(v.toMap().value("id").toString() != QLatin1String("classic"));
+        QCOMPARE(watt::RiderAvatar::fromVariant({ { "model", "classic" } }, watt::RiderAvatar::Rower).model, QStringLiteral("male"));
         const QVariantMap own = preview.ownColors();
         QVERIFY(own.contains(QStringLiteral("jersey")) && !own.contains(QStringLiteral("shoes"))
                 && !own.contains(QStringLiteral("bike")) && own.contains(QStringLiteral("boat")));
-        // the boat's colour: its hull in it (the decks stay), any rower
-        const auto yellow = watt::RiderAvatar::fromVariant({ { "model", "classic" }, { "boat", "#f5c400" } },
+        // the boat's colour: its hull in it (the decks stay)
+        const auto yellow = watt::RiderAvatar::fromVariant({ { "model", id }, { "boat", "#f5c400" } },
                                                            watt::RiderAvatar::Rower);
         QVERIFY(yellow.boatColor.x() > .9f && yellow.boatColor.z() < .1f);
         std::vector<route3d::GhostVertex> plainHull, yellowHull;
@@ -1275,9 +1268,9 @@ private slots:
             }
         }
         QVERIFY(!preview.ownColors().isEmpty());
-        // the bike's colour: any cyclist, the classic one too
+        // the bike's colour
         QVERIFY(preview.ownColors().contains(QStringLiteral("bike")));
-        const auto redBike = watt::RiderAvatar::fromVariant({ { "model", "classic" }, { "bike", "#cc0000" } });
+        const auto redBike = watt::RiderAvatar::fromVariant({ { "model", id }, { "bike", "#cc0000" } });
         QVERIFY(redBike.bikeColor.x() > .7f && redBike.bikeColor.z() < .1f);
         route3d::GhostRider plain, painted;
         painted.setFrameColor(redBike.bikeColor);

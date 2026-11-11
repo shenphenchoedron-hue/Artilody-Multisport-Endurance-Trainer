@@ -771,22 +771,6 @@ std::shared_ptr<const route3d::GlbModel> walkerModel()
     return model;
 }
 
-// The cyclist: the skinned rider.glb (:/models/rider.glb, or
-// WATT_RIDER_GLB=<file>, =procedural for the built-in rider) posed on the bike
-// (GlbModel::poseOnBike); else the procedural rider. Loaded once per process.
-std::shared_ptr<const route3d::GlbModel> riderModel()
-{
-    static const std::shared_ptr<const route3d::GlbModel> model = [] {
-        auto m = loadModel("WATT_RIDER_GLB", QStringLiteral(":/models/rider.glb"), "rider",
-                           route3d::GlbModel::Outfit::Cyclist);
-        if (m && !m->canRide()) {
-            qWarning("Route3D: rider.glb lacks the joints needed on the bike (Mixamo skeleton) - not used");
-            m.reset();
-        }
-        return m;
-    }();
-    return model;
-}
 
 void Route3DScene::setAvatar(const RiderAvatar &avatar)
 {
@@ -821,24 +805,20 @@ void Route3DScene::setRunner(bool on)
     m_runner = on;
     if (!on || m_runnerModelTried)
         return;
-    // The profile's runner; loading in the background: the classic runner
-    // meanwhile, looked for again next frame (render()).
+    // The profile's runner; loading in the background: no runner meanwhile,
+    // looked for again next frame (render()).
     bool pending = false, walkPending = false;
     auto figure = m_runnerAvatar.figureIfReady(&pending);
     auto walk = m_runnerAvatar.walkingFigureIfReady(&walkPending);
     if (pending || walkPending) {
         if (!m_runnerInterim) {
             m_runnerInterim = true;
-            setRunnerFigure(runnerModel(), walkerModel(), {});
+            setRunnerFigure(nullptr, nullptr, {});
         }
         return;
     }
     m_runnerModelTried = true;
     m_runnerInterim = false;
-    if (!figure && !m_runnerAvatar.isClassic()) {   // (the avatar is not there: the classic runner)
-        figure = runnerModel();
-        walk = walkerModel();
-    }
     setRunnerFigure(figure, walk, figure ? m_runnerAvatar.figureColors(*figure) : std::vector<QVector3D>());
 }
 
@@ -2908,21 +2888,20 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     if (m_runner && !m_runnerModelTried)
         setRunner(true);   // (the profile's runner loading: looked for again)
     if (!m_runner && !m_riderModelTried) {
-        // the profile's cyclist; loading in the background: the classic
-        // rider meanwhile, looked for again next frame
+        // the profile's cyclist; loading in the background: the bike alone
+        // meanwhile, looked for again next frame
         bool pending = false;
         auto figure = m_avatar.figureIfReady(&pending);
         if (pending) {
             if (!m_riderInterim) {
                 m_riderInterim = true;
-                m_ghost.setRiderModel(riderModel());
+                m_ghost.setRiderHidden(true);
                 m_ghostIndexSource = nullptr;
             }
         } else {
             m_riderModelTried = true;
             m_riderInterim = false;
-            if (!figure && !m_avatar.isClassic())
-                figure = riderModel();   // (the avatar is not there: the classic rider)
+            m_ghost.setRiderHidden(false);
             m_ghost.setRiderModel(figure);
             if (figure)
                 m_ghost.setRiderColors(m_avatar.figureColors(*figure));

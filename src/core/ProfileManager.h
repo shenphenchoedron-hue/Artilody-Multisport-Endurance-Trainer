@@ -28,7 +28,7 @@ class ProfileManager : public QObject
     Q_PROPERTY(int preferredCadence READ preferredCadence NOTIFY profileChanged)
     Q_PROPERTY(bool defaultErg READ defaultErg NOTIFY profileChanged)
     Q_PROPERTY(QUrl avatarUrl READ avatarUrl NOTIFY profileChanged)
-    // The rider in the GPX Ride's 3D view: { model: "classic" | "male" | ...,
+    // The rider in the GPX Ride's 3D view: { model: "male" | "female",
     // jersey, shorts, helmet, shoes, hair, bike (the frame), boat (the hull): "#rrggbb" or "" (the model's own) } -
     // per profile (setting "avatar/<id>"), saved with saveProfile({ avatar3d: {...} }).
     Q_PROPERTY(QVariantMap avatar3d READ avatar3d NOTIFY profileChanged)

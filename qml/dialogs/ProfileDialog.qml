@@ -15,9 +15,9 @@ AppDialog {
     property var bounds: Profiles.defaultZoneBounds
     // the rider in the GPX Ride's 3D view (Profiles.avatar3d's keys) and the
     // runner in the Treadmill Run's (Profiles.runner3d); the panel shows one
-    property var avatar3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
-    property var runner3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
-    property var rower3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property var avatar3d: ({ model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property var runner3d: ({ model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property var rower3d: ({ model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
     property string avatarKind: "cyclist"   // "cyclist" | "runner" | "rower"
     readonly property var shownAvatar: avatarKind === "runner" ? runner3d : avatarKind === "rower" ? rower3d : avatar3d
 
@@ -41,11 +41,11 @@ AppDialog {
         showZones = false
         showAvatar3d = false
         avatarKind = "cyclist"
-        avatar3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+        avatar3d = newProfile ? { model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
                               : Object.assign({}, Profiles.avatar3d)
-        runner3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+        runner3d = newProfile ? { model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
                               : Object.assign({}, Profiles.runner3d)
-        rower3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+        rower3d = newProfile ? { model: "male", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
                              : Object.assign({}, Profiles.rower3d)
         nameField.text = newProfile ? "" : Profiles.name
         weight.value = newProfile ? 75 : Profiles.weight
@@ -292,9 +292,7 @@ AppDialog {
         y: 76
         width: 454
         height: 440
-        readonly property var own: preview.ownColors   // the figure's own colours (empty: classic)
-        // the figure's clothes can be recoloured (a textured avatar; the bike always can)
-        readonly property bool recolourable: Object.keys(own).filter(k => k !== "bike" && k !== "boat").length > 0
+        readonly property var own: preview.ownColors   // the figure's own colours (empty while it loads)
 
         Rectangle { x: -14; width: 1; height: parent.height; color: Theme.cardBorder }
 
@@ -362,10 +360,10 @@ AppDialog {
                 Layout.preferredHeight: 40
                 textRole: "name"
                 // the installed figures - and the saved one when its model
-                // file is not there (shown as such, the classic one drawn)
+                // file is not there (shown as such, the other one drawn)
                 readonly property var choices: {
                     var list = preview.models.slice()
-                    var saved = dlg.shownAvatar.model || "classic"
+                    var saved = dlg.shownAvatar.model || "male"
                     if (!list.some(m => m.id === saved))
                         list.push({ id: saved, name: saved + " (not installed)" })
                     return list
@@ -373,7 +371,7 @@ AppDialog {
                 model: choices
                 currentIndex: {
                     for (var i = 0; i < choices.length; ++i)
-                        if (choices[i].id === (dlg.shownAvatar.model || "classic"))
+                        if (choices[i].id === (dlg.shownAvatar.model || "male"))
                             return i
                     return 0
                 }
@@ -389,8 +387,7 @@ AppDialog {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
-                    visible: (avatarPanel.recolourable || modelData.key === "bike" || modelData.key === "boat")
-                             && (modelData.key !== "helmet" || preview.helmet)
+                    visible: (modelData.key !== "helmet" || preview.helmet)
                              && (avatarPanel.own[modelData.key] || "").length > 0
                     readonly property string chosen: dlg.shownAvatar[modelData.key] || ""
                     readonly property string shown: chosen.length > 0 ? chosen : (avatarPanel.own[modelData.key] || "#808080")
@@ -432,19 +429,6 @@ AppDialog {
                         }
                     }
                 }
-            }
-            Text {
-                Layout.columnSpan: 2
-                Layout.fillWidth: true
-                visible: !avatarPanel.recolourable
-                text: dlg.avatarKind === "runner"
-                      ? "The classic runner's colours are fixed. Choose a male or female runner to pick the colours of the top, shorts, shoes and hair."
-                      : dlg.avatarKind === "rower"
-                      ? "The classic rower's colours are fixed. Choose a male or female rower to pick the colours of the top, shorts and hair."
-                      : "The classic rider's clothes have fixed colours. Choose a male or female cyclist to pick the colours of the jersey, shorts, helmet, shoes and hair."
-                color: Theme.textSecondary
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
             }
         }
     }

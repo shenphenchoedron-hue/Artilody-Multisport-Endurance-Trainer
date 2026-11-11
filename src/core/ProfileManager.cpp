@@ -39,10 +39,10 @@ const char *const kAvatarColorKeys[] = { "jersey", "shorts", "helmet", "shoes", 
 // only the known keys: a model id and "#rrggbb" colours ("" = the model's own)
 QVariantMap cleanAvatar3d(const QVariantMap &v)
 {
+    // (the figures: "male" or "female"; anything else - an old "classic" - the male)
     QString model = v.value(QStringLiteral("model")).toString().trimmed().toLower();
-    if (model.isEmpty() || model.size() > 32
-        || !std::all_of(model.cbegin(), model.cend(), [](QChar c) { return c.isLetterOrNumber() || c == QLatin1Char('_'); }))
-        model = QStringLiteral("classic");
+    if (model != QLatin1String("female"))
+        model = QStringLiteral("male");
     QVariantMap out { { QStringLiteral("model"), model } };
     static const QRegularExpression rgb(QStringLiteral("^#[0-9a-f]{6}$"));
     for (const char *key : kAvatarColorKeys) {

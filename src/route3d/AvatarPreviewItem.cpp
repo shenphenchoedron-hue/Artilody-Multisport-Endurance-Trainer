@@ -94,16 +94,9 @@ QVariantMap AvatarPreviewItem::ownColors() const
 
 std::shared_ptr<const route3d::GlbModel> AvatarPreviewItem::figureNow() const
 {
-    // (not waiting: while the avatar loads - or when it is not there - the
-    // classic figure is shown, as in the 3D views)
+    // (not waiting: nothing is shown while the avatar loads - drawn when it is there)
     bool pending = false;
-    auto figure = m_avatar.figureIfReady(&pending);
-    if (!figure) {
-        RiderAvatar classic = m_avatar;
-        classic.model = QStringLiteral("classic");
-        figure = classic.figureIfReady(&pending);
-    }
-    return figure;
+    return m_avatar.figureIfReady(&pending);
 }
 
 void AvatarPreviewItem::reload()
@@ -148,6 +141,8 @@ void AvatarPreviewItem::buildPosed()
         m_posed.insert(m_posed.end(), boat.begin(), boat.end());
         for (uint32_t k = 0; k < boat.size(); ++k)
             m_posedIdx.push_back(base + k);
+    } else if (!figure) {
+        return;   // (loading)
     } else if (m_avatar.kind == RiderAvatar::Runner) {
         route3d::GhostRunner runner;
         runner.setModel(figure);

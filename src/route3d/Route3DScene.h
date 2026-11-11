@@ -30,11 +30,11 @@ class QOpenGLContext;
 
 namespace watt {
 
-// The runner figure model (runner.glb), null when there is none / it fails.
+// The runner figure (runner.glb) and the same figure walking (walker.glb):
+// not drawn - their motion is what the profile's runners run and walk with
+// (RiderAvatar); null when there is none / it fails.
 std::shared_ptr<const route3d::GlbModel> runnerModel();
-// The same figure walking (walker.glb), null when there is none.
 std::shared_ptr<const route3d::GlbModel> walkerModel();
-std::shared_ptr<const route3d::GlbModel> riderModel();
 
 // The 3D world of the Route3D prototype (0.7): terrain, road, houses, trees,
 // sky and the built-in rider along a route3d::Route, drawn with OpenGL into
@@ -289,7 +289,7 @@ private:
     bool m_runner = false;
     bool m_runnerModelTried = false;   // the runner (m_runnerAvatar's figure) is set
     bool m_riderModelTried = false;    // the .glb cyclist (m_avatar's figure) is set
-    bool m_runnerInterim = false, m_riderInterim = false;   // the classic figure while the avatar loads
+    bool m_runnerInterim = false, m_riderInterim = false;   // no figure (the bike alone) while the avatar loads
     void setRunnerFigure(std::shared_ptr<const route3d::GlbModel> figure, std::shared_ptr<const route3d::GlbModel> walk,
                          std::vector<QVector3D> colors);
     RiderAvatar m_avatar;              // the profile's cyclist

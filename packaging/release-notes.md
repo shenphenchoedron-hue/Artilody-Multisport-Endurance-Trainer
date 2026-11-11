@@ -1,13 +1,17 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.8
+## What's new in 1.9.9
 
-**Your own 3D avatar – cyclist, runner and rower.** In the *User Profile* dialog, **3D avatar ›** opens a panel with a live preview (drag to turn it): choose **Classic**, a **male** or a **female** figure for the **cyclist** (GPX Ride), the **runner** (Treadmill Run) and the **rower** (Rowing), each saved separately per profile.
+**Only the new 3D figures.** The old Classic cyclist, runner and rower are gone: the *3D avatar* panel offers the male and the female figure for each, and every part can be recoloured. A profile that had Classic chosen now shows the male figure (change it in *User Profile → 3D avatar ›*). The figures load in the background when the app starts, so they are ready when a 3D view opens. No database change – install over 1.9.8.
+
+## Also included from 1.9.8
+
+**Your own 3D avatar – cyclist, runner and rower.** In the *User Profile* dialog, **3D avatar ›** opens a panel with a live preview (drag to turn it): choose a **male** or a **female** figure for the **cyclist** (GPX Ride), the **runner** (Treadmill Run) and the **rower** (Rowing), each saved separately per profile.
 
 - **Your colours**: pick the colours of the jersey/top, shorts, helmet (cyclists), shoes (cyclists and runners) and hair – the new figures wear their own textured clothes, and a chosen colour keeps their folds and shading. *Reset* returns a part to its own colour.
-- **Bike and boat colours**: the bike frame (any cyclist, Classic too) and the boat's hull (any rower, the ghost boat too).
-- **Figures that fit their sport**: the cyclists sit on the saddle (raised to fit the figure), the runners run with the classic runner's proven stride and walk below your walk → run speed, the rowers sit straight-backed, barefoot, in the middle of a wider scull.
-- **Smooth**: the figures load in the background – the 3D views show the classic figure for a moment and switch by themselves, without freezing.
+- **Bike and boat colours**: the bike frame and the boat's hull (any rower, the ghost boat too).
+- **Figures that fit their sport**: the cyclists sit on the saddle (raised to fit the figure), the runners run with a proven running stride and walk below your walk → run speed, the rowers sit straight-backed, barefoot, in the middle of a wider scull.
+- **Smooth**: the figures load in the background – the profile's figures are ready when a 3D view opens, without freezing.
 - No database change (the choices are stored in the settings) – install over 1.9.7.
 
 ## Also included from 1.9.7

@@ -34,7 +34,7 @@ struct ModelInfo
     RiderAvatar::Kind kind;
     const char *id;
     const char *name;
-    const char *resource;   // (classic: riderModel() / runnerModel())
+    const char *resource;
     const char *env;        // a file to try instead (testing a new model)
     float shoulders = 1.f;  // < 1: narrower shoulders (GlbModel::setShoulderWidth())
     float slim = 0.f;       // > 0: a slimmer upper body (GlbModel::slimUpperBody())
@@ -43,15 +43,12 @@ struct ModelInfo
     float neckWidth = 1.f;  // > 1: a thicker neck (GlbModel::setNeckWidth())
 };
 const ModelInfo kModels[] = {
-    { RiderAvatar::Cyclist, "classic", "Classic", nullptr, nullptr },
     { RiderAvatar::Cyclist, "male", "Male cyclist", ":/models/rider_male.glb", "WATT_RIDER_MALE_GLB" },
     { RiderAvatar::Cyclist, "female", "Female cyclist", ":/models/rider_female.glb", "WATT_RIDER_FEMALE_GLB" },
-    { RiderAvatar::Runner, "classic", "Classic", nullptr, nullptr },
     { RiderAvatar::Runner, "male", "Male runner", ":/models/runner_male.glb", "WATT_RUNNER_MALE_GLB", kMaleRunnerShoulders,
       kMaleRunnerSlim, kMaleRunnerLegsIn },
     { RiderAvatar::Runner, "female", "Female runner", ":/models/runner_female.glb", "WATT_RUNNER_FEMALE_GLB", 1.f, 0.f,
       kFemaleRunnerLegsIn },
-    { RiderAvatar::Rower, "classic", "Classic", nullptr, nullptr },
     { RiderAvatar::Rower, "male", "Male rower", ":/models/rower_male.glb", "WATT_ROWER_MALE_GLB" },
     { RiderAvatar::Rower, "female", "Female rower", ":/models/rower_female.glb", "WATT_ROWER_FEMALE_GLB", 1.f, 0.f, 0.f,
       kFemaleRowerNeck, kFemaleRowerNeckWidth },
@@ -74,8 +71,6 @@ const ModelInfo *info(RiderAvatar::Kind kind, const QString &id)
 std::shared_ptr<const GlbModel> load(const ModelInfo &m)
 {
     const bool runner = m.kind == RiderAvatar::Runner, rower = m.kind == RiderAvatar::Rower;
-    if (!m.resource)
-        return runner ? runnerModel() : rower ? classicRowerModel() : riderModel();
     const QString path = pathOf(m);
     if (!QFile::exists(path))
         return {};
@@ -102,7 +97,7 @@ std::shared_ptr<const GlbModel> load(const ModelInfo &m)
         return {};
     }
     if (!g->textured())
-        qWarning("Route3D: avatar %s (%s) has no usable base colour texture - coloured like the classic figure", m.name,
+        qWarning("Route3D: avatar %s (%s) has no usable base colour texture - coloured by the app", m.name,
                  qPrintable(path));
     return g;
 }
@@ -111,8 +106,6 @@ std::shared_ptr<const GlbModel> load(const ModelInfo &m)
 // a copy of it, its animation replaced (no second load)
 std::shared_ptr<const GlbModel> loadWalking(const ModelInfo &m, const std::shared_ptr<const GlbModel> &running)
 {
-    if (!m.resource)
-        return walkerModel();
     const auto walker = walkerModel();
     if (!running || !walker || !running->retargeted())
         return {};
@@ -179,6 +172,10 @@ void loadSlot(const ModelInfo *m, bool walking)
 
 std::shared_ptr<const GlbModel> get(const ModelInfo *m, bool walking, bool wait, bool *pending)
 {
+    if (pending)
+        *pending = false;
+    if (!m)
+        return {};
     QMutexLocker lock(&g_mutex);
     start(m, walking);
     Slot &s = g_slots[{ m, walking }];
@@ -190,10 +187,16 @@ std::shared_ptr<const GlbModel> get(const ModelInfo *m, bool walking, bool wait,
     return s.done ? s.figure : nullptr;
 }
 
+// the figure chosen - or, when its model file is not there, another of its
+// kind that is (the male, then the female); null: none at all
 const ModelInfo *chosen(RiderAvatar::Kind kind, const QString &model)
 {
-    const ModelInfo *m = info(kind, model);
-    return m ? m : info(kind, QStringLiteral("classic"));
+    if (const ModelInfo *m = info(kind, model); m && QFile::exists(pathOf(*m)))
+        return m;
+    for (const ModelInfo &m : kModels)
+        if (m.kind == kind && QFile::exists(pathOf(m)))
+            return &m;
+    return nullptr;
 }
 
 } // namespace
@@ -216,7 +219,7 @@ RiderAvatar RiderAvatar::fromVariant(const QVariantMap &values, Kind kind)
     a.kind = kind;
     const QString model = values.value(QStringLiteral("model")).toString();
     if (info(kind, model))
-        a.model = model;
+        a.model = model;   // (anything else - an old "classic" - the male figure)
     for (int g = GlbModel::Jersey; g < GlbModel::GarmentCount; ++g) {
         const QColor c(values.value(QLatin1String(garmentKey(GlbModel::Garment(g)))).toString());
         if (c.isValid())
@@ -270,6 +273,11 @@ std::shared_ptr<const GlbModel> RiderAvatar::walkingFigureIfReady(bool *pending)
 void RiderAvatar::preload(std::function<void()> done) const
 {
     const ModelInfo *m = chosen(kind, model);
+    if (!m) {
+        if (done)
+            done();
+        return;
+    }
     const bool walking = kind == Runner;
     // done: when the figure (and the walking one) are loaded
     auto remaining = std::make_shared<std::atomic<int>>(walking ? 2 : 1);
