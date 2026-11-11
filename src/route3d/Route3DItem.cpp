@@ -1,5 +1,8 @@
 #include "Route3DItem.h"
 
+#include <QCoreApplication>
+#include <QPointer>
+
 #include "Route3DScene.h"
 #include "DiagLog.h"
 #include "RlvRoute.h"
@@ -110,6 +113,8 @@ public:
         }
         m_scene.setLaps(view->frameLaps());
         m_scene.setStartDistance(view->frameStartDistance());
+        m_scene.setAvatar(view->frameAvatar());
+        m_scene.setRunnerAvatar(view->frameRunnerAvatar());
         m_scene.setRunner(view->frameRunner());
         m_scene.setWalkRunKmh(view->frameWalkRunKmh());
         m_distance = view->frameDistance();
@@ -477,6 +482,33 @@ Route3DItem::Built Route3DItem::build(const RlvRoute &route, bool loop)
         }
     }
     return b;
+}
+
+void Route3DItem::setAvatar(const QVariantMap &values)
+{
+    if (values == m_avatarValues)
+        return;
+    m_avatarValues = values;
+    m_avatar = RiderAvatar::fromVariant(values);
+    emit avatarChanged();
+    update();
+    // loaded in the background: drawn again when it is there
+    m_avatar.preload([self = QPointer<Route3DItem>(this)] {
+        QMetaObject::invokeMethod(qApp, [self] { if (self) self->update(); }, Qt::QueuedConnection);
+    });
+}
+
+void Route3DItem::setRunnerAvatar(const QVariantMap &values)
+{
+    if (values == m_runnerAvatarValues)
+        return;
+    m_runnerAvatarValues = values;
+    m_runnerAvatar = RiderAvatar::fromVariant(values, RiderAvatar::Runner);
+    emit runnerAvatarChanged();
+    update();
+    m_runnerAvatar.preload([self = QPointer<Route3DItem>(this)] {
+        QMetaObject::invokeMethod(qApp, [self] { if (self) self->update(); }, Qt::QueuedConnection);
+    });
 }
 
 double Route3DItem::frameWalkRunKmh() const

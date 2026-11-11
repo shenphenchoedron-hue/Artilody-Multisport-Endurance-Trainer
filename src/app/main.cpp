@@ -17,6 +17,7 @@
 #include "RlvSession.h"
 #include "Route3DItem.h"
 #include "Rowing3DItem.h"
+#include "AvatarPreviewItem.h"
 #include "VirtualGears.h"
 #include "RowingRecords.h"
 #include "RowingSession.h"
@@ -849,6 +850,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
     qmlRegisterType<Route3DItem>(uri, 1, 0, "Route3DView");
     qmlRegisterType<Rowing3DItem>(uri, 1, 0, "Rowing3DView");
+    qmlRegisterType<AvatarPreviewItem>(uri, 1, 0, "AvatarPreview");
     qmlRegisterUncreatableType<IntervalModel>(uri, 1, 0, "IntervalModel", QStringLiteral("Provided by Builder"));
     qmlRegisterUncreatableType<DeviceListModel>(uri, 1, 0, "DeviceListModel", QStringLiteral("Provided by Devices"));
     qmlRegisterUncreatableType<TrackListModel>(uri, 1, 0, "TrackListModel", QStringLiteral("Provided by Music"));

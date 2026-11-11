@@ -129,10 +129,17 @@ set(WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/runner.glb)
 if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
     list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/walker.glb)
 endif()
-# the cyclist (posed on the bike by the app; no animation used)
-if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
-    list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/rider.glb)
-endif()
+# the cyclist (posed on the bike by the app; no animation used): rider.glb
+# (the classic figure, coloured by the app) and the textured avatars the
+# profile chooses between (rider_male.glb, rider_female.glb: their own
+# clothes from the texture, recoloured from the profile)
+# (and the Treadmill Run's textured runners: runner_male.glb, runner_female.glb,
+# and the Rowing page's rowers: rower_male.glb, rower_female.glb)
+foreach(m rider rider_male rider_female runner_male runner_female rower_male rower_female)
+    if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
+        list(APPEND WATT_FIGURE_MODELS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)
+    endif()
+endforeach()
 # the Rowing page's 3D view: the rower (Mixamo rig, posed by the app)
 foreach(m rower)
     if(EXISTS ${PROJECT_SOURCE_DIR}/assets/models/${m}.glb)

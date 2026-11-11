@@ -788,15 +788,69 @@ std::shared_ptr<const route3d::GlbModel> riderModel()
     return model;
 }
 
+void Route3DScene::setAvatar(const RiderAvatar &avatar)
+{
+    if (avatar == m_avatar)
+        return;
+    const bool newFigure = avatar.model != m_avatar.model;
+    m_avatar = avatar;
+    m_ghost.setFrameColor(m_avatar.bikeColor);
+    if (newFigure) {
+        m_riderModelTried = false;   // (render() sets the figure)
+    } else if (const auto &figure = m_ghost.riderModel()) {
+        m_ghost.setRiderColors(m_avatar.figureColors(*figure));   // only the colours changed
+    }
+}
+
+void Route3DScene::setRunnerAvatar(const RiderAvatar &avatar)
+{
+    if (avatar == m_runnerAvatar)
+        return;
+    const bool newFigure = avatar.model != m_runnerAvatar.model;
+    m_runnerAvatar = avatar;
+    if (newFigure)
+        m_runnerModelTried = false;   // (setRunner() sets the figure)
+    else if (const auto &figure = m_runnerFigure.figureModel())
+        m_runnerFigure.setColors(m_runnerAvatar.figureColors(*figure));   // only the colours changed
+    if (m_runner)
+        setRunner(true);
+}
+
 void Route3DScene::setRunner(bool on)
 {
     m_runner = on;
-    if (on && !m_runnerModelTried) {
-        m_runnerModelTried = true;
-        m_runnerFigure.setModel(runnerModel());
-        if (auto walk = walkerModel(); walk && !m_runnerFigure.setWalkModel(walk))
-            qWarning("Route3D: walker.glb is not the same figure (mesh) as runner.glb - not used");
+    if (!on || m_runnerModelTried)
+        return;
+    // The profile's runner; loading in the background: the classic runner
+    // meanwhile, looked for again next frame (render()).
+    bool pending = false, walkPending = false;
+    auto figure = m_runnerAvatar.figureIfReady(&pending);
+    auto walk = m_runnerAvatar.walkingFigureIfReady(&walkPending);
+    if (pending || walkPending) {
+        if (!m_runnerInterim) {
+            m_runnerInterim = true;
+            setRunnerFigure(runnerModel(), walkerModel(), {});
+        }
+        return;
     }
+    m_runnerModelTried = true;
+    m_runnerInterim = false;
+    if (!figure && !m_runnerAvatar.isClassic()) {   // (the avatar is not there: the classic runner)
+        figure = runnerModel();
+        walk = walkerModel();
+    }
+    setRunnerFigure(figure, walk, figure ? m_runnerAvatar.figureColors(*figure) : std::vector<QVector3D>());
+}
+
+void Route3DScene::setRunnerFigure(std::shared_ptr<const route3d::GlbModel> figure, std::shared_ptr<const route3d::GlbModel> walk,
+                                   std::vector<QVector3D> colors)
+{
+    m_runnerFigure.setModel(figure);
+    m_runnerFigure.setColors(std::move(colors));
+    // its walking cycle (the same mesh: walker.glb / the avatar with the walker's motion)
+    if (figure && walk && !m_runnerFigure.setWalkModel(walk))
+        qWarning("Route3D: the walking figure is not the same mesh as the running one - not used");
+    m_ghostIndexSource = nullptr;   // (another mesh: its indices are uploaded again)
 }
 
 void Route3DScene::setStartDistance(double drawnMetres)
@@ -2851,9 +2905,29 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     drawGates(distance);
     m_shader.bind();
     // 4. Soft contact shadows (blended, no depth writes) and the rider.
+    if (m_runner && !m_runnerModelTried)
+        setRunner(true);   // (the profile's runner loading: looked for again)
     if (!m_runner && !m_riderModelTried) {
-        m_riderModelTried = true;
-        m_ghost.setRiderModel(riderModel());
+        // the profile's cyclist; loading in the background: the classic
+        // rider meanwhile, looked for again next frame
+        bool pending = false;
+        auto figure = m_avatar.figureIfReady(&pending);
+        if (pending) {
+            if (!m_riderInterim) {
+                m_riderInterim = true;
+                m_ghost.setRiderModel(riderModel());
+                m_ghostIndexSource = nullptr;
+            }
+        } else {
+            m_riderModelTried = true;
+            m_riderInterim = false;
+            if (!figure && !m_avatar.isClassic())
+                figure = riderModel();   // (the avatar is not there: the classic rider)
+            m_ghost.setRiderModel(figure);
+            if (figure)
+                m_ghost.setRiderColors(m_avatar.figureColors(*figure));
+            m_ghostIndexSource = nullptr;   // (another mesh: its indices are uploaded again)
+        }
     }
     const auto &body = m_runner ? m_runnerFigure.build(route, distance, speedKmh, crank)
                                 : m_ghost.build(route, distance, speedKmh, crank);

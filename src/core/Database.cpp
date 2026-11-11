@@ -596,6 +596,15 @@ void Database::setSetting(const QString &key, const QVariant &value)
         setError(QStringLiteral("setSetting"), q.lastError().text());
 }
 
+void Database::removeSetting(const QString &key)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM settings WHERE key = ?"));
+    q.addBindValue(key);
+    if (!q.exec())
+        setError(QStringLiteral("removeSetting"), q.lastError().text());
+}
+
 // --- profiles --------------------------------------------------------------
 
 QVector<Profile> Database::profiles() const

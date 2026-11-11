@@ -3,6 +3,10 @@
 #include "Database.h"
 
 #include <QFileInfo>
+#include <QRegularExpression>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <algorithm>
 #include <cmath>
 
 namespace watt {
@@ -24,8 +28,66 @@ void ProfileManager::load()
     }
     if (p)
         m_profile = *p;
+    loadAvatar3d();
     emit profileChanged();
     emit profilesChanged();
+}
+
+namespace {
+const char *const kAvatarColorKeys[] = { "jersey", "shorts", "helmet", "shoes", "hair", "bike", "boat" };
+
+// only the known keys: a model id and "#rrggbb" colours ("" = the model's own)
+QVariantMap cleanAvatar3d(const QVariantMap &v)
+{
+    QString model = v.value(QStringLiteral("model")).toString().trimmed().toLower();
+    if (model.isEmpty() || model.size() > 32
+        || !std::all_of(model.cbegin(), model.cend(), [](QChar c) { return c.isLetterOrNumber() || c == QLatin1Char('_'); }))
+        model = QStringLiteral("classic");
+    QVariantMap out { { QStringLiteral("model"), model } };
+    static const QRegularExpression rgb(QStringLiteral("^#[0-9a-f]{6}$"));
+    for (const char *key : kAvatarColorKeys) {
+        const QString c = v.value(QLatin1String(key)).toString().trimmed().toLower();
+        out.insert(QLatin1String(key), rgb.match(c).hasMatch() ? c : QString());
+    }
+    return out;
+}
+
+QString avatarKey(qint64 id)
+{
+    return QStringLiteral("avatar/%1").arg(id);
+}
+QString runnerKey(qint64 id)
+{
+    return QStringLiteral("runnerAvatar/%1").arg(id);
+}
+QString rowerKey(qint64 id)
+{
+    return QStringLiteral("rowerAvatar/%1").arg(id);
+}
+} // namespace
+
+void ProfileManager::loadAvatar3d()
+{
+    auto read = [&](const QString &key) {
+        const QByteArray json = m_profile.id >= 0 ? m_db->setting(key, QString()).toString().toUtf8() : QByteArray();
+        return cleanAvatar3d(QJsonDocument::fromJson(json).object().toVariantMap());
+    };
+    m_avatar3d = read(avatarKey(m_profile.id));
+    m_runner3d = read(runnerKey(m_profile.id));
+    m_rower3d = read(rowerKey(m_profile.id));
+}
+
+void ProfileManager::saveAvatars(qint64 id, const QVariantMap &values)
+{
+    // (each kept per profile as JSON, only the known keys)
+    for (const auto &[key, setting] : { std::pair(QStringLiteral("avatar3d"), avatarKey(id)),
+                                        std::pair(QStringLiteral("runner3d"), runnerKey(id)),
+                                        std::pair(QStringLiteral("rower3d"), rowerKey(id)) }) {
+        if (!values.contains(key))
+            continue;
+        const QVariantMap clean = cleanAvatar3d(values.value(key).toMap());
+        m_db->setSetting(setting, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
+    }
 }
 
 void ProfileManager::refreshAnt()
@@ -195,6 +257,8 @@ bool ProfileManager::saveProfile(const QVariantMap &v)
     }
     p.id = id;
     m_profile = p;
+    saveAvatars(id, v);
+    loadAvatar3d();
     setError(QString());
     emit profileChanged();
     emit profilesChanged();
@@ -215,6 +279,7 @@ bool ProfileManager::selectProfile(qint64 id)
         return false;
     m_profile = *p;
     m_db->setSetting(QStringLiteral("currentProfile"), id);
+    loadAvatar3d();
     emit profileChanged();
     return true;
 }
@@ -247,6 +312,7 @@ qint64 ProfileManager::createProfileWith(const QVariantMap &values)
         setError(m_db->lastError());
         return -1;
     }
+    saveAvatars(id, values);
     setError(QString());
     emit profilesChanged();
     selectProfile(id);
@@ -265,6 +331,8 @@ bool ProfileManager::deleteProfile(qint64 id)
     }
     if (!m_db->deleteProfile(id))
         return false;
+    for (const QString &key : { avatarKey(id), runnerKey(id), rowerKey(id) })   // (its 3D avatars)
+        m_db->removeSetting(key);
     emit profilesChanged();
     if (id == m_profile.id)
         selectProfile(m_db->profiles().first().id);

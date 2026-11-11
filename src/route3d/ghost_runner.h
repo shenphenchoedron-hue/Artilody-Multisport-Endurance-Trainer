@@ -140,12 +140,19 @@ class GhostRunner : public GhostRider {
     std::shared_ptr<const GlbModel> model;
     std::shared_ptr<const GlbModel> walkModel;   // same figure walking (optional)
     std::vector<GhostVertex> local,walkLocal;
+    std::vector<QVector3D> colors;
     bool modelIndexed=false;   // index holds the model's triangles
     double transition=(kWalkKmh+kRunKmh)*.5;
 public:
     // A skinned, animated .glb runner (GlbModel) instead of the procedural
     // figure; null = the procedural figure. One animation cycle = one stride.
-    void setModel(std::shared_ptr<const GlbModel> m){model=std::move(m);modelIndexed=false;indexedFor=size_t(-1);}
+    void setModel(std::shared_ptr<const GlbModel> m){
+        model=std::move(m);modelIndexed=false;indexedFor=size_t(-1);walkModel.reset();colors.clear();
+    }
+    const std::shared_ptr<const GlbModel>& figureModel()const{return model;}
+    // The .glb runner's vertex colours (GlbModel::colorsFor(): an avatar's
+    // clothes in the profile's colours); empty = the model's own.
+    void setColors(std::vector<QVector3D> c){colors=std::move(c);}
     bool hasModel()const{return model!=nullptr;}
     // The same figure (same mesh) walking: below kWalkKmh the walk cycle is
     // shown, above kRunKmh the run cycle, cross-faded in between. Ignored
@@ -189,8 +196,9 @@ public:
                 }
             }
             mesh.resize(local.size());
+            const bool recolour=colors.size()==local.size();   // (the profile's avatar colours)
             for(size_t i=0;i<local.size();++i)
-                mesh[i]={world(local[i].position),worldNormal(local[i].normal),local[i].color};
+                mesh[i]={world(local[i].position),worldNormal(local[i].normal),recolour?colors[i]:local[i].color};
             if(!modelIndexed){index=model->indices();modelIndexed=true;indexedFor=size_t(-1);}
             return mesh;
         }

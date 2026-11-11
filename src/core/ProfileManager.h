@@ -28,6 +28,16 @@ class ProfileManager : public QObject
     Q_PROPERTY(int preferredCadence READ preferredCadence NOTIFY profileChanged)
     Q_PROPERTY(bool defaultErg READ defaultErg NOTIFY profileChanged)
     Q_PROPERTY(QUrl avatarUrl READ avatarUrl NOTIFY profileChanged)
+    // The rider in the GPX Ride's 3D view: { model: "classic" | "male" | ...,
+    // jersey, shorts, helmet, shoes, hair, bike (the frame), boat (the hull): "#rrggbb" or "" (the model's own) } -
+    // per profile (setting "avatar/<id>"), saved with saveProfile({ avatar3d: {...} }).
+    Q_PROPERTY(QVariantMap avatar3d READ avatar3d NOTIFY profileChanged)
+    // The runner in the Treadmill Run's 3D view: the same keys (setting
+    // "runnerAvatar/<id>"), saved with saveProfile({ runner3d: {...} }).
+    Q_PROPERTY(QVariantMap runner3d READ runner3d NOTIFY profileChanged)
+    // The rower in the Rowing page's 3D view (setting "rowerAvatar/<id>",
+    // saveProfile({ rower3d: {...} })).
+    Q_PROPERTY(QVariantMap rower3d READ rower3d NOTIFY profileChanged)
     Q_PROPERTY(double wattsPerKg READ wattsPerKg NOTIFY profileChanged)
     Q_PROPERTY(QVariantList powerZones READ powerZones NOTIFY profileChanged)
     Q_PROPERTY(QVariantList zoneBounds READ zoneBounds NOTIFY profileChanged)            // fractions of FTP
@@ -64,6 +74,9 @@ public:
     int preferredCadence() const { return m_profile.preferredCadence; }
     bool defaultErg() const { return m_profile.defaultErg; }
     QUrl avatarUrl() const;
+    QVariantMap avatar3d() const { return m_avatar3d; }
+    QVariantMap runner3d() const { return m_runner3d; }
+    QVariantMap rower3d() const { return m_rower3d; }
     double wattsPerKg() const { return m_profile.wattsPerKg(); }
     QVariantList powerZones() const;
     QVariantList zoneBounds() const;
@@ -72,7 +85,8 @@ public:
     QString lastError() const { return m_lastError; }
 
     // Saves the edited profile. Keys: name, weight, heightCm, ftp, maxHr, restHr,
-    // preferredCadence, defaultErg, avatarUrl, rowingFtp, zoneBounds (list of 5 fractions).
+    // preferredCadence, defaultErg, avatarUrl, rowingFtp, zoneBounds (list of 5 fractions),
+    // avatar3d, runner3d, rower3d (maps, see the properties).
     Q_INVOKABLE bool saveProfile(const QVariantMap &values);
     Q_INVOKABLE bool selectProfile(qint64 id);
     Q_INVOKABLE qint64 createProfile(const QString &name);
@@ -99,8 +113,12 @@ signals:
 private:
     void setError(const QString &e);
     static void applyValues(Profile &p, const QVariantMap &values);
+    // the profile's 3D avatar: read from / written to the settings
+    void loadAvatar3d();
+    void saveAvatars(qint64 id, const QVariantMap &values);   // avatar3d / runner3d / rower3d in values
     Database *m_db;
     Profile m_profile;
+    QVariantMap m_avatar3d, m_runner3d, m_rower3d;
     QString m_lastError;
     std::function<bool()> m_busy;
 };

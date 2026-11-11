@@ -1,6 +1,7 @@
 #pragma once
 
 #include "biome.h"
+#include "RiderAvatar.h"
 #include "ghost_rider.h"
 #include "ghost_runner.h"
 #include "countryside.h"
@@ -105,6 +106,10 @@ public:
     // crank is then the stride phase (one turn = a left and a right step).
     void setRunner(bool on);
     void setWalkRunKmh(double kmh) { m_runnerFigure.setTransitionKmh(kmh); }
+    // The cyclist's look (the profile's avatar: figure and clothes' colours).
+    void setAvatar(const RiderAvatar &avatar);
+    // The runner's look (Treadmill Run; RiderAvatar::Runner).
+    void setRunnerAvatar(const RiderAvatar &avatar);
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -282,8 +287,13 @@ private:
     route3d::GhostRider m_ghost;
     route3d::GhostRunner m_runnerFigure;
     bool m_runner = false;
-    bool m_runnerModelTried = false;
-    bool m_riderModelTried = false;    // the .glb cyclist (riderModel()) was looked for   // the .glb runner (runnerModel()) was looked for
+    bool m_runnerModelTried = false;   // the runner (m_runnerAvatar's figure) is set
+    bool m_riderModelTried = false;    // the .glb cyclist (m_avatar's figure) is set
+    bool m_runnerInterim = false, m_riderInterim = false;   // the classic figure while the avatar loads
+    void setRunnerFigure(std::shared_ptr<const route3d::GlbModel> figure, std::shared_ptr<const route3d::GlbModel> walk,
+                         std::vector<QVector3D> colors);
+    RiderAvatar m_avatar;              // the profile's cyclist
+    RiderAvatar m_runnerAvatar { RiderAvatar::Runner };   // the profile's runner
     QOpenGLVertexArrayObject m_vao;
     QOpenGLVertexArrayObject m_skyVao;
     std::vector<Vertex> m_build, m_buildDecals, m_ring;   // m_build*: written by the tile job only

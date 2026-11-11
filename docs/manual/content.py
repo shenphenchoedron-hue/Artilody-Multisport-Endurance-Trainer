@@ -305,6 +305,27 @@ def build(s, env):
         "Without a picture the first letter of your name is shown. The app remembers the location of the "
         "image file rather than copying it, so keep the file where it is.")
 
+    s.sub("3D avatar")
+    s.p(f"Click {UI('3D avatar ›')} (below {UI('Training zones ›')}) to open the 3D avatar panel on the right side "
+        "of the dialog. It chooses the figures of the 3D views: the cyclist of GPX Ride, the runner of Treadmill "
+        "Run and the rower of the Rowing page – switch between them with "
+        f"{UI('Cyclist')} / {UI('Runner')} / {UI('Rower')} at the top. The preview shows the figure as the 3D "
+        "view draws it; drag it to turn it round.")
+    s.bullets([
+        f"<b>Figure</b> – {UI('Classic')} (the app's own figure, fixed colours) or a male or female figure "
+        "wearing its own textured clothes.",
+        "<b>Colours</b> – click a colour box to choose the colour of the jersey (runner and rower: the top), "
+        "the shorts, the helmet (cyclists), the shoes (cyclists and runners) and the hair. The folds and shading "
+        f"of the clothes stay. {UI('Reset')} returns that part to the figure's own colour. The Classic figure's "
+        "clothes cannot be recoloured.",
+        f"<b>Bike</b> and <b>Boat</b> – the colour of the bike frame (any cyclist) and of the boat's hull (any "
+        "rower; the ghost boat too).",
+    ])
+    s.p(f"The choices are saved with {UI('Save Profile')}, separately for each profile. A newly chosen figure "
+        "loads in the background: the 3D view shows the Classic figure for a moment and then switches by itself. "
+        "If a figure's model file is missing, the list shows it as <i>not installed</i> and the Classic figure "
+        "is drawn.")
+
     s.section("Training zones")
     s.p(f"Click {UI('Training zones ›')} to expand the zone editor on the right side of the dialog.")
     s.sub("Power zones")

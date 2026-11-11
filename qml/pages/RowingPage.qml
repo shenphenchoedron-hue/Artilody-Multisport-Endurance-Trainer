@@ -334,6 +334,7 @@ Item {
                 Rowing3DView {
                     id: rowView
                     anchors.fill: parent
+                    avatar: Profiles.rower3d   // (the profile's rower: figure and colours)
                     anchors.margins: 1
                     distance: page.distance
                     speedMps: Rowing.pace500 > 0 ? 500 / Rowing.pace500 : 0

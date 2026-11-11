@@ -327,7 +327,7 @@ Item {
                     visible: sceneCard.showScene
                     anchors.fill: parent
                     anchors.margins: 1
-                    sourceComponent: Route3DView { session: Running }
+                    sourceComponent: Route3DView { session: Running; runnerAvatar: Profiles.runner3d }
                 }
                 FullscreenTapLayer {
                     enabled: sceneCard.showScene

@@ -1,11 +1,14 @@
 #include "Rowing3DItem.h"
 
+#include "RiderAvatar.h"
 #include "Route3DScene.h"
 #include "glb_model.h"
 #include "vegetation.h"
 #include "world_noise.h"
 
+#include <QCoreApplication>
 #include <QFile>
+#include <QPointer>
 #include <QMatrix4x4>
 #include <QOpenGLBuffer>
 #include <QOpenGLContext>
@@ -160,6 +163,30 @@ void sphere(std::vector<V> &out, QVector3D c, float r, QVector3D col, int rings 
         }
 }
 
+constexpr QVector3D kHullColor(.74f, .09f, .08f);
+constexpr QVector3D kCockpitInside(.22f, .24f, .27f);
+constexpr float kHullLength = 8.2f, kHalfBeam = .25f, kKeel = .075f, kSheer = .11f;
+constexpr float kHullCenter = kSeatX - (kCatchZ - kFinishZ) * .5f;   // (boat X of the hull's middle)
+constexpr float kBow = kHullCenter + kHullLength * .5f;              // (boat X of the bow)
+// the hull's shape at boat X: half the width at the sheer, the depth of the
+// keel below the water, the sheer's height (higher at the ends)
+float hullU(float X) { return std::clamp(2 * (X - kHullCenter) / kHullLength, -1.f, 1.f); }
+float hullHalfWidth(float X)
+{
+    const float u = hullU(X);
+    return kHalfBeam * std::pow(std::max(0.f, 1 - u * u), u > 0 ? .85f : .65f);   // finer at the bow
+}
+float hullDepth(float X)
+{
+    const float u = hullU(X);
+    return kKeel * std::pow(std::max(0.f, 1 - u * u), .55f);
+}
+float hullSheer(float X)
+{
+    const float u = hullU(X);
+    return kSheer + .025f * u * u;
+}
+
 // The oars (and riggers) of a boat at stroke s, in the boat frame.
 void oars(std::vector<V> &out, const Stroke &s)
 {
@@ -187,7 +214,8 @@ void oars(std::vector<V> &out, const Stroke &s)
         quad(out, boat(b0 + w0 - thick), boat(b1 + w1 - thick), boat(b1 - w1 - thick), boat(b0 - w0 - thick), blade * .85f);
         // rigger: two struts from the hull to the pin, and the pin
         for (float dz : { -.28f, .22f })
-            bar(out, boat(QVector3D(side * .22f, .06f, kPinZ + dz)), boat(pin - QVector3D(0, .04f, 0)), .012f, .012f, metal);
+            bar(out, boat(QVector3D(side * hullHalfWidth(kSeatX - (kPinZ + dz)), .06f, kPinZ + dz)), boat(pin - QVector3D(0, .04f, 0)),
+                .012f, .012f, metal);
         bar(out, boat(pin - QVector3D(0, .05f, 0)), boat(pin + QVector3D(0, .06f, 0)), .015f, .015f, metal);
     }
 }
@@ -212,28 +240,24 @@ std::shared_ptr<const GlbModel> rowerModel()
     return m;
 }
 
-// A single scull in the boat frame (X to the bow, water at Y = 0): 8.2 m,
-// 0.29 m beam, a white hull with grey decks fore and aft, the open cockpit
-// (dark) with the seat's tracks, a bow ball and a fin.
-void hull(std::vector<V> &out)
+// A single scull in the boat frame (X to the bow, water at Y = 0): 8.2 m, a
+// coloured hull with egg-white decks fore and aft, the open cockpit (dark)
+// with the seat's tracks, a bow ball and a fin. The rower sits about the
+// middle of it (kHullCenter: the middle of the seat's slide).
+// the hull's standard colour (the profile can choose another: hull(out, colour))
+void hull(std::vector<V> &out, QVector3D hullColor = kHullColor)
 {
-    constexpr float L = 8.2f, halfBeam = .215f, keel = .075f, sheer = .11f;
+    constexpr float L = kHullLength, keel = kKeel;
     constexpr int N = 40, R = 8;   // stations along, points round the half section
-    // a red hull, egg-white decks and coamings
-    const QVector3D red(.74f, .09f, .08f), deck(.94f, .91f, .82f), inside(.22f, .24f, .27f), black(.08f, .08f, .09f);
+    // a coloured hull (red), egg-white decks and coamings
+    const QVector3D red = hullColor, deck(.94f, .91f, .82f), inside = kCockpitInside, black(.08f, .08f, .09f);
     const QVector3D white = deck;
     // open from the stern deck (past the feet) to the bow deck (past the seat at the finish)
     constexpr float cockpitA = kSeatX - 1.2f, cockpitB = kSeatX + .25f;   // (the back at the finish: at its end)
-    auto x = [&](int i) { return -L * .5f + L * float(i) / N; };
-    auto width = [&](float X) {
-        const float u = std::clamp(2 * X / L, -1.f, 1.f);
-        return halfBeam * std::pow(std::max(0.f, 1 - u * u), u > 0 ? .85f : .65f);   // finer at the bow
-    };
-    auto depth = [&](float X) {
-        const float u = std::clamp(2 * X / L, -1.f, 1.f);
-        return keel * std::pow(std::max(0.f, 1 - u * u), .55f);
-    };
-    auto sheerY = [&](float X) { const float u = 2 * X / L; return sheer + .025f * u * u; };
+    auto x = [&](int i) { return kHullCenter - L * .5f + L * float(i) / N; };
+    auto width = [&](float X) { return hullHalfWidth(X); };
+    auto depth = [&](float X) { return hullDepth(X); };
+    auto sheerY = [&](float X) { return hullSheer(X); };
     auto skin = [&](float X, int k) {   // half ellipses from sheer to keel to sheer
         const float a = float(M_PI) * float(k) / R;
         const float w = width(X), d = depth(X), sh = sheerY(X);
@@ -253,11 +277,17 @@ void hull(std::vector<V> &out)
             }
         } else {   // the cockpit: floor and the inside of the sides
             const float y0 = -.045f;   // (deep enough for the heels)
-            quad(out, QVector3D(X0, y0, -w0 * .85f), QVector3D(X1, y0, -w1 * .85f), QVector3D(X1, y0, w1 * .85f),
-                 QVector3D(X0, y0, w0 * .85f), inside);
+            // inside the skin: its half width at the floor's depth (a half
+            // ellipse from the sheer to the keel) - not out through the round hull
+            auto atFloor = [&](float X) {
+                const float sh = sheerY(X), sinA = std::clamp((sh - y0) / std::max(1e-4f, sh + depth(X)), 0.f, 1.f);
+                return width(X) * std::sqrt(std::max(0.f, 1 - sinA * sinA)) * .9f;
+            };
+            const float f0 = atFloor(X0), f1 = atFloor(X1);
+            quad(out, QVector3D(X0, y0, -f0), QVector3D(X1, y0, -f1), QVector3D(X1, y0, f1), QVector3D(X0, y0, f0), inside);
             for (float side : { -1.f, 1.f })
                 quad(out, QVector3D(X0, sheerY(X0), side * w0 * .97f), QVector3D(X1, sheerY(X1), side * w1 * .97f),
-                     QVector3D(X1, y0, side * w1 * .85f), QVector3D(X0, y0, side * w0 * .85f), inside * 1.3f);
+                     QVector3D(X1, y0, side * f1), QVector3D(X0, y0, side * f0), inside * 1.3f);
         }
     }
     for (float X : { cockpitA, cockpitB }) {   // coamings at the cockpit's ends
@@ -272,9 +302,10 @@ void hull(std::vector<V> &out)
             QVector3D(.55f, .57f, .60f));
     bar(out, QVector3D(kSeatX - .96f, -.03f, 0), QVector3D(kSeatX - 1.10f, .17f, 0), .12f, .008f, QVector3D(.62f, .64f, .67f),
         QVector3D(0, 0, 1));   // foot stretcher   // foot stretcher
-    sphere(out, QVector3D(L * .5f - .02f, sheerY(L * .5f) - .01f, 0), .03f, white, 4, 8);                      // bow ball
-    quad(out, QVector3D(-2.9f, -keel * .6f, 0), QVector3D(-2.6f, -keel * .6f, 0), QVector3D(-2.66f, -.17f, 0),
-         QVector3D(-2.86f, -.17f, 0), black);   // fin
+    sphere(out, QVector3D(kBow - .02f, sheerY(kBow) - .01f, 0), .03f, white, 4, 8);                      // bow ball
+    const float fin = kHullCenter - 2.75f;   // (well aft)
+    quad(out, QVector3D(fin - .15f, -keel * .6f, 0), QVector3D(fin + .15f, -keel * .6f, 0), QVector3D(fin + .09f, -.17f, 0),
+         QVector3D(fin - .11f, -.17f, 0), black);   // fin
 }
 
 // --- GL --------------------------------------------------------------------------------------------
@@ -367,6 +398,48 @@ public:
             view->setRendererError(m_ready ? QString() : m_error);
         }
         m_frame = view->frame();
+        if (!m_avatarSet || view->avatar3d() != m_avatar) {
+            // (applied in render(): GL calls belong there, with our VAO bound)
+            m_figureWanted = !m_avatarSet || view->avatar3d().model != m_avatar.model;
+            m_avatar = view->avatar3d();
+            m_avatarSet = true;
+            m_avatarDirty = true;
+        }
+    }
+
+    // The profile's rower (render thread, our VAO bound): the figure - the
+    // classic one while it loads in the background, or when it is not there
+    // - and its clothes' colours, the boat's colour; both boats posed again.
+    void applyAvatar()
+    {
+        if (m_figureWanted) {
+            bool pending = false;
+            auto figure = m_avatar.figureIfReady(&pending);
+            if (!figure)
+                figure = rowerModel();
+            m_figureWanted = pending;   // (looked for again next frame)
+            if (figure != m_rower) {
+                m_rower = figure;
+                m_rowerIndexCount = 0;
+                if (m_rower) {
+                    m_rowerIdx.bind();
+                    m_rowerIdx.allocate(m_rower->indices().data(), int(m_rower->indices().size() * sizeof(uint32_t)));
+                    m_rowerIndexCount = int(m_rower->indices().size());
+                }
+                m_avatarDirty = true;
+            }
+        }
+        if (!m_avatarDirty)
+            return;
+        m_avatarDirty = false;
+        m_rowerColors = m_rower && (!m_figureWanted || m_avatar.isClassic()) ? m_avatar.figureColors(*m_rower)
+                                                                              : std::vector<QVector3D>();
+        // the boat's colour (both boats share the hull)
+        std::vector<V> b;
+        hull(b, m_avatar.boatColor.x() >= 0 ? m_avatar.boatColor : kHullColor);
+        upload(m_boatBuf, b, m_boatCount);
+        for (Posed &p : m_slots)
+            p.valid = false;
     }
 
     void render() override
@@ -385,13 +458,15 @@ public:
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         m_vao.bind();
+        applyAvatar();
         m_prog.bind();
 
         // side view, a little ahead of the boat (it moves to the right)
         // (the distance is the bow's: it starts on the line)
-        constexpr float kBow = 4.1f;
         const float boatX = float(m_frame.boat) - kBow;
-        const QVector3D eye(boatX + .4f, 1.9f, 9.5f), target(boatX + .4f, .55f, 0);
+        // (on the boat's middle: the rower about the middle of the picture)
+        const float lookX = boatX + kHullCenter + .4f;
+        const QVector3D eye(lookX, 1.9f, 9.5f), target(lookX, .55f, 0);
         QMatrix4x4 proj, view;
         proj.perspective(33, float(size.width()) / float(std::max(1, size.height())), .3f, 1500);
         view.lookAt(eye, target, QVector3D(0, 1, 0));
@@ -534,13 +609,7 @@ private:
             hull(b);
             upload(m_boatBuf, b, m_boatCount);
         }
-        m_rower = rowerModel();
-        if (m_rower) {
-            m_rowerIdx.bind();
-            m_rowerIdx.allocate(m_rower->indices().data(), int(m_rower->indices().size() * sizeof(uint32_t)));
-            m_rowerIndexCount = int(m_rower->indices().size());
-        }
-        m_ready = true;
+        m_ready = true;   // (the rower: setAvatar(), from synchronize())
     }
 
     void upload(QOpenGLBuffer &buf, const std::vector<V> &v, int &count)
@@ -595,10 +664,12 @@ private:
             if (fresh) {
                 m_rower->poseRowing(s.fit, m_posed);
                 m_rowerV.resize(m_posed.size());
+                const bool recolour = m_rowerColors.size() == m_posed.size();   // (the profile's colours)
                 for (size_t i = 0; i < m_posed.size(); ++i) {
                     const GhostVertex &g = m_posed[i];
+                    const QVector3D c = recolour ? m_rowerColors[i] : g.color;
                     m_rowerV[i] = { kSeatX - g.position.z(), g.position.y() + kSeatY, g.position.x(),
-                                    -g.normal.z(), g.normal.y(), g.normal.x(), g.color.x(), g.color.y(), g.color.z(), 0.f };
+                                    -g.normal.z(), g.normal.y(), g.normal.x(), c.x(), c.y(), c.z(), 0.f };
                 }
                 pb.rower.bind();
                 pb.rower.allocate(m_rowerV.data(), int(m_rowerV.size() * sizeof(V)));
@@ -853,12 +924,99 @@ private:
     int m_nearCount = 0;
     double m_builtFinish = -1;
     std::shared_ptr<const GlbModel> m_rower;
+    RiderAvatar m_avatar { RiderAvatar::Rower };
+    bool m_avatarSet = false, m_avatarDirty = false, m_figureWanted = false;
+    std::vector<QVector3D> m_rowerColors;
     Route3DScene m_treeMaker;   // (geometry only: never initialised for GL)
     std::vector<GhostVertex> m_posed;
     std::vector<V> m_rowerV;
 };
 
 } // namespace
+
+std::shared_ptr<const route3d::GlbModel> classicRowerModel()
+{
+    return rowerModel();
+}
+
+void rowerPreviewPose(const route3d::GlbModel &figure, double phase, std::vector<route3d::GhostVertex> &out)
+{
+    figure.poseRowing(strokeAt(phase).fit, out);
+    // (afloat: the heels in the cockpit, under the water line, are not seen -
+    // flattened onto it, behind the hull's side, as rowerPreviewBoat())
+    for (route3d::GhostVertex &v : out)
+        v.position.setY(std::max(v.position.y(), kWaterY + .03f));   // (a little above: the hull narrows down there)
+}
+
+QVector3D standardHullColor()
+{
+    return kHullColor;
+}
+
+float rowerHullOverhang(const route3d::GlbModel &figure)
+{
+    constexpr float kOverGunwale = .06f;
+    // the rower's points between the water and the sheer that are outside
+    // the hull's side (the skin there), over the stroke - how far the worst
+    // one is out
+    float worst = 0;
+    std::vector<route3d::GhostVertex> v;
+    for (int k = 0; k < 24; ++k) {
+        figure.poseRowing(strokeAt(k / 24.0).fit, v);
+        for (const auto &g : v) {
+            const float X = kSeatX - g.position.z(), Y = g.position.y() + kSeatY;
+            // (what the water hides is not seen; well above the gunwale the
+            // legs are free - just over it they lie on it: within it)
+            if (Y > hullSheer(X) + kOverGunwale || Y < 0 || X < kBow - kHullLength || X > kBow)
+                continue;
+            // the skin's half width at this height (a half ellipse from the sheer to the keel)
+            const float sh = hullSheer(X), d = hullDepth(X), w = hullHalfWidth(X);
+            const float sinA = std::clamp((sh - Y) / std::max(1e-4f, sh + d), 0.f, 1.f);
+            const float half = w * std::sqrt(std::max(0.f, 1 - sinA * sinA));
+            worst = std::max(worst, std::abs(g.position.x()) - half);
+        }
+    }
+    return worst;
+}
+
+void rowerPreviewBoat(QVector3D hullColor, double halfLength, std::vector<route3d::GhostVertex> &out)
+{
+    std::vector<V> b;
+    hull(b, hullColor.x() >= 0 ? hullColor : kHullColor);
+    out.clear();
+    // boat frame (x to the bow) -> rower frame (z forward, facing the stern):
+    // the inverse of the view's rower placement
+    for (size_t t = 0; t + 2 < b.size(); t += 3) {
+        bool near = true;
+        for (size_t k = t; k < t + 3; ++k)
+            near = near && std::abs(b[k].x - kSeatX) < halfLength;
+        if (!near)
+            continue;
+        // (as afloat: what is under the water is not seen - flattened onto it)
+        bool dry = false;
+        for (size_t k = t; k < t + 3; ++k)
+            dry = dry || b[k].y > 0;
+        if (!dry)
+            continue;
+        for (size_t k = t; k < t + 3; ++k)
+            out.push_back({ QVector3D(b[k].z, std::max(b[k].y, 0.f) - kSeatY, kSeatX - b[k].x),
+                            QVector3D(b[k].nz, b[k].ny, -b[k].nx), QVector3D(b[k].r, b[k].g, b[k].b) });
+    }
+}
+
+void Rowing3DItem::setAvatar(const QVariantMap &values)
+{
+    if (values == m_avatarValues)
+        return;
+    m_avatarValues = values;
+    m_avatar = RiderAvatar::fromVariant(values, RiderAvatar::Rower);
+    emit avatarChanged();
+    update();
+    // loaded in the background: drawn again when it is there
+    m_avatar.preload([self = QPointer<Rowing3DItem>(this)] {
+        QMetaObject::invokeMethod(qApp, [self] { if (self) self->update(); }, Qt::QueuedConnection);
+    });
+}
 
 Rowing3DItem::Rowing3DItem(QQuickItem *parent)
     : QQuickFramebufferObject(parent)

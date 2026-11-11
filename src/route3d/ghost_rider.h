@@ -159,6 +159,8 @@ protected:
         right=r*float(std::cos(pose.lean))-u*float(std::sin(pose.lean));
         up=u*float(std::cos(pose.lean))+r*float(std::sin(pose.lean));
     }
+    // the frame's colour (setFrameColor(); x < 0: kFrameColor)
+    QVector3D frameColor{-1,0,0};
     // Bike frame geometry (shared by the procedural rider and the .glb rider)
     static constexpr float kCrank=.17f,kPedalX=.12f;
     QVector3D bottomBracket()const{return QVector3D(0,.27f,-.08f);}
@@ -172,8 +174,10 @@ protected:
         double phase=crank+(side<0?3.141592654:0);
         return bottomBracket()+QVector3D(side*kPedalX,float(kCrank*std::cos(phase)),float(kCrank*std::sin(phase)));
     }
-    void buildBike(const GhostPose& pose){
-        const QVector3D frame(.10f,.24f,.56f),black(.06f,.06f,.07f),tyre(.09f,.09f,.095f),
+    // (saddleRaise: the saddle and its seatpost that much higher - a .glb
+    // avatar whose seat would otherwise not reach it, GlbModel::saddleRaise())
+    void buildBike(const GhostPose& pose,float saddleRaise=0){
+        const QVector3D frame=frameColor.x()>=0?frameColor:kFrameColor,black(.06f,.06f,.07f),tyre(.09f,.09f,.095f),
             carbon(.12f,.12f,.13f),metal(.62f,.64f,.68f);
         wheel(-.50f,pose.wheel,tyre,carbon,metal);wheel(.50f+kFrontZ,pose.wheel,tyre,carbon,metal);
         // Frame: road geometry with tapered tubes and paired stays.
@@ -188,7 +192,7 @@ protected:
         }
         ellipsoid(bb,QVector3D(.045f,.035f,.035f),frame);
         // Saddle, seatpost, stem and drop handlebar.
-        QVector3D saddle(0,.955f,-.27f);
+        QVector3D saddle(0,.955f+saddleRaise,-.27f);
         tube(seatTop,saddle-QVector3D(0,.02f,0),.014f,black,8);
         ellipsoid(saddle+QVector3D(0,0,.04f),QVector3D(.035f,.018f,.12f),black);
         ellipsoid(saddle+QVector3D(0,0,-.05f),QVector3D(.068f,.022f,.065f),black);
@@ -284,25 +288,33 @@ protected:
         }
         if(indexedFor!=mesh.size()){index.resize(mesh.size());for(size_t i=0;i<index.size();++i)index[i]=uint32_t(i);indexedFor=mesh.size();}
     }
-    // The .glb rider (GlbModel::poseOnBike) on the bike, with a red helmet.
+    // The .glb rider (GlbModel::poseOnBike) on the bike: the classic one
+    // with a painted red helmet, or a textured avatar with its own.
     std::shared_ptr<const GlbModel> glbRider;
     std::vector<GhostVertex> riderLocal;
+    std::vector<QVector3D> riderColors;
     size_t modelIndexFor=size_t(-1);
     void buildModelRider(const GhostPose& pose){
         mesh.clear();mesh.reserve(80000);
-        buildBike(pose);
         GlbModel::BikeFit fit;
         fit.bottomBracket=bottomBracket();fit.crankLength=kCrank;fit.pedalX=kPedalX;fit.crank=pose.crank;
         fit.saddleTop=saddleTop();fit.hood[0]=hood(-1);fit.hood[1]=hood(1);
+        const float raise=glbRider->saddleRaise(fit);   // (the saddle up to the seat)
+        fit.saddleTop+=QVector3D(0,raise,0);
+        buildBike(pose,raise);
         // the grade under the rider (+-5 m): more rocking on steep climbs
         const double horizontal=std::hypot(pose.fx,pose.fz);
         fit.swayDeg=GlbModel::swayForGrade(horizontal>1e-6?pose.fy/horizontal:0.0);
         GlbModel::HeadPose head;
         glbRider->poseOnBike(fit,riderLocal,&head);
-        // (the red helmet with black vents is painted on the figure's head:
+        // (the classic figure's red helmet with black vents is painted on its head:
         // GlbModel, Outfit::Cyclist - a separate shell looked bulky)
         const size_t fixed=mesh.size();
-        for(const auto& v:riderLocal)mesh.push_back({world(v.position),worldNormal(v.normal),v.color});
+        const bool recolour=riderColors.size()==riderLocal.size();   // (the profile's avatar colours)
+        for(size_t i=0;i<riderLocal.size();++i){
+            const auto& v=riderLocal[i];
+            mesh.push_back({world(v.position),worldNormal(v.normal),recolour?riderColors[i]:v.color});
+        }
         if(modelIndexFor!=mesh.size()){
             const auto& mi=glbRider->indices();
             index.resize(fixed+mi.size());
@@ -316,8 +328,16 @@ public:
     // rider (null, or a skeleton without the needed joints = procedural).
     bool setRiderModel(std::shared_ptr<const GlbModel> m){
         glbRider=(m&&m->canRide())?std::move(m):nullptr;modelIndexFor=size_t(-1);indexedFor=size_t(-1);
+        riderColors.clear();
         return glbRider!=nullptr;
     }
+    // The .glb rider's vertex colours (GlbModel::colorsFor(): an avatar's
+    // clothes in the profile's colours); empty = the model's own.
+    void setRiderColors(std::vector<QVector3D> colors){riderColors=std::move(colors);}
+    // The bike frame's colour (display colours 0..1; x < 0 = the standard blue).
+    static constexpr QVector3D kFrameColor{.10f,.24f,.56f};
+    void setFrameColor(const QVector3D& c){frameColor=c;}
+    const std::shared_ptr<const GlbModel>& riderModel()const{return glbRider;}
     bool hasRiderModel()const{return glbRider!=nullptr;}
     // Returns world-space vertices; indices() gives the matching triangle list.
     // crank: the pedal angle in radians (the app drives it from the rider's

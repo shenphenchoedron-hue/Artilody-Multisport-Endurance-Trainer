@@ -1,6 +1,16 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.7
+## What's new in 1.9.8
+
+**Your own 3D avatar – cyclist, runner and rower.** In the *User Profile* dialog, **3D avatar ›** opens a panel with a live preview (drag to turn it): choose **Classic**, a **male** or a **female** figure for the **cyclist** (GPX Ride), the **runner** (Treadmill Run) and the **rower** (Rowing), each saved separately per profile.
+
+- **Your colours**: pick the colours of the jersey/top, shorts, helmet (cyclists), shoes (cyclists and runners) and hair – the new figures wear their own textured clothes, and a chosen colour keeps their folds and shading. *Reset* returns a part to its own colour.
+- **Bike and boat colours**: the bike frame (any cyclist, Classic too) and the boat's hull (any rower, the ghost boat too).
+- **Figures that fit their sport**: the cyclists sit on the saddle (raised to fit the figure), the runners run with the classic runner's proven stride and walk below your walk → run speed, the rowers sit straight-backed, barefoot, in the middle of a wider scull.
+- **Smooth**: the figures load in the background – the 3D views show the classic figure for a moment and switch by themselves, without freezing.
+- No database change (the choices are stored in the settings) – install over 1.9.7.
+
+## Also included from 1.9.7
 
 **GPX Workshop: place signs.** Choose *Place sign*, click the profile where the sign should stand – its row appears in the list with the name field ready – type the name and save the file. GPX Ride puts a lit town sign (black letters on white with a black rim) beside the road there, on the right- or left-hand verge as chosen in the list, so you can see where on the real route you are even though the 3D landscape is not the real one. Up to 20 per route; saved in the GPX file with the sprints, KOMs and gravel sections; not timed. Older versions ignore them. No database change – install over 1.9.6.
 

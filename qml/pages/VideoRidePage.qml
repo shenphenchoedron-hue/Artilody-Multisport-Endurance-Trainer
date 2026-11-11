@@ -1074,6 +1074,7 @@ Item {
                     anchors.margins: 1
                     sourceComponent: Route3DView {
                         session: page.session
+                        avatar: Profiles.avatar3d   // (the profile's rider: figure and colours)
                     }
                 }
                 FullscreenTapLayer {

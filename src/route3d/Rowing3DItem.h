@@ -1,6 +1,9 @@
 #pragma once
 
+#include "RiderAvatar.h"
+
 #include <QElapsedTimer>
+#include <QVariantMap>
 #include <QQuickFramebufferObject>
 #include <QTimer>
 
@@ -29,6 +32,9 @@ class Rowing3DItem : public QQuickFramebufferObject
     Q_PROPERTY(double finishDistance READ finishDistance WRITE setFinishDistance NOTIFY inputChanged)   // 0 = open
     Q_PROPERTY(bool supported READ supported NOTIFY statusChanged)
     Q_PROPERTY(QString error READ error NOTIFY statusChanged)
+    // the rower's look: the profile's avatar (Profiles.rower3d: model, jersey
+    // (the top), shorts, hair - RiderAvatar::Rower); the ghost boat's too
+    Q_PROPERTY(QVariantMap avatar READ avatar WRITE setAvatar NOTIFY avatarChanged)
 
 public:
     static constexpr int kFrameMs = 33;
@@ -54,6 +60,9 @@ public:
     bool supported() const { return m_supported; }
     QString error() const { return m_error; }
     void setRendererError(const QString &error);   // (render thread: queued)
+    QVariantMap avatar() const { return m_avatarValues; }
+    void setAvatar(const QVariantMap &values);
+    const RiderAvatar &avatar3d() const { return m_avatar; }   // (render thread, in synchronize())
 
     // (render thread, in synchronize(); the GUI thread is blocked)
     struct Frame {
@@ -67,6 +76,7 @@ public:
 signals:
     void inputChanged();
     void statusChanged();
+    void avatarChanged();
 
 protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
@@ -80,6 +90,8 @@ private:
     bool m_rowing = false, m_ghostVisible = false;
     bool m_supported = false;
     QString m_error;
+    QVariantMap m_avatarValues;
+    RiderAvatar m_avatar { RiderAvatar::Rower };
     // shown state (smoothed / extrapolated)
     Frame m_frame;
     double m_shownBoat = 0, m_shownGhost = 0, m_ghostSpeed = 0, m_lastGhostTarget = -1;
@@ -88,5 +100,19 @@ private:
     QElapsedTimer m_clock, m_frameClock, m_ghostClock;
     QTimer m_timer;
 };
+
+// The classic rower (rower.glb; null when there is none) and a figure posed
+// as the Rowing view poses it at stroke phase `phase` (0 = the catch) - for
+// the profile's preview (what is under the water line flattened onto it).
+std::shared_ptr<const route3d::GlbModel> classicRowerModel();
+void rowerPreviewPose(const route3d::GlbModel &figure, double phase, std::vector<route3d::GhostVertex> &out);
+// The scull's hull (in the boat's colour; x < 0: the standard red) round the
+// seat, +- halfLength along it, in the rower's frame (as rowerPreviewPose()):
+// triangles, three vertices each.
+void rowerPreviewBoat(QVector3D hullColor, double halfLength, std::vector<route3d::GhostVertex> &out);
+QVector3D standardHullColor();
+// How far (m) the figure, rowing, comes out through the hull's sides above
+// the water at most (0: it stays inside).
+float rowerHullOverhang(const route3d::GlbModel &figure);
 
 } // namespace watt

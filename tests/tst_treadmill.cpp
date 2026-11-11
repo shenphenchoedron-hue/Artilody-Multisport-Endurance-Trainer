@@ -15,11 +15,14 @@
 #include "SimulatedDevices.h"
 #include "WorkoutBuilder.h"
 #include "WorkoutIO.h"
+#include "AvatarPreviewItem.h"
+#include "Rowing3DItem.h"
 #include "ghost_runner.h"
 #include "glb_model.h"
 #include "route.h"
 
 #include <QFile>
+#include <QPainter>
 #include <QSignalSpy>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -118,6 +121,14 @@ struct Fixture
 };
 
 } // namespace
+
+// The figure an avatar map names, loaded (the preview does not wait for it)
+static void waitForFigure(const QVariantMap &values, watt::RiderAvatar::Kind kind)
+{
+    const auto a = watt::RiderAvatar::fromVariant(values, kind);
+    QVERIFY(a.figure() != nullptr);
+    a.walkingFigure();
+}
 
 class TestTreadmill : public QObject
 {
@@ -843,6 +854,443 @@ private slots:
         QCOMPARE(route3d::GlbModel::swayForGrade(0.03), route3d::GlbModel::kSwayDeg);
         QCOMPARE(route3d::GlbModel::swayForGrade(0.12), route3d::GlbModel::kClimbSwayDeg);
         QVERIFY(route3d::GlbModel::swayForGrade(0.08) > route3d::GlbModel::kSwayDeg);
+    }
+
+    // A .glb whose texture claims to be huge (40000 px a side): not decoded
+    // (nothing allocated for it), the figure still loads - untextured.
+    void glbHugeTextureRejected()
+    {
+        QFile f(QStringLiteral(WATT_SOURCE_DIR "/assets/models/rider_male.glb"));
+        if (!f.open(QIODevice::ReadOnly))
+            QSKIP("assets/models/rider_male.glb is not there");
+        QByteArray glb = f.readAll();
+        const int ihdr = glb.indexOf("IHDR");
+        QVERIFY(ihdr > 0);
+        for (int k = 0; k < 2; ++k) {   // width, height: big-endian after "IHDR"
+            const quint32 v = 40000;
+            for (int b = 0; b < 4; ++b)
+                glb[ihdr + 4 + k * 4 + b] = char((v >> (24 - 8 * b)) & 0xff);
+        }
+        route3d::GlbModel m;
+        QString error;
+        QVERIFY2(m.load(glb, &error, route3d::GlbModel::Outfit::Avatar), qPrintable(error));
+        QVERIFY(!m.textured());
+        QVERIFY(m.canRide());
+    }
+
+    // The textured rowers (rower_male.glb, rower_female.glb): posed in the
+    // boat by the app, their own clothes from the texture - top, shorts and
+    // hair found; barefoot and bare-headed (no shoes, no helmet).
+    void glbRowerAvatar_data()
+    {
+        QTest::addColumn<QString>("id");
+        QTest::newRow("male") << QStringLiteral("male");
+        QTest::newRow("female") << QStringLiteral("female");
+    }
+    void glbRowerAvatar()
+    {
+        QFETCH(QString, id);
+        const QString path = QStringLiteral(WATT_SOURCE_DIR "/assets/models/rower_%1.glb").arg(id);
+        if (!QFile::exists(path))
+            QSKIP("the model is not there");
+        using route3d::GlbModel;
+        auto m = std::make_shared<GlbModel>();
+        if (id == QLatin1String("female"))
+        {
+            m->setNeckLength(.65f);   // (as the app: RiderAvatar)
+            m->setNeckWidth(1.35f);
+        }
+        QString error;
+        QVERIFY2(m->loadFile(path, &error, GlbModel::Outfit::RowerAvatar), qPrintable(error));
+        QVERIFY(m->canRide());   // (the joints posing needs)
+        QVERIFY(m->textured());
+        size_t count[GlbModel::GarmentCount] = {};
+        for (uint8_t g : m->garments())
+            ++count[g];
+        qInfo("rower_%s.glb: %zu vertices; top %zu, shorts %zu, helmet %zu, shoes %zu, hair %zu, other %zu", qPrintable(id),
+              m->vertexCount(), count[GlbModel::Jersey], count[GlbModel::Shorts], count[GlbModel::Helmet],
+              count[GlbModel::Shoes], count[GlbModel::Hair], count[GlbModel::NoGarment]);
+        QCOMPARE(count[GlbModel::Helmet], size_t(0));
+        QCOMPARE(count[GlbModel::Shoes], size_t(0));   // (barefoot)
+        for (GlbModel::Garment g : { GlbModel::Jersey, GlbModel::Shorts, GlbModel::Hair }) {
+            QVERIFY2(m->garmentColor(g).x() >= 0, "a garment was not found in the texture");
+            QVERIFY(count[g] > 150);
+        }
+        // posed in the boat, through the stroke: the vertices move
+        qputenv("WATT_ROWER_GLB", WATT_SOURCE_DIR "/assets/models/rower.glb");
+        std::vector<route3d::GhostVertex> catchPose, finishPose;
+        watt::rowerPreviewPose(*m, 0.0, catchPose);
+        watt::rowerPreviewPose(*m, .5, finishPose);
+        QCOMPARE(catchPose.size(), m->garments().size());
+        float moved = 0;
+        for (size_t i = 0; i < catchPose.size(); ++i) {
+            QVERIFY(std::isfinite(catchPose[i].position.x()) && std::isfinite(finishPose[i].position.y()));
+            moved = std::max(moved, (catchPose[i].position - finishPose[i].position).length());
+        }
+        QVERIFY(moved > .2f);
+        // in the boat: the legs inside the hull (not out through its sides)
+        {
+            const float out = watt::rowerHullOverhang(*m);
+            qInfo("  out through the hull's sides: %.1f cm at most", out * 100);
+            QVERIFY(out < .01f);
+        }
+        // the profile's preview draws it
+        qputenv(id == QLatin1String("male") ? "WATT_ROWER_MALE_GLB" : "WATT_ROWER_FEMALE_GLB", path.toUtf8());
+        watt::AvatarPreviewItem preview;
+        preview.setKind(QStringLiteral("rower"));
+        QVERIFY(!preview.helmet());
+        const int side = qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") > 0 ? qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") : 320;
+        preview.setSize(QSizeF(side, side * 15 / 16));
+        const QString dump = qEnvironmentVariable("WATT_AVATAR_DUMP");
+        int k = 0;
+        for (const QVariantMap &v : { QVariantMap { { "model", id } },
+                                      QVariantMap { { "model", id }, { "jersey", "#d0202a" }, { "shorts", "#f5f5f5" },
+                                                    { "hair", "#e6c27a" }, { "boat", "#f5c400" } } }) {
+            waitForFigure(v, watt::RiderAvatar::Rower);
+            preview.setAvatar(v);
+            for (double yaw : { 35.0, 0.0, 70.0 }) {
+                preview.setYaw(yaw);
+                QImage img(side, side * 15 / 16, QImage::Format_ARGB32_Premultiplied);
+                img.fill(Qt::white);
+                QPainter painter(&img);
+                preview.paint(&painter);
+                painter.end();
+                int drawn = 0;
+                for (int y = 0; y < img.height(); ++y)
+                    for (int x = 0; x < img.width(); ++x)
+                        drawn += img.pixel(x, y) != qRgb(255, 255, 255);
+                if (!dump.isEmpty())
+                    img.save(QStringLiteral("%1/rower_%2_%3.png").arg(dump, id).arg(k));
+                QVERIFY(drawn > 3000 * side / 320 * side / 320);
+                ++k;
+            }
+        }
+        if (!dump.isEmpty()) {   // (the classic rower, for comparison)
+            waitForFigure(QVariantMap { { "model", "classic" } }, watt::RiderAvatar::Rower);
+            preview.setAvatar({ { "model", "classic" } });
+            preview.setYaw(0);
+            QImage img(side, side * 15 / 16, QImage::Format_ARGB32_Premultiplied);
+            img.fill(Qt::white);
+            QPainter painter(&img);
+            preview.paint(&painter);
+            painter.end();
+            img.save(QStringLiteral("%1/rower_classic.png").arg(dump));
+            waitForFigure(QVariantMap { { "model", id } }, watt::RiderAvatar::Rower);
+            preview.setAvatar({ { "model", id } });
+        }
+        const QVariantMap own = preview.ownColors();
+        QVERIFY(own.contains(QStringLiteral("jersey")) && !own.contains(QStringLiteral("shoes"))
+                && !own.contains(QStringLiteral("bike")) && own.contains(QStringLiteral("boat")));
+        // the boat's colour: its hull in it (the decks stay), any rower
+        const auto yellow = watt::RiderAvatar::fromVariant({ { "model", "classic" }, { "boat", "#f5c400" } },
+                                                           watt::RiderAvatar::Rower);
+        QVERIFY(yellow.boatColor.x() > .9f && yellow.boatColor.z() < .1f);
+        std::vector<route3d::GhostVertex> plainHull, yellowHull;
+        watt::rowerPreviewBoat(QVector3D(-1, 0, 0), 5.0, plainHull);
+        watt::rowerPreviewBoat(yellow.boatColor, 5.0, yellowHull);
+        QCOMPARE(plainHull.size(), yellowHull.size());
+        int recoloured = 0;
+        for (size_t i = 0; i < plainHull.size(); ++i)
+            if (plainHull[i].color != yellowHull[i].color) {
+                QCOMPARE(plainHull[i].color, watt::standardHullColor());
+                ++recoloured;
+            }
+        QVERIFY(recoloured > 100 && recoloured < int(plainHull.size()));
+    }
+
+    // The textured runners (runner_male.glb, runner_female.glb): animated,
+    // their own clothes from the texture, top / shorts / shoes / hair found.
+    void glbRunnerAvatar_data()
+    {
+        QTest::addColumn<QString>("id");
+        QTest::newRow("male") << QStringLiteral("male");
+        QTest::newRow("female") << QStringLiteral("female");
+    }
+    void glbRunnerAvatar()
+    {
+        QFETCH(QString, id);
+        const QString path = QStringLiteral(WATT_SOURCE_DIR "/assets/models/runner_%1.glb").arg(id);
+        if (!QFile::exists(path))
+            QSKIP("the model is not there");
+        using route3d::GlbModel;
+        // it moves as the classic runner (its motion moved onto this skeleton)
+        GlbModel classic, classicWalk;
+        QString error;
+        QVERIFY2(classic.loadFile(QStringLiteral(WATT_SOURCE_DIR "/assets/models/runner.glb"), &error), qPrintable(error));
+        QVERIFY2(classicWalk.loadFile(QStringLiteral(WATT_SOURCE_DIR "/assets/models/walker.glb"), &error), qPrintable(error));
+        auto m = std::make_shared<GlbModel>();
+        m->setLegsIn(id == QLatin1String("male") ? 3.5f : 4.f);   // (as the app: RiderAvatar)
+        QVERIFY2(m->loadFile(path, &error, GlbModel::Outfit::RunnerAvatar, &classic), qPrintable(error));
+        if (id == QLatin1String("male"))
+        {
+            m->setShoulderWidth(.88f);   // (as the app: RiderAvatar)
+            m->slimUpperBody(.25f);
+        }
+        QVERIFY(m->retargeted());
+        QVERIFY(m->textured());
+        QCOMPARE(m->duration(), classic.duration());
+        // feet on the ground: the lowest point over the cycle at the ground, both feet down in turn
+        {
+            std::vector<route3d::GhostVertex> v;
+            float lowest = 1e9f;
+            bool down[2] = { false, false };
+            for (int s = 0; s < 48; ++s) {
+                m->pose(s / 48.0, v);
+                float low[2] = { 1e9f, 1e9f };
+                for (const auto &x : v) {
+                    float &l = low[x.position.x() < 0 ? 0 : 1];
+                    l = std::min(l, x.position.y());
+                }
+                lowest = std::min({ lowest, low[0], low[1] });
+                for (int f = 0; f < 2; ++f)
+                    down[f] = down[f] || low[f] < .01f;
+            }
+            QVERIFY(std::abs(lowest) < .005f);
+            QVERIFY(down[0] && down[1]);
+        }
+        // the feet land under the body (not wide apart): the planted foot near the middle
+        {
+            auto widest = [](const GlbModel &g) {
+                std::vector<route3d::GhostVertex> v;
+                float w = 0;
+                for (int s = 0; s < 48; ++s) {
+                    g.pose(s / 48.0, v);
+                    for (const auto &x : v)
+                        if (x.position.y() < .01f)
+                            w = std::max(w, std::abs(x.position.x()));
+                }
+                return w;
+            };
+            const float mine = widest(*m), theirs = widest(classic);
+            qInfo("  planted feet within %.1f cm of the middle (the classic runner's %.1f cm)", mine * 100, theirs * 100);
+            QVERIFY(mine < theirs + .045f);   // (a bigger shoe)
+        }
+        // walking: the same figure with the walker's motion - a copy of it,
+        // not a second load (cross-faded by speed)
+        std::shared_ptr<const GlbModel> walk = m->withMotion(classicWalk);
+        QVERIFY(walk);
+        QVERIFY(walk->retargeted() && walk->textured());
+        QCOMPARE(walk->vertexCount(), m->vertexCount());
+        QCOMPARE(walk->duration(), classicWalk.duration());
+        QCOMPARE(walk->garments(), m->garments());
+        size_t count[GlbModel::GarmentCount] = {};
+        for (uint8_t g : m->garments())
+            ++count[g];
+        qInfo("runner_%s.glb: %zu vertices, cycle %.2f s; top %zu, shorts %zu, helmet %zu, shoes %zu, hair %zu, other %zu",
+              qPrintable(id), m->vertexCount(), m->duration(), count[GlbModel::Jersey], count[GlbModel::Shorts],
+              count[GlbModel::Helmet], count[GlbModel::Shoes], count[GlbModel::Hair], count[GlbModel::NoGarment]);
+        QCOMPARE(count[GlbModel::Helmet], size_t(0));   // (bare-headed)
+        for (GlbModel::Garment g : { GlbModel::Jersey, GlbModel::Shorts, GlbModel::Shoes, GlbModel::Hair }) {
+            QVERIFY2(m->garmentColor(g).x() >= 0, "a garment was not found in the texture");
+            QVERIFY(count[g] > 150);
+        }
+        // runs: the colours chosen are drawn, the stride moves the legs
+        route3d::GhostRunner runner;
+        runner.setModel(m);
+        QVERIFY(runner.setWalkModel(walk));
+        GlbModel::GarmentColors red;
+        red.color[GlbModel::Jersey] = QVector3D(.85f, .1f, .1f);
+        runner.setColors(m->colorsFor(red));
+        std::vector<route3d::GeoPoint> geo;
+        const RlvRoute standard = runroutes::standardRoute();
+        for (const auto &p : standard.points())
+            geo.push_back({ p.lat, p.lon, p.elevation });
+        const route3d::Route route = route3d::Route::fromGeo(geo);
+        const auto a = runner.build(route, 50.0, 11.0, 0.0);
+        const auto &b = runner.build(route, 50.0, 11.0, M_PI);
+        QCOMPARE(a.size(), b.size());
+        float moved = 0;
+        for (size_t i = 0; i < a.size(); ++i)
+            moved = std::max(moved, (a[i].position - b[i].position).length());
+        QVERIFY(moved > .2f);
+        // it bounces: up and down with each step, like the classic runner
+        {
+            std::vector<route3d::GhostVertex> v;
+            float lo = 1e9f, hi = -1e9f;
+            for (int s = 0; s < 48; ++s) {
+                m->pose(s / 48.0, v);
+                float top = -1e9f;
+                for (const auto &x : v)
+                    top = std::max(top, x.position.y());
+                lo = std::min(lo, top);
+                hi = std::max(hi, top);
+            }
+            qInfo("  bounce %.1f cm", (hi - lo) * 100);
+            QVERIFY(hi - lo > .03f && hi - lo < .12f);
+        }
+        for (uint32_t i : runner.indices())
+            QVERIFY(i < b.size());
+        // the profile's preview draws it
+        qputenv(id == QLatin1String("male") ? "WATT_RUNNER_MALE_GLB" : "WATT_RUNNER_FEMALE_GLB", path.toUtf8());
+        qputenv("WATT_RUNNER_GLB", WATT_SOURCE_DIR "/assets/models/runner.glb");   // (the motion: no app resources here)
+        qputenv("WATT_WALKER_GLB", WATT_SOURCE_DIR "/assets/models/walker.glb");
+        watt::AvatarPreviewItem preview;
+        preview.setKind(QStringLiteral("runner"));
+        QVERIFY(!preview.helmet());
+        const int side = qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") > 0 ? qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") : 320;
+        preview.setSize(QSizeF(side, side * 15 / 16));
+        const QString dump = qEnvironmentVariable("WATT_AVATAR_DUMP");
+        int k = 0;
+        for (const QVariantMap &v : { QVariantMap { { "model", id } },
+                                      QVariantMap { { "model", id }, { "jersey", "#d0202a" }, { "shorts", "#1e3a8a" },
+                                                    { "shoes", "#f5c400" }, { "hair", "#e6c27a" } } }) {
+            waitForFigure(v, watt::RiderAvatar::Runner);
+            preview.setAvatar(v);
+            for (double yaw : { 35.0, 0.0, 200.0 }) {
+                preview.setYaw(yaw);
+                QImage img(side, side * 15 / 16, QImage::Format_ARGB32_Premultiplied);
+                img.fill(Qt::white);
+                QPainter painter(&img);
+                preview.paint(&painter);
+                painter.end();
+                if (!dump.isEmpty())
+                    img.save(QStringLiteral("%1/runner_%2_%3.png").arg(dump, id).arg(k));
+                ++k;
+            }
+        }
+        QVERIFY(!preview.ownColors().isEmpty());
+        QVERIFY(watt::RiderAvatar::fromVariant({ { "model", id } }, watt::RiderAvatar::Runner).figure()->retargeted());
+    }
+
+    // The textured avatars (rider_male.glb, rider_female.glb): their own clothes
+    // from the texture, the jersey / shorts / helmet / shoes found and recoloured.
+    void glbAvatarModel_data()
+    {
+        QTest::addColumn<QString>("id");
+        QTest::newRow("male") << QStringLiteral("male");
+        QTest::newRow("female") << QStringLiteral("female");
+    }
+    void glbAvatarModel()
+    {
+        QFETCH(QString, id);
+        const QString path = QStringLiteral(WATT_SOURCE_DIR "/assets/models/rider_%1.glb").arg(id);
+        if (!QFile::exists(path))
+            QSKIP("the model is not there");
+        using route3d::GlbModel;
+        auto m = std::make_shared<GlbModel>();
+        QString error;
+        QVERIFY2(m->loadFile(path, &error, GlbModel::Outfit::Avatar), qPrintable(error));
+        QVERIFY(m->canRide());
+        QVERIFY(m->textured());
+        size_t count[GlbModel::GarmentCount] = {};
+        for (uint8_t g : m->garments())
+            ++count[g];
+        qInfo("rider_%s.glb: %zu vertices; jersey %zu, shorts %zu, helmet %zu, shoes %zu, hair %zu, other %zu", qPrintable(id),
+              m->vertexCount(), count[GlbModel::Jersey], count[GlbModel::Shorts], count[GlbModel::Helmet], count[GlbModel::Shoes],
+              count[GlbModel::Hair],
+              count[GlbModel::NoGarment]);
+        for (int g = GlbModel::Jersey; g < GlbModel::GarmentCount; ++g) {
+            const QVector3D c = m->garmentColor(GlbModel::Garment(g));
+            qInfo("  garment %d main colour %.2f %.2f %.2f, %zu vertices", g, c.x(), c.y(), c.z(), count[g]);
+            if (g == GlbModel::Hair)
+                continue;   // (short hair can hide under the helmet)
+            QVERIFY2(c.x() >= 0, "a garment was not found in the texture");
+            QVERIFY(count[g] > 200);
+        }
+        // the blue jersey and helmet, the black shorts
+        QVERIFY(m->garmentColor(GlbModel::Jersey).z() > m->garmentColor(GlbModel::Jersey).x() + .15f);
+        QVERIFY(m->garmentColor(GlbModel::Helmet).z() > m->garmentColor(GlbModel::Helmet).x() + .15f);
+        QVERIFY(m->garmentColor(GlbModel::Shorts).length() < .5f);
+        // no colours chosen: the texture's; a red jersey: red where the jersey is, the rest unchanged
+        GlbModel::GarmentColors none;
+        QVERIFY(m->colorsFor(none).empty());   // (nothing to change: drawn in its own)
+        const auto &own = m->ownColors();
+        QVERIFY(own.size() >= m->garments().size());
+        GlbModel::GarmentColors red;
+        red.color[GlbModel::Jersey] = QVector3D(.85f, .1f, .1f);
+        const auto recoloured = m->colorsFor(red);
+        QCOMPARE(recoloured.size(), own.size());
+        for (size_t i = 0; i < m->garments().size(); ++i) {
+            if (m->garments()[i] == GlbModel::Jersey)
+                QVERIFY(recoloured[i].x() > recoloured[i].z());
+            else
+                QCOMPARE(recoloured[i], own[i]);
+        }
+        // on the bike: the colours given are drawn
+        route3d::GhostRider rider;
+        QVERIFY(rider.setRiderModel(m));
+        rider.setRiderColors(recoloured);
+        std::vector<route3d::GeoPoint> geo;
+        const RlvRoute standard = runroutes::standardRoute();
+        for (const auto &p : standard.points())
+            geo.push_back({ p.lat, p.lon, p.elevation });
+        const route3d::Route route = route3d::Route::fromGeo(geo);
+        const auto &v = rider.build(route, 50.0, 30.0, 0.0);
+        for (uint32_t i : rider.indices())
+            QVERIFY(i < v.size());
+        for (const auto &x : v)
+            QVERIFY(std::isfinite(x.position.x()) && std::isfinite(x.position.y()) && std::isfinite(x.color.x()));
+        // seated still: the hips do not bob with the pedal stroke (the
+        // body's top - the helmet - stays within a few millimetres)
+        float lo = 1e9f, hi = -1e9f;
+        for (int k = 0; k < 16; ++k) {
+            const auto &w = rider.build(route, 50.0, 30.0, k * M_PI / 8);
+            float topY = -1e9f;
+            for (const auto &x : w)
+                topY = std::max(topY, x.position.y());
+            lo = std::min(lo, topY);
+            hi = std::max(hi, topY);
+        }
+        qInfo("  top of the rider over a pedal turn: %.1f mm range", (hi - lo) * 1000);
+        {   // the saddle raised to the seat (and only an avatar's)
+            route3d::GlbModel::BikeFit fit;
+            fit.bottomBracket = QVector3D(0, .27f, -.08f);
+            fit.saddleTop = QVector3D(0, .977f, -.27f);
+            fit.hood[0] = QVector3D(-.205f, .985f, .44f);
+            fit.hood[1] = QVector3D(.205f, .985f, .44f);
+            const float raise = m->saddleRaise(fit);
+            qInfo("  saddle raised %.1f mm", raise * 1000);
+            QVERIFY(raise >= 0 && raise < .15f);
+            QCOMPARE(m->saddleRaise(fit), raise);   // (measured once)
+        }
+        QVERIFY(hi - lo < .008f);
+        // the profile's preview draws it (WATT_AVATAR_DUMP=<dir>: the pictures written there)
+        qputenv(id == QLatin1String("male") ? "WATT_RIDER_MALE_GLB" : "WATT_RIDER_FEMALE_GLB", path.toUtf8());   // (no app resources in the test)
+        watt::AvatarPreviewItem preview;
+        const int side = qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") > 0 ? qEnvironmentVariableIntValue("WATT_AVATAR_SIZE") : 320;
+        preview.setSize(QSizeF(side, side * 15 / 16));
+        const QString dump = qEnvironmentVariable("WATT_AVATAR_DUMP");
+        int k = 0;
+        for (const QVariantMap &a : { QVariantMap { { "model", id } },
+                                      QVariantMap { { "model", id }, { "jersey", "#d0202a" }, { "shorts", "#1e3a8a" },
+                                                    { "helmet", "#ffffff" }, { "shoes", "#111111" }, { "bike", "#e8e8e8" } },
+                                      QVariantMap { { "model", id }, { "jersey", "#f5c400" }, { "helmet", "#f5c400" }, { "hair", "#e6c27a" } } }) {
+            waitForFigure(a, watt::RiderAvatar::Cyclist);
+            preview.setAvatar(a);
+            for (double yaw : { 35.0, 0.0, 200.0 }) {
+                preview.setYaw(yaw);
+                QImage img(side, side * 15 / 16, QImage::Format_ARGB32_Premultiplied);
+                img.fill(Qt::white);
+                QPainter painter(&img);
+                preview.paint(&painter);
+                painter.end();
+                int drawn = 0;
+                for (int y = 0; y < img.height(); ++y)
+                    for (int x = 0; x < img.width(); ++x)
+                        drawn += img.pixel(x, y) != qRgb(255, 255, 255);
+                QVERIFY(drawn > 5000 * side / 320 * side / 320);
+                if (!dump.isEmpty())
+                    img.save(QStringLiteral("%1/avatar_%2_%3.png").arg(dump, id).arg(k));
+                ++k;
+            }
+        }
+        QVERIFY(!preview.ownColors().isEmpty());
+        // the bike's colour: any cyclist, the classic one too
+        QVERIFY(preview.ownColors().contains(QStringLiteral("bike")));
+        const auto redBike = watt::RiderAvatar::fromVariant({ { "model", "classic" }, { "bike", "#cc0000" } });
+        QVERIFY(redBike.bikeColor.x() > .7f && redBike.bikeColor.z() < .1f);
+        route3d::GhostRider plain, painted;
+        painted.setFrameColor(redBike.bikeColor);
+        const auto a = plain.build(route, 50.0, 30.0, 0.0);
+        const auto &b = painted.build(route, 50.0, 30.0, 0.0);
+        QCOMPARE(a.size(), b.size());
+        int changed = 0;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].color != b[i].color) {
+                QVERIFY(b[i].color.x() > .7f);
+                ++changed;
+            }
+        QVERIFY(changed > 100);
     }
 };
 

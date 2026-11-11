@@ -348,6 +348,40 @@ private slots:
         QCOMPARE(db.profile(profiles.profileId())->weightKg, 72.0);
     }
 
+    // The 3D avatars (cyclist / runner / rower): saved per profile, only the
+    // known keys and "#rrggbb" colours kept, gone with the profile.
+    void profileAvatars3d()
+    {
+        QTemporaryDir dir;
+        Database db;
+        QVERIFY(db.open(dir.filePath(QStringLiteral("a.sqlite"))));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        QVERIFY(profiles.saveProfile({ { QStringLiteral("avatar3d"),
+                                         QVariantMap { { "model", "Female" }, { "jersey", "#D0202A" }, { "bike", "red" },
+                                                       { "evil", "x" } } },
+                                       { QStringLiteral("rower3d"), QVariantMap { { "model", "male" }, { "boat", "#f5c400" } } } }));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("female"));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("jersey")).toString(), QStringLiteral("#d0202a"));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("bike")).toString(), QString());   // (not #rrggbb)
+        QVERIFY(!profiles.avatar3d().contains(QStringLiteral("evil")));
+        QCOMPARE(profiles.rower3d().value(QStringLiteral("boat")).toString(), QStringLiteral("#f5c400"));
+        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        // a second profile has its own; deleting one removes its avatars
+        const qint64 first = profiles.profileId();
+        const qint64 second = profiles.createProfileWith({ { QStringLiteral("name"), QStringLiteral("B") },
+                                                           { QStringLiteral("runner3d"), QVariantMap { { "model", "male" } } } });
+        QVERIFY(second > 0);
+        QCOMPARE(profiles.runner3d().value(QStringLiteral("model")).toString(), QStringLiteral("male"));
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("classic"));
+        QVERIFY(profiles.selectProfile(first) || profiles.profileId() == first);
+        QCOMPARE(profiles.avatar3d().value(QStringLiteral("model")).toString(), QStringLiteral("female"));
+        QVERIFY(profiles.deleteProfile(second));
+        QVERIFY(db.setting(QStringLiteral("runnerAvatar/%1").arg(second), QStringLiteral("gone")).toString() == QStringLiteral("gone"));
+    }
+
     void upgradesDevV8SprintRecords()
     {
         // a development build's v8: sprint_records (no kind) -> segment_records

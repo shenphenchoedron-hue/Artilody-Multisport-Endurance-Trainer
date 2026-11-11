@@ -10,16 +10,43 @@ AppDialog {
     title: creating ? "New Profile" : "User Profile"
     property bool creating: false
     property bool showZones: false
+    property bool showAvatar3d: false   // the 3D rider panel (figure, clothes' colours)
     property url avatar
     property var bounds: Profiles.defaultZoneBounds
+    // the rider in the GPX Ride's 3D view (Profiles.avatar3d's keys) and the
+    // runner in the Treadmill Run's (Profiles.runner3d); the panel shows one
+    property var avatar3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property var runner3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property var rower3d: ({ model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" })
+    property string avatarKind: "cyclist"   // "cyclist" | "runner" | "rower"
+    readonly property var shownAvatar: avatarKind === "runner" ? runner3d : avatarKind === "rower" ? rower3d : avatar3d
 
-    panelWidth: showZones ? 1010 : 528
+    function setAvatar3d(key, value) {
+        var a = Object.assign({}, shownAvatar)
+        a[key] = value
+        if (avatarKind === "runner")
+            runner3d = a
+        else if (avatarKind === "rower")
+            rower3d = a
+        else
+            avatar3d = a
+    }
+
+    panelWidth: showZones || showAvatar3d ? 1010 : 528
     // grows when an error message is shown so it never overlaps the fields or buttons
     panelHeight: Math.max(586, fields.y + fields.height + (errorText.text.length > 0 ? errorText.height + 16 : 0) + 96)
 
     function openFor(newProfile) {
         creating = newProfile
         showZones = false
+        showAvatar3d = false
+        avatarKind = "cyclist"
+        avatar3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+                              : Object.assign({}, Profiles.avatar3d)
+        runner3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+                              : Object.assign({}, Profiles.runner3d)
+        rower3d = newProfile ? { model: "classic", jersey: "", shorts: "", helmet: "", shoes: "", hair: "", bike: "", boat: "" }
+                             : Object.assign({}, Profiles.rower3d)
         nameField.text = newProfile ? "" : Profiles.name
         weight.value = newProfile ? 75 : Profiles.weight
         heightSpin.value = newProfile ? 0 : Profiles.heightCm
@@ -57,7 +84,10 @@ AppDialog {
             preferredCadence: cadence.value,
             defaultErg: mode.currentIndex === 0,
             avatarUrl: avatar,
-            zoneBounds: zb
+            zoneBounds: zb,
+            avatar3d: avatar3d,
+            runner3d: runner3d,
+            rower3d: rower3d
         }
     }
 
@@ -216,6 +246,7 @@ AppDialog {
     }
 
     Text {
+        id: zonesLink
         x: 28
         y: 216
         width: 120
@@ -226,7 +257,195 @@ AppDialog {
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: dlg.showZones = !dlg.showZones
+            onClicked: { dlg.showZones = !dlg.showZones; dlg.showAvatar3d = false }
+        }
+    }
+
+    Text {
+        x: 28
+        anchors.top: zonesLink.bottom   // (below it, also when it wraps)
+        anchors.topMargin: 14
+        width: 120
+        text: dlg.showAvatar3d ? "Hide avatar ‹" : "3D avatar ›"
+        color: Theme.accentLight
+        font.pixelSize: 15
+        wrapMode: Text.WordWrap
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { dlg.showAvatar3d = !dlg.showAvatar3d; dlg.showZones = false }
+        }
+    }
+
+    // the 3D avatar panel: which figure rides / runs / rows in the 3D views,
+    // the colours of its clothes (a textured avatar only), the bike, the boat
+    ColorDialog {
+        id: garmentPicker
+        property string key: ""
+        title: "Choose a colour"
+        onAccepted: dlg.setAvatar3d(key, selectedColor.toString())
+    }
+    Item {
+        id: avatarPanel
+        visible: dlg.showAvatar3d
+        x: 528
+        y: 76
+        width: 454
+        height: 440
+        readonly property var own: preview.ownColors   // the figure's own colours (empty: classic)
+        // the figure's clothes can be recoloured (a textured avatar; the bike always can)
+        readonly property bool recolourable: Object.keys(own).filter(k => k !== "bike" && k !== "boat").length > 0
+
+        Rectangle { x: -14; width: 1; height: parent.height; color: Theme.cardBorder }
+
+        Text {
+            height: 30
+            verticalAlignment: Text.AlignVCenter
+            text: "3D avatar"; color: Theme.text; font.pixelSize: 18; font.weight: Font.Bold
+        }
+        // which figure: the GPX Ride's cyclist or the Treadmill Run's runner
+        SegmentedControl {
+            anchors.right: parent.right
+            height: 30
+            fontSize: 14
+            value: dlg.avatarKind
+            options: [ { value: "cyclist", label: "Cyclist" }, { value: "runner", label: "Runner" },
+                       { value: "rower", label: "Rower" } ]
+            onActivated: (v) => dlg.avatarKind = v
+        }
+
+        Rectangle {
+            y: 38
+            width: parent.width
+            height: 150
+            radius: 10
+            color: Theme.dark ? Qt.rgba(1, 1, 1, 0.06) : "#eef2f8"
+            AvatarPreview {
+                id: preview
+                anchors.fill: parent
+                anchors.margins: 6
+                avatar: dlg.shownAvatar
+                kind: dlg.avatarKind
+            }
+            // drag to turn the rider round
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                property real lastX: 0
+                onPressed: (mouse) => lastX = mouse.x
+                onPositionChanged: (mouse) => {
+                    preview.yaw = preview.yaw + (mouse.x - lastX) * 0.8
+                    lastX = mouse.x
+                }
+            }
+            Text {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 8
+                text: "Drag to turn"
+                color: Theme.textSecondary
+                font.pixelSize: 11
+            }
+        }
+
+        GridLayout {
+            y: 196
+            width: parent.width
+            columns: 2
+            columnSpacing: 12
+            rowSpacing: 5
+
+            Text { text: "Figure"; color: Theme.text; font.pixelSize: 15; Layout.preferredWidth: 116 }
+            AppComboBox {
+                id: modelBox
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
+                textRole: "name"
+                // the installed figures - and the saved one when its model
+                // file is not there (shown as such, the classic one drawn)
+                readonly property var choices: {
+                    var list = preview.models.slice()
+                    var saved = dlg.shownAvatar.model || "classic"
+                    if (!list.some(m => m.id === saved))
+                        list.push({ id: saved, name: saved + " (not installed)" })
+                    return list
+                }
+                model: choices
+                currentIndex: {
+                    for (var i = 0; i < choices.length; ++i)
+                        if (choices[i].id === (dlg.shownAvatar.model || "classic"))
+                            return i
+                    return 0
+                }
+                onActivated: (index) => dlg.setAvatar3d("model", choices[index].id)
+            }
+
+            Repeater {
+                model: [ { key: "jersey", name: dlg.avatarKind === "cyclist" ? "Jersey" : "Top" },
+                         { key: "shorts", name: "Shorts" }, { key: "helmet", name: "Helmet" },
+                         { key: "shoes", name: "Shoes" }, { key: "hair", name: "Hair" },
+                         { key: "bike", name: "Bike" }, { key: "boat", name: "Boat" } ]
+                delegate: Item {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    visible: (avatarPanel.recolourable || modelData.key === "bike" || modelData.key === "boat")
+                             && (modelData.key !== "helmet" || preview.helmet)
+                             && (avatarPanel.own[modelData.key] || "").length > 0
+                    readonly property string chosen: dlg.shownAvatar[modelData.key] || ""
+                    readonly property string shown: chosen.length > 0 ? chosen : (avatarPanel.own[modelData.key] || "#808080")
+                    Text {
+                        width: 116
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.name
+                        color: Theme.text
+                        font.pixelSize: 15
+                    }
+                    Rectangle {
+                        x: 128
+                        width: 64; height: 28; radius: 6
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: parent.shown
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                garmentPicker.key = modelData.key
+                                garmentPicker.selectedColor = parent.color
+                                garmentPicker.open()
+                            }
+                        }
+                    }
+                    Text {
+                        x: 204
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: parent.chosen.length > 0 ? "Reset" : "Original"
+                        color: parent.chosen.length > 0 ? Theme.accentLight : Theme.textSecondary
+                        font.pixelSize: 13
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: parent.parent.chosen.length > 0
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: dlg.setAvatar3d(modelData.key, "")
+                        }
+                    }
+                }
+            }
+            Text {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                visible: !avatarPanel.recolourable
+                text: dlg.avatarKind === "runner"
+                      ? "The classic runner's colours are fixed. Choose a male or female runner to pick the colours of the top, shorts, shoes and hair."
+                      : dlg.avatarKind === "rower"
+                      ? "The classic rower's colours are fixed. Choose a male or female rower to pick the colours of the top, shorts and hair."
+                      : "The classic rider's clothes have fixed colours. Choose a male or female cyclist to pick the colours of the jersey, shorts, helmet, shoes and hair."
+                color: Theme.textSecondary
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
         }
     }
 

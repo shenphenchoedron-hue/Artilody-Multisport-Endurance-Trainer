@@ -58,6 +58,7 @@ public:
     // Settings (key/value)
     QVariant setting(const QString &key, const QVariant &defaultValue = {}) const;
     void setSetting(const QString &key, const QVariant &value);
+    void removeSetting(const QString &key);
 
     // Profiles
     QVector<Profile> profiles() const;

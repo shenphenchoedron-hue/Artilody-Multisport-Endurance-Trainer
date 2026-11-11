@@ -1,6 +1,7 @@
 #pragma once
 
 #include "route.h"
+#include "RiderAvatar.h"
 
 #include <QElapsedTimer>
 #include <QPointer>
@@ -48,6 +49,11 @@ class Route3DItem : public QQuickFramebufferObject
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
     // why the route / the view cannot be shown ("" = fine)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    // the cyclist's look: the profile's avatar (Profiles.avatar3d: model,
+    // jersey, shorts, helmet, shoes - RiderAvatar)
+    Q_PROPERTY(QVariantMap avatar READ avatar WRITE setAvatar NOTIFY avatarChanged)
+    // the runner's look (Treadmill Run): Profiles.runner3d (the same keys)
+    Q_PROPERTY(QVariantMap runnerAvatar READ runnerAvatar WRITE setRunnerAvatar NOTIFY runnerAvatarChanged)
 
 public:
     static constexpr int kFrameMs = 33;        // ~30 FPS while riding
@@ -68,6 +74,12 @@ public:
     bool hasScene() const { return m_route != nullptr; }
     bool supported() const { return m_supported; }
     QString error() const { return m_routeError.isEmpty() ? m_rendererError : m_routeError; }
+    QVariantMap avatar() const { return m_avatarValues; }
+    void setAvatar(const QVariantMap &values);
+    const RiderAvatar &frameAvatar() const { return m_avatar; }
+    QVariantMap runnerAvatar() const { return m_runnerAvatarValues; }
+    void setRunnerAvatar(const QVariantMap &values);
+    const RiderAvatar &frameRunnerAvatar() const { return m_runnerAvatar; }
 
     // (render thread, in Renderer::synchronize(); the GUI thread is blocked)
     std::shared_ptr<const route3d::Route> drawnRoute() const { return m_route; }
@@ -125,6 +137,8 @@ signals:
     void sceneChanged();
     void supportedChanged();
     void errorChanged();
+    void avatarChanged();
+    void runnerAvatarChanged();
 
 protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
@@ -141,6 +155,10 @@ private:
     QPointer<QObject> m_sessionObject;   // the session (RlvSession / RunSession)
     RouteProgressSource *m_session = nullptr;   // valid while m_sessionObject is
     bool m_runner = false;               // draw a runner (Treadmill Run) instead of the cyclist
+    QVariantMap m_avatarValues;
+    RiderAvatar m_avatar;
+    QVariantMap m_runnerAvatarValues;
+    RiderAvatar m_runnerAvatar { RiderAvatar::Runner };
     double m_walkRunKmh = 6.25;          // runner: the athlete's walk -> run speed
     Built m_built;
     std::shared_ptr<const route3d::Route> m_route;
