@@ -26,6 +26,11 @@ struct Sample
 struct RideRecord
 {
     qint64 id = -1;
+    QString uuid;   // (schema v12; given by the database, read only)
+    // The server (schema v15, RideSync; read only): sent to it, and the station
+    // it was recorded on ("" = this one)
+    bool synced = false;
+    QString station;
     qint64 profileId = -1;
     qint64 workoutId = -1;
     QString workoutName;

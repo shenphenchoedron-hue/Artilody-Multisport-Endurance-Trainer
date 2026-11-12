@@ -14,7 +14,7 @@
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Raspberry%20Pi-informational)](#download--install)
 [![Qt 6](https://img.shields.io/badge/Qt-6%20%2F%20QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
 
-[Download](#download--install) · [User manual](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf) · [Quick start](#quick-start) · [Build from source](#building-from-source) · [Report a bug](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/issues)
+[Download](#download--install) · [User manual](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf) · [Network server manual](docs/Artilody-Network-Server-Manual.pdf) · [Quick start](#quick-start) · [Build from source](#building-from-source) · [Report a bug](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/issues)
 
 </div>
 
@@ -22,7 +22,7 @@
   <img src="docs/screenshots/dashboard.png" alt="Artilody Multisport Endurance Trainer Watt Training page during a workout" width="900">
 </p>
 
-Artilody Multisport Endurance Trainer (formerly *Artilody Watts Trainer*) is a desktop app for structured indoor cycling, rowing and treadmill running. It connects to Bluetooth LE smart trainers (FTMS), **FTMS treadmills**, heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride, row and run to a local database on your computer. You don't need an account, a subscription or an internet connection.
+Artilody Multisport Endurance Trainer (formerly *Artilody Watts Trainer*) is a desktop app for structured indoor cycling, rowing and treadmill running. It connects to Bluetooth LE smart trainers (FTMS), **FTMS treadmills**, heart-rate sensors, Zwift Click controllers and **Concept2 PM5** rowers, sets the trainer resistance for you, and saves every ride, row and run to a local database on your computer. You don't need an account, a subscription or an internet connection – and if you have several training computers, they can share riders, routes, videos and training through **your own server at home** (Windows, Mac, Linux or Raspberry Pi).
 
 It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Linux (Debian / Ubuntu)** and **Raspberry Pi OS**.
 
@@ -39,12 +39,29 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Treadmill Run** | Run on any FTMS treadmill through the same 3D world – GPX routes or the built-in *Artilody Lakeside 10K*. Running workouts in % of your **AnT** (anaerobic threshold) or km/h, a built-in 30-min AnT test with reminders, running zones. The treadmill is only read, never controlled. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
 | **History & export** | Distance, Effort Power / Intensity Ratio / Training Load, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
+| **Training together (new in 2.0)** | Optional server at home (XAMPP on Windows/Mac, or one script on Debian, Ubuntu, Raspberry Pi): shared riders, a media library for GPX routes and videos, every station's training in History and **analysed in the browser**, the ghost races other riders, and riders on the same GPX route **see each other live**. |
+| **Ghost & pacer** | Race an earlier ride on the same GPX route (yours or another rider's), or a **pacer** at a fixed W/kg – adjustable during the ride. |
 | **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
 | **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
 
 ---
 
-## What's new in 1.9.9
+## What's new in 2.0.0
+
+**Training together – your own server at home.** Several Artilody computers (stations) can now share one server. It is optional: without it every station works on its own, exactly as before, and a station never waits for the server.
+
+- **Easy to set up, for everyone.** On **Windows** and **macOS** the server runs in **XAMPP** – copy the folder, open `setup.php` in the browser, done. On **Debian, Ubuntu and Raspberry Pi** one command (`sudo bash install.sh`) installs and sets up everything. The new **[Network Server Manual (PDF)](docs/Artilody-Network-Server-Manual.pdf)** walks through every step for non-experts.
+- **Shared riders.** Profiles (weight, FTP, heart rates, picture, 3D figures) are the same on every station; the newest change wins. Manage them in the browser too.
+- **Media library.** Upload GPX routes and Real Life Videos once (browser, or *Send to Server* from a station). GPX routes arrive on every station by themselves; videos are fetched with *Server Library → Download* (interrupted downloads resume).
+- **Training everywhere.** Every ride, row and run is sent to the server; History shows your rides from all stations, and the ghost can race them.
+- **Analysis in the browser.** Per rider: last 7/28/365 days, weekly hours and Training Load, FTP over time, best power, and every ride with its chart, zones and laps.
+- **Ride together.** Everyone on the same GPX route (or treadmill route) sees the others live in 3D – each in its own lane and colour – with gaps and watts in the *Riding with* panel.
+
+**Ghost and pacer (GPX Ride).** Race a **ghost** – an earlier ride on the same route (best, latest, any ride, or another rider's) – or a **pacer** holding a fixed W/kg with your weight and the ride's physics; change its W/kg during the ride. Treadmill Run has the ghost too. Ghost riders' pedals now spin at a real cadence.
+
+Database update (schema 15) on first start – install over 1.9.9; nothing is lost. See the [2.0.0 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.0.0).
+
+## Also included from 1.9.9
 
 **Only the new 3D figures.** The old Classic cyclist, runner and rower are gone: the *3D avatar* panel offers the male and the female figure for each, and every part can be recoloured. A profile that had Classic chosen now shows the male figure (change it in *User Profile → 3D avatar ›*). The figures load in the background when the app starts, so they are ready when a 3D view opens. No database change – see the [1.9.9 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v1.9.9).
 
@@ -416,7 +433,8 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 1.9.9](#whats-new-in-199)
+- [What's new in 2.0.0](#whats-new-in-200)
+- [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
 - [Screenshots](#screenshots)
@@ -743,7 +761,23 @@ The built-in Bluetooth on the Pi 3/4/5 works with smart trainers and heart-rate 
 
 ## User manual
 
-The **[user manual (PDF)](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf)** covers every screen in detail. It is also attached to each [release](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest).
+The **[user manual (PDF)](docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf)** covers every screen in detail. The **[Network Server Manual (PDF)](docs/Artilody-Network-Server-Manual.pdf)** shows step by step how to set up the server for training together. Both are also attached to each [release](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/latest).
+
+## Training together (network server)
+
+Optional: one computer in your home (or club) becomes the server, and every training computer connects to it under **Settings → Server**.
+
+| Server computer | How | Station address |
+|---|---|---|
+| Windows 10/11 | [XAMPP](https://www.apachefriends.org) + the `artilody` folder from `artilody-server-<version>.zip` in `C:\xampp\htdocs`, then `http://localhost/artilody/setup.php` | `192.168.x.x/artilody` |
+| macOS | XAMPP + the folder in `/Applications/XAMPP/xamppfiles/htdocs`, then `setup.php` | `192.168.x.x/artilody` |
+| Raspberry Pi OS, Debian, Ubuntu | unzip `artilody-server-<version>.zip`, `cd artilody`, `sudo bash install.sh` | `192.168.x.x` |
+
+What it gives you: shared riders, a media library (GPX routes and videos), every station's training in History and in the browser (`http://<server>/training.php`), ghosts from other stations and riders, and live riding together on GPX routes. The server is for your home network only – never forward ports to it. Everything is explained for non-experts in the **[Network Server Manual](docs/Artilody-Network-Server-Manual.pdf)**; the server code is in [`server/`](server/).
+
+<p align="center">
+  <img src="docs/screenshots/network/web-training.png" alt="The server's training analysis in the browser" width="700">
+</p>
 
 ## Quick start
 
@@ -862,6 +896,7 @@ For developers: `WATT_LOG_DIR=<folder>` writes the log elsewhere, `WATT_LOG=0` t
 Artilody Multisport Endurance Trainer runs **fully offline**:
 
 - No account, no cloud and no telemetry or analytics. Nothing is uploaded: FIT, CSV and workout files are only written when you export them yourself.
+- The optional network server (Settings → Server, off by default) is **your own** computer on your home network; the stations talk only to it. Nothing ever goes to the internet.
 - Rides and rows, profiles, workouts, the training plan, rowing records and playlists are stored in a local SQLite database (`watt-trainer.sqlite` in the user's app-data folder). The exact path is shown under **Settings** (the gear icon).
 - To use a different database file, set the `WATT_DB_PATH` environment variable.
 

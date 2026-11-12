@@ -87,4 +87,47 @@ struct SegmentRecord
     QDateTime createdAt;
 };
 
+// An item of the server's media library (table server_media, schema v14;
+// MediaSync): a GPX route (one .gpx) or a video route (a folder: video +
+// .gpx [+ .xml]) - its files by name, sha1 and size.
+struct ServerMediaFile
+{
+    QString name, hash;
+    qint64 size = 0;
+};
+struct ServerMedia
+{
+    QString uuid;
+    QString kind;            // "gpx" / "video"
+    QString name;
+    QString folder;          // video: its folder on the station
+    QVector<ServerMediaFile> files;
+    qint64 sizeBytes = 0;
+    qint64 updatedMs = 0;
+    QString uploadedBy;
+    QString localPath;       // where it is on this station ("" = not here / not known): gpx file / video folder
+};
+
+// Where a saved GPX Ride / Treadmill Run was on its route second by second
+// (table route_traces, schema v11): the ghost of a later ride on the same
+// route races it. The trace holds [t (s), metres covered since the start].
+struct RouteTrace
+{
+    qint64 id = -1;
+    QString uuid;            // (schema v12; given by the database, read only)
+    qint64 profileId = -1;
+    QString riderName;       // (another profile's: Database::routeTracesOfOthers)
+    qint64 rideId = -1;      // the saved ride (deleted with it)
+    QString sport;           // "gpx" (GPX Ride) / "run" (Treadmill Run)
+    QString routeKey;        // sprint::routeKey(): the track's fingerprint
+    QString routeName;
+    double startM = 0;       // where on the route the ride started (m)
+    bool loop = false;       // ridden as a loop (lap after lap)
+    bool completed = false;  // reached the route's end (a loop: at least one lap)
+    double durationSec = 0;
+    double distanceM = 0;    // metres covered
+    QDateTime createdAt;
+    QVector<TracePoint> trace;   // (empty unless asked for)
+};
+
 } // namespace watt

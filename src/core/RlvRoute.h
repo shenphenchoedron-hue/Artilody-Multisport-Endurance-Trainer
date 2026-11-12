@@ -43,7 +43,7 @@ struct RlvInformation
 //    base name (else the only video in the folder)
 //  * a gpx-import .xml (name, title, country, id, video-file-path,
 //    gpx-file-path, framerate, start-frame, end-frame, informations)
-//  * a .gpx with a same-basename video (.mp4/.m4v/.mov/.mkv/.avi)
+//  * a .gpx with a same-basename video (videoSuffixes(): .mp4/.m4v/.mov/.mkv/.avi/.webm)
 //
 // Video <-> track: track point i is shown at video second
 //     videoTime_i = (start-frame - 1) / framerate + (t_i - t_0)
@@ -177,6 +177,8 @@ public:
 
     // helpers (exposed for tests)
     static double haversine(double lat1, double lon1, double lat2, double lon2);
+    // the video files a route may have (lower-case suffixes)
+    static const QStringList &videoSuffixes();
     // HTML named entities -> characters (XML's five are kept), literal "\n" -> newline.
     static QString decodeText(const QString &text);
     // On the raw bytes (ASCII "&name;" -> "&#N;"), any 8-bit encoding is kept;

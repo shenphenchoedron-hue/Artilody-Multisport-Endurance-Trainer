@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(ArtilodyWattTrainer
-    VERSION 1.9.9
+    VERSION 2.0.0
     DESCRIPTION "Indoor cycling power training (Qt 6 / QML)"
     LANGUAGES CXX)
 
@@ -13,7 +13,7 @@ option(WATT_BUILD_TESTS "Build the unit tests" ON)
 # Qt 6.4 is the minimum so the app also builds with the Qt packages shipped
 # with Raspberry Pi OS (Bookworm).
 find_package(Qt6 6.4 REQUIRED COMPONENTS
-    Core Gui OpenGL Qml Quick QuickControls2 Sql Bluetooth Multimedia)
+    Core Gui OpenGL Qml Quick QuickControls2 Sql Network Bluetooth Multimedia)
 
 qt_standard_project_setup()
 if(QT_KNOWN_POLICY_QTP0001)   # Qt >= 6.5: modules live under qrc:/qt/qml/

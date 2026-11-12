@@ -316,6 +316,7 @@ Item {
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: modelData.name
+                                        textFormat: Text.PlainText   // (a name may come from the server)
                                         color: Theme.textOnColor
                                         font.pixelSize: 15
                                         width: Math.min(implicitWidth, blocksArea.widthFor(index) - 8)

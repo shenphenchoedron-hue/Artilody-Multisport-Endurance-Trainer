@@ -1,6 +1,6 @@
 """Text of the Artilody Multisport Endurance Trainer user manual.
 
-Written against the v1.9.7 source code (incl. History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
+Written against the v2.0.0 source code (incl. the network server, ghost and pacer, History distance and metric names, GPX Ride road sound, gravel rolling resistance and Tacx NEO road feel, GPX Workshop gravel sections, GPX Ride loops and lap times, GPX Ride landscapes and birds, GPX Ride sprint and KOM, Treadmill Run with running workouts and the AnT test, GPX Ride in 3D, Zwift Click virtual shifting, calendar with Free Ride/Video Ride planning, rowing, Free Ride, virtual gears and Real Life Video with Workout ERG) (qml/, src/core, src/ble, src/media,
 src/app/main.cpp, packaging/release-notes.md). Markup is ReportLab paragraph
 markup (<b>, <i>, <font>, <br/>, &amp; ...). Used by make_manual.py.
 """
@@ -64,6 +64,9 @@ def build(s, env):
         f"{UI('Plays music')} – a built-in player for your own audio files with playlists and favourites.",
         f"{UI('Works offline')} – no account, no cloud, no tracking. All data is kept in a local SQLite "
         "database.",
+        f"{UI('Trains together')} – optionally, several computers share riders, routes, videos and training "
+        "through your own server at home (chapter 16), with training analysis in the browser and live riding "
+        "together on GPX routes.",
     ])
 
     s.section("Key concepts")
@@ -656,7 +659,7 @@ def build(s, env):
         "Values drop to 0 or “–”: power and cadence are reset after 3 seconds without new data, heart rate "
         "after 6 seconds. This usually means a weak signal – reduce the distance or use a USB adapter with an "
         "extension cable.",
-        "See chapter 17 for more solutions.",
+        "See chapter 18 for more solutions.",
     ])
 
     # =====================================================================
@@ -1893,6 +1896,34 @@ def build(s, env):
     s.note("GPX Rides cannot be planned in the calendar yet; only one ride (workout, row, Free Ride, Video Ride "
            "or GPX Ride) runs at a time.")
 
+    s.section("Ghost and pacer: someone to ride against")
+    s.p(f"On a GPX Ride you can race a <b>ghost</b> – an earlier ride on the same route – or a <b>pacer</b> – "
+        "a rider who holds a fixed number of watts per kilogram all the way. Only one of the two rides with you "
+        "at a time: switching on the pacer switches the ghost off, and choosing a ghost switches the pacer off.")
+    s.sub("The ghost")
+    s.bullets([
+        f"The {UI('Ghost')} list in the right-hand panel offers {UI('Off')}, {UI('Best')} (your fastest "
+        f"completed ride on this route; on a loop the highest average speed), {UI('Latest')} and each of your "
+        "earlier rides by date, time and distance. With a network server (chapter 16) it also lists the other "
+        "riders' rides on the route, marked with their name – <i>Best</i> and <i>Latest</i> stay your own.",
+        "The ghost starts with you and rides exactly as that ride did. It is drawn as your own figure, pale and "
+        "see-through, in its own lane just inside yours, and appears as a dot on the elevation profile.",
+        "A badge on the 3D view (in full screen at the left under the ride numbers) shows how far it is ahead "
+        "(red) or behind (green).",
+        "A ghost needs the same route and the same start point. Every GPX Ride and every Treadmill Run on a "
+        "GPX route is recorded for the ghost automatically; the Treadmill Run has the same ghost list.",
+    ])
+    s.sub("The pacer")
+    s.bullets([
+        f"Switch on {UI('Pacer')} in the right-hand panel and set its W/kg with − and + (0.5 – 8.0 W/kg in "
+        "steps of 0.1). It is simulated with your weight and the ride's own physics – slower on the climbs, "
+        "faster downhill, the difficulty and gravel included.",
+        "It rides in orange in the lane across the centre line, with its own badge and an orange dot on the "
+        "profile.",
+        "You can change its W/kg during the ride, also in full screen with − / + on its badge: it speeds up or "
+        "slows down from where it is.",
+    ])
+
     # =====================================================================
     s.chapter("Treadmill Run",
               lead="Run on your treadmill through the same 3D world as the GPX Ride – a GPX route or the built-in "
@@ -1994,6 +2025,34 @@ def build(s, env):
            "player reports <i>“File not found”</i>; remove it and add it again from its new location.")
 
     # =====================================================================
+    s.chapter("Training together: the network server",
+              lead="Several training computers in one home or club can share one server: riders, GPX routes, "
+                   "videos and training are then the same everywhere, the server shows every rider's training "
+                   "in the browser, and riders on the same GPX route see each other live.")
+    s.p(f"Everything about setting up the server – on Windows, macOS, Debian, Ubuntu or a Raspberry Pi – is in "
+        f"the separate <b>Artilody Network Server Manual</b> (PDF), on the release page next to this manual: "
+        f"{L(RELEASES)}. It is written step by step for readers who have never set up a server.")
+    s.section("On a station")
+    s.steps([
+        f"Open {UI('Settings')} and switch on {UI('Server')}.",
+        "Type the server's address (from its setup), for example 192.168.1.20 or 192.168.1.20/artilody.",
+        f"A green dot and <i>Connected to Artilody server</i> appear. {UI('Check now')} asks again at once.",
+    ])
+    s.bullets([
+        f"{UI('Riders')} are shared: a change on one station reaches the others within a minute.",
+        f"{UI('GPX routes')} on the server arrive by themselves; {UI('videos')} are fetched in GPX Ride / Video "
+        f"Ride › folder button › {UI('Server Library…')} › {UI('Download')}. {UI('Send to Server')} in the same "
+        "menu puts the chosen route on the server.",
+        f"{UI('Training')} is sent after every ride; rides from other stations appear in History "
+        "(<i>on &lt;station&gt;</i>), and the ghost can race them.",
+        f"{UI('Riding together')}: everyone on the same GPX route sees the others in the 3D view, each in its "
+        f"own lane and colour, and the panel {UI('Riding with')} shows the gaps and watts.",
+        "Without the server – switched off, or the server computer asleep – every station works on its own and "
+        "catches up the next time the server is there. Nothing is fetched or sent during a ride.",
+    ])
+    s.note("On a Mac, macOS asks once whether Artilody may find devices on the local network – click Allow "
+           "(System Settings › Privacy &amp; Security › Local Network).")
+
     s.chapter("Settings & data")
     s.section("Settings dialog")
     s.p("Click the gear icon in the top bar. The Settings dialog contains:")
@@ -2354,6 +2413,6 @@ def build(s, env):
     s.p(f"Source code, releases and issue tracker: {L(REPO)}")
     s.p(f"Found a bug or have an idea? Please open an issue: {L(REPO + '/issues')}")
     s.spacer(10)
-    s.p(f'<font color="#5b6485">This manual describes Artilody Multisport Endurance Trainer version {V} (October 2026). '
+    s.p(f'<font color="#5b6485">This manual describes Artilody Multisport Endurance Trainer version {V} (November 2026). '
         "Screenshots show the app with the virtual trainer, heart-rate sensor and rower and demo data; the profile dialog "
         "illustration is a design mockup.</font>")

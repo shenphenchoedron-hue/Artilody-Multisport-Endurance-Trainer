@@ -11,6 +11,7 @@
 
 #include <QVector>
 #include <array>
+#include <cmath>
 #include <vector>
 #include <QVector>
 
@@ -63,6 +64,16 @@ public:
     // the shown rpm approaches it with this time constant, so the legs do not
     // jerk at each new value. 0 rpm (coasting, no cadence) = legs still.
     static constexpr double kCadenceSmoothingSec = 0.6;
+    // The ghost's / pacer's legs (cyclist; no cadence in a trace): a rider
+    // shifts gears, so the cadence is near kRivalRpm from low speed on -
+    // rpm = kRivalRpm * (1 - exp(-v / kRivalRpmRiseMs)), v in m/s
+    // (2 m/s: ~70 rpm, 4 m/s: ~85 rpm); still when it stands.
+    static constexpr double kRivalRpm = 88.0;
+    static constexpr double kRivalRpmRiseMs = 1.2;
+    static double rivalRpm(double speedMs)
+    {
+        return speedMs > 0.1 ? kRivalRpm * (1.0 - std::exp(-speedMs / kRivalRpmRiseMs)) : 0.0;
+    }
 
     explicit Route3DItem(QQuickItem *parent = nullptr);
     ~Route3DItem() override;
@@ -105,6 +116,19 @@ public:
     // (read live: the profile's setting may change during a run)
     double frameWalkRunKmh() const;
     float frameTime() const { return float(m_clock.elapsed() / 1000.0); }
+    // the other riders: [0] the ghost of an earlier ride
+    // (RouteProgressSource::ghostVisible() & co.), [1] the pacer (pacerVisible() & co.),
+    // [2..] the other stations' riders (liveRiders())
+    struct RivalFrame
+    {
+        bool shown = false;
+        double base = 0, frame = 0, speedKmh = 0;   // drawn metres at the last tick / this frame
+        double phase = 0;                           // pedal angle (rivalRpm()) / stride phase (distance moved)
+        double shownRpm = 0;                        // cyclist: smoothed like the rider's
+        QElapsedTimer sinceTick;
+    };
+    const RivalFrame &frameRival(int i) const { return m_rivalFrames[size_t(i)]; }
+    static constexpr int kMaxLive = 6;   // other stations' riders drawn (= Route3DScene::kMaxLive = LiveRide::kMaxRiders)
     void setRendererError(const QString &error);
 
     // Builds the drawn road from an app route; the table maps the app's
@@ -195,6 +219,10 @@ private:
     QElapsedTimer m_frameClock;    // time between frames for the crank
     bool m_running = false;
     QElapsedTimer m_sinceTick;
+    // the rivals (the ghost, the pacer, the other stations' riders): drawn metres at the last tick, extrapolated with their speed
+    std::array<RivalFrame, 2 + kMaxLive> m_rivalFrames;
+    void tickRival(RivalFrame &r, bool shown, double metres, bool returning, double speedKmh);
+    void frameRivalStep(RivalFrame &r, double dt);
     QElapsedTimer m_clock;
     QTimer m_timer;
 };

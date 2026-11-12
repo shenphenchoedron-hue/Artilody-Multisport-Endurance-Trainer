@@ -7,6 +7,10 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QCryptographicHash>
+#include <QRegularExpression>
+#include <QSysInfo>
+#include <QUuid>
 #include <QDebug>
 #include <cmath>
 
@@ -40,14 +44,19 @@ Profile profileFromQuery(const QSqlQuery &q)
     p.zones = ZoneSet::fromJson(jsonArray(q.value(9).toString()));
     p.rowingFtp = q.value(10).isNull() ? 150 : q.value(10).toInt();
     p.heightCm = q.value(11).isNull() ? 0.0 : q.value(11).toDouble();
+    p.uuid = q.value(12).toString();
+    p.updatedMs = q.value(13).toLongLong();
+    p.dirty = q.value(14).toInt() != 0;
+    p.pictureHash = q.value(15).toString();
     return p;
 }
 
 const char *kProfileColumns = "id, name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones, rowing_ftp,"
-                              " height_cm";
-const char *kWorkoutColumns = "id, name, category, focus, description, favorite, built_in, times_used, intervals, sport";
+                              " height_cm, uuid, updated_ms, dirty, picture_hash";
+const char *kWorkoutColumns = "id, name, category, focus, description, favorite, built_in, times_used, intervals, sport, uuid";
 const char *kRideColumns = "id, profile_id, workout_id, workout_name, started_at, duration, blocks, erg, ftp, "
-                           "avg_power, max_power, np, avg_hr, max_hr, avg_cadence, kj, if_value, tss, zones, sport, distance_m";
+                           "avg_power, max_power, np, avg_hr, max_hr, avg_cadence, kj, if_value, tss, zones, sport, distance_m,"
+                           " uuid, synced, station";
 
 Workout workoutFromQuery(const QSqlQuery &q)
 {
@@ -62,6 +71,7 @@ Workout workoutFromQuery(const QSqlQuery &q)
     w.timesUsed = q.value(7).toInt();
     w.intervals = Workout::intervalsFromJson(jsonArray(q.value(8).toString()));
     w.sport = sport::normalize(q.value(9).toString());
+    w.uuid = q.value(10).toString();
     return w;
 }
 
@@ -91,6 +101,9 @@ RideRecord rideFromQuery(const QSqlQuery &q)
         r.zoneSeconds[size_t(i)] = zones.at(i).toInt();
     r.sport = sport::normalize(q.value(19).toString());
     r.distanceM = q.value(20).toDouble();
+    r.uuid = q.value(21).toString();
+    r.synced = q.value(22).toInt() != 0;
+    r.station = q.value(23).toString();
     return r;
 }
 // LEFT JOIN: Free Ride / Video Ride entries have no workout. Workout entries
@@ -256,7 +269,10 @@ bool Database::migrate()
                            { 3, &Database::migrateToV3 }, { 4, &Database::migrateToV4 },
                            { 5, &Database::migrateToV5 }, { 6, &Database::migrateToV6 },
                            { 7, &Database::migrateToV7 }, { 8, &Database::migrateToV8 },
-                           { 9, &Database::migrateToV9 }, { 10, &Database::migrateToV10 } };
+                           { 9, &Database::migrateToV9 }, { 10, &Database::migrateToV10 },
+                           { 11, &Database::migrateToV11 }, { 12, &Database::migrateToV12 },
+                           { 13, &Database::migrateToV13 }, { 14, &Database::migrateToV14 },
+                           { 15, &Database::migrateToV15 } };
     for (const Step &step : steps) {
         if (version >= step.version)
             continue;
@@ -465,6 +481,324 @@ bool Database::migrateToV10()
                                " PRIMARY KEY (ride_id, lap))"));
 }
 
+bool Database::migrateToV11()
+{
+    // the ghost of GPX Rides and Treadmill Runs: where each saved ride was on
+    // its route second by second (gone with the ride)
+    return exec(QStringLiteral("CREATE TABLE IF NOT EXISTS route_traces ("
+                               " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                               " profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,"
+                               " ride_id INTEGER REFERENCES rides(id) ON DELETE CASCADE,"
+                               " sport TEXT NOT NULL, route_key TEXT NOT NULL, route_name TEXT,"
+                               " start_m REAL NOT NULL DEFAULT 0, loop INTEGER NOT NULL DEFAULT 0,"
+                               " completed INTEGER NOT NULL DEFAULT 0,"
+                               " duration_sec REAL NOT NULL, distance_m REAL NOT NULL,"
+                               " created_at TEXT, trace TEXT)"))
+        && exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_route_traces"
+                               " ON route_traces(profile_id, sport, route_key)"));
+}
+
+const QStringList &Database::uuidTables()
+{
+    static const QStringList tables = { QStringLiteral("profiles"), QStringLiteral("rides"), QStringLiteral("workouts"),
+                                        QStringLiteral("route_traces") };
+    return tables;
+}
+
+QString Database::uuidSql()
+{
+    // 8-4-4-4-12 hex digits; the version nibble 4, the variant 8/9/a/b
+    return QStringLiteral("lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2)"
+                          " || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2)"
+                          " || '-' || hex(randomblob(6)))");
+}
+
+bool Database::migrateToV12()
+{
+    // A server shared by several stations: rows need ids that do not collide
+    // (each station counts 1, 2, 3 ...). Every row gets a random uuid - the
+    // existing ones here, new ones from a trigger, so no insert has to know.
+    for (const QString &t : uuidTables()) {
+        if (!addColumnIfMissing(t, QStringLiteral("uuid"), QStringLiteral("TEXT"))
+            || !exec(QStringLiteral("UPDATE %1 SET uuid = %2 WHERE uuid IS NULL").arg(t, uuidSql()))
+            || !exec(QStringLiteral("CREATE UNIQUE INDEX IF NOT EXISTS idx_%1_uuid ON %1(uuid)").arg(t))
+            || !exec(QStringLiteral("CREATE TRIGGER IF NOT EXISTS %1_uuid AFTER INSERT ON %1 WHEN NEW.uuid IS NULL"
+                                    " BEGIN UPDATE %1 SET uuid = %2 WHERE rowid = NEW.rowid; END")
+                         .arg(t, uuidSql())))
+            return false;
+    }
+    return true;
+}
+
+bool Database::migrateToV13()
+{
+    // Profiles kept with a server (UserSync): when each was last changed, and
+    // whether that change still has to go. The existing ones are sent the
+    // first time the station finds a server - but a starter profile nobody
+    // touched (the seeded values, no picture, no rides) is not: it stays as on
+    // a new station (UserSync replaces it).
+    if (!addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("updated_ms"), QStringLiteral("INTEGER"))
+        || !addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("dirty"), QStringLiteral("INTEGER NOT NULL DEFAULT 0"))
+        || !addColumnIfMissing(QStringLiteral("profiles"), QStringLiteral("picture_hash"), QStringLiteral("TEXT"))
+        || !exec(QStringLiteral("CREATE TABLE IF NOT EXISTS profile_tombstones (uuid TEXT PRIMARY KEY,"
+                                " deleted_ms INTEGER NOT NULL)")))
+        return false;
+    const Profile seed = starterProfile();
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE profiles SET updated_ms = ?, dirty = 1 WHERE updated_ms IS NULL AND NOT ("
+                             " name = ? AND weight = ? AND ftp = ? AND max_hr = ? AND rest_hr = ? AND cadence = ?"
+                             " AND coalesce(avatar, '') = '' AND NOT EXISTS (SELECT 1 FROM rides r WHERE r.profile_id = profiles.id))"));
+    for (const QVariant &v : { QVariant(QDateTime::currentMSecsSinceEpoch()), QVariant(seed.name), QVariant(seed.weightKg),
+                               QVariant(seed.ftp), QVariant(seed.maxHr), QVariant(seed.restHr), QVariant(seed.preferredCadence) })
+        q.addBindValue(v);
+    if (!q.exec()) {
+        setError(QStringLiteral("migrateToV13"), q.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::migrateToV14()
+{
+    // The server's media library as last fetched (MediaSync): shown while the
+    // server is off; local_path: where the item is on this station.
+    return exec(QStringLiteral("CREATE TABLE IF NOT EXISTS server_media (uuid TEXT PRIMARY KEY, kind TEXT NOT NULL,"
+                               " name TEXT NOT NULL, folder TEXT NOT NULL DEFAULT '', files TEXT NOT NULL,"
+                               " size_bytes INTEGER NOT NULL DEFAULT 0, updated_ms INTEGER NOT NULL DEFAULT 0,"
+                               " uploaded_by TEXT NOT NULL DEFAULT '', local_path TEXT)"));
+}
+
+QVector<ServerMedia> Database::serverMedia() const
+{
+    QVector<ServerMedia> out;
+    QSqlQuery q(db());
+    if (!q.exec(QStringLiteral("SELECT uuid, kind, name, folder, files, size_bytes, updated_ms, uploaded_by, local_path"
+                               " FROM server_media ORDER BY kind, name COLLATE NOCASE")))
+        return out;
+    while (q.next()) {
+        ServerMedia m;
+        m.uuid = q.value(0).toString();
+        m.kind = q.value(1).toString();
+        m.name = q.value(2).toString();
+        m.folder = q.value(3).toString();
+        for (const QJsonValue &v : jsonArray(q.value(4).toString())) {
+            const QJsonObject f = v.toObject();
+            m.files.append({ f.value(QStringLiteral("name")).toString(), f.value(QStringLiteral("hash")).toString(),
+                             f.value(QStringLiteral("size")).toInteger() });
+        }
+        m.sizeBytes = q.value(5).toLongLong();
+        m.updatedMs = q.value(6).toLongLong();
+        m.uploadedBy = q.value(7).toString();
+        m.localPath = q.value(8).toString();
+        out.append(m);
+    }
+    return out;
+}
+
+bool Database::storeServerMedia(const ServerMedia &m)
+{
+    QJsonArray files;
+    for (const ServerMediaFile &f : m.files)
+        files.append(QJsonObject { { QStringLiteral("name"), f.name }, { QStringLiteral("hash"), f.hash },
+                                   { QStringLiteral("size"), f.size } });
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("INSERT INTO server_media (uuid, kind, name, folder, files, size_bytes, updated_ms, uploaded_by)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET kind = excluded.kind,"
+                             " name = excluded.name, folder = excluded.folder, files = excluded.files,"
+                             " size_bytes = excluded.size_bytes, updated_ms = excluded.updated_ms,"
+                             " uploaded_by = excluded.uploaded_by"));
+    const auto text = [](const QString &s) { return QVariant(s.isNull() ? QStringLiteral("") : s); };   // (never NULL)
+    for (const QVariant &v : { QVariant(m.uuid), text(m.kind), text(m.name), text(m.folder),
+                               QVariant(jsonText(files)), QVariant(m.sizeBytes), QVariant(m.updatedMs), text(m.uploadedBy) })
+        q.addBindValue(v);
+    if (!q.exec()) {
+        setError(QStringLiteral("storeServerMedia"), q.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool Database::removeServerMedia(const QString &uuid)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM server_media WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec();
+}
+
+bool Database::setServerMediaLocalPath(const QString &uuid, const QString &path)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE server_media SET local_path = ? WHERE uuid = ?"));
+    q.addBindValue(path.isEmpty() ? QVariant() : QVariant(path));
+    q.addBindValue(uuid);
+    return q.exec();
+}
+
+void Database::clearServerMedia()
+{
+    exec(QStringLiteral("DELETE FROM server_media"));
+}
+
+bool Database::migrateToV15()
+{
+    // Rides kept with a server (RideSync): sent or not (the existing ones are
+    // sent the first time the station finds a server), the station a fetched
+    // one was recorded on, and the rides deleted here for the server to delete.
+    return addColumnIfMissing(QStringLiteral("rides"), QStringLiteral("synced"), QStringLiteral("INTEGER NOT NULL DEFAULT 0"))
+        && addColumnIfMissing(QStringLiteral("rides"), QStringLiteral("station"), QStringLiteral("TEXT"))
+        && exec(QStringLiteral("CREATE TABLE IF NOT EXISTS ride_tombstones (uuid TEXT PRIMARY KEY, deleted_ms INTEGER NOT NULL)"));
+}
+
+// --- rides and the server (schema v15, RideSync) ----------------------------
+
+QVector<RideRecord> Database::ridesToSend(int limit) const
+{
+    QVector<RideRecord> out;
+    QSqlQuery q(db());
+    if (!q.exec(QStringLiteral("SELECT %1 FROM rides WHERE synced = 0 AND station IS NULL ORDER BY started_at, id LIMIT %2")
+                    .arg(QLatin1String(kRideColumns)).arg(std::max(1, limit))))
+        return out;
+    while (q.next())
+        out.append(rideFromQuery(q));
+    return out;
+}
+
+int Database::ridesWaiting() const
+{
+    QSqlQuery q(db());
+    if (q.exec(QStringLiteral("SELECT (SELECT COUNT(*) FROM rides WHERE synced = 0 AND station IS NULL)"
+                              " + (SELECT COUNT(*) FROM ride_tombstones)"))
+        && q.next())
+        return q.value(0).toInt();
+    return 0;
+}
+
+bool Database::markRideSent(const QString &uuid)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE rides SET synced = 1 WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec();
+}
+
+void Database::markAllRidesToSend()
+{
+    exec(QStringLiteral("UPDATE rides SET synced = 0 WHERE station IS NULL"));
+}
+
+QVector<QPair<QString, qint64>> Database::rideTombstones() const
+{
+    QVector<QPair<QString, qint64>> out;
+    QSqlQuery q(db());
+    if (q.exec(QStringLiteral("SELECT uuid, deleted_ms FROM ride_tombstones ORDER BY deleted_ms"))) {
+        while (q.next())
+            out.append({ q.value(0).toString(), q.value(1).toLongLong() });
+    }
+    return out;
+}
+
+bool Database::removeRideTombstone(const QString &uuid)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM ride_tombstones WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec();
+}
+
+bool Database::rideTombstoned(const QString &uuid) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT 1 FROM ride_tombstones WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec() && q.next();
+}
+
+qint64 Database::rideIdForUuid(const QString &uuid) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT id FROM rides WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec() && q.next() ? q.value(0).toLongLong() : -1;
+}
+
+std::optional<RouteTrace> Database::routeTraceForRide(qint64 rideId) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT id FROM route_traces WHERE ride_id = ? ORDER BY id LIMIT 1"));
+    q.addBindValue(rideId);
+    if (!q.exec() || !q.next())
+        return std::nullopt;
+    return routeTrace(q.value(0).toLongLong());
+}
+
+qint64 Database::storeServerRide(const RideRecord &r, const QVector<Sample> &samples, const QVector<RideLap> &laps,
+                                 const std::optional<RouteTrace> &trace)
+{
+    if (QUuid(r.uuid).isNull() || rideIdForUuid(r.uuid) >= 0)
+        return -1;
+    const qint64 id = saveRide(r, samples);
+    if (id < 0)
+        return -1;
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE rides SET uuid = ?, synced = 1, station = ? WHERE id = ?"));
+    q.addBindValue(r.uuid);
+    q.addBindValue(r.station.isNull() ? QStringLiteral("") : r.station);
+    q.addBindValue(id);
+    if (!q.exec()) {
+        setError(QStringLiteral("storeServerRide"), q.lastError().text());
+        deleteRide(id, false);
+        return -1;
+    }
+    if (!laps.isEmpty())
+        saveRideLaps(id, laps);
+    if (trace && trace->trace.size() > 1) {
+        RouteTrace t = *trace;
+        t.profileId = r.profileId;
+        t.rideId = id;
+        const qint64 tid = saveRouteTrace(t);
+        if (tid >= 0 && !QUuid(t.uuid).isNull()) {
+            QSqlQuery u(db());
+            u.prepare(QStringLiteral("UPDATE OR IGNORE route_traces SET uuid = ? WHERE id = ?"));
+            u.addBindValue(t.uuid);
+            u.addBindValue(tid);
+            u.exec();
+        }
+    }
+    return id;
+}
+
+QString Database::stationId()
+{
+    // The station's id lives in its database - and so does the machine it was
+    // made on: a database copied to another machine (a cloned SD card)
+    // makes an id of its own there, else two stations would be one to the
+    // server (riding together would hide each from the other).
+    QByteArray machine = QSysInfo::machineUniqueId();
+    if (machine.isEmpty())
+        machine = QSysInfo::machineHostName().toUtf8();
+    const QString fingerprint = QString::fromLatin1(QCryptographicHash::hash(machine, QCryptographicHash::Sha1).toHex().left(16));
+    QString id = setting(QStringLiteral("station/id")).toString();
+    const QString madeOn = setting(QStringLiteral("station/machine")).toString();
+    if (QUuid(id).isNull() || (!madeOn.isEmpty() && madeOn != fingerprint)) {
+        id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        setSetting(QStringLiteral("station/id"), id);
+    }
+    if (madeOn != fingerprint)
+        setSetting(QStringLiteral("station/machine"), fingerprint);   // (an id from before: this machine's)
+    return id;
+}
+
+QString Database::uuidOf(const QString &table, qint64 id) const
+{
+    if (!uuidTables().contains(table))
+        return QString();
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT uuid FROM %1 WHERE id = ?").arg(table));
+    q.addBindValue(id);
+    return q.exec() && q.next() ? q.value(0).toString() : QString();
+}
+
 bool Database::migrateToV5()
 {
     // Calendar entries of other kinds than workouts (Free Ride, Video Ride).
@@ -515,17 +849,24 @@ bool Database::migrateToV5()
     return true;
 }
 
+Profile Database::starterProfile()
+{
+    Profile p;
+    p.name = QStringLiteral("Lone");
+    p.weightKg = 68;
+    p.ftp = 250;
+    p.maxHr = 175;
+    p.restHr = 58;
+    p.preferredCadence = 85;
+    return p;
+}
+
 void Database::seedDefaults()
 {
     if (profiles().isEmpty()) {
-        Profile p;
-        p.name = QStringLiteral("Lone");
-        p.weightKg = 68;
-        p.ftp = 250;
-        p.maxHr = 175;
-        p.restHr = 58;
-        p.preferredCadence = 85;
-        const qint64 id = saveProfile(p);
+        // (not "changed": a new station does not send its starter profile to
+        // the server; it goes when the server's users arrive - UserSync)
+        const qint64 id = saveProfile(starterProfile(), false);
         setSetting(QStringLiteral("currentProfile"), id);
     }
     if (!setting(QStringLiteral("workoutsSeeded")).toBool()) {
@@ -633,15 +974,17 @@ std::optional<Profile> Database::profile(qint64 id) const
     return std::nullopt;
 }
 
-qint64 Database::saveProfile(const Profile &p)
+qint64 Database::saveProfile(const Profile &p, bool changed)
 {
+    // (changed: for the server - the newest change wins, sent when it can be)
     QSqlQuery q(db());
     if (p.id < 0) {
         q.prepare(QStringLiteral("INSERT INTO profiles (name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones,"
-                                 " rowing_ftp, height_cm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+                                 " rowing_ftp, height_cm, updated_ms, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     } else {
         q.prepare(QStringLiteral("UPDATE profiles SET name=?, weight=?, ftp=?, max_hr=?, rest_hr=?, cadence=?,"
-                                 " default_erg=?, avatar=?, zones=?, rowing_ftp=?, height_cm=? WHERE id=?"));
+                                 " default_erg=?, avatar=?, zones=?, rowing_ftp=?, height_cm=?,"
+                                 " updated_ms = coalesce(?, updated_ms), dirty = max(dirty, ?) WHERE id=?"));
     }
     q.addBindValue(p.name);
     q.addBindValue(p.weightKg);
@@ -654,6 +997,8 @@ qint64 Database::saveProfile(const Profile &p)
     q.addBindValue(jsonText(p.zones.toJson()));
     q.addBindValue(p.rowingFtp);
     q.addBindValue(p.heightCm);
+    q.addBindValue(changed ? QVariant(QDateTime::currentMSecsSinceEpoch()) : QVariant(QMetaType(QMetaType::LongLong)));
+    q.addBindValue(changed ? 1 : 0);
     if (p.id >= 0)
         q.addBindValue(p.id);
     if (!q.exec()) {
@@ -661,6 +1006,108 @@ qint64 Database::saveProfile(const Profile &p)
         return -1;
     }
     return p.id >= 0 ? p.id : q.lastInsertId().toLongLong();
+}
+
+// --- profiles and the server (schema v13, UserSync) -------------------------
+
+QVector<Profile> Database::profilesToSend() const
+{
+    QVector<Profile> out;
+    QSqlQuery q(db());
+    if (!q.exec(QStringLiteral("SELECT %1 FROM profiles WHERE dirty = 1 ORDER BY id").arg(QLatin1String(kProfileColumns))))
+        return out;
+    while (q.next())
+        out.append(profileFromQuery(q));
+    return out;
+}
+
+QVector<QPair<QString, qint64>> Database::profileTombstones() const
+{
+    QVector<QPair<QString, qint64>> out;
+    QSqlQuery q(db());
+    if (q.exec(QStringLiteral("SELECT uuid, deleted_ms FROM profile_tombstones ORDER BY deleted_ms"))) {
+        while (q.next())
+            out.append({ q.value(0).toString(), q.value(1).toLongLong() });
+    }
+    return out;
+}
+
+int Database::profilesWaiting() const
+{
+    QSqlQuery q(db());
+    if (q.exec(QStringLiteral("SELECT (SELECT COUNT(*) FROM profiles WHERE dirty = 1)"
+                              " + (SELECT COUNT(*) FROM profile_tombstones)"))
+        && q.next())
+        return q.value(0).toInt();
+    return 0;
+}
+
+bool Database::markProfileSent(const QString &uuid, qint64 updatedMs, const QString &pictureHash)
+{
+    // (only the version that was sent: changed again meanwhile, it stays to send)
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE profiles SET dirty = 0, picture_hash = ? WHERE uuid = ? AND updated_ms = ?"));
+    q.addBindValue(pictureHash);
+    q.addBindValue(uuid);
+    q.addBindValue(updatedMs);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
+bool Database::removeProfileTombstone(const QString &uuid)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM profile_tombstones WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec();
+}
+
+qint64 Database::profileIdForUuid(const QString &uuid) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT id FROM profiles WHERE uuid = ?"));
+    q.addBindValue(uuid);
+    return q.exec() && q.next() ? q.value(0).toLongLong() : -1;
+}
+
+qint64 Database::storeServerProfile(const Profile &p)
+{
+    if (QUuid(p.uuid).isNull())
+        return -1;
+    const qint64 existing = profileIdForUuid(p.uuid);
+    QSqlQuery q(db());
+    if (existing < 0) {
+        q.prepare(QStringLiteral("INSERT INTO profiles (name, weight, ftp, max_hr, rest_hr, cadence, default_erg, avatar, zones,"
+                                 " rowing_ftp, height_cm, updated_ms, picture_hash, dirty, uuid)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)"));
+    } else {
+        q.prepare(QStringLiteral("UPDATE profiles SET name=?, weight=?, ftp=?, max_hr=?, rest_hr=?, cadence=?,"
+                                 " default_erg=?, avatar=?, zones=?, rowing_ftp=?, height_cm=?, updated_ms=?,"
+                                 " picture_hash=?, dirty=0 WHERE uuid=?"));
+    }
+    for (const QVariant &v : { QVariant(p.name), QVariant(p.weightKg), QVariant(p.ftp), QVariant(p.maxHr), QVariant(p.restHr),
+                               QVariant(p.preferredCadence), QVariant(p.defaultErg ? 1 : 0), QVariant(p.avatarPath),
+                               QVariant(jsonText(p.zones.toJson())), QVariant(p.rowingFtp), QVariant(p.heightCm),
+                               QVariant(p.updatedMs), QVariant(p.pictureHash), QVariant(p.uuid) })
+        q.addBindValue(v);
+    if (!q.exec()) {
+        setError(QStringLiteral("storeServerProfile"), q.lastError().text());
+        return -1;
+    }
+    return existing >= 0 ? existing : q.lastInsertId().toLongLong();
+}
+
+int Database::profileRideCount(qint64 id) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM rides WHERE profile_id = ?"));
+    q.addBindValue(id);
+    return q.exec() && q.next() ? q.value(0).toInt() : 0;
+}
+
+void Database::markAllProfilesToSend()
+{
+    // (a new server: everything that was ever changed here goes to it)
+    exec(QStringLiteral("UPDATE profiles SET dirty = 1, picture_hash = NULL WHERE updated_ms IS NOT NULL"));
 }
 
 QString Database::gearSetupJson(qint64 profileId) const
@@ -686,12 +1133,24 @@ bool Database::setGearSetupJson(qint64 profileId, const QString &json)
     return q.numRowsAffected() > 0;
 }
 
-bool Database::deleteProfile(qint64 id)
+bool Database::deleteProfile(qint64 id, bool tellServer)
 {
+    // tellServer: a tombstone, so the server (and through it the other
+    // stations) deletes it too - not for one never changed (the seeded one)
+    std::optional<Profile> p = tellServer ? profile(id) : std::nullopt;
     QSqlQuery q(db());
     q.prepare(QStringLiteral("DELETE FROM profiles WHERE id = ?"));
     q.addBindValue(id);
-    return q.exec() && q.numRowsAffected() > 0;
+    if (!q.exec() || q.numRowsAffected() <= 0)
+        return false;
+    if (p && p->updatedMs > 0 && !p->uuid.isEmpty()) {
+        QSqlQuery t(db());
+        t.prepare(QStringLiteral("INSERT OR REPLACE INTO profile_tombstones (uuid, deleted_ms) VALUES (?, ?)"));
+        t.addBindValue(p->uuid);
+        t.addBindValue(QDateTime::currentMSecsSinceEpoch());
+        t.exec();
+    }
+    return true;
 }
 
 // --- workouts --------------------------------------------------------------
@@ -954,9 +1413,12 @@ QVector<RideLap> Database::rideLaps(qint64 rideId) const
     return out;
 }
 
-bool Database::deleteRide(qint64 id)
+bool Database::deleteRide(qint64 id, bool tellServer)
 {
     // A plan entry ticked off by this ride is open again afterwards.
+    // tellServer: a tombstone, so the server (and through it the other
+    // stations) deletes it too.
+    const QString uuid = tellServer ? uuidOf(QStringLiteral("rides"), id) : QString();
     QSqlDatabase d = db();
     if (!d.transaction()) {
         setError(QStringLiteral("deleteRide"), d.lastError().text());
@@ -981,6 +1443,13 @@ bool Database::deleteRide(qint64 id)
     if (q.numRowsAffected() <= 0) {
         d.rollback();
         return false;
+    }
+    if (!uuid.isEmpty()) {
+        QSqlQuery t(d);
+        t.prepare(QStringLiteral("INSERT OR REPLACE INTO ride_tombstones (uuid, deleted_ms) VALUES (?, ?)"));
+        t.addBindValue(uuid);
+        t.addBindValue(QDateTime::currentMSecsSinceEpoch());
+        t.exec();
     }
     if (!d.commit()) {
         setError(QStringLiteral("deleteRide commit"), d.lastError().text());
@@ -1288,6 +1757,119 @@ bool Database::setSegmentRideId(qint64 recordId, qint64 rideId)
         return false;
     }
     return true;
+}
+
+// --- ghost traces (GPX Ride / Treadmill Run) -------------------------------------
+
+qint64 Database::saveRouteTrace(const RouteTrace &t)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("INSERT INTO route_traces (profile_id, ride_id, sport, route_key, route_name, start_m, loop,"
+                             " completed, duration_sec, distance_m, created_at, trace)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    q.addBindValue(t.profileId);
+    q.addBindValue(nullableId(t.rideId));
+    q.addBindValue(t.sport);
+    q.addBindValue(t.routeKey);
+    q.addBindValue(t.routeName);
+    q.addBindValue(t.startM);
+    q.addBindValue(t.loop ? 1 : 0);
+    q.addBindValue(t.completed ? 1 : 0);
+    q.addBindValue(t.durationSec);
+    q.addBindValue(t.distanceM);
+    q.addBindValue((t.createdAt.isValid() ? t.createdAt : QDateTime::currentDateTime()).toUTC().toString(Qt::ISODate));
+    q.addBindValue(traceToText(t.trace));
+    if (!q.exec()) {
+        setError(QStringLiteral("saveRouteTrace"), q.lastError().text());
+        return -1;
+    }
+    return q.lastInsertId().toLongLong();
+}
+
+namespace {
+const char *const kRouteTraceColumns = "id, profile_id, ride_id, sport, route_key, route_name, start_m, loop, completed,"
+                                       " duration_sec, distance_m, created_at, uuid";
+
+RouteTrace routeTraceFromQuery(const QSqlQuery &q, bool withTrace)
+{
+    RouteTrace t;
+    t.id = q.value(0).toLongLong();
+    t.profileId = q.value(1).toLongLong();
+    t.rideId = q.value(2).isNull() ? -1 : q.value(2).toLongLong();
+    t.sport = q.value(3).toString();
+    t.routeKey = q.value(4).toString();
+    t.routeName = q.value(5).toString();
+    t.startM = q.value(6).toDouble();
+    t.loop = q.value(7).toInt() != 0;
+    t.completed = q.value(8).toInt() != 0;
+    t.durationSec = q.value(9).toDouble();
+    t.distanceM = q.value(10).toDouble();
+    t.createdAt = QDateTime::fromString(q.value(11).toString(), Qt::ISODate);
+    t.uuid = q.value(12).toString();
+    if (withTrace)
+        t.trace = Database::traceFromText(q.value(13).toString());
+    return t;
+}
+} // namespace
+
+QVector<RouteTrace> Database::routeTraces(qint64 profileId, const QString &sport, const QString &routeKey, double startM,
+                                          bool loop, bool withTrace) const
+{
+    QVector<RouteTrace> out;
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT %1, %2 FROM route_traces WHERE profile_id = ? AND sport = ? AND route_key = ?"
+                             " AND abs(start_m - ?) < 5 AND loop = ? ORDER BY created_at DESC, id DESC")
+                  .arg(QLatin1String(kRouteTraceColumns), withTrace ? QStringLiteral("trace") : QStringLiteral("NULL")));
+    q.addBindValue(profileId);
+    q.addBindValue(sport);
+    q.addBindValue(routeKey);
+    q.addBindValue(startM);
+    q.addBindValue(loop ? 1 : 0);
+    if (!q.exec()) {
+        setError(QStringLiteral("routeTraces"), q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.append(routeTraceFromQuery(q, withTrace));
+    return out;
+}
+
+QVector<RouteTrace> Database::routeTracesOfOthers(qint64 profileId, const QString &sport, const QString &routeKey,
+                                                  double startM, bool loop) const
+{
+    QVector<RouteTrace> out;
+    QSqlQuery q(db());
+    QString cols = QLatin1String(kRouteTraceColumns);
+    cols.replace(QRegularExpression(QStringLiteral("(^|, )(\\w+)")), QStringLiteral("\\1t.\\2"));
+    q.prepare(QStringLiteral("SELECT %1, NULL, p.name FROM route_traces t JOIN profiles p ON p.id = t.profile_id"
+                             " WHERE t.profile_id <> ? AND t.sport = ? AND t.route_key = ? AND abs(t.start_m - ?) < 5"
+                             " AND t.loop = ? ORDER BY t.created_at DESC, t.id DESC")
+                  .arg(cols));
+    q.addBindValue(profileId);
+    q.addBindValue(sport);
+    q.addBindValue(routeKey);
+    q.addBindValue(startM);
+    q.addBindValue(loop ? 1 : 0);
+    if (!q.exec()) {
+        setError(QStringLiteral("routeTracesOfOthers"), q.lastError().text());
+        return out;
+    }
+    while (q.next()) {
+        RouteTrace t = routeTraceFromQuery(q, false);
+        t.riderName = q.value(14).toString();
+        out.append(t);
+    }
+    return out;
+}
+
+std::optional<RouteTrace> Database::routeTrace(qint64 id) const
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("SELECT %1, trace FROM route_traces WHERE id = ?").arg(QLatin1String(kRouteTraceColumns)));
+    q.addBindValue(id);
+    if (q.exec() && q.next())
+        return routeTraceFromQuery(q, true);
+    return std::nullopt;
 }
 
 namespace {

@@ -25,6 +25,7 @@ Item {
     id: page
     signal openDevices()
     signal requestFinish()
+    signal openServerLibrary()   // (Main: the server's media library dialog)
 
     // GPX Ride instead of Video Ride
     property bool gpx: false
@@ -956,6 +957,30 @@ Item {
                                 enabled: !page.library.scanning
                                 onTriggered: page.rescanLibrary()
                             }
+                            // the server's media library (Settings › Server on)
+                            AppMenuItem {
+                                visible: Server.active
+                                height: visible ? implicitHeight : 0
+                                text: "Server Library…"
+                                iconName: "download"
+                                onTriggered: page.openServerLibrary()
+                            }
+                            AppMenuItem {
+                                readonly property string routePath: page.session.routeIndex >= 0 ? page.library.pathAt(page.session.routeIndex) : ""
+                                // (re-evaluated when the server's list changes)
+                                readonly property bool onServer: { MediaLibrary.items; return routePath.length > 0 && MediaLibrary.onServer(routePath) }
+                                visible: Server.active
+                                height: visible ? implicitHeight : 0
+                                text: onServer ? "On the Server" : "Send to Server"
+                                iconName: "export"
+                                enabled: MediaLibrary.serverThere && routePath.length > 0 && !onServer
+                                onTriggered: {
+                                    if (MediaLibrary.upload(routePath, page.gpx ? "gpx" : "video"))
+                                        page.toast("Sending " + routeCombo.displayText + " to the server …")
+                                    else
+                                        page.toast(MediaLibrary.message)
+                                }
+                            }
                         }
                     }
                 }
@@ -1127,6 +1152,43 @@ Item {
                             }
                         }
                     }
+                }
+
+                // GPX Ride ghost: you against an earlier ride of yours (top
+                // centre; full screen: on the left under the numbers / lap
+                // times, clear of the Pause and Hide numbers buttons)
+                GhostBadge {
+                    id: ghostBadge
+                    objectName: page.namePrefix + "GhostBadge"
+                    x: page.fullscreen ? 16 : (parent.width - width) / 2
+                    y: !page.fullscreen ? 16
+                       : rideHud.visible ? rideHud.y + rideHud.height + 12
+                       : lapHud.visible ? lapHud.y + lapHud.height + 12 : 64
+                    ghost: page.gpx ? page.session.ghost : null
+                    active: page.session.active || page.finished
+                    visible: videoCard.showOverlay && hasGhost && page.session.ghost.shown
+                }
+                // GPX Ride pacer: you against the rider at a set W/kg - in the
+                // ghost badge's place (one of them at a time)
+                GhostBadge {
+                    objectName: page.namePrefix + "PacerBadge"
+                    pacer: true
+                    adjustable: page.session.active   // (W/kg during the ride, full screen too)
+                    namePrefix: page.namePrefix
+                    x: page.fullscreen ? 16 : (parent.width - width) / 2
+                    y: ghostBadge.y
+                    ghost: page.gpx ? page.session.pacer : null
+                    active: page.session.active || page.finished
+                    visible: videoCard.showOverlay && hasGhost && page.session.pacer.shown
+                }
+                // riding together: the other stations' riders on this route (GPX Ride, with a server)
+                LiveRidersPanel {
+                    objectName: page.namePrefix + "LiveRiders"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    y: gradeBadge.y + gradeBadge.height + 10
+                    live: page.gpx ? page.session.live : null
+                    visible: videoCard.showOverlay && riders.length > 0
                 }
 
                 // grade badge
@@ -1669,11 +1731,15 @@ Item {
 
                 // full screen: the numbers on the left, the button, the bar
                 RideHud {
+                    id: rideHud
                     visible: page.fullscreen && page.hudVisible && videoCard.showOverlay
                     x: 16
                     y: 64
                     metrics: [
                         { label: "Power", value: "" + page.session.watts, unit: "W", color: "#ffd23f" },
+                        // (the profile's weight; "–" when none is set)
+                        { label: "W/kg", value: Profiles.weight > 0 ? (page.session.watts / Profiles.weight).toFixed(1) : "–",
+                          unit: "", color: "#ffd23f" },
                         { label: "Cadence", value: "" + page.session.cadence, unit: "rpm" },
                         { label: "Heart rate", value: page.session.heartRate > 0 ? "" + page.session.heartRate : "–", unit: "bpm", color: "#ff7a8a" },
                         { label: "Speed", value: page.session.speedKmh.toFixed(1), unit: "km/h" },
@@ -2110,6 +2176,10 @@ Item {
                         currentInformation: page.session.currentInformationIndex
                         segments: page.gpx ? page.session.segmentMarkers : []
                         gravel: page.gpx ? page.session.gravelMarkers : []
+                        pacerPosition: page.gpx && page.session.pacer && page.session.pacer.shown
+                                       ? page.session.pacer.routeDistanceM : -1
+                        ghostPosition: page.gpx && page.session.ghost && page.session.ghost.shown
+                                       ? page.session.ghost.routeDistanceM : -1
                         onStartChosen: (meters) => page.session.seekToDistance(meters)
                     }
                     Text {
@@ -2247,6 +2317,24 @@ Item {
                             color: Theme.textSecondary
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap
+                        }
+                        // GPX Ride: race an earlier ride on this route (the ghost)
+                        GhostPicker {
+                            width: parent.width
+                            visible: page.gpx && page.session.hasRoute
+                            ghost: page.gpx ? page.session.ghost : null
+                            locked: page.session.active
+                            rideWord: "ride"
+                            namePrefix: page.namePrefix
+                        }
+                        // GPX Ride: a pacer at a set W/kg (its own switch)
+                        PacerPicker {
+                            width: parent.width
+                            visible: page.gpx && page.session.hasRoute
+                            pacer: page.gpx ? page.session.pacer : null
+                            locked: page.session.active
+                            riderKg: Profiles.weight
+                            namePrefix: page.namePrefix
                         }
                         // Start disabled by a session on another page: why, and the fix
                         SessionBlockNotice {

@@ -1,6 +1,23 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 1.9.9
+## What's new in 2.0.0
+
+**Training together – your own server at home.** Several Artilody computers (stations) can share one server in your home or club. It is optional: without it every station works on its own, exactly as before, and a station never waits for the server (switched off, it catches up the next time).
+
+- **Set up in minutes.** *Windows / macOS:* install XAMPP, copy the `artilody` folder from **artilody-server-{{VERSION}}.zip** (below) into XAMPP's `htdocs`, open `http://localhost/artilody/setup.php` and follow it. *Debian / Ubuntu / Raspberry Pi:* unzip it, `cd artilody`, `sudo bash install.sh`. Every step – including the router, the firewall and Mac's local-network permission – is in the new **Artilody-Network-Server-Manual.pdf** (below), written for non-experts.
+- **On a station:** *Settings → Server* → on → type the server's address (e.g. `192.168.1.20` or `192.168.1.20/artilody`) → a green dot shows it is connected.
+- **Shared riders** – profiles with weight, FTP, heart rates, picture and 3D figures are the same on every station; the newest change wins. Also managed in the browser (admin password).
+- **Media library** – GPX routes and Real Life Videos uploaded once (browser, or *Send to Server* from a station). GPX routes arrive by themselves; videos via *GPX Ride / Video Ride → folder button → Server Library → Download* (interrupted downloads resume). A route edited on a station is never overwritten.
+- **Training everywhere** – every ride, row and run goes to the server; History shows your rides from all stations (*on <station>*); a ride deleted on one station is deleted everywhere.
+- **Analysis in the browser** – `http://<server>/training.php`: per rider the last 7/28/365 days, weekly hours and Training Load, FTP over time, best power (5 s – 60 min) and every ride with chart, zones and laps.
+- **Ride together** – everyone on the same GPX route (or treadmill route) sees the others live in 3D, each in its own lane and colour, with gaps and watts in the *Riding with* panel.
+- Nothing is fetched or sent during a ride (smooth picture). macOS asks once to allow Artilody on the local network – click *Allow*.
+
+**Ghost and pacer (GPX Ride).** Race a **ghost** – an earlier ride on the same route: your best, your latest, any ride by date, or (with the server) another rider's – drawn as your figure, see-through, in its own lane, with a badge for the gap and a dot on the profile. Or switch on the **pacer**: a rider at a fixed W/kg (0.5 – 8.0) with your weight and the ride's physics, in orange; change its W/kg during the ride, also in full screen. One of the two at a time. Treadmill Run has the ghost too. The ghosts' pedals spin at a real cadence.
+
+**Update:** install over 1.9.9. On the first start the database is updated (schema 15) – nothing is lost. Server and stations should have the same version.
+
+## Also included from 1.9.9
 
 **Only the new 3D figures.** The old Classic cyclist, runner and rower are gone: the *3D avatar* panel offers the male and the female figure for each, and every part can be recoloured. A profile that had Classic chosen now shows the male figure (change it in *User Profile → 3D avatar ›*). The figures load in the background when the app starts, so they are ready when a 3D view opens. No database change – install over 1.9.8.
 

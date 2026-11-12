@@ -61,6 +61,7 @@ Item {
                 }
                 Text {
                     text: Profiles.name
+                    textFormat: Text.PlainText   // (a name may come from the server)
                     color: Theme.text
                     font.pixelSize: 18
                     anchors.verticalCenter: parent.verticalCenter

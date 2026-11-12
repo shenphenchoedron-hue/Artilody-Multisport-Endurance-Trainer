@@ -24,6 +24,7 @@ protected:
     // (protected: GhostRunner, ghost_runner.h, builds its figure with the same primitives)
     std::vector<GhostVertex> mesh;std::vector<uint32_t> index;size_t indexedFor=size_t(-1);
     QVector3D origin,right,up,forward;
+    double lateral=1.4;   // metres right of the road's centre line (setLateral())
     QVector3D world(QVector3D v)const{return origin+right*v.x()+up*v.y()+forward*v.z();}
     QVector3D worldNormal(QVector3D n)const{return (right*n.x()+up*n.y()+forward*n.z()).normalized();}
     void smoothTriangle(QVector3D a,QVector3D b,QVector3D c,QVector3D na,QVector3D nb,QVector3D nc,QVector3D color){
@@ -336,6 +337,11 @@ public:
     // The .glb rider's vertex colours (GlbModel::colorsFor(): an avatar's
     // clothes in the profile's colours); empty = the model's own.
     void setRiderColors(std::vector<QVector3D> colors){riderColors=std::move(colors);}
+    const std::vector<QVector3D>& riderColorList()const{return riderColors;}
+    // Where across the road (metres right of the centre line; default 1.4).
+    void setLateral(double metres){lateral=metres;}
+    QVector3D frameColour()const{return frameColor;}
+
     // The bike frame's colour (display colours 0..1; x < 0 = the standard blue).
     static constexpr QVector3D kFrameColor{.10f,.24f,.56f};
     void setFrameColor(const QVector3D& c){frameColor=c;}
@@ -347,7 +353,7 @@ public:
     // crank: the pedal angle in radians (the app drives it from the rider's
     // real cadence; the wheels follow the distance)
     const std::vector<GhostVertex>& build(const Route& route,double distance,double speed,double crank){
-        auto pose=ghostPose(route,distance,speed);pose.crank=crank;placeFrame(pose);
+        auto pose=ghostPose(route,distance,speed,lateral);pose.crank=crank;placeFrame(pose);
         if(riderHidden){   // (the bike alone: the rider is loading)
             mesh.clear();buildBike(pose);modelIndexFor=size_t(-1);
             if(indexedFor!=mesh.size()){index.resize(mesh.size());for(size_t i=0;i<index.size();++i)index[i]=uint32_t(i);indexedFor=mesh.size();}

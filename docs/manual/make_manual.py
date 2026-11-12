@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Generate the Artilody Multisport Endurance Trainer user manual (PDF).
+"""Generate the Artilody Multisport Endurance Trainer manuals (PDF).
 
 Usage:
-    python docs/manual/make_manual.py [output.pdf]
+    python docs/manual/make_manual.py [output.pdf]            the user manual
+    python docs/manual/make_manual.py --network [output.pdf]  the network server manual
 
 Requirements: reportlab (>= 3.6) and Pillow.
 The default output is docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf.
 
-All manual text lives in content.py (next to this script). This file contains
+The user manual's text lives in content.py, the network server manual's in
+content_network.py (next to this script). This file contains
 only the layout engine: page templates, styles, table of contents, PDF
 outline, figures, tables and callout boxes.
 """
@@ -39,9 +41,11 @@ DOCS = ROOT / "docs"
 SHOTS = DOCS / "screenshots"
 MOCKUPS = DOCS / "mockups"
 DEFAULT_OUT = DOCS / "Artilody-Multisport-Endurance-Trainer-Manual.pdf"
+NETWORK_OUT = DOCS / "Artilody-Network-Server-Manual.pdf"
+NETSHOTS = DOCS / "screenshots" / "network"
 
 APP = "Artilody Multisport Endurance Trainer"
-VERSION = "1.9.9"
+VERSION = "2.0.0"
 DATE = "November 2026"
 REPO = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer"
 
@@ -61,6 +65,10 @@ CALLOUT = {
     "note": ("Note", "#2178ff", colors.HexColor("#edf4ff")),
     "warning": ("Warning", "#f07a12", colors.HexColor("#fff4ea")),
 }
+
+# which manual is being built (main(): --network): its title on the cover and in the header
+MANUAL = {"title": "User Manual", "subtitle": "Power-based indoor cycling training for Windows, macOS, Linux and Raspberry Pi",
+          "cover": "dashboard.png"}
 
 PAGE_W, PAGE_H = A4
 MARGIN_L = MARGIN_R = 20 * mm
@@ -159,11 +167,13 @@ class ZoneStripe(Flowable):
 class ManualDoc(BaseDocTemplate):
     def __init__(self, filename, cover_image, **kw):
         super().__init__(filename, pagesize=A4, leftMargin=MARGIN_L, rightMargin=MARGIN_R, topMargin=MARGIN_T,
-                         bottomMargin=MARGIN_B, title=f"{APP} – User Manual", author="Artilody",
-                         subject=f"User manual for {APP} {VERSION}",
+                         bottomMargin=MARGIN_B, title=f"{APP} – {MANUAL['title']}", author="Artilody",
+                         subject=f"{MANUAL['title']} for {APP} {VERSION}",
                          keywords="indoor cycling, power training, FTMS, ERG, FTP", creator="make_manual.py", **kw)
         self.chapter = ""
         self.cover_image = cover_image
+        with PILImage.open(cover_image) as im:
+            self.cover_ratio = im.height / im.width
         full = Frame(0, 0, PAGE_W, PAGE_H, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id="full")
         body = Frame(MARGIN_L, MARGIN_B, FRAME_W, PAGE_H - MARGIN_T - MARGIN_B, leftPadding=0, rightPadding=0,
                      topPadding=0, bottomPadding=0, id="body")
@@ -200,14 +210,13 @@ def draw_cover(canv, doc):
     canv.drawCentredString(PAGE_W / 2, y, APP)
     canv.setFillColor(ACCENT_LIGHT)
     canv.setFont(FONT_B, 20)
-    canv.drawCentredString(PAGE_W / 2, y - 12 * mm, "User Manual")
+    canv.drawCentredString(PAGE_W / 2, y - 12 * mm, MANUAL["title"])
     canv.setFillColor(colors.Color(1, 1, 1, 0.8))
     canv.setFont(FONT, 11.5)
-    canv.drawCentredString(PAGE_W / 2, y - 21 * mm,
-                           "Power-based indoor cycling training for Windows, macOS, Linux and Raspberry Pi")
+    canv.drawCentredString(PAGE_W / 2, y - 21 * mm, MANUAL["subtitle"])
     # screenshot with rounded corners and a soft shadow
     w = 160 * mm
-    h = w * 992 / 1584
+    h = w * doc.cover_ratio
     sx, sy = (PAGE_W - w) / 2, 66 * mm
     canv.setFillColor(colors.Color(0, 0, 0, 0.28))
     canv.roundRect(sx + 1.6 * mm, sy - 1.6 * mm, w, h, 3 * mm, stroke=0, fill=1)
@@ -243,7 +252,7 @@ def draw_header_footer(canv, doc):
     w = pdfmetrics.stringWidth(APP, FONT_B, 8.4)
     canv.setFont(FONT, 8.4)
     canv.setFillColor(MUTED)
-    canv.drawString(MARGIN_L + w, top, "  ·  User Manual")
+    canv.drawString(MARGIN_L + w, top, "  ·  " + MANUAL["title"])
     if doc.chapter:
         canv.drawRightString(PAGE_W - MARGIN_R, top, doc.chapter)
     canv.setStrokeColor(RULE)
@@ -442,15 +451,22 @@ def check_glyphs(texts):
 
 # --- main ----------------------------------------------------------------------------------
 def main():
-    out = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_OUT
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    network = "--network" in sys.argv[1:]
+    out = Path(args[0]).resolve() if args else (NETWORK_OUT if network else DEFAULT_OUT)
+    if network:
+        MANUAL.update(title="Network Server Manual",
+                      subtitle="Training together: one server for all your stations – Windows, macOS, Debian, Ubuntu, Raspberry Pi",
+                      cover="network/web-status.png")
     build_dir = Path(tempfile.mkdtemp(prefix="awt-manual-"))
     try:
         sys.dont_write_bytecode = True  # keep docs/manual free of __pycache__
         sys.path.insert(0, str(HERE))
-        import content  # manual text
+        import importlib
+        content = importlib.import_module("content_network" if network else "content")
 
         story = Story(build_dir)
-        cover, _, _ = story.prepare_image(SHOTS / "dashboard.png", max_px=1400)
+        cover, _, _ = story.prepare_image(SHOTS / MANUAL["cover"], max_px=1400)
         doc = ManualDoc(str(out), cover)
 
         # page 1: cover (drawn by draw_cover); page 2: contents
@@ -459,7 +475,7 @@ def main():
         story.items.append(ZoneStripe())
         story.items.append(TableOfContents(levelStyles=[STYLES["toc0"], STYLES["toc1"]], dotsMinLevel=0))
 
-        content.build(story, dict(SHOTS=SHOTS, MOCKUPS=MOCKUPS, VERSION=VERSION, REPO=REPO))
+        content.build(story, dict(SHOTS=SHOTS, NETSHOTS=NETSHOTS, MOCKUPS=MOCKUPS, VERSION=VERSION, REPO=REPO))
         check_glyphs(story.text_seen)
         doc.multiBuild(story.items)
         print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KiB, {doc.page} pages, {story.fig} figures)")

@@ -10,10 +10,21 @@ AppDialog {
     panelWidth: 640
     panelHeight: 820
 
-    Column {
+    // (scrolls when the settings outgrow the panel)
+    Flickable {
+        id: scroller
         x: 28
         y: 84
         width: dlg.panelWidth - 56
+        height: dlg.panelHeight - y - 92   // above the Done button
+        contentHeight: settingsColumn.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar { policy: scroller.contentHeight > scroller.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+
+    Column {
+        id: settingsColumn
+        width: scroller.width - 14
         spacing: 16
 
         component SettingRow: Item {
@@ -94,6 +105,157 @@ AppDialog {
                 // ToggleSwitch never assigns checked itself: the binding keeps
                 // following the setting (the power tiles toggle it too)
                 onToggled: (on) => Sensors.powerSmoothing = on
+            }
+        }
+
+        Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
+
+        // The network server (ServerSettings, docs/server-plan.md): off = this
+        // station works on its own, as always.
+        SettingRow {
+            objectName: "serverSwitch"
+            title: "Server"
+            sub: Server.enabled ? "Use a server on the local network" : "Off – this station works on its own"
+            checked: Server.enabled
+            onToggled: (on) => Server.enabled = on
+        }
+        Column {
+            visible: Server.enabled
+            width: parent.width
+            spacing: 6
+            AppTextField {
+                id: serverAddress
+                objectName: "serverAddress"
+                width: parent.width
+                implicitHeight: 46
+                font.pixelSize: 16
+                placeholderText: "Server address, e.g. artilody-server.local"
+                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                text: Server.address
+                onEditingFinished: Server.address = text
+            }
+            // the address, then the connection (ServerStatus: looked for every
+            // ServerStatus.intervalSeconds). Plain text: the server's name and
+            // version come from the network.
+            Item {
+                width: parent.width
+                height: Math.max(statusText.implicitHeight, checkButton.visible ? checkButton.height : 0)
+                Rectangle {
+                    id: statusDot
+                    visible: Server.active
+                    width: 12
+                    height: 12
+                    radius: 6
+                    y: 3
+                    color: ServerStatus.connected ? (ServerStatus.message.length > 0 ? "#f0b429" : Theme.success)
+                           : ServerStatus.state === "checking" ? Theme.textMuted : Theme.danger
+                }
+                Text {
+                    id: statusText
+                    objectName: "serverStatus"
+                    x: statusDot.visible ? 20 : 0
+                    width: parent.width - x - (checkButton.visible ? checkButton.width + 12 : 0)
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    font.pixelSize: 13
+                    color: (Server.address.length > 0 && !Server.addressValid)
+                           || ServerStatus.state === "unreachable" || ServerStatus.state === "invalid"
+                           ? Theme.dangerText : ServerStatus.connected ? Theme.text : Theme.textSecondary
+                    text: Server.address.length === 0 ? "Enter the server's name or IP address (optionally :port)."
+                          : !Server.addressValid ? "Not a valid address – use a name or IP address, optionally :port."
+                          : ServerStatus.state === "checking" ? "Looking for the server at " + Server.url + " …"
+                          : ServerStatus.connected
+                            ? "Connected to " + ServerStatus.serverName + " (server " + ServerStatus.serverVersion + ")"
+                              + (ServerStatus.message.length > 0 ? " – " + ServerStatus.message : "")
+                          : ServerStatus.state === "invalid"
+                            ? Server.url + ": " + ServerStatus.message
+                          : "Not connected – " + Server.url + ": " + ServerStatus.message
+                            + ". The station keeps working on its own and tries again every "
+                            + ServerStatus.intervalSeconds + " s."
+                            + (isNaN(ServerStatus.lastContact) ? ""
+                               : " Last contact " + Qt.formatTime(ServerStatus.lastContact, "hh:mm") + ".")
+                }
+                AppButton {
+                    id: checkButton
+                    objectName: "serverCheckButton"
+                    visible: Server.active
+                    anchors.right: parent.right
+                    kind: "secondary"
+                    text: "Check now"
+                    fontSize: 14
+                    bold: false
+                    horizontalPadding: 14
+                    height: 34
+                    enabled: ServerStatus.state !== "checking"
+                    onClicked: ServerStatus.checkNow()
+                }
+            }
+            // the profiles kept with the server (ProfileSync)
+            Text {
+                objectName: "profileSyncStatus"
+                visible: Server.active
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                font.pixelSize: 13
+                color: ProfileSync.state === "error" ? Theme.dangerText : Theme.textSecondary
+                text: "Profiles: "
+                      + (ProfileSync.state === "syncing" ? "updating …"
+                         : ProfileSync.state === "error" ? ProfileSync.message
+                         : ProfileSync.waiting > 0
+                           ? ProfileSync.waiting + (ProfileSync.waiting === 1 ? " change waits" : " changes wait")
+                             + " to be sent to the server"
+                         : ServerStatus.connected ? "up to date with the server"
+                         : "kept on this station until the server is back")
+            }
+            // the rides kept with the server (RideSyncStatus)
+            Text {
+                objectName: "rideSyncStatus"
+                visible: Server.active
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                font.pixelSize: 13
+                color: RideSyncStatus.state === "error" ? Theme.dangerText : Theme.textSecondary
+                text: "Training: "
+                      + (RideSyncStatus.state === "syncing" ? "updating …"
+                         : RideSyncStatus.state === "error" ? RideSyncStatus.message
+                         : RideSyncStatus.waiting > 0
+                           ? RideSyncStatus.waiting + (RideSyncStatus.waiting === 1 ? " session waits" : " sessions wait")
+                             + " to be sent to the server"
+                         : ServerStatus.connected ? "up to date with the server (analysis: " + Server.url + "training.php)"
+                         : "kept on this station until the server is back")
+            }
+            // the server's media library (MediaLibrary)
+            Text {
+                objectName: "mediaSyncStatus"
+                visible: Server.active
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                font.pixelSize: 13
+                color: MediaLibrary.state === "error" ? Theme.dangerText : Theme.textSecondary
+                text: {
+                    const items = MediaLibrary.items
+                    const routes = items.filter((i) => i.kind === "gpx").length
+                    const videos = items.filter((i) => i.kind === "video").length
+                    const videosHere = items.filter((i) => i.kind === "video" && i.state === "local").length
+                    return "Media: "
+                        + (MediaLibrary.transferring
+                           ? (MediaLibrary.transferKind === "upload" ? "sending " : MediaLibrary.transferKind === "checking" ? "checking "
+                              : "downloading ") + MediaLibrary.transferName + " – " + Math.round(MediaLibrary.transferProgress * 100) + " %"
+                           : MediaLibrary.state === "error" ? MediaLibrary.message
+                           : routes + (routes === 1 ? " GPX route, " : " GPX routes, ") + videos
+                             + (videos === 1 ? " video" : " videos") + " on the server (" + videosHere + " here)."
+                             + " GPX Ride / Video Ride › library menu › Server Library.")
+                }
+            }
+            Text {
+                width: parent.width
+                elide: Text.ElideRight
+                font.pixelSize: 12
+                color: Theme.textMuted
+                text: "Station ID: " + Server.stationId
             }
         }
 
@@ -192,6 +354,7 @@ AppDialog {
             color: Theme.textMuted
             font.pixelSize: 13
         }
+    }
     }
 
     // "Export logs…": copies the log files into a chosen folder (e.g. a USB stick)

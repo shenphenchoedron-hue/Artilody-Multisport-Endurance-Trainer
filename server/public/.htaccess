@@ -1,0 +1,4 @@
+# (XAMPP and other copies; the Debian install ignores it)
+Options -Indexes
+Require all granted
+DirectoryIndex index.php

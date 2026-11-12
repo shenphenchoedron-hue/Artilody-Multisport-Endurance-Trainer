@@ -33,6 +33,8 @@ Item {
     // gravel sections (GPX Workshop): the profile there in gravel colour: [{start, finish, name}]
     property var gravel: []
     readonly property color gravelColor: "#c8a26a"
+    property real ghostPosition: -1            // the ghost's place on the route (m); < 0 = none
+    property real pacerPosition: -1            // the pacer's (orange) place on the route (m); < 0 = none
     property bool showKmLabels: true            // off: a mini profile without the km row (full-screen HUD)
     // the sprint / KOM whose pin the mouse is near (its name goes into the hover bubble), or null
     readonly property var hoverSegment: {
@@ -360,6 +362,32 @@ Item {
                 font.weight: Font.DemiBold
             }
         }
+    }
+
+    // the pacer (a rider at a set W/kg): an orange dot; < 0 = none
+    Rectangle {
+        visible: prof.hasData && prof.showPosition && prof.pacerPosition >= 0
+        x: prof.xOf(prof.pacerPosition) - width / 2
+        y: prof.yOf(prof.eleAt(prof.pacerPosition)) - height / 2
+        width: 12
+        height: 12
+        radius: 6
+        color: Qt.rgba(1.0, 0.62, 0.25, 0.9)
+        border.width: 2
+        border.color: Qt.rgba(0.55, 0.30, 0.08, 0.9)
+    }
+
+    // the ghost (an earlier ride on this route): a pale dot; < 0 = none
+    Rectangle {
+        visible: prof.hasData && prof.showPosition && prof.ghostPosition >= 0
+        x: prof.xOf(prof.ghostPosition) - width / 2
+        y: prof.yOf(prof.eleAt(prof.ghostPosition)) - height / 2
+        width: 12
+        height: 12
+        radius: 6
+        color: Qt.rgba(0.80, 0.88, 1.0, 0.85)
+        border.width: 2
+        border.color: Qt.rgba(0.35, 0.45, 0.70, 0.9)
     }
 
     // current position

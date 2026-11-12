@@ -153,6 +153,8 @@ public:
     // The .glb runner's vertex colours (GlbModel::colorsFor(): an avatar's
     // clothes in the profile's colours); empty = the model's own.
     void setColors(std::vector<QVector3D> c){colors=std::move(c);}
+    const std::vector<QVector3D>& colorList()const{return colors;}
+    const std::shared_ptr<const GlbModel>& walkingModel()const{return walkModel;}
     bool hasModel()const{return model!=nullptr;}
     // The same figure (same mesh) walking: below kWalkKmh the walk cycle is
     // shown, above kRunKmh the run cycle, cross-faded in between. Ignored
@@ -175,7 +177,7 @@ public:
     // World-space vertices of the runner at `distance` on the route (3 m
     // ahead of the camera, like the cyclist); indices() gives the triangles.
     const std::vector<GhostVertex>& build(const Route& route,double distance,double speedKmh,double stride){
-        auto pose=ghostPose(route,distance,speedKmh);
+        auto pose=ghostPose(route,distance,speedKmh,lateral);
         pose.lean*=.35;   // a runner barely leans into bends
         pose.crank=stride;
         placeFrame(pose);

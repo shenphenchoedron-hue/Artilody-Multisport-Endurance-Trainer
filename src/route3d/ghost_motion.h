@@ -7,14 +7,16 @@ struct GhostPose {
     Point center;
     double fx=0,fy=0,fz=-1,lean=0,crank=0,wheel=0;
 };
-inline GhostPose ghostPose(const Route& route,double distance,double speedKmh){
+// lateral: metres right of the road's centre line (the rider: 1.4; the ghost
+// of an earlier ride rides in its own lane, Route3DScene::kGhostLaneM)
+inline GhostPose ghostPose(const Route& route,double distance,double speedKmh,double lateral=1.4){
     GhostPose pose;double d=route.closed?distance+3:std::min(route.length(),distance+3);
     pose.center=route.at(d);
     auto before=route.at(d-5),after=route.at(d+5);
     double dx=after.x-before.x,dy=after.y-before.y,dz=after.z-before.z;
     double horizontal=std::hypot(dx,dz),length=std::sqrt(dx*dx+dy*dy+dz*dz);
     if(length>1e-6){pose.fx=dx/length;pose.fy=dy/length;pose.fz=dz/length;}
-    if(horizontal>1e-6){pose.center.x-=dz/horizontal*1.4;pose.center.z+=dx/horizontal*1.4;}
+    if(horizontal>1e-6){pose.center.x-=dz/horizontal*lateral;pose.center.z+=dx/horizontal*lateral;}
     // on the asphalt (the road's surface is 2.5 cm above the route line)
     pose.center.y+=.028;
     auto a=route.at(d-12),b=route.at(d),c=route.at(d+12);

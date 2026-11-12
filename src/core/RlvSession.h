@@ -5,7 +5,10 @@
 #include "Ride.h"
 #include "RideResistance.h"
 #include "RlvRoute.h"
+#include "RouteGhost.h"
+#include "RoutePacer.h"
 #include "RouteProgress.h"
+#include "LiveRide.h"
 #include "RouteSegments.h"
 #include <algorithm>
 #include "Sprint.h"
@@ -28,6 +31,7 @@
 namespace watt {
 
 class Database;
+
 class FreeRideSession;
 class ProfileManager;
 class RlvLibrary;
@@ -152,6 +156,11 @@ class VirtualGears;
 // the profile's best on it. The sprint* / kom* properties describe the one
 // of each kind in focus: the one being ridden, else the one just finished
 // (for kResultShowMs, unless the next is close), else the next ahead.
+//
+// Ghost (GPX Ride only, "ghost": RouteGhost, sport "gpx"): each saved ride's
+// metres covered second by second are kept (with the ride); a later ride on
+// the same track (sprint::routeKey) from the same start, looped or not as
+// before, races one of them - the 3D view draws it in its own lane.
 class RlvSession : public QObject, public RouteProgressSource
 {
     Q_OBJECT
@@ -329,6 +338,15 @@ class RlvSession : public QObject, public RouteProgressSource
     Q_PROPERTY(bool komNewBest READ komNewBest NOTIFY komChanged)
     Q_PROPERTY(int komAttempts READ komAttempts NOTIFY komChanged)
 
+    // GPX Ride: race an earlier ride of yours on this route (RouteGhost; null
+    // for the Video Ride)
+    Q_PROPERTY(QObject *ghost READ ghostObject CONSTANT)
+    // riding together (GPX Ride, with a server): the LiveRide or null (set at start-up)
+    Q_PROPERTY(QObject *live READ liveObject CONSTANT)
+    // GPX Ride: a pacer holding a set W/kg, switched on by itself (RoutePacer;
+    // null for the Video Ride)
+    Q_PROPERTY(QObject *pacer READ pacerObject CONSTANT)
+
 public:
     enum class Mode { Sim, Erg };
     enum class State { Idle, Running, Paused, Finished };
@@ -495,11 +513,24 @@ public:
     // path (simulation, virtual gears, Zwift hub) and the speed take it; the
     // grade shown stays the road's.
     double gravelGradePercent() const;
-    double rideGradePercent() const { return effectiveGradePercent() + gravelGradePercent(); }
+    // the grade of the ride's physics and resistance at the rider:
+    // effectiveGradePercent() + gravelGradePercent()
+    double rideGradePercent() const;
+    // The same at a place on the route (the pacer's simulation): the
+    // difficulty (not in ERG) and, with gravel, the gravel's rolling
+    // resistance (gravelAllowed()). The rider's grades above are these at
+    // m_distance - one source, so the shown grade, the gravel watts and the
+    // resistance never part.
+    double rideGradeAt(double distance, bool returning, bool gravel) const;
+    double gradeAt(double distance, bool returning) const;            // the road's (gradePercent())
+    double effectiveGradeAt(double distance, bool returning) const;   // with the difficulty (effectiveGradePercent())
+    double gravelGradeAt(double distance) const;                      // the gravel's, if allowed (gravelGradePercent() riding)
+    bool gravelAtDistance(double distance) const;                     // (onGravel())
+    bool gravelAllowed() const;   // not in ERG, not riding a workout
     int gravelWatts() const;
     double gravelBlend() const;
     // gravel at this distance (m along the route; the road sound looks a little ahead)
-    Q_INVOKABLE bool gravelAt(double distanceM) const { return isGpx() && hasRoute() && m_route.gravelAt(distanceM); }   // 0..1 along the section's ramps (segments::kGravelRampM)
+    Q_INVOKABLE bool gravelAt(double distanceM) const { return gravelAtDistance(distanceM); }   // 0..1 along the section's ramps (segments::kGravelRampM)
     // The road surface this ride asks of the trainer (road feel, Tacx NEO):
     // gravel while riding (not paused) with gravelEffort, else smooth. Set on
     // the hub only when it changes, so an idle session never overrides
@@ -664,6 +695,26 @@ public:
     double komPreviousBestSec() const { return focusSeg(RouteSegment::Kom).previousBest; }
     bool komNewBest() const { return focusSeg(RouteSegment::Kom).newBest; }
     int komAttempts() const { return focusSeg(RouteSegment::Kom).attempts; }
+    // the ghost (GPX Ride only)
+    RouteGhost *ghost() const { return m_ghost; }
+    QObject *ghostObject() const { return m_ghost; }
+    bool ghostVisible() const override { return m_ghost && hasRoute() && m_ghost->shown(); }
+    double ghostDistanceMeters() const override { return m_ghost ? m_ghost->routePos().distance : 0.0; }
+    bool ghostReturning() const override { return m_ghost && m_ghost->routePos().returning; }
+    double ghostSpeedKmh() const override { return m_ghost && running() ? m_ghost->speedKmh() : 0.0; }
+    // the pacer (GPX Ride only)
+    RoutePacer *pacer() const { return m_pacer; }
+    QObject *pacerObject() const { return m_pacer; }
+    bool pacerVisible() const override { return m_pacer && hasRoute() && m_pacer->shown(); }
+    double pacerDistanceMeters() const override { return m_pacer ? m_pacer->routePos().distance : 0.0; }
+    bool pacerReturning() const override { return m_pacer && m_pacer->routePos().returning; }
+    double pacerSpeedKmh() const override { return m_pacer && running() ? m_pacer->speedKmh() : 0.0; }
+    // riding together (GPX Ride): the other stations' riders on this route
+    void setLive(LiveRide *live);   // (main.cpp, before QML)
+    const LiveRide *liveRiders() const override { return m_live; }
+    QObject *liveObject() const { return m_live; }
+    QString routeKey() const { return m_routeKey; }
+
     // ERG now: mode "erg" or the workout ERG.
     bool ergNow() const { return m_mode == Mode::Erg || workoutErgActive(); }
     // Watts the Erg path holds: the workout target (workout ERG) or targetWatts.
@@ -709,8 +760,23 @@ signals:
     void roadSoundChanged();
     void lapChanged();
     void lapCompleted(int lap, double timeSec);   // looping: lap (1, 2, ...) just finished
+    void ghostChanged();                          // the ghost was chosen / moved (GPX Ride)
+    void pacerChanged();                          // the pacer was switched / simulated again (GPX Ride)
+    void liveChanged();   // the other riders on the route moved (LiveRide)
 
 private:
+    void updateGhostContext();   // route, start, loop, profile -> the ghost's choices
+    // The pacer (RoutePacer): a rider of this weight holding wkg W/kg
+    // from the start point, with the ride's physics (inertia, the difficulty,
+    // gravel), one point per second - to the route's end, a loop for at most
+    // kPacerMaxSec. From fromSec on (its first point), having covered
+    // fromCovered at fromSpeed (m/s): the rest of a ride whose W/kg changed.
+    QVector<TracePoint> pacerTrace(double wkg, int fromSec = 0, double fromCovered = 0, double fromSpeed = 0) const;
+    static constexpr int kPacerMaxSec = 4 * 3600;
+    // its integration step: coarser than the rider's (kIntegrationStepSec) -
+    // the same steady speeds, the speed-ups within a few cm; a 4 h loop is
+    // simulated on every W/kg click
+    static constexpr double kPacerStepSec = 0.25;
     void setState(State s);
     void setError(const QString &e);
     void onTimer();
@@ -876,6 +942,12 @@ private:
     int m_lastFinished[2] = { -1, -1 };              // per kind: the latest timed this ride
     qint64 m_lastFinishedMs[2] = { 0, 0 };
     int m_focusSeen[2] = { -1, -1 };                 // focus last announced (sprintChanged / komChanged)
+
+    // the ghost (GPX Ride)
+    RouteGhost *m_ghost = nullptr;
+    RoutePacer *m_pacer = nullptr;
+    QString m_routeKey;
+    LiveRide *m_live = nullptr;
 };
 
 } // namespace watt

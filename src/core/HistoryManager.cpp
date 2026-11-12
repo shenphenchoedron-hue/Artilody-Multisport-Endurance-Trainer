@@ -134,6 +134,7 @@ QVariantList HistoryManager::rides() const
         m.insert(QStringLiteral("avgPower"), int(std::lround(r.avgPower)));
         m.insert(QStringLiteral("sport"), r.sport);
         m.insert(QStringLiteral("distanceM"), r.distanceM);
+    m.insert(QStringLiteral("station"), r.station);   // ("" = this station; else recorded on another, from the server)
         list.append(m);
     }
     return list;
@@ -240,6 +241,7 @@ QVariantMap HistoryManager::selectedRide() const
     m.insert(QStringLiteral("name"), r.workoutName);
     m.insert(QStringLiteral("sport"), r.sport);
     m.insert(QStringLiteral("distanceM"), r.distanceM);
+    m.insert(QStringLiteral("station"), r.station);   // ("" = this station; else recorded on another, from the server)
     m.insert(QStringLiteral("date"), en.toString(r.startedAt.date(), QStringLiteral("MMM d, yyyy")));
     m.insert(QStringLiteral("time"), en.toString(r.startedAt.time(), QStringLiteral("HH:mm")));
     m.insert(QStringLiteral("durationSec"), r.durationSec);

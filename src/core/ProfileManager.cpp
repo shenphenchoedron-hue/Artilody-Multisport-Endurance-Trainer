@@ -35,9 +35,10 @@ void ProfileManager::load()
 
 namespace {
 const char *const kAvatarColorKeys[] = { "jersey", "shorts", "helmet", "shoes", "hair", "bike", "boat" };
+} // namespace
 
 // only the known keys: a model id and "#rrggbb" colours ("" = the model's own)
-QVariantMap cleanAvatar3d(const QVariantMap &v)
+QVariantMap ProfileManager::cleanAvatar3d(const QVariantMap &v)
 {
     // (the figures: "male" or "female"; anything else - an old "classic" - the male)
     QString model = v.value(QStringLiteral("model")).toString().trimmed().toLower();
@@ -52,17 +53,32 @@ QVariantMap cleanAvatar3d(const QVariantMap &v)
     return out;
 }
 
+const QStringList &ProfileManager::avatarKinds()
+{
+    static const QStringList kinds = { QStringLiteral("avatar3d"), QStringLiteral("runner3d"), QStringLiteral("rower3d") };
+    return kinds;
+}
+
+QString ProfileManager::avatarSettingKey(const QString &kind, qint64 id)
+{
+    const QString prefix = kind == QLatin1String("runner3d") ? QStringLiteral("runnerAvatar")
+                           : kind == QLatin1String("rower3d") ? QStringLiteral("rowerAvatar")
+                                                              : QStringLiteral("avatar");
+    return QStringLiteral("%1/%2").arg(prefix).arg(id);
+}
+
+namespace {
 QString avatarKey(qint64 id)
 {
-    return QStringLiteral("avatar/%1").arg(id);
+    return ProfileManager::avatarSettingKey(QStringLiteral("avatar3d"), id);
 }
 QString runnerKey(qint64 id)
 {
-    return QStringLiteral("runnerAvatar/%1").arg(id);
+    return ProfileManager::avatarSettingKey(QStringLiteral("runner3d"), id);
 }
 QString rowerKey(qint64 id)
 {
-    return QStringLiteral("rowerAvatar/%1").arg(id);
+    return ProfileManager::avatarSettingKey(QStringLiteral("rower3d"), id);
 }
 } // namespace
 

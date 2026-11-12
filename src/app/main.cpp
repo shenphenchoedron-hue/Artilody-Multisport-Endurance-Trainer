@@ -25,6 +25,12 @@
 #include "RunLibrary.h"
 #include "RunSession.h"
 #include "SensorHub.h"
+#include "ServerConnection.h"
+#include "ServerSettings.h"
+#include "UserSync.h"
+#include "MediaSync.h"
+#include "RideSync.h"
+#include "LiveRide.h"
 #include "SessionGuard.h"
 #include "SimulatedDevices.h"
 #include "Track.h"
@@ -334,6 +340,10 @@ int main(int argc, char *argv[])
         return 1;
     }
     db.seedDefaults();
+    // the network server (Settings > Server): off = standalone, as always;
+    // on, the station looks for it every 30 s (never waits for it)
+    ServerSettings server(&db);
+    ServerConnection serverStatus(&server, QStringLiteral(APP_VERSION));
 
     // Automatic diagnostic log (Settings > Diagnostic log, default on;
     // WATT_LOG=0 / WATT_LOG_DIR): one file per app session in
@@ -445,6 +455,11 @@ int main(int argc, char *argv[])
     // the built-in AnT test.
     RunLibrary runLibrary(&db, &profiles);
     RunSession run(&db, &profiles, &hub, &runLibrary);
+    // riding together (with a server): the other stations' riders on the same GPX route / treadmill route
+    LiveRide liveGpx(QStringLiteral("gpx"), db.stationId(), &serverStatus);
+    LiveRide liveRun(QStringLiteral("run"), db.stationId(), &serverStatus);
+    gpx.setLive(&liveGpx);
+    run.setLive(&liveRun);
     run.setTreadmill(devices.treadmill());
     QObject::connect(&devices, &DeviceManager::treadmillChanged, &run, &RunSession::setTreadmill);
     QObject::connect(&run, &RunSession::rideSaved, &history, &HistoryManager::showNewRide);
@@ -469,10 +484,32 @@ int main(int argc, char *argv[])
                      [&] { devices.lookForKnownControllers(QStringLiteral("video ride started")); });
     QObject::connect(&gpx, &RlvSession::started, &devices,
                      [&] { devices.lookForKnownControllers(QStringLiteral("GPX ride started")); });
-    // The rider of a ride must still exist when it is saved.
-    profiles.setBusyCheck([&] {
+    // A ride / row / run is under way (started or paused) - one place for
+    // every session: the rider of a ride must still exist when it is saved,
+    // and the server's syncing waits until afterwards.
+    const auto anySessionActive = [&] {
         return training.active() || rowing.active() || freeRide.active() || rlv.active() || gpx.active() || run.active();
-    });
+    };
+    profiles.setBusyCheck(anySessionActive);
+    // the profiles kept with the server (Settings > Server on): sent and
+    // fetched whenever it answers; the server's pictures next to the database
+    UserSync profileSync(&db, &profiles, &serverStatus,
+                         QFileInfo(dbPath).absoluteDir().filePath(QStringLiteral("profile-pictures")));
+    // the server's media library: GPX routes fetched by themselves, videos when asked
+    MediaSync mediaLibrary(&db, &gpxRoutes, &videos, &serverStatus);
+    mediaLibrary.setBusyCheck(anySessionActive);
+    // the rides kept with the server: sent after saving, the other stations' fetched into History
+    RideSync rideSync(&db, &profiles, &serverStatus);
+    rideSync.setBusyCheck(anySessionActive);
+    QObject::connect(&training, &TrainingSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&rowing, &RowingSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&freeRide, &FreeRideSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&rlv, &RlvSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&gpx, &RlvSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&run, &RunSession::rideSaved, &rideSync, [&] { rideSync.rideSaved(); });
+    QObject::connect(&history, &HistoryManager::rideDeleted, &rideSync, [&] { rideSync.rideSaved(); });
+    // (rides from other stations: History, and the ghost's choices on the next route / start)
+    QObject::connect(&rideSync, &RideSync::ridesChanged, &history, &HistoryManager::refresh);
     QObject::connect(&rlv, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
     QObject::connect(&gpx, &RlvSession::rideSaved, &history, &HistoryManager::showNewRide);
 
@@ -535,6 +572,7 @@ int main(int argc, char *argv[])
     // (shift in the road modes, ±10 W in ERG, never the difficulty).
     gears.setSessions(&freeRide, &rlv);
     gears.setGpxSession(&gpx);
+    // (only the sessions that ride with the virtual gears - not anySessionActive)
     gears.setBusyCheck([&] { return freeRide.active() || rlv.active() || gpx.active(); });
     QObject::connect(&devices, &DeviceManager::controllerShift, &gears, &VirtualGears::controllerShift);
     QObject::connect(&devices, &DeviceManager::devicesChanged, &gears,
@@ -858,6 +896,11 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance(uri, 1, 0, "RunLibrary", &runLibrary);
     qmlRegisterSingletonInstance(uri, 1, 0, "Running", &run);
     qmlRegisterSingletonInstance(uri, 1, 0, "Logs", &logs);
+    qmlRegisterSingletonInstance(uri, 1, 0, "Server", &server);
+    qmlRegisterSingletonInstance(uri, 1, 0, "ServerStatus", &serverStatus);
+    qmlRegisterSingletonInstance(uri, 1, 0, "ProfileSync", &profileSync);
+    qmlRegisterSingletonInstance(uri, 1, 0, "MediaLibrary", &mediaLibrary);
+    qmlRegisterSingletonInstance(uri, 1, 0, "RideSyncStatus", &rideSync);
     qmlRegisterType<Route3DItem>(uri, 1, 0, "Route3DView");
     qmlRegisterType<Rowing3DItem>(uri, 1, 0, "Rowing3DView");
     qmlRegisterType<AvatarPreviewItem>(uri, 1, 0, "AvatarPreview");

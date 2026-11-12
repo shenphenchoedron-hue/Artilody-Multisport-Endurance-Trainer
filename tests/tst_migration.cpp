@@ -4,7 +4,10 @@
 #include "WorkoutBuilder.h"
 #include "WorkoutLibrary.h"
 
+#include <QRegularExpression>
+#include <QSet>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -96,7 +99,15 @@ private slots:
                 QVERIFY(w.sport == QStringLiteral("cycling") || w.sport == QStringLiteral("running"));
         }
         QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
-        QCOMPARE(Database::kSchemaVersion, 10);
+        QCOMPARE(Database::kSchemaVersion, 15);
+        QVERIFY(columns(path, QStringLiteral("rides")).contains(QStringLiteral("synced")));   // v15
+        QVERIFY(columns(path, QStringLiteral("ride_tombstones")).contains(QStringLiteral("deleted_ms")));
+        QVERIFY(columns(path, QStringLiteral("server_media")).contains(QStringLiteral("local_path")));   // v14
+        for (const char *c : { "updated_ms", "dirty", "picture_hash" })   // v13
+            QVERIFY(columns(path, QStringLiteral("profiles")).contains(QString::fromLatin1(c)));
+        QVERIFY(columns(path, QStringLiteral("profile_tombstones")).contains(QStringLiteral("deleted_ms")));
+        for (const QString &t : Database::uuidTables())   // v12
+            QVERIFY2(columns(path, t).contains(QStringLiteral("uuid")), qPrintable(t));
         QVERIFY(columns(path, QStringLiteral("run_workouts")).isEmpty());   // v7: running workouts live in workouts
         QVERIFY(columns(path, QStringLiteral("ant_tests")).contains(QStringLiteral("speed_kmh")));
         for (const char *c : { "kind", "route_path", "route_name", "planned_duration_sec", "options" })
@@ -111,6 +122,315 @@ private slots:
         QVERIFY(columns(path, QStringLiteral("sprint_records")).isEmpty());
         for (const char *c : { "ride_id", "lap", "time_sec", "distance_m" })   // v10
             QVERIFY(columns(path, QStringLiteral("ride_laps")).contains(QString::fromLatin1(c)));
+        for (const char *c : { "profile_id", "ride_id", "sport", "route_key", "start_m", "loop", "completed",
+                               "duration_sec", "distance_m", "trace" })   // v11
+            QVERIFY(columns(path, QStringLiteral("route_traces")).contains(QString::fromLatin1(c)));
+    }
+    void ridesToSendAndFromTheServer()
+    {
+        // v15: rides recorded here wait to be sent; one from the server keeps
+        // its uuid and station, is not sent back; deleted here: a tombstone
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        const Profile lone = db.profiles().first();
+        RideRecord r;
+        r.profileId = lone.id;
+        r.startedAt = QDateTime::currentDateTime();
+        const qint64 mine = db.saveRide(r, { { 0, 100, 0, 80, 120, 0 }, { 1, 110, 0, 81, 121, 5.5 } });
+        QCOMPARE(db.ridesWaiting(), 1);
+        QCOMPARE(db.ridesToSend(10).size(), 1);
+        QVERIFY(db.markRideSent(db.ride(mine)->uuid));
+        QCOMPARE(db.ridesWaiting(), 0);
+        QVERIFY(db.ride(mine)->synced);
+        QVERIFY(db.ride(mine)->station.isEmpty());
+
+        RideRecord other = r;
+        other.uuid = QStringLiteral("a0000000-0000-4000-8000-000000000001");
+        other.station = QStringLiteral("Pi 2");
+        RouteTrace t;
+        t.uuid = QStringLiteral("b0000000-0000-4000-8000-000000000001");
+        t.sport = QStringLiteral("gpx");
+        t.routeKey = QStringLiteral("abc");
+        t.durationSec = 60;
+        t.distanceM = 500;
+        t.trace = { { 0, 0 }, { 60, 500 } };
+        const qint64 got = db.storeServerRide(other, { { 0, 200, 0, 90, 130, 0 } }, { { 1, 60, 500 } }, t);
+        QVERIFY(got > mine);
+        QCOMPARE(db.ride(got)->uuid, other.uuid);
+        QCOMPARE(db.ride(got)->station, QStringLiteral("Pi 2"));
+        QCOMPARE(db.rideIdForUuid(other.uuid), got);
+        QCOMPARE(db.rideLaps(got).size(), 1);
+        QCOMPARE(db.routeTraceForRide(got)->uuid, t.uuid);
+        QCOMPARE(db.routeTraceForRide(got)->trace.size(), 2);
+        QCOMPARE(db.ridesWaiting(), 0);   // (not sent back)
+        QCOMPARE(db.storeServerRide(other, {}, {}, std::nullopt), qint64(-1));   // (already here)
+
+        // another profile's trace is a ghost for this one
+        Profile anne;
+        anne.name = QStringLiteral("Anne");
+        const qint64 anneId = db.saveProfile(anne);
+        QCOMPARE(db.routeTracesOfOthers(anneId, QStringLiteral("gpx"), QStringLiteral("abc"), 0, false).size(), 1);
+        QCOMPARE(db.routeTracesOfOthers(anneId, QStringLiteral("gpx"), QStringLiteral("abc"), 0, false).first().riderName, lone.name);
+        QVERIFY(db.routeTracesOfOthers(lone.id, QStringLiteral("gpx"), QStringLiteral("abc"), 0, false).isEmpty());
+
+        // deleted here: a tombstone to send; deleted by the server: none
+        QVERIFY(db.deleteRide(mine));
+        QCOMPARE(db.rideTombstones().size(), 1);
+        QVERIFY(db.rideTombstoned(r.uuid.isEmpty() ? db.rideTombstones().first().first : r.uuid));
+        QCOMPARE(db.ridesWaiting(), 1);
+        QVERIFY(db.deleteRide(got, false));
+        QCOMPARE(db.rideTombstones().size(), 1);
+        QVERIFY(!db.routeTraceForRide(got));   // (its trace with it)
+        // another server: everything recorded here again
+        const qint64 again = db.saveRide(r, {});
+        db.markRideSent(db.ride(again)->uuid);
+        db.markAllRidesToSend();
+        QCOMPARE(db.ridesToSend(10).size(), 1);
+    }
+    void serverMediaKeepsWhereItIsHere()
+    {
+        // v14: the server's media list; storing a newer version keeps local_path
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        ServerMedia m;
+        m.uuid = QStringLiteral("11111111-2222-4333-8444-555555555555");
+        m.kind = QStringLiteral("video");
+        m.name = QStringLiteral("Alpe");
+        m.folder = QStringLiteral("Alpe");
+        m.files = { { QStringLiteral("Alpe.mp4"), QString(40, QLatin1Char('a')), 100 },
+                    { QStringLiteral("Alpe.gpx"), QString(40, QLatin1Char('b')), 5 } };
+        m.sizeBytes = 105;
+        QVERIFY2(db.storeServerMedia(m), qPrintable(db.lastError()));
+        QVERIFY(db.setServerMediaLocalPath(m.uuid, QStringLiteral("/videos/Alpe")));
+        m.name = QStringLiteral("Alpe d'Huez");
+        QVERIFY(db.storeServerMedia(m));
+        QVector<ServerMedia> all = db.serverMedia();
+        QCOMPARE(all.size(), 1);
+        QCOMPARE(all.first().name, QStringLiteral("Alpe d'Huez"));
+        QCOMPARE(all.first().localPath, QStringLiteral("/videos/Alpe"));
+        QCOMPARE(all.first().files.size(), 2);
+        QCOMPARE(all.first().files.at(0).size, qint64(100));
+        QVERIFY(db.removeServerMedia(m.uuid));
+        QVERIFY(db.serverMedia().isEmpty());
+    }
+    void upgradesV12ToV13ProfilesToSend()
+    {
+        // v12 -> v13: the existing profiles are marked to send to a server;
+        // a new station's starter profile is not; edits and deletions are
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v12.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+            QCOMPARE(db.profiles().size(), 1);
+            QCOMPARE(db.profiles().first().updatedMs, qint64(0));   // the starter: never changed
+            QVERIFY(!db.profiles().first().dirty);
+            QCOMPARE(db.profilesWaiting(), 0);
+            // a second, the rider's own (the starter stays untouched)
+            Profile anne;
+            anne.name = QStringLiteral("Anne");
+            QVERIFY(db.saveProfile(anne) > 0);
+        }
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v12"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE profile_tombstones")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE ride_tombstones")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE server_media")));
+            QVERIFY(q.exec(QStringLiteral("ALTER TABLE rides DROP COLUMN synced")));
+            QVERIFY(q.exec(QStringLiteral("ALTER TABLE rides DROP COLUMN station")));
+            for (const char *c : { "updated_ms", "dirty", "picture_hash" })
+                QVERIFY(q.exec(QStringLiteral("ALTER TABLE profiles DROP COLUMN %1").arg(QLatin1String(c))));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 12")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v12"));
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
+        // the untouched starter: not to send (as on a new station); the rider's own: to send
+        const QVector<Profile> all = db.profiles();
+        QCOMPARE(all.size(), 2);
+        const auto byName = [&](const QString &n) {
+            return *std::find_if(all.begin(), all.end(), [&](const Profile &x) { return x.name == n; });
+        };
+        QVERIFY(!byName(QStringLiteral("Lone")).dirty);
+        QCOMPARE(byName(QStringLiteral("Lone")).updatedMs, qint64(0));
+        Profile p = byName(QStringLiteral("Anne"));
+        QVERIFY(p.dirty);
+        QVERIFY(p.updatedMs > 0);
+        QCOMPARE(db.profilesToSend().size(), 1);
+        // sent: no longer waiting - unless it changed again since
+        QVERIFY(!db.markProfileSent(p.uuid, p.updatedMs - 1, QString()));
+        QVERIFY(db.markProfileSent(p.uuid, p.updatedMs, QStringLiteral("abc")));
+        QCOMPARE(db.profilesWaiting(), 0);
+        QCOMPARE(db.profile(p.id)->pictureHash, QStringLiteral("abc"));
+        QTest::qWait(2);
+        p = *db.profile(p.id);
+        p.ftp = 260;
+        QCOMPARE(db.saveProfile(p), p.id);
+        QVERIFY(db.profile(p.id)->dirty);
+        QVERIFY(db.profile(p.id)->updatedMs > p.updatedMs);
+        // the server's version: stored by uuid, not to send
+        Profile server = *db.profile(p.id);
+        server.name = QStringLiteral("From server");
+        server.updatedMs = 1234;
+        server.pictureHash.clear();
+        QCOMPARE(db.storeServerProfile(server), p.id);
+        QVERIFY(!db.profile(p.id)->dirty);
+        QCOMPARE(db.profile(p.id)->name, QStringLiteral("From server"));
+        Profile fresh;
+        fresh.uuid = QStringLiteral("11111111-2222-4333-8444-555555555555");
+        fresh.name = QStringLiteral("New from server");
+        fresh.updatedMs = 99;
+        const qint64 newId = db.storeServerProfile(fresh);
+        QVERIFY(newId > p.id);
+        QCOMPARE(db.profileIdForUuid(fresh.uuid), newId);
+        QCOMPARE(db.uuidOf(QStringLiteral("profiles"), newId), fresh.uuid);   // (its own, not the trigger's)
+        // deleted here: a tombstone for the server; deleted by the server: none
+        QVERIFY(db.deleteProfile(newId));
+        QCOMPARE(db.profileTombstones().size(), 1);
+        QCOMPARE(db.profileTombstones().first().first, fresh.uuid);
+        QCOMPARE(db.profilesWaiting(), 1);
+        QVERIFY(db.removeProfileTombstone(fresh.uuid));
+        const qint64 other = db.storeServerProfile(fresh);
+        QVERIFY(db.deleteProfile(other, false));
+        QVERIFY(db.profileTombstones().isEmpty());
+        // another server: everything ever changed here goes again
+        db.markAllProfilesToSend();
+        QCOMPARE(db.profilesToSend().size(), 1);
+        QVERIFY(db.profilesToSend().first().pictureHash.isEmpty());
+    }
+    void upgradesV11ToV12Uuids()
+    {
+        // v11 -> v12: every existing profile, ride, workout and trace gets a
+        // uuid of its own; new rows get one from the database
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v11.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+            Profile second;
+            second.name = QStringLiteral("Second");
+            QVERIFY(db.saveProfile(second) > 0);
+            RideRecord r;
+            r.profileId = 1;
+            r.startedAt = QDateTime::currentDateTime();
+            QVERIFY(db.saveRide(r, {}) > 0);
+            QVERIFY(db.saveRide(r, {}) > 0);
+            RouteTrace t;
+            t.profileId = 1;
+            t.sport = QStringLiteral("gpx");
+            t.routeKey = QStringLiteral("abc");
+            t.trace = { { 0, 0 }, { 1, 5 } };
+            QVERIFY(db.saveRouteTrace(t) > 0);
+        }
+        {
+            // back to v11: no uuid columns, triggers or indexes
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v11"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            for (const QString &t : Database::uuidTables()) {
+                QVERIFY(q.exec(QStringLiteral("DROP TRIGGER %1_uuid").arg(t)));
+                QVERIFY(q.exec(QStringLiteral("DROP INDEX idx_%1_uuid").arg(t)));
+                QVERIFY2(q.exec(QStringLiteral("ALTER TABLE %1 DROP COLUMN uuid").arg(t)), qPrintable(q.lastError().text()));
+            }
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 11")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v11"));
+        QVERIFY(!columns(path, QStringLiteral("rides")).contains(QStringLiteral("uuid")));
+
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
+        const QRegularExpression v4(QStringLiteral("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"));
+        QSet<QString> seen;
+        const auto check = [&](const QString &uuid) {
+            QVERIFY2(v4.match(uuid).hasMatch(), qPrintable(uuid));
+            QVERIFY2(!seen.contains(uuid), qPrintable(uuid));
+            seen.insert(uuid);
+        };
+        // the existing rows: all kept, each its own uuid
+        const QVector<Profile> profiles = db.profiles();
+        QCOMPARE(profiles.size(), 2);
+        for (const Profile &p : profiles)
+            check(p.uuid);
+        const QVector<RideRecord> rides = db.rides(1);
+        QCOMPARE(rides.size(), 2);
+        for (const RideRecord &r : rides)
+            check(r.uuid);
+        const QVector<Workout> workouts = db.workouts();
+        QVERIFY(!workouts.isEmpty());
+        for (const Workout &w : workouts)
+            check(w.uuid);
+        const QVector<RouteTrace> traces = db.routeTraces(1, QStringLiteral("gpx"), QStringLiteral("abc"), 0, false, true);
+        QCOMPARE(traces.size(), 1);
+        check(traces.first().uuid);
+        QCOMPARE(traces.first().trace.size(), 2);   // (the trace column after the uuid)
+        QCOMPARE(db.uuidOf(QStringLiteral("profiles"), profiles.first().id), profiles.first().uuid);
+
+        // new rows: a uuid from the trigger; an update keeps it
+        Profile third;
+        third.name = QStringLiteral("Third");
+        const qint64 id = db.saveProfile(third);
+        QVERIFY(id > 0);
+        const QString uuid = db.profile(id)->uuid;
+        check(uuid);
+        Profile edited = *db.profile(id);
+        edited.name = QStringLiteral("Third, edited");
+        QCOMPARE(db.saveProfile(edited), id);
+        QCOMPARE(db.profile(id)->uuid, uuid);
+        RideRecord r;
+        r.profileId = id;
+        r.startedAt = QDateTime::currentDateTime();
+        const qint64 rideId = db.saveRide(r, {});
+        check(db.ride(rideId)->uuid);
+        Workout w;
+        w.name = QStringLiteral("New");
+        check(db.workout(db.saveWorkout(w))->uuid);
+
+        // the station's own uuid: made once, then kept
+        const QString station = db.stationId();
+        check(station);
+        QCOMPARE(db.stationId(), station);
+        // the database copied to another machine: a new one there
+        db.setSetting(QStringLiteral("station/machine"), QStringLiteral("0000000000000000"));
+        const QString elsewhere = db.stationId();
+        QVERIFY(elsewhere != station);
+        QCOMPARE(db.stationId(), elsewhere);
+        QVERIFY(db.uuidOf(QStringLiteral("settings"), 1).isEmpty());   // (only the uuid tables)
+    }
+    void upgradesV10ToV11RouteTraces()
+    {
+        // v10 -> v11: the ghost traces table is added, the rides stay
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("v10.sqlite"));
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            db.seedDefaults();
+        }
+        {
+            QSqlDatabase d = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v10"));
+            d.setDatabaseName(path);
+            QVERIFY(d.open());
+            QSqlQuery q(d);
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE route_traces")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 10")));
+            d.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("v10"));
+        Database db;
+        QVERIFY(db.open(path));
+        QCOMPARE(pragmaVersion(path), Database::kSchemaVersion);
+        QVERIFY(db.hasTable(QStringLiteral("route_traces")));
     }
     void upgradesV9ToV10RideLaps()
     {

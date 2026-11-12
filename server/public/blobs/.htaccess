@@ -1,0 +1,15 @@
+# The media library's files by their sha1 (XAMPP: kept here, served by the
+# web server itself - with ranges, so an interrupted download resumes).
+# Never run as code; no listing.
+Options -Indexes
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8
+ForceType application/octet-stream
+<IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=31536000, immutable"
+</IfModule>

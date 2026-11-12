@@ -30,12 +30,22 @@ qt_add_library(watt_core STATIC
     VirtualGears.h VirtualGears.cpp
     HubGearCompensation.h HubGearCompensation.cpp
     DiagLog.h DiagLog.cpp
+    ServerSettings.h ServerSettings.cpp
+    ServerConnection.h ServerConnection.cpp
+    SyncTask.h SyncTask.cpp
+    UserSync.h UserSync.cpp
+    MediaSync.h MediaSync.cpp
+    RideSync.h RideSync.cpp
+    LiveRide.h LiveRide.cpp
     FreeRideSession.h FreeRideSession.cpp
     RlvRoute.h RlvRoute.cpp
     RlvLibrary.h RlvLibrary.cpp
     RlvSession.h RlvSession.cpp
     RouteProgress.h
     Sprint.h
+    RouteRival.h RouteRival.cpp
+    RouteGhost.h RouteGhost.cpp
+    RoutePacer.h RoutePacer.cpp
     RouteSegments.h RouteSegments.cpp
     GpxWorkshop.h GpxWorkshop.cpp
     Climb.h
@@ -45,7 +55,7 @@ qt_add_library(watt_core STATIC
 )
 
 target_include_directories(watt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(watt_core PUBLIC Qt6::Core Qt6::Sql)
+target_link_libraries(watt_core PUBLIC Qt6::Core Qt6::Sql Qt6::Network)
 
 # Rowing and treadmill run session logic: needs the domain model above plus the RowerDevice
 # interface from src/ble (watt_ble links watt_core, so it is a separate library).

@@ -17,7 +17,7 @@ concurrency:
 
 env:
   QT_VERSION: "6.8.3"
-  FALLBACK_VERSION: "1.9.9"
+  FALLBACK_VERSION: "2.0.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -695,6 +695,10 @@ jobs:
             "ArtilodyMultisportEnduranceTrainer-${v}-macOS-universal.dmg"; do
             test -f "dist/$f" || { echo "::error::Missing asset $f"; exit 1; }
           done
+          # the network server (XAMPP folder / install.sh), one zip with a top folder "artilody"
+          mkdir -p "$RUNNER_TEMP/server" && cp -R server "$RUNNER_TEMP/server/artilody"
+          rm -rf "$RUNNER_TEMP/server/artilody/tests" "$RUNNER_TEMP/server/artilody/deploy.sh"
+          (cd "$RUNNER_TEMP/server" && zip -qr "$GITHUB_WORKSPACE/dist/artilody-server-${v}.zip" artilody)
           sed "s/{{VERSION}}/${v}/g" packaging/release-notes.md > "$RUNNER_TEMP/release-notes.md"
           (cd dist && sha256sum *) | tee "$RUNNER_TEMP/SHA256SUMS.txt"
           mv "$RUNNER_TEMP/SHA256SUMS.txt" dist/SHA256SUMS.txt
@@ -714,3 +718,4 @@ jobs:
             dist/*.dmg
             dist/SHA256SUMS.txt
             docs/Artilody-Multisport-Endurance-Trainer-Manual.pdf
+            docs/Artilody-Network-Server-Manual.pdf

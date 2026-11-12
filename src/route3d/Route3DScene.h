@@ -51,6 +51,27 @@ public:
     static constexpr float kCameraHeightM = 1.7f;
     static constexpr float kNearPlaneM = .5f;
     static constexpr double kTaperM = 35.0;   // the run-out after the finish narrows to nothing over this
+    // The ghost (an earlier ride on this route, RouteGhost): the profile's own
+    // figure, see-through and paler, in its own lane - this far right of the
+    // road's centre line, i.e. about 1.15 m inside the rider (1.4 m) - so the
+    // two never overlap when they ride side by side.
+    static constexpr double kGhostLaneM = 0.25;
+    // The pacer (a rider at a set W/kg): the same figure, tinted orange, on the
+    // other side of the centre line, clear of the rider (the session lets the
+    // ghost or the pacer ride, never both).
+    static constexpr double kPacerLaneM = -0.9;
+    static constexpr float kGhostOpacity = 0.5f;
+    // Riding together (LiveRide): up to kMaxLive other stations' riders, each
+    // in a lane and colour of its own (kLiveLanesM / liveTint()), nearly solid
+    // - real riders, not ghosts.
+    static constexpr int kMaxLive = 6;
+    static constexpr float kLiveOpacity = 0.9f;
+    static constexpr std::array<double, kMaxLive> kLiveLanesM { -0.9, 0.25, -2.0, -0.35, 0.8, -1.45 };
+    static QVector3D liveTint(int i);
+    // farther ahead than this the ghost's figure is posed only every
+    // kGhostFarEvery-th frame (a few pixels: the CPU skinning is not worth it)
+    static constexpr double kGhostFarM = 80.0;
+    static constexpr int kGhostFarEvery = 4;
 
     Route3DScene();
     ~Route3DScene();
@@ -105,11 +126,24 @@ public:
     // Draw a runner (Treadmill Run) instead of the cyclist. In render(),
     // crank is then the stride phase (one turn = a left and a right step).
     void setRunner(bool on);
-    void setWalkRunKmh(double kmh) { m_runnerFigure.setTransitionKmh(kmh); }
+    void setWalkRunKmh(double kmh)
+    {
+        m_runnerFigure.setTransitionKmh(kmh);
+        for (Rival &r : m_rivals)
+            r.runner.setTransitionKmh(kmh);
+    }
     // The cyclist's look (the profile's avatar: figure and clothes' colours).
     void setAvatar(const RiderAvatar &avatar);
     // The runner's look (Treadmill Run; RiderAvatar::Runner).
     void setRunnerAvatar(const RiderAvatar &avatar);
+    // The ghost: shown, where (drawn metres), its speed (km/h) and its pedal /
+    // stride phase (radians). It fades out when it comes close in front of the
+    // camera (just behind the rider) and is not drawn behind it.
+    void setGhost(bool shown, double drawnMetres, double speedKmh, double phase) { setRival(0, shown, drawnMetres, speedKmh, phase); }
+    // The pacer: the same, in its own lane (kPacerLaneM).
+    void setPacer(bool shown, double drawnMetres, double speedKmh, double phase) { setRival(1, shown, drawnMetres, speedKmh, phase); }
+    // Another station's rider (i < kMaxLive): the same, in its lane and colour.
+    void setLive(int i, bool shown, double drawnMetres, double speedKmh, double phase) { setRival(2 + i, shown, drawnMetres, speedKmh, phase); }
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -286,6 +320,44 @@ private:
     const uint32_t *m_ghostIndexSource = nullptr;
     route3d::GhostRider m_ghost;
     route3d::GhostRunner m_runnerFigure;
+    // the other riders on the route: [0] the ghost of an earlier ride
+    // (setGhost()), [1] the pacer (setPacer()), [2..] the other stations'
+    // riders (setLive()) - copies of the rider's figures, each in its own lane
+    // and tint, see-through (ghost / pacer) or nearly solid (live)
+    struct Rival
+    {
+        route3d::GhostRider rider;
+        route3d::GhostRunner runner;
+        double lane = 0;
+        QVector3D tint;               // blended into its colours (40 %)
+        float opacity = kGhostOpacity;
+        bool dirty = true;            // the rider's figure / colours changed: copied before drawing
+        bool shown = false;
+        double distance = 0, speed = 0, phase = 0;
+        QOpenGLBuffer buffer { QOpenGLBuffer::VertexBuffer };
+        QOpenGLBuffer indexBuffer { QOpenGLBuffer::IndexBuffer };
+        const uint32_t *indexSource = nullptr;
+        size_t indexCount = 0;
+        // the uploaded figure: where it was built (rebuilt only when it moves)
+        bool built = false;
+        bool builtRunner = false;
+        double builtDistance = 0, builtPhase = 0;
+        unsigned farFrame = 0;
+        int bufferBytes = 0;
+        // this frame (render()): its figure, if built again, and whether it is drawn
+        const std::vector<route3d::GhostVertex> *body = nullptr;
+        bool draw = false;
+        float alpha = 0;
+    };
+    std::array<Rival, 2 + kMaxLive> m_rivals;
+    std::vector<Vertex> m_rivalVertices;
+    void setRival(int i, bool shown, double drawnMetres, double speedKmh, double phase);
+    void markRivalsDirty() { for (Rival &r : m_rivals) r.dirty = true; }
+    void syncRival(Rival &r);
+    double rivalAhead(const Rival &r, double distance) const;   // metres from the camera's figure to its figure
+    // how strongly it shows (0 = not drawn) for the camera at distance
+    float rivalOpacity(const Rival &r, double distance) const;
+    void drawRival(Rival &r);
     bool m_runner = false;
     bool m_runnerModelTried = false;   // the runner (m_runnerAvatar's figure) is set
     bool m_riderModelTried = false;    // the .glb cyclist (m_avatar's figure) is set

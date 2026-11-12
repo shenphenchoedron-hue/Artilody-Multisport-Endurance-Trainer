@@ -8,6 +8,7 @@
 #include "RunRoutes.h"
 #include "SensorDevices.h"
 #include "SensorHub.h"
+#include "Sprint.h"
 #include "Workout.h"
 
 #include <QFileInfo>
@@ -65,6 +66,17 @@ RunSession::RunSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
             m_gpxRoute = std::move(r);
     }
     m_gpxEnabled = m_gpxRoute.isValid() && m_db->setting(kSettingGpxOn, false).toBool();
+    // the ghost: an earlier run on this route, at the same running time
+    m_ghost = new RouteGhost(m_db, QStringLiteral("run"), this);
+    m_ghost->setPositioner([this](double covered) {
+        return RouteRival::runPosition(covered, route().totalDistance(), m_loop);
+    });
+    connect(m_ghost, &RouteGhost::ghostChanged, this, &RunSession::ghostChanged);
+    if (m_profiles)
+        connect(m_profiles, &ProfileManager::profileChanged, this, [this] {
+            if (!active())
+                updateGhostContext();   // the new runner's ghosts
+        });
     rebuildRouteData();
 }
 
@@ -193,8 +205,26 @@ void RunSession::rebuildRouteData()
         m_profile.append(QVariantMap { { QStringLiteral("d"), std::round(p.x() * 10.0) / 10.0 },
                                        { QStringLiteral("ele"), std::round(p.y() * 10.0) / 10.0 } });
     m_position = std::clamp(m_position, 0.0, r.totalDistance());
+    m_routeKey = r.isValid() ? sprint::routeKey(r) : QString();
+    updateGhostContext();
     emit routeChanged();
     emit positionChanged();
+}
+
+void RunSession::updateGhostContext()
+{
+    if (!m_ghost)
+        return;
+    RouteGhost::Context c;
+    c.profileId = (active() || m_state == State::Finished) && m_runProfile.id >= 0 ? m_runProfile.id
+                  : m_profiles                                                    ? m_profiles->profileId()
+                                                                                  : -1;
+    c.routeKey = hasRoute() ? m_routeKey : QString();
+    c.routeName = routeName();
+    c.startM = 0;
+    c.loop = m_loop;
+    m_ghost->setContext(c);
+    emit ghostChanged();
 }
 
 QString RunSession::routeName() const
@@ -552,6 +582,8 @@ void RunSession::clearRecording()
     m_antEvaluated = false;
     m_acceptedTestId = -1;
     m_completed = false;
+    if (m_ghost)
+        m_ghost->reset();   // (back at the start: the ghost too)
 }
 
 bool RunSession::start()
@@ -590,6 +622,8 @@ bool RunSession::start()
     }
     m_startedAt = QDateTime::currentDateTime();
     m_runProfile = m_profiles->current();
+    updateGhostContext();   // this runner's ghost; recording this run
+    m_ghost->begin();
     m_antAtStart = m_library ? m_library->antSpeedKmh() : running::kDefaultAntKmh;
     m_lastRideId = -1;
     setError(QString());
@@ -677,6 +711,7 @@ void RunSession::process(int ms)
             }
         }
     }
+    m_ghost->advance(m_activeMs / 1000.0, m_runDistance);
     while (int(m_activeMs / 1000) > m_recordedSec)
         recordSecond();
     checkStep();
@@ -816,6 +851,13 @@ qint64 RunSession::finish(bool save)
     if (save && m_recordedSec >= m_minSaveSec)
         id = saveRun();
     m_lastRideId = id;
+    // this run's trace: a ghost for the next run (with the run only). It
+    // counts as completed when it reached the route's end (a loop: one lap) -
+    // not when only its workout ended
+    if (id >= 0)
+        m_ghost->saveRecording(id, m_runDistance >= route().totalDistance() - 0.5);
+    else
+        m_ghost->discardRecording();
     // an accepted AnT test made during this run points to it
     if (id >= 0 && m_acceptedTestId >= 0) {
         for (const AntTest &t : m_db->antTests(m_runProfile.id, 5)) {
@@ -849,6 +891,7 @@ void RunSession::reset()
     clearRecording();
     m_lastRideId = -1;
     setState(State::Ready);
+    updateGhostContext();   // (the current runner again, no longer the finished run's)
     suggestToTreadmill();
     emit resultChanged();
     emit metricsChanged();
@@ -902,6 +945,34 @@ qint64 RunSession::saveRun()
 double RunSession::walkRunKmh() const
 {
     return m_library ? m_library->walkRunKmh() : RunLibrary::kDefaultWalkRunKmh;
+}
+
+} // namespace watt
+
+namespace watt {
+
+void RunSession::setLive(LiveRide *live)
+{
+    m_live = live;
+    if (!m_live)
+        return;
+    // what this station tells the others: its place on the route while running
+    m_live->setSource([this] {
+        LiveRide::Me me;
+        me.route = hasRoute();
+        me.routeKey = m_routeKey;
+        me.riding = active();
+        me.distanceM = distanceMeters();
+        me.speedKmh = running() ? speedKmh() : 0.0;
+        if (m_profiles) {
+            me.userUuid = m_profiles->current().uuid;
+            me.name = m_profiles->current().name;
+        }
+        me.routeLength = routeLengthM();
+        me.loop = m_loop;   // (a lap: the gap the short way round, the others not stuck at the finish)
+        return me;
+    });
+    connect(m_live, &LiveRide::changed, this, &RunSession::liveChanged);
 }
 
 } // namespace watt

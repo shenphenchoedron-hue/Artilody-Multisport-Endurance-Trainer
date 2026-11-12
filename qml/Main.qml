@@ -90,7 +90,7 @@ ApplicationWindow {
         return false
     }
     readonly property bool anyDialogOpen: keyboardBusy || profileDialog.visible || musicLibrary.visible
-                                          || settingsDialog.visible || workoutDetails.visible || stopDialog.visible
+                                          || settingsDialog.visible || mediaLibraryDialog.visible || workoutDetails.visible || stopDialog.visible
                                           || rowingFinishDialog.visible || ftpResultDialog.visible
                                           || freeRideFinishDialog.visible || gearSetupDialog.visible
                                           || videoFinishDialog.visible || gpxFinishDialog.visible
@@ -126,6 +126,8 @@ ApplicationWindow {
         case "profiledialog": showPage("dashboard"); profileDialog.openFor(false); break
         case "videofinish": showPage("video"); videoFinishDialog.open(); break
         case "settings": showPage("dashboard"); settingsDialog.open(); break
+        case "media-gpx": showPage("gpx"); mediaLibraryDialog.openFor("gpx"); break
+        case "media-video": showPage("video"); mediaLibraryDialog.openFor("video"); break
         case "diagnostics": showPage("devices"); devicesPage.openScreenshotDialog("diagnostics"); break
         case "gradienttest": showPage("devices"); devicesPage.openScreenshotDialog("gradienttest"); break
         case "advanced": showPage("devices"); devicesPage.openScreenshotDialog("advanced"); break
@@ -146,6 +148,8 @@ ApplicationWindow {
             videoFinishDialog.close()
         if (settingsDialog.visible)
             settingsDialog.close()
+        if (mediaLibraryDialog.visible)
+            mediaLibraryDialog.close()
         devicesPage.openScreenshotDialog("")
         calendarPage.closeDialogs()
         if (screenshotMenu)
@@ -241,11 +245,13 @@ ApplicationWindow {
                     id: videoPage
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: videoFinishDialog.open()
+                    onOpenServerLibrary: mediaLibraryDialog.openFor("video")
                 }
                 GpxRidePage {
                     id: gpxPage
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: gpxFinishDialog.open()
+                    onOpenServerLibrary: mediaLibraryDialog.openFor("gpx")
                 }
                 TreadmillPage {
                     id: treadmillPage
@@ -310,6 +316,15 @@ ApplicationWindow {
         ProfileDialog { id: profileDialog }
         MusicLibraryDialog { id: musicLibrary }
         SettingsDialog { id: settingsDialog }
+        MediaLibraryDialog { id: mediaLibraryDialog }
+        // a download / upload of the server's media library ended (not the automatic GPX ones)
+        Connections {
+            target: MediaLibrary
+            function onTransferFinished(ok, what, error) {
+                if (error !== "cancelled")
+                    window.showToast(ok ? what : what.replace(/ (downloaded|sent to the server)$/, "") + ": " + error)
+            }
+        }
         WorkoutDetailsDialog { id: workoutDetails }
 
         ConfirmDialog {

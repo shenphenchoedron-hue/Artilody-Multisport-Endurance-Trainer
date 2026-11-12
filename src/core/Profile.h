@@ -13,6 +13,7 @@ struct Profile
     static constexpr int kMaxFtp = 600;
 
     qint64 id = -1;
+    QString uuid;   // (schema v12; given by the database, read only)
     QString name = QStringLiteral("Rider");
     double weightKg = 75.0;
     // Optional (0 = not set): with the weight it sizes the rider's air drag
@@ -32,6 +33,11 @@ struct Profile
     bool defaultErg = true;       // default ride mode: ERG (true) or Free Ride (false)
     QString avatarPath;           // local image file, optional
     ZoneSet zones;
+
+    // The server (schema v13, UserSync; given by the database, read only):
+    qint64 updatedMs = 0;         // last changed (ms since 1970 UTC); 0: never (the seeded one)
+    bool dirty = false;           // changed here since it was last sent
+    QString pictureHash;          // sha1 of the picture as the server has it ("" = none)
 
     double wattsPerKg() const { return weightKg > 0 ? ftp / weightKg : 0.0; }
     // FTP to use for workouts of the given sport ("cycling"/"rowing"); for

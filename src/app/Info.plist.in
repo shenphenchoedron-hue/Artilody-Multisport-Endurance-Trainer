@@ -32,5 +32,7 @@
     <string>Artilody Multisport Endurance Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>Artilody Multisport Endurance Trainer uses Bluetooth to connect to your smart trainer and heart rate sensor.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Artilody Multisport Endurance Trainer connects to your Artilody server on the local network (Settings › Server).</string>
 </dict>
 </plist>

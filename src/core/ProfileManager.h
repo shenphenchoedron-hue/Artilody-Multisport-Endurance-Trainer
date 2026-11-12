@@ -105,6 +105,13 @@ public:
     // Heart-rate zones for arbitrary (e.g. unsaved) max/rest values.
     Q_INVOKABLE QVariantList heartRateZonesFor(int maxHr, int restHr) const;
 
+    // The 3D figures of a profile, kept in the settings by its id - kind
+    // "avatar3d" (cyclist), "runner3d" or "rower3d" (UserSync too).
+    static const QStringList &avatarKinds();
+    static QString avatarSettingKey(const QString &kind, qint64 id);
+    static QVariantMap cleanAvatar3d(const QVariantMap &values);   // only the known keys
+    bool busy() const { return m_busy && m_busy(); }
+
 signals:
     void profileChanged();
     void profilesChanged();

@@ -161,6 +161,18 @@ struct Fixture
     }
 };
 
+// The grade the physics use is the shown (effective) grade plus the gravel's,
+// and the same at the rider's place (the pacer's rideGradeAt()) - one source.
+bool gradesAgree(const RlvSession *s)
+{
+    const double d = s->distanceMeters();
+    const bool back = s->returning();
+    return qFuzzyCompare(1.0 + s->rideGradePercent(), 1.0 + s->effectiveGradePercent() + s->gravelGradePercent())
+           && qFuzzyCompare(1.0 + s->rideGradePercent(), 1.0 + s->rideGradeAt(d, back, s->active()))
+           && qFuzzyCompare(1.0 + s->gradePercent(), 1.0 + s->gradeAt(d, back))
+           && s->onGravel() == s->gravelAt(d);
+}
+
 } // namespace
 
 class TestGpxRide : public QObject
@@ -223,6 +235,187 @@ private slots:
         // last route is remembered under gpx/ (not rlv/)
         QCOMPARE(f.db.setting(QStringLiteral("gpx/lastRoute")).toString(), QDir::cleanPath(path));
         QVERIFY(f.db.setting(QStringLiteral("rlv/lastRoute")).toString().isEmpty());
+    }
+
+    void ghostRacesTheEarlierRide()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("flat.gpx"));
+        QVERIFY(writeGpx(path, 200, 10, 0));
+        QVERIFY(f.gpx->selectPath(path));
+        RouteGhost *ghost = f.gpx->ghost();
+        QVERIFY(ghost);
+        QVERIFY(!f.rlv->ghost());   // (the Video Ride has none)
+        QCOMPARE(ghost->rideCount(), 0);
+        QVERIFY(!f.gpx->ghostVisible());
+
+        // ride 1 is saved with its trace
+        f.hub->updateCadence(90);
+        f.hub->updatePower(200);
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 40000);
+        const double first = f.gpx->riddenMeters();
+        QVERIFY(f.gpx->finish(true) >= 0);
+        QCOMPARE(ghost->rideCount(), 1);
+
+        // ride 2 races it: the ghost waits at the start, then rides ride 1
+        f.gpx->reset();
+        QVERIFY(ghost->available());
+        QVERIFY(f.gpx->ghostVisible());
+        QCOMPARE(f.gpx->ghostDistanceMeters(), 0.0);
+        f.hub->updatePower(300);   // faster this time
+        QVERIFY(f.gpx->start());
+        f.ride_for(f.gpx.get(), 20000);
+        QVERIFY(ghost->coveredM() > 0);
+        QVERIFY(ghost->coveredM() < first);
+        QVERIFY(ghost->gapM() > 0);   // ahead of the ghost
+        QVERIFY(std::abs(f.gpx->ghostDistanceMeters() - ghost->coveredM()) < 1e-6);   // from 0 m
+        QVERIFY(f.gpx->ghostSpeedKmh() > 10);
+        // a discarded ride leaves no ghost
+        f.gpx->discard();
+        QCOMPARE(ghost->rideCount(), 1);
+
+        // another start point: no ghost from there yet
+        QVERIFY(f.gpx->seekToDistance(500));
+        QCOMPARE(ghost->rideCount(), 0);
+        QVERIFY(!f.gpx->ghostVisible());
+    }
+
+    void rivalPedalsAtARealCadence()
+    {
+        // still when standing; a real cadence from low speed on (it shifts
+        // gears) instead of one pedal turn per so many metres
+        QCOMPARE(Route3DItem::rivalRpm(0.0), 0.0);
+        QVERIFY(Route3DItem::rivalRpm(2.0) > 65);    // 7 km/h
+        QVERIFY(Route3DItem::rivalRpm(4.0) > 80);    // 14 km/h
+        QVERIFY(Route3DItem::rivalRpm(12.0) <= Route3DItem::kRivalRpm);
+        QVERIFY(Route3DItem::rivalRpm(3.0) > Route3DItem::rivalRpm(2.0));
+    }
+
+    void pacerHoldsWattsPerKilo()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        const QString flatPath = f.dir.filePath(QStringLiteral("flat.gpx"));
+        const QString climbPath = f.dir.filePath(QStringLiteral("climb.gpx"));
+        QVERIFY(writeGpx(flatPath, 100, 10, 0));
+        QVERIFY(writeGpx(climbPath, 100, 10, 6));
+        RoutePacer *pacer = f.gpx->pacer();
+        QVERIFY(pacer);
+        QVERIFY(!f.rlv->pacer());   // (the Video Ride has none)
+        QVERIFY(!pacer->enabled());   // off until switched on
+
+        QVERIFY(f.gpx->selectPath(flatPath));
+        QVERIFY(!pacer->available());
+        QVERIFY(!f.gpx->pacerVisible());
+        pacer->setEnabled(true);
+        QCOMPARE(f.db.setting(QStringLiteral("gpx/pacer")).toBool(), true);
+        QVERIFY(pacer->available());
+        QVERIFY(f.gpx->pacerVisible());
+        QCOMPARE(pacer->trace().trace.first().d, 0.0);
+        QVERIFY(pacer->trace().completed);
+        QVERIFY(std::abs(pacer->trace().distanceM - f.gpx->totalDistanceM()) < 1e-6);
+        QVERIFY(pacer->ghostLabel().contains(QStringLiteral("2.5 W/kg")));
+        const double flat = pacer->trace().durationSec;
+
+        // one rival at a time: the pacer turned the ghost off ...
+        RouteGhost *ghost = f.gpx->ghost();
+        QCOMPARE(ghost->choice(), QStringLiteral("off"));
+        // ... a ghost chosen turns the pacer off ...
+        ghost->setChoice(QStringLiteral("best"));
+        QVERIFY(!pacer->enabled());
+        QVERIFY(!pacer->available());
+        QCOMPARE(f.db.setting(QStringLiteral("gpx/pacer")).toBool(), false);
+        // ... and the pacer switched on again turns the ghost off
+        pacer->setEnabled(true);
+        QCOMPARE(ghost->choice(), QStringLiteral("off"));
+        QVERIFY(pacer->available());
+
+        // more W/kg: faster; kept in the settings
+        pacer->setWkg(4.0);
+        QVERIFY(pacer->trace().durationSec < flat);
+        QCOMPARE(f.db.setting(QStringLiteral("gpx/pacerWkg")).toDouble(), 4.0);
+        pacer->setWkg(99);
+        QCOMPARE(pacer->wkg(), RoutePacer::kMaxWkg);
+        pacer->setWkg(2.5);
+
+        // its steady speed on the flat is the physics' speed for 2.5 W/kg
+        const double watts = 2.5 * f.profiles->current().weightKg;
+        const double steady = f.gpx->solveSpeedForPower(watts, 0.0);
+        const auto &tr = pacer->trace().trace;
+        QVERIFY(tr.size() > 100);
+        QVERIFY(std::abs((tr.at(90).d - tr.at(60).d) / 30.0 - steady) < 0.05);
+
+        // a climb: slower than the flat; less difficulty: faster again
+        QVERIFY(f.gpx->selectPath(climbPath));
+        QVERIFY(pacer->enabled());
+        const double climb = pacer->trace().durationSec;
+        QVERIFY(climb > flat * 1.3);
+        f.gpx->setDifficulty(50);
+        QVERIFY(pacer->trace().durationSec < climb);
+        f.gpx->setDifficulty(100);
+
+        // a loop: goes on (up to the cap), not "completed"
+        QVERIFY(f.gpx->selectPath(flatPath));
+        f.gpx->setLoop(true);
+        QVERIFY(pacer->available());
+        QVERIFY(!pacer->trace().completed);
+        QVERIFY(pacer->trace().distanceM > f.gpx->totalDistanceM() * 2);
+        f.gpx->setLoop(false);
+
+        // racing it: it starts with you, on / off locked while riding
+        f.hub->updateCadence(90);
+        f.hub->updatePower(int(watts));
+        QVERIFY(f.gpx->start());
+        QVERIFY(pacer->riding());
+        pacer->setEnabled(false);
+        QVERIFY(pacer->enabled());
+        f.ride_for(f.gpx.get(), 20000);
+        QVERIFY(pacer->coveredM() > 50);
+        QVERIFY(std::abs(pacer->gapM()) < 25);   // the same watts: close together
+        QVERIFY(f.gpx->pacerSpeedKmh() > 10);
+
+        // its W/kg changed during the ride: the trace up to now kept, no
+        // jump, then faster from there
+        const QVector<TracePoint> before = pacer->trace().trace;
+        const double here = pacer->coveredM(), speedHere = f.gpx->pacerSpeedKmh(), gapHere = pacer->gapM();
+        pacer->setWkg(4.0);
+        QCOMPARE(pacer->wkg(), 4.0);
+        QVERIFY(pacer->riding());
+        QVERIFY(pacer->ghostLabel().contains(QStringLiteral("4.0 W/kg")));
+        QVERIFY(std::abs(pacer->coveredM() - here) < 1e-6);
+        const QVector<TracePoint> &after = pacer->trace().trace;
+        QVERIFY(before.size() > 20 && after.size() > 20);
+        for (int i = 0; i < 19; ++i)   // (about 20 s ridden)
+            QCOMPARE(after.at(i), before.at(i));
+        QVERIFY(pacer->trace().durationSec < before.last().t);
+        f.ride_for(f.gpx.get(), 10000);
+        QVERIFY(f.gpx->pacerSpeedKmh() > speedHere + 3);
+        QVERIFY(pacer->gapM() < gapHere - 5);   // it pulls away
+        // and slower again
+        pacer->setWkg(1.0);
+        const double fast = f.gpx->pacerSpeedKmh();
+        f.ride_for(f.gpx.get(), 15000);
+        QVERIFY(f.gpx->pacerSpeedKmh() < fast - 3);   // (rolls out: inertia, as you would)
+        f.gpx->discard();
+        // finished: a ghost chosen now still turns the pacer off (one at a
+        // time after the ride too: it does not stay on into the next ride)
+        QVERIFY(!pacer->riding());
+        f.gpx->ghost()->setChoice(QStringLiteral("latest"));
+        QVERIFY(!pacer->enabled());
+        f.gpx->reset();
+        QVERIFY(!pacer->available());
+        QVERIFY(!f.gpx->pacerVisible());
+        pacer->setEnabled(true);
+        QCOMPARE(f.gpx->ghost()->choice(), QStringLiteral("off"));
+        pacer->setWkg(2.5);
+
+        // switched off: gone
+        f.gpx->reset();
+        pacer->setEnabled(false);
+        QVERIFY(!pacer->available());
+        QVERIFY(!f.gpx->pacerVisible());
     }
 
     void sprintSegmentAndCrossing()
@@ -754,12 +947,14 @@ private slots:
         QVERIFY(f.gpx->onGravel());
         QVERIFY(!f.gpx->gravelEffort());   // not riding yet
         QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        QVERIFY(gradesAgree(f.gpx.get()));
         f.hub->updateCadence(90);
         f.hub->updatePower(200);
         QVERIFY(f.gpx->start());
         f.ride_for(f.gpx.get(), 60000);
         QVERIFY(f.gpx->gravelEffort());
         QCOMPARE(f.gpx->gravelGradePercent(), segments::kGravelGradePercent);
+        QVERIFY(gradesAgree(f.gpx.get()));
         QCOMPARE(f.hub->roadSurface(), int(SensorHub::RoadGravel));   // road feel while riding
         // the extra grade costs the gravel's extra rolling resistance at the cranks: ΔCrr·m·g·v/η
         const double v = f.gpx->speedMps();
@@ -804,6 +999,7 @@ private slots:
         QVERIFY(f.gpx->onGravel());
         QVERIFY(!f.gpx->gravelEffort());
         QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        QVERIFY(gradesAgree(f.gpx.get()));
         f.gpx->finish(false);
         f.gpx->detachWorkout();
         // ERG: the trainer holds the watts, no gravel effort
@@ -813,6 +1009,7 @@ private slots:
         QVERIFY(f.gpx->onGravel());
         QVERIFY(!f.gpx->gravelEffort());
         QCOMPARE(f.gpx->gravelGradePercent(), 0.0);
+        QVERIFY(gradesAgree(f.gpx.get()));
         f.gpx->finish(false);
     }
 

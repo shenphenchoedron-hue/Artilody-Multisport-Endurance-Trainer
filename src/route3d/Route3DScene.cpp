@@ -619,6 +619,23 @@ bool Route3DScene::initialize(QOpenGLContext *context)
     m_ghostBuffer.setUsagePattern(QOpenGLBuffer::DynamicDraw);
     m_ghostIndexBuffer.create();
     m_ghostIndexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+    for (int i = 0; i < int(m_rivals.size()); ++i) {
+        Rival &r = m_rivals[size_t(i)];
+        r.buffer.create();
+        r.buffer.setUsagePattern(QOpenGLBuffer::DynamicDraw);
+        r.indexBuffer.create();
+        r.indexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
+        r.indexSource = nullptr;
+        r.built = false;
+        r.bufferBytes = 0;
+        // the ghost: pale blue, inside the rider; the pacer: pale orange, across
+        // the centre line; the other stations' riders: each its lane and colour
+        r.lane = i == 0 ? kGhostLaneM : i == 1 ? kPacerLaneM : kLiveLanesM[size_t(i - 2)];
+        r.tint = i == 0 ? QVector3D(.80f, .88f, 1.f) : i == 1 ? QVector3D(1.f, .62f, .25f) : liveTint(i - 2);
+        r.opacity = i < 2 ? kGhostOpacity : kLiveOpacity;
+        r.rider.setLateral(r.lane);
+        r.runner.setLateral(r.lane);
+    }
     m_birdBuffer.create();
     m_birdBuffer.setUsagePattern(QOpenGLBuffer::StreamDraw);
     buildRing();
@@ -644,6 +661,13 @@ void Route3DScene::release()
     m_buffer.destroy();
     m_ghostBuffer.destroy();
     m_ghostIndexBuffer.destroy();
+    for (Rival &r : m_rivals) {
+        r.buffer.destroy();
+        r.indexBuffer.destroy();
+        r.indexSource = nullptr;
+        r.built = false;
+        r.bufferBytes = 0;
+    }
     m_birdBuffer.destroy();
     m_ringBuffer.destroy();
     m_vao.destroy();
@@ -676,6 +700,10 @@ void Route3DScene::setRoute(std::shared_ptr<const Route> route)
     m_ghostIndices.clear();
     m_ghostIndexShadow = size_t(-1);
     m_ghostIndexSource = nullptr;
+    for (Rival &r : m_rivals) {
+        r.indexSource = nullptr;
+        r.built = false;
+    }
 }
 
 // The route's biome: its profile (the mountains' snow line from the road's
@@ -784,6 +812,7 @@ void Route3DScene::setAvatar(const RiderAvatar &avatar)
     } else if (const auto &figure = m_ghost.riderModel()) {
         m_ghost.setRiderColors(m_avatar.figureColors(*figure));   // only the colours changed
     }
+    markRivalsDirty();
 }
 
 void Route3DScene::setRunnerAvatar(const RiderAvatar &avatar)
@@ -792,6 +821,7 @@ void Route3DScene::setRunnerAvatar(const RiderAvatar &avatar)
         return;
     const bool newFigure = avatar.model != m_runnerAvatar.model;
     m_runnerAvatar = avatar;
+    markRivalsDirty();
     if (newFigure)
         m_runnerModelTried = false;   // (setRunner() sets the figure)
     else if (const auto &figure = m_runnerFigure.figureModel())
@@ -831,6 +861,122 @@ void Route3DScene::setRunnerFigure(std::shared_ptr<const route3d::GlbModel> figu
     if (figure && walk && !m_runnerFigure.setWalkModel(walk))
         qWarning("Route3D: the walking figure is not the same mesh as the running one - not used");
     m_ghostIndexSource = nullptr;   // (another mesh: its indices are uploaded again)
+    markRivalsDirty();
+}
+
+QVector3D Route3DScene::liveTint(int i)
+{
+    // red, green, yellow, purple, cyan, pink (the QML list shows the same: LiveRidersPanel)
+    static const QVector3D tints[kMaxLive] = { { .95f, .30f, .30f }, { .30f, .85f, .40f }, { .98f, .85f, .25f },
+                                               { .70f, .40f, .95f }, { .25f, .85f, .95f }, { .98f, .45f, .75f } };
+    return tints[std::clamp(i, 0, kMaxLive - 1)];
+}
+
+void Route3DScene::setRival(int i, bool shown, double drawnMetres, double speedKmh, double phase)
+{
+    Rival &r = m_rivals[size_t(i)];
+    r.shown = shown && std::isfinite(drawnMetres);
+    r.distance = drawnMetres;
+    r.speed = speedKmh;
+    r.phase = phase;
+}
+
+// The rivals (the ghost, the pacer, the other stations' riders) wear the
+// rider's figure and colours (copied when they change).
+void Route3DScene::syncRival(Rival &r)
+{
+    if (!r.dirty)
+        return;
+    r.dirty = false;
+    r.rider.setFrameColor(m_ghost.frameColour());
+    r.rider.setRiderModel(m_ghost.riderModel());
+    r.rider.setRiderColors(m_ghost.riderColorList());
+    r.runner.setModel(m_runnerFigure.figureModel());
+    r.runner.setColors(m_runnerFigure.colorList());
+    if (m_runnerFigure.walkingModel())
+        r.runner.setWalkModel(m_runnerFigure.walkingModel());
+    r.indexSource = nullptr;
+    r.built = false;
+}
+
+float Route3DScene::rivalOpacity(const Rival &r, double distance) const
+{
+    if (!r.shown || !m_route)
+        return 0.f;
+    const double sep = rivalAhead(r, distance);
+    if (sep > 400.0)   // too far to see (and not worth building)
+        return 0.f;
+    // just in front of the camera it would fill the picture: faded out
+    return r.opacity * float(std::clamp((sep - 1.5) / 2.5, 0.0, 1.0));
+}
+
+double Route3DScene::rivalAhead(const Rival &r, double distance) const
+{
+    if (!m_route)
+        return 0.0;
+    const Route &route = *m_route;
+    // the ghost's figure ahead of the camera (both figures are 3 m ahead of
+    // their distance; a closed lap: the short way round)
+    double ahead = route.wrap(r.distance) - route.wrap(distance);
+    if (route.closed) {
+        const double L = route.length();
+        if (ahead > L / 2)
+            ahead -= L;
+        else if (ahead < -L / 2)
+            ahead += L;
+    }
+    return ahead + 3.0;
+}
+
+// One of the other riders, built this frame (render()): uploaded when built
+// again (into the buffer it already has when it fits), then drawn tinted and
+// see-through - depth first (only its front surface is blended: no inner faces
+// showing through), then the colour, blended.
+void Route3DScene::drawRival(Rival &r)
+{
+    const auto &index = m_runner ? r.runner.indices() : r.rider.indices();
+    if (r.body) {
+        m_rivalVertices.clear();
+        m_rivalVertices.reserve(r.body->size());
+        for (const auto &g : *r.body) {
+            const QVector3D col = g.color * .6f + r.tint * .4f;
+            m_rivalVertices.push_back({ g.position.x(), g.position.y(), g.position.z(), col.x(), col.y(), col.z(),
+                                        g.normal.x(), g.normal.y(), g.normal.z(), float(Solid), 0 });
+        }
+        const int bytes = int(m_rivalVertices.size() * sizeof(Vertex));
+        r.buffer.bind();
+        if (bytes > r.bufferBytes) {
+            r.buffer.allocate(m_rivalVertices.data(), bytes);
+            r.bufferBytes = bytes;
+        } else if (bytes > 0) {
+            r.buffer.write(0, m_rivalVertices.data(), bytes);
+        }
+        r.built = !m_rivalVertices.empty();
+    }
+    if (!r.draw || !r.built || index.empty())
+        return;
+    r.buffer.bind();
+    attributes();
+    r.indexBuffer.bind();
+    if (r.indexSource != index.data() || r.indexCount != index.size()) {
+        r.indexBuffer.allocate(index.data(), int(index.size() * sizeof(uint32_t)));
+        r.indexSource = index.data();
+        r.indexCount = index.size();
+    }
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glDrawElements(GL_TRIANGLES, int(index.size()), GL_UNSIGNED_INT, nullptr);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LEQUAL);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    m_shader.setUniformValue("opacity", r.alpha);
+    glDrawElements(GL_TRIANGLES, int(index.size()), GL_UNSIGNED_INT, nullptr);
+    m_shader.setUniformValue("opacity", 1.0f);
+    glDisable(GL_BLEND);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    r.indexBuffer.release();
 }
 
 void Route3DScene::setStartDistance(double drawnMetres)
@@ -2906,6 +3052,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
             if (figure)
                 m_ghost.setRiderColors(m_avatar.figureColors(*figure));
             m_ghostIndexSource = nullptr;   // (another mesh: its indices are uploaded again)
+            markRivalsDirty();
         }
     }
     const auto &body = m_runner ? m_runnerFigure.build(route, distance, speedKmh, crank)
@@ -2956,6 +3103,41 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
                            strength, roadHeight);
         }
     }
+    // the ghost of an earlier ride and the pacer: their figures (when they
+    // show) and a faint shadow each. (A figure is posed on the CPU like the
+    // rider's: built again only when it moved or its legs did, and far away
+    // only every kGhostFarEvery-th frame.)
+    for (Rival &r : m_rivals) {
+        syncRival(r);
+        r.alpha = rivalOpacity(r, distance);
+        r.body = nullptr;
+        r.draw = false;
+        if (r.alpha <= .02f)
+            continue;
+        const double rd = route.wrap(r.distance);
+        const bool far = rivalAhead(r, distance) > kGhostFarM;
+        const bool moved = std::abs(rd - r.builtDistance) > 1e-4 || std::abs(r.phase - r.builtPhase) > 1e-4;
+        const bool stale = !r.built || r.builtRunner != m_runner;
+        if (stale || (moved && (!far || ++r.farFrame % kGhostFarEvery == 0))) {
+            r.body = m_runner ? &r.runner.build(route, rd, r.speed, r.phase) : &r.rider.build(route, rd, r.speed, r.phase);
+            r.builtDistance = rd;
+            r.builtPhase = r.phase;
+            r.builtRunner = m_runner;
+        }
+        r.draw = true;
+        auto pose = ghostPose(route, rd, r.speed, r.lane);
+        QVector3D fwd(float(pose.fx), 0, float(pose.fz));
+        if (fwd.lengthSquared() < 1e-4f)
+            fwd = QVector3D(0, 0, -1);
+        fwd.normalize();
+        const double along = route.closed ? rd + 3 : std::min(route.length(), rd + 3);
+        const QVector3D c(float(pose.center.x), 0, float(pose.center.z));
+        auto roadHeight = [&](QVector3D q) {
+            return float(route.at(along + QVector3D::dotProduct(q - c, fwd)).y) + .06f;
+        };
+        shadowDisc(ghostVertices, c + QVector3D(-m_sun.x(), 0, -m_sun.z()).normalized() * .12f, fwd,
+                   m_runner ? .30f : .34f, m_runner ? .45f : .85f, .34f * r.alpha / kGhostOpacity * .6f, roadHeight);
+    }
     const size_t ghostShadowCount = ghostVertices.size();
     glEnable(GL_BLEND);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
@@ -3000,6 +3182,10 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         glDrawElements(GL_TRIANGLES, int(m_ghostIndices.size()), GL_UNSIGNED_INT, nullptr);
         m_ghostIndexBuffer.release();
     }
+    // the rivals - the ghost, the pacer, the other stations' riders: tinted,
+    // see-through (drawRival())
+    for (Rival &r : m_rivals)
+        drawRival(r);
     for (int i = 0; i < 4; ++i)
         m_textures[size_t(i)]->release(uint(i));
     m_bannerTexture->release(4u);

@@ -338,6 +338,7 @@ Item {
                             width: parent.width - 22
                             anchors.verticalCenter: parent.verticalCenter
                             text: modelData.name
+                            textFormat: Text.PlainText   // (a name may come from the server)
                             color: Theme.text
                             font.pixelSize: 16
                             elide: Text.ElideRight
@@ -554,6 +555,8 @@ Item {
                      : (page.ride.distanceM > 0 ? "  •  " + page.km(page.ride) : "") + (page.ride.mode ? "  •  " + page.ride.mode : ""))
                   + (page.rideRunning ? "" : "  •  " + (page.rideRowing ? "Rowing FTP " : "FTP ")
                      + (page.ride.ftp || (page.rideRowing ? Profiles.rowingFtp : Profiles.ftp)) + " W")
+                  + (page.ride.station ? "  •  on " + page.ride.station : "")
+            textFormat: Text.PlainText
             color: Theme.textSecondary
             font.pixelSize: 16
         }

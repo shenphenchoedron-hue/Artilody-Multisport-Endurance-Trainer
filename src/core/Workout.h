@@ -61,6 +61,7 @@ inline int targetWatts(const Interval &interval, const QString &sport, int ftp, 
 struct Workout
 {
     qint64 id = -1;
+    QString uuid;   // (schema v12; given by the database, read only)
     QString name;
     QString category = QStringLiteral("Intervals");   // Endurance, Intervals, Recovery, FTP Tests, Custom
     QString focus;          // short focus text, e.g. "Sweet Spot"

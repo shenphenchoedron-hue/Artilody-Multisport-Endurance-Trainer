@@ -65,6 +65,36 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &RlvSession::onTimer);
 
+    if (isGpx()) {
+        // the ghost: an earlier ride on this route, at the same riding time
+        m_ghost = new RouteGhost(m_db, QStringLiteral("gpx"), this);
+        m_ghost->setPositioner([this](double covered) {
+            return RouteRival::gpxPosition(covered, m_startDistance, totalDistanceM(), loopRide(), roundTrip());
+        });
+        connect(m_ghost, &RouteGhost::ghostChanged, this, &RlvSession::ghostChanged);
+        // the pacer: a rider at a set W/kg, simulated with this ride's physics
+        m_pacer = new RoutePacer(m_db, QStringLiteral("gpx"), this);
+        m_pacer->setPositioner([this](double covered) {
+            return RouteRival::gpxPosition(covered, m_startDistance, totalDistanceM(), loopRide(), roundTrip());
+        });
+        m_pacer->setGenerator([this](double wkg, int fromSec, double fromCovered, double fromSpeed) {
+            return pacerTrace(wkg, fromSec, fromCovered, fromSpeed);
+        });
+        connect(m_pacer, &RouteRival::ghostChanged, this, &RlvSession::pacerChanged);
+        // one rival at a time: the pacer switched on turns the ghost off, a
+        // ghost chosen turns the pacer off (the pacer wins at start-up)
+        const auto ghostOff = [this] {
+            if (m_pacer->enabled() && m_ghost->choice() != QLatin1String("off"))
+                m_ghost->setChoice(QStringLiteral("off"));
+        };
+        connect(m_pacer, &RoutePacer::settingsChanged, this, ghostOff);
+        connect(m_ghost, &RouteGhost::choicesChanged, this, [this] {
+            if (m_ghost->choice() != QLatin1String("off") && m_pacer->enabled())
+                m_pacer->setEnabled(false);
+        });
+        ghostOff();
+    }
+
     // road feel (gravel) follows the position, the state, ERG and the workout
     connect(this, &RlvSession::positionChanged, this, &RlvSession::updateRoadSurface);
     connect(this, &RlvSession::stateChanged, this, &RlvSession::updateRoadSurface);
@@ -110,6 +140,7 @@ RlvSession::RlvSession(Database *db, ProfileManager *profiles, SensorHub *hub, V
             for (TimedSegment &seg : m_segments)
                 seg.previousBest = seg.best;
             emitSegments(true, true);
+            updateGhostContext();   // (and the new rider's ghosts)
         }
         if (!m_hasWorkout || active())
             return;
@@ -389,6 +420,8 @@ void RlvSession::setDifficulty(int percent)
     emit positionChanged();   // effectiveGradePercent
     emit targetChanged();
     applyTarget(true);
+    if (m_pacer)
+        m_pacer->refresh();   // (its climbs follow the difficulty too)
 }
 
 // --- route -------------------------------------------------------------------------------
@@ -496,35 +529,75 @@ double RlvSession::progress() const
     return total > 0 ? std::clamp(m_distance / total, 0.0, 1.0) : 0.0;
 }
 
-double RlvSession::gradePercent() const
+// --- the grade: one source for the rider (at m_distance) and the pacer ------
+
+double RlvSession::gradeAt(double distance, bool returning) const
 {
-    // the grade at the rider, looking slightly ahead (a descent is felt when it starts)
+    // looking slightly ahead (a descent is felt when it starts)
     if (!hasRoute())
         return 0.0;
-    return m_returning ? m_route.gradeBackAtDistance(m_distance) : m_route.gradeAheadAtDistance(m_distance);
+    return returning ? m_route.gradeBackAtDistance(distance) : m_route.gradeAheadAtDistance(distance);
+}
+
+double RlvSession::effectiveGradeAt(double distance, bool returning) const
+{
+    // ERG: the trainer holds the watts, the difficulty only applies to the
+    // resistance modes - the speed uses the real gradient
+    const double g = gradeAt(distance, returning);
+    return ergNow() ? g : g * m_difficulty / 100.0;
+}
+
+bool RlvSession::gravelAtDistance(double distance) const
+{
+    return isGpx() && hasRoute() && m_route.gravelAt(distance);
+}
+
+double RlvSession::gravelGradeAt(double distance) const
+{
+    return gravelAllowed() && gravelAtDistance(distance)
+               ? segments::kGravelGradePercent * m_route.gravelBlend(distance, segments::kGravelRampM)
+               : 0.0;
+}
+
+double RlvSession::gradePercent() const
+{
+    return gradeAt(m_distance, m_returning);
 }
 
 double RlvSession::effectiveGradePercent() const
 {
-    // ERG: the trainer holds the watts, the difficulty only applies to the
-    // resistance modes - the speed uses the real gradient
-    return ergNow() ? gradePercent() : gradePercent() * m_difficulty / 100.0;
+    return effectiveGradeAt(m_distance, m_returning);
 }
 
 bool RlvSession::onGravel() const
 {
-    return isGpx() && hasRoute() && m_route.gravelAt(m_distance);
+    return gravelAtDistance(m_distance);
+}
+
+bool RlvSession::gravelAllowed() const
+{
+    // not with ERG (the trainer holds the watts) and not riding a workout
+    return !ergNow() && !(m_hasWorkout && !m_workoutFinished);
 }
 
 bool RlvSession::gravelEffort() const
 {
-    // not with ERG (the trainer holds the watts) and not riding a workout
-    return active() && onGravel() && !ergNow() && !(m_hasWorkout && !m_workoutFinished);
+    return active() && onGravel() && gravelAllowed();
 }
 
 double RlvSession::gravelGradePercent() const
 {
-    return gravelEffort() ? segments::kGravelGradePercent * gravelBlend() : 0.0;
+    return active() ? gravelGradeAt(m_distance) : 0.0;   // (= gravelEffort() ? ... : 0)
+}
+
+double RlvSession::rideGradeAt(double distance, bool returning, bool gravel) const
+{
+    return effectiveGradeAt(distance, returning) + (gravel ? gravelGradeAt(distance) : 0.0);
+}
+
+double RlvSession::rideGradePercent() const
+{
+    return effectiveGradePercent() + gravelGradePercent();
 }
 
 void RlvSession::updateRoadSurface()
@@ -581,6 +654,63 @@ void RlvSession::setLoop(bool on)
     m_loop = on;
     m_db->setSetting(settingKey(kSettingLoop), on);
     emit loopChanged();
+    updateGhostContext();   // (a loop races loops)
+}
+
+QVector<TracePoint> RlvSession::pacerTrace(double wkg, int fromSec, double fromCovered, double fromSpeed) const
+{
+    QVector<TracePoint> out;
+    const double total = totalDistanceM();
+    if (!hasRoute() || !(total > 0) || !(wkg > 0) || fromSec < 0 || fromSec >= kPacerMaxSec)
+        return out;
+    // the rider of the ride (roadModel(): the same profile, bike and air drag;
+    // its watts from the weight the model uses)
+    road::Model model = roadModel(0.0);
+    const double riderKg = model.massKg - m_gears->setup().bikeWeightKg;
+    const double watts = wkg * (riderKg > 0 ? riderKg : road::kDefaultRiderKg);
+    const bool loop = loopRide(), trip = roundTrip();
+    const double start = m_startDistance;
+    out.reserve(loop ? 3600 : 1024);
+    double v = std::max(0.0, fromSpeed), covered = std::max(0.0, fromCovered);
+    out.append({ double(fromSec), covered });
+    for (int t = fromSec + 1; t <= kPacerMaxSec; ++t) {
+        const RouteRival::RoutePos pos = RouteRival::gpxPosition(covered, start, total, loop, trip);
+        // the grade the ride's physics would use there (gravel too: riding)
+        model.gradePercent = rideGradeAt(pos.distance, pos.returning, true);
+        v = road::integrateSpeed(model, v, watts, 1.0, kRotatingMassKg, kMinDriveSpeedMps, kPacerStepSec);
+        const double before = covered;
+        covered += v;
+        if (!loop && start + covered >= total) {   // the finish: when it crossed the line
+            const double need = total - start - before;
+            out.append({ t - 1 + (v > 0 ? std::clamp(need / v, 0.0, 1.0) : 1.0), total - start });
+            break;
+        }
+        out.append({ double(t), covered });
+    }
+    return out;
+}
+
+void RlvSession::updateGhostContext()
+{
+    if (!m_ghost)
+        return;
+    RouteGhost::Context c;
+    c.profileId = active() || m_state == State::Finished ? m_rideProfile.id : m_profiles->profileId();
+    if (c.profileId < 0)
+        c.profileId = m_profiles->profileId();
+    c.routeKey = hasRoute() ? m_routeKey : QString();
+    c.routeName = m_route.name();
+    c.startM = m_startDistance;
+    c.loop = loopRide();
+    m_ghost->setContext(c);
+    emit ghostChanged();
+    // the pacer on the same route, from the same start (not while riding:
+    // simulated at the start)
+    if (m_pacer) {
+        const RoutePacer::Batch once(m_pacer);   // (route and refresh: simulated once)
+        m_pacer->setRoute(hasRoute(), loopRide());
+        m_pacer->refresh();
+    }
 }
 
 void RlvSession::setRoadSound(bool on)
@@ -945,6 +1075,10 @@ void RlvSession::clearRecording()
     m_powerSum = 0;
     m_maxWatts = 0;
     clearLaps();
+    if (m_ghost)
+        m_ghost->reset();   // (back at the start: the ghost and the pacer too)
+    if (m_pacer)
+        m_pacer->reset();
     emit tick();
 }
 
@@ -976,7 +1110,13 @@ bool RlvSession::start()
         m_distance = m_startDistance;
     m_rideProfile = m_profiles->current();
     m_loopRide = isGpx() && m_loop;   // (fixed for the ride)
+    const RoutePacer::Batch once(m_pacer);   // (reset, context and begin: simulated once)
     clearRecording();
+    if (m_ghost) {   // the ghost of this rider, start and loop; recording this ride
+        updateGhostContext();
+        m_ghost->begin();
+        m_pacer->begin();   // (simulated now: weight, difficulty, loop as they are)
+    }
     loadBests(m_rideProfile.id);
     resetSegments();
     m_completed = false;
@@ -1069,6 +1209,14 @@ qint64 RlvSession::finish(bool save)
     voidSegments();
     setState(State::Finished);
     const qint64 id = save ? saveRide() : -1;
+    if (m_ghost) {   // this ride's trace: a ghost for the next ride (with the ride only)
+        if (id >= 0)
+            m_ghost->saveRecording(id, m_completed);
+        else
+            m_ghost->discardRecording();
+        // (both free again together: one rival at a time holds after the ride too)
+        m_pacer->end();
+    }
     if (!save) {
         discardSegments();          // a discarded ride's sprint / KOM times go with it
         emit lastRideIdChanged();   // discarded: stays -1
@@ -1083,6 +1231,7 @@ void RlvSession::reset()
 {
     if (active())
         return;
+    const RoutePacer::Batch once(m_pacer);   // (reset and context: simulated once)
     clearRecording();
     m_speed = 0;
     m_completed = false;
@@ -1099,6 +1248,7 @@ void RlvSession::reset()
         emit modeChanged();   // workout ERG again (resistancePath)
     }
     setState(State::Idle);
+    updateGhostContext();   // (the current rider and loop setting again, no longer the finished ride's)
     emit positionChanged();
     updateInformation();
     requestSeek();
@@ -1112,12 +1262,14 @@ bool RlvSession::seekToDistance(double meters)
     const double total = totalDistanceM();
     meters = std::clamp(meters, 0.0, std::max(0.0, total - 1.0));
     m_startDistance = m_distance = meters;
+    const RoutePacer::Batch once(m_pacer);   // (reset and context: simulated once)
     if (m_state == State::Finished) {
         clearRecording();
         m_completed = false;
         setState(State::Idle);
     }
     resetSegments();
+    updateGhostContext();   // (the ghosts ridden from this start)
     emit positionChanged();
     updateInformation();
     requestSeek();
@@ -1221,6 +1373,10 @@ void RlvSession::process(int ms)
         m_activeMs += ms;
         const double total = totalDistanceM();
         advance(m_speed * dt, d0, t0);
+        if (m_ghost) {
+            m_ghost->advance(m_activeMs / 1000.0, m_ridden);
+            m_pacer->advance(m_activeMs / 1000.0, m_ridden);
+        }
         m_res.elapse(ms);
         recordUpTo(int(m_activeMs / 1000));
         advanceWorkout(ms);
@@ -1371,8 +1527,10 @@ void RlvSession::segmentsRouteChanged()
 {
     m_segments.clear();
     m_segmentKey.clear();
+    // the track's fingerprint: the ghost's route (and the sprints' / KOMs')
+    m_routeKey = isGpx() && hasRoute() ? sprint::routeKey(m_route) : QString();
     if (isGpx() && hasRoute() && !m_route.segments().isEmpty()) {
-        m_segmentKey = sprint::routeKey(m_route);
+        m_segmentKey = m_routeKey;
         int numbers[2] = { 0, 0 };
         for (const RouteSegment &r : m_route.segments()) {
             TimedSegment t;
@@ -1387,6 +1545,7 @@ void RlvSession::segmentsRouteChanged()
     }
     loadBests(m_profiles->profileId());
     resetSegments();
+    updateGhostContext();
 }
 
 void RlvSession::loadBest(TimedSegment &seg, qint64 profileId)
@@ -1822,6 +1981,36 @@ void RlvSession::setIntensityPercent(int percent)
         emit targetChanged();
         applyTarget(true);
     }
+}
+
+} // namespace watt
+
+namespace watt {
+
+void RlvSession::setLive(LiveRide *live)
+{
+    m_live = live;
+    if (!m_live)
+        return;
+    // what this station tells the others: its place on the route while riding
+    m_live->setSource([this] {
+        LiveRide::Me me;
+        me.route = isGpx() && hasRoute();
+        me.routeKey = m_routeKey;
+        me.riding = active();
+        me.distanceM = distanceMeters();
+        me.returning = returning();
+        me.speedKmh = running() ? speedKmh() : 0.0;
+        me.watts = running() ? watts() : 0;
+        if (m_profiles) {
+            me.userUuid = m_profiles->current().uuid;
+            me.name = m_profiles->current().name;
+        }
+        me.routeLength = hasRoute() ? m_route.totalDistance() : 0.0;
+        me.loop = loopRide();
+        return me;
+    });
+    connect(m_live, &LiveRide::changed, this, &RlvSession::liveChanged);
 }
 
 } // namespace watt

@@ -38,7 +38,23 @@ public:
     //      speed); run_workouts is copied over and dropped
     //   8  segment_records (GPX Ride sprint / KOM times per profile and route)
     //   9  development builds' sprint_records copied into segment_records
-    static constexpr int kSchemaVersion = 10;
+    //  10  ride_laps (lap times of looped GPX Rides)
+    //  11  route_traces (position over time of GPX Rides / Treadmill Runs: the ghost)
+    //  12  uuid on profiles, rides, workouts and route_traces (kUuidTables):
+    //      existing rows get one, new rows get one from a trigger (the inserts
+    //      never set it) - ids that do not collide when several stations sync
+    //      with a server
+    //  13  profiles.updated_ms / dirty / picture_hash and profile_tombstones:
+    //      profiles kept with a server (UserSync); the existing ones marked to send
+    //  14  server_media: the server's media library as last fetched (MediaSync)
+    //  15  rides.synced / station and ride_tombstones: rides kept with a server
+    //      (RideSync); the existing ones marked to send
+    static constexpr int kSchemaVersion = 15;
+    // The tables whose rows have a uuid (schema v12).
+    static const QStringList &uuidTables();
+    // SQL expression giving a random (version 4) UUID, lower case, e.g.
+    // "1b4e28ba-2fa1-41d2-883f-0016d3cca427".
+    static QString uuidSql();
 
     explicit Database(QObject *parent = nullptr);
     ~Database() override;
@@ -53,18 +69,72 @@ public:
     // Seeds built-in workouts and a default profile when the DB is empty, and
     // restores the built-in FTP test if it is missing.
     void seedDefaults();
+    // The starter profile a new station is seeded with (sent to no server).
+    static Profile starterProfile();
     bool hasBuiltInFtpTest() const;
 
     // Settings (key/value)
     QVariant setting(const QString &key, const QVariant &defaultValue = {}) const;
     void setSetting(const QString &key, const QVariant &value);
     void removeSetting(const QString &key);
+    // This station's own uuid: made once, kept in the settings ("station/id")
+    // with the machine it was made on ("station/machine") - a database copied
+    // to another machine gets a new one there. Tells the server which station
+    // sent what.
+    QString stationId();
+    // The uuid of a row of one of uuidTables() ("" when none).
+    QString uuidOf(const QString &table, qint64 id) const;
 
     // Profiles
     QVector<Profile> profiles() const;
     std::optional<Profile> profile(qint64 id) const;
-    qint64 saveProfile(const Profile &profile);    // insert when id < 0, returns id or -1
-    bool deleteProfile(qint64 id);
+    // Insert when id < 0, returns id or -1. changed: stamped now and marked to
+    // send to the server (UserSync) - false only for the seeded starter profile.
+    qint64 saveProfile(const Profile &profile, bool changed = true);
+    // tellServer: the server is told (a tombstone) - false when the server
+    // itself deleted it.
+    bool deleteProfile(qint64 id, bool tellServer = true);
+
+    // Profiles and the server (schema v13, UserSync):
+    QVector<Profile> profilesToSend() const;                       // changed here, not sent yet
+    QVector<QPair<QString, qint64>> profileTombstones() const;     // deleted here: uuid, when (ms)
+    int profilesWaiting() const;                                   // both of the above
+    // Sent: no longer to send - unless it changed again since (updatedMs is
+    // the version sent). pictureHash: its picture as the server has it now.
+    bool markProfileSent(const QString &uuid, qint64 updatedMs, const QString &pictureHash);
+    bool removeProfileTombstone(const QString &uuid);
+    qint64 profileIdForUuid(const QString &uuid) const;           // -1: none
+    // The server's version of a profile (p.uuid, p.updatedMs, p.pictureHash
+    // set): inserted or updated by its uuid, not marked to send. Its id or -1.
+    qint64 storeServerProfile(const Profile &p);
+    int profileRideCount(qint64 id) const;
+    void markAllProfilesToSend();   // (another server: all of them again)
+
+    // The server's media library as last fetched (schema v14, MediaSync).
+    QVector<ServerMedia> serverMedia() const;                      // by kind, name
+    bool storeServerMedia(const ServerMedia &m);                   // by uuid; keeps its localPath
+    bool removeServerMedia(const QString &uuid);
+    bool setServerMediaLocalPath(const QString &uuid, const QString &path);
+    void clearServerMedia();                                       // (another server)
+
+    // Rides and the server (schema v15, RideSync).
+    QVector<RideRecord> ridesToSend(int limit) const;              // recorded here, not sent, oldest first
+    int ridesWaiting() const;                                      // those and the deletions to send
+    bool markRideSent(const QString &uuid);
+    void markAllRidesToSend();                                     // (another server)
+    QVector<QPair<QString, qint64>> rideTombstones() const;        // deleted here: uuid, when (ms)
+    bool removeRideTombstone(const QString &uuid);
+    bool rideTombstoned(const QString &uuid) const;
+    qint64 rideIdForUuid(const QString &uuid) const;               // -1: none
+    std::optional<RouteTrace> routeTraceForRide(qint64 rideId) const;   // with its trace
+    // A ride from the server (r.uuid, r.profileId mapped here, r.station set):
+    // stored with its samples, laps and ghost trace, marked sent. Its id, or -1
+    // (already here / error).
+    qint64 storeServerRide(const RideRecord &r, const QVector<Sample> &samples, const QVector<RideLap> &laps,
+                           const std::optional<RouteTrace> &trace);
+    // The ghost traces of the other profiles on a route (riderName set), newest first.
+    QVector<RouteTrace> routeTracesOfOthers(qint64 profileId, const QString &sport, const QString &routeKey, double startM,
+                                            bool loop) const;
     // Free ride bike/gear setup of a profile (GearSetup JSON, schema v3).
     // Empty when none was stored yet.
     QString gearSetupJson(qint64 profileId) const;
@@ -83,7 +153,9 @@ public:
     QVector<RideRecord> rides(qint64 profileId, const QDateTime &from = {}, int limit = -1) const;
     std::optional<RideRecord> ride(qint64 id) const;
     QVector<Sample> rideSamples(qint64 rideId) const;
-    bool deleteRide(qint64 id);   // reopens plan entries completed by the ride
+    // Reopens plan entries completed by the ride. tellServer: the server is
+    // told (a tombstone) - false when the server itself deleted it.
+    bool deleteRide(qint64 id, bool tellServer = true);
     // A looped GPX Ride's lap times (deleted with the ride).
     bool saveRideLaps(qint64 rideId, const QVector<RideLap> &laps);
     QVector<RideLap> rideLaps(qint64 rideId) const;
@@ -127,6 +199,14 @@ public:
     bool setSegmentRideId(qint64 recordId, qint64 rideId);
     bool deleteSegmentRecord(qint64 recordId);
 
+    // Ghost traces of GPX Rides / Treadmill Runs (deleted with their ride).
+    qint64 saveRouteTrace(const RouteTrace &trace);
+    // A profile's traces of one sport on one route, ridden from the same start
+    // (within 5 m) in the same way (loop or not): newest first.
+    QVector<RouteTrace> routeTraces(qint64 profileId, const QString &sport, const QString &routeKey, double startM,
+                                    bool loop, bool withTrace = false) const;
+    std::optional<RouteTrace> routeTrace(qint64 id) const;   // with its trace
+
     // Running workouts are plain workouts of sport "running" (workouts()).
     // Current AnT speed of a profile: newest ant_tests entry, else the default.
     double currentAntKmh(qint64 profileId) const;
@@ -163,6 +243,11 @@ private:
     bool migrateToV8();
     bool migrateToV9();
     bool migrateToV10();
+    bool migrateToV11();
+    bool migrateToV12();
+    bool migrateToV13();
+    bool migrateToV14();
+    bool migrateToV15();
     bool columnNotNull(const QString &table, const QString &column) const;
     bool hasColumn(const QString &table, const QString &column) const;
     bool addColumnIfMissing(const QString &table, const QString &column, const QString &definition);

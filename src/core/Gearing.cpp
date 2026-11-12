@@ -688,14 +688,29 @@ TrainerModel trainerModelFor(const Model &road, double trainerMassKg)
     return t;
 }
 
+namespace {
+
+// The model's forces: rolling and gravity depend on the grade only (the trig
+// once per model), the air on v².
+struct Forces
+{
+    double rolling = 0, gravity = 0, air = 0;
+    explicit Forces(const Model &m)
+    {
+        const double theta = std::atan(m.gradePercent / 100.0);
+        const double weight = m.massKg * kGravity;
+        rolling = m.crr * weight * std::cos(theta);
+        gravity = weight * std::sin(theta);
+        air = 0.5 * m.airDensity * m.cda;
+    }
+    double at(double v) const { return (v > 0 ? rolling : 0.0) + gravity + air * v * v; }
+};
+
+} // namespace
+
 double resistance(const Model &m, double v)
 {
-    const double theta = std::atan(m.gradePercent / 100.0);
-    const double weight = m.massKg * kGravity;
-    const double rolling = v > 0 ? m.crr * weight * std::cos(theta) : 0.0;
-    const double gravity = weight * std::sin(theta);
-    const double aero = 0.5 * m.airDensity * m.cda * v * v;
-    return rolling + gravity + aero;
+    return Forces(m).at(v);
 }
 
 double powerForSpeed(const Model &m, double v)
@@ -757,9 +772,10 @@ double integrateSpeed(const Model &m, double v, double watts, double dt, double 
     const double p = std::max(0.0, watts) * (m.efficiency > 0 ? m.efficiency : 1.0);
     const int steps = std::max(1, int(std::ceil(dt / std::max(1e-3, stepSec) - 1e-9)));
     const double h = dt / steps;
+    const Forces f(m);   // (the grade is the same for the whole dt)
     for (int i = 0; i < steps; ++i) {
         const double drive = p / std::max(v, minDriveSpeedMps);
-        const double a = (drive - resistance(m, v)) / mass;
+        const double a = (drive - f.at(v)) / mass;
         v = std::clamp(v + a * h, 0.0, kMaxSpeedMps);
     }
     return v;

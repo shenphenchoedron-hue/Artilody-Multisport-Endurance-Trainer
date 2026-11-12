@@ -8,6 +8,10 @@
 #include "RlvRoute.h"
 #include "biome.h"
 #include "RouteProgress.h"
+#include "LiveRide.h"
+
+static_assert(watt::Route3DItem::kMaxLive == watt::Route3DScene::kMaxLive
+              && watt::Route3DItem::kMaxLive == watt::LiveRide::kMaxRiders, "the live riders: one count");
 #include "Sprint.h"
 
 #include <QOpenGLContext>
@@ -117,6 +121,14 @@ public:
         m_scene.setRunnerAvatar(view->frameRunnerAvatar());
         m_scene.setRunner(view->frameRunner());
         m_scene.setWalkRunKmh(view->frameWalkRunKmh());
+        const auto &g = view->frameRival(0);
+        m_scene.setGhost(g.shown, g.frame, g.speedKmh, g.phase);
+        const auto &p = view->frameRival(1);
+        m_scene.setPacer(p.shown, p.frame, p.speedKmh, p.phase);
+        for (int i = 0; i < Route3DItem::kMaxLive; ++i) {
+            const auto &l = view->frameRival(2 + i);
+            m_scene.setLive(i, l.shown, l.frame, l.speedKmh, l.phase);
+        }
         m_distance = view->frameDistance();
         m_speedKmh = view->frameSpeedKmh();
         m_crank = view->frameCrank();
@@ -151,6 +163,8 @@ Route3DItem::Route3DItem(QQuickItem *parent)
     setMirrorVertically(true);
     m_clock.start();
     m_sinceTick.start();
+    for (RivalFrame &r : m_rivalFrames)
+        r.sinceTick.start();
     m_frameClock.start();
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &Route3DItem::onFrame);
@@ -208,6 +222,14 @@ void Route3DItem::setSession(QObject *object)
             connect(s, SIGNAL(loopChanged()), this, SLOT(rebuildRoute()));
         if (s->metaObject()->indexOfSignal("lapChanged()") >= 0)
             connect(s, SIGNAL(lapChanged()), this, SLOT(onPosition()));
+        // the ghost / the pacer chosen / switched
+        if (s->metaObject()->indexOfSignal("ghostChanged()") >= 0)
+            connect(s, SIGNAL(ghostChanged()), this, SLOT(onPosition()));
+        if (s->metaObject()->indexOfSignal("pacerChanged()") >= 0)
+            connect(s, SIGNAL(pacerChanged()), this, SLOT(onPosition()));
+        // the other stations' riders moved (riding together)
+        if (s->metaObject()->indexOfSignal("liveChanged()") >= 0)
+            connect(s, SIGNAL(liveChanged()), this, SLOT(onPosition()));
     }
     emit sessionChanged();
     rebuildRoute();
@@ -699,12 +721,28 @@ void Route3DItem::onPosition()
         }
     }
     m_speedKmh = m_session ? m_session->speedKmh() : 0.0;
+    // the rivals: the ghost, the pacer (the other stations' riders below)
+    const bool live = m_session && m_route;
+    tickRival(m_rivalFrames[0], live && m_session->ghostVisible(), live ? m_session->ghostDistanceMeters() : 0.0,
+              live && m_session->ghostReturning(), live ? m_session->ghostSpeedKmh() : 0.0);
+    tickRival(m_rivalFrames[1], live && m_session->pacerVisible(), live ? m_session->pacerDistanceMeters() : 0.0,
+              live && m_session->pacerReturning(), live ? m_session->pacerSpeedKmh() : 0.0);
+    // the other stations' riders (riding together), nearest first
+    const LiveRide *others = live ? m_session->liveRiders() : nullptr;
+    for (int i = 0; i < kMaxLive; ++i) {
+        const bool shown = others && i < others->list().size();
+        const LiveRide::Rider r = shown ? others->list().at(i) : LiveRide::Rider();
+        tickRival(m_rivalFrames[size_t(2 + i)], shown, r.distanceM, r.returning, r.speedKmh);
+    }
     const bool running = m_session && m_session->running();
     if (m_baseDistance != old || running != m_running)
         m_sinceTick.restart();
     m_running = running;
-    if (!m_running)
+    if (!m_running) {
         m_frameDistance = m_baseDistance;
+        for (RivalFrame &r : m_rivalFrames)
+            r.frame = r.base;
+    }
     updateTimer();
     if (isVisible() && m_supported && m_route)   // (shown again: itemChange updates)
         update();
@@ -774,7 +812,55 @@ void Route3DItem::onFrame()
     } else {
         m_frameDistance = m_baseDistance;
     }
+    for (RivalFrame &r : m_rivalFrames)
+        frameRivalStep(r, dt);
     update();
+}
+
+// A tick: a rival's place (session metres -> drawn metres) and speed - the
+// ghost, the pacer or another station's rider.
+void Route3DItem::tickRival(RivalFrame &r, bool shown, double metres, bool returning, double speedKmh)
+{
+    const double base = shown ? mapDistance(m_built, metres, returning) : 0.0;
+    if (base != r.base || shown != r.shown)
+        r.sinceTick.restart();
+    if (shown && (!r.shown || std::abs(base - r.frame) > 25.0))
+        r.frame = base;   // (appears / jumps: no catching up)
+    r.shown = shown;
+    r.base = base;
+    r.speedKmh = shown ? speedKmh : 0.0;
+}
+
+// A frame: from its last tick on at its speed (a closed lap: the scene wraps);
+// a runner's legs follow the distance it moves, a cyclist's pedals turn at
+// rivalRpm() of its speed.
+void Route3DItem::frameRivalStep(RivalFrame &r, double dt)
+{
+    const double before = r.frame;
+    if (r.shown && m_running && m_route) {
+        const double gdt = std::min(r.sinceTick.elapsed() / 1000.0, kMaxExtrapolationSec);
+        const double ahead = r.base + r.speedKmh / 3.6 * gdt;
+        r.frame = m_route->closed ? ahead : std::min(m_route->finish(), ahead);
+    } else {
+        r.frame = r.base;
+    }
+    // (a jump / the seam: no leg movement)
+    double moved = r.frame - before;
+    if (m_route && m_route->closed && std::abs(moved) > m_route->length() / 2)
+        moved += moved > 0 ? -m_route->length() : m_route->length();
+    const bool moving = std::abs(moved) < 25.0 && moved > 0;
+    if (m_runner) {
+        if (moving) {   // a stride (two steps), longer the faster
+            const double cycle = std::clamp(0.9 + r.speedKmh / 3.6 * 0.42, 1.2, 3.0);
+            r.phase = std::fmod(r.phase + moved / cycle * 2 * M_PI, 2 * M_PI);
+        }
+        return;
+    }
+    const double rpm = moving ? rivalRpm(r.speedKmh / 3.6) : 0.0;
+    r.shownRpm += (rpm - r.shownRpm) * (1.0 - std::exp(-dt / kCadenceSmoothingSec));
+    if (rpm == 0 && r.shownRpm < 3)
+        r.shownRpm = 0;   // come to rest instead of creeping
+    r.phase = std::fmod(r.phase + r.shownRpm / 60.0 * 2 * M_PI * dt, 2 * M_PI);
 }
 
 void Route3DItem::updateTimer()

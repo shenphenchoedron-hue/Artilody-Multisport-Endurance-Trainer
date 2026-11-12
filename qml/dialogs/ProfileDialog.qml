@@ -395,6 +395,7 @@ AppDialog {
                         width: 116
                         anchors.verticalCenter: parent.verticalCenter
                         text: modelData.name
+                        textFormat: Text.PlainText   // (a name may come from the server)
                         color: Theme.text
                         font.pixelSize: 15
                     }
@@ -549,6 +550,7 @@ AppDialog {
                         x: 24
                         anchors.verticalCenter: parent.verticalCenter
                         text: modelData.name
+                        textFormat: Text.PlainText   // (a name may come from the server)
                         color: Theme.text
                         font.pixelSize: 14
                     }

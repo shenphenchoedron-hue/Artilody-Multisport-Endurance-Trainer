@@ -1,0 +1,16 @@
+# Backs the Artilody database up when the server starts and when it is shut
+# down properly (ExecStop runs before MariaDB stops: After=mariadb.service).
+[Unit]
+Description=Artilody server database backup at start-up and shut-down
+After=mariadb.service
+Requires=mariadb.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/artilody-backup start
+ExecStop=/usr/local/sbin/artilody-backup stop
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

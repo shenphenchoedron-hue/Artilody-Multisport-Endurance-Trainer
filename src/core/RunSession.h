@@ -3,7 +3,9 @@
 #include "Profile.h"
 #include "Ride.h"
 #include "RlvRoute.h"
+#include "RouteGhost.h"
 #include "RouteProgress.h"
+#include "LiveRide.h"
 #include "RunWorkout.h"
 
 #include <QDateTime>
@@ -26,6 +28,7 @@ namespace watt {
 
 class Database;
 class ProfileManager;
+
 class RunLibrary;
 class SensorHub;
 class TreadmillDevice;
@@ -132,6 +135,11 @@ class RunSession : public QObject, public RouteProgressSource
     Q_PROPERTY(qint64 lastRideId READ lastRideId NOTIFY resultChanged)
     Q_PROPERTY(QVariantMap antResult READ antResult NOTIFY antResultChanged)   // {} = none
 
+    // race an earlier run of yours on this route (RouteGhost, sport "run")
+    Q_PROPERTY(QObject *ghost READ ghostObject CONSTANT)
+    // riding together (with a server): the LiveRide or null (set at start-up)
+    Q_PROPERTY(QObject *live READ liveObject CONSTANT)
+
 public:
     enum class State { Ready, Running, Paused, Finished };
     static constexpr int kSeriesMaxPoints = 600;
@@ -233,6 +241,17 @@ public:
     QVariantMap antResult() const { return m_antResult; }
     const QVector<Sample> &samples() const { return m_samples; }
 
+    // the ghost: an earlier run on the same route (from its start, see RouteGhost)
+    RouteGhost *ghost() const { return m_ghost; }
+    QObject *ghostObject() const { return m_ghost; }
+    bool ghostVisible() const override { return hasRoute() && m_ghost->shown(); }
+    double ghostDistanceMeters() const override { return m_ghost->routePos().distance; }
+    double ghostSpeedKmh() const override { return running() ? m_ghost->speedKmh() : 0.0; }
+    // running together: the other stations' runners on this route
+    void setLive(LiveRide *live);   // (main.cpp, before QML)
+    const LiveRide *liveRiders() const override { return m_live; }
+    QObject *liveObject() const { return m_live; }
+
     Q_INVOKABLE bool useStandardRoute() { setGpxEnabled(false); return true; }
     // Loads a .gpx file (path or file URL) and turns GPX on.
     Q_INVOKABLE bool selectGpx(const QString &pathOrUrl);
@@ -271,6 +290,8 @@ signals:
     // The AnT test block is over: result = antResult (valid, speed, heartRate,
     // incline, previousSpeed, message, ...).
     void antTestCompleted(const QVariantMap &result);
+    void ghostChanged();   // the ghost was chosen / moved
+    void liveChanged();   // the other riders on the route moved (LiveRide)
 
 private:
     void setState(State s);
@@ -284,6 +305,7 @@ private:
     void evaluateAntTestBlock();
     void suggestToTreadmill();
     qint64 saveRun();
+    void updateGhostContext();   // route, profile -> the ghost's choices
     double workoutSecond() const { return m_activeMs / 1000.0; }
 
     Database *m_db;
@@ -338,6 +360,11 @@ private:
     double m_accSpeed = 0, m_accIncline = 0, m_accMs = 0;
     bool m_completed = false;
     qint64 m_lastRideId = -1;
+
+    // the ghost
+    RouteGhost *m_ghost = nullptr;
+    QString m_routeKey;   // sprint::routeKey() of route()
+    LiveRide *m_live = nullptr;
 };
 
 } // namespace watt

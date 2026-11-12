@@ -344,6 +344,28 @@ Item {
                     font.pixelSize: 17
                 }
 
+                // the ghost: you against an earlier run of yours
+                // (full screen: on the left under the numbers, clear of the
+                // Pause and Hide numbers buttons)
+                GhostBadge {
+                    objectName: "runGhostBadge"
+                    x: page.fullscreen ? 16 : (parent.width - width) / 2
+                    y: !page.fullscreen ? 16 : runHud.visible ? runHud.y + runHud.height + 12 : 64
+                    ghost: Running.ghost
+                    active: Running.active || page.st === "finished"
+                    visible: sceneCard.showScene && hasGhost && Running.ghost.shown
+                }
+                // running together: the other stations' runners on this route (with a server)
+                LiveRidersPanel {
+                    objectName: "runLiveRiders"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    y: 64
+                    live: Running.live
+                    showWatts: false
+                    visible: sceneCard.showScene && riders.length > 0
+                }
+
                 // status chip
                 Row {
                     visible: sceneCard.showScene
@@ -533,6 +555,7 @@ Item {
 
                 // full screen: the numbers on the left, the button, the bar
                 RideHud {
+                    id: runHud
                     visible: page.fullscreen && page.hudVisible && sceneCard.showScene
                     x: 16
                     y: 64
@@ -584,6 +607,7 @@ Item {
                     position: Running.distanceMeters
                     startDistance: 0
                     elevation: Running.elevationM
+                    ghostPosition: Running.ghost && Running.ghost.shown ? Running.ghost.routeDistanceM : -1
                     informations: []
                     currentInformation: -1
                 }
@@ -711,6 +735,15 @@ Item {
                         color: Theme.warningText
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
+                    }
+                    // race an earlier run on this route (the ghost)
+                    GhostPicker {
+                        width: parent.width
+                        visible: Running.hasRoute
+                        ghost: Running.ghost
+                        locked: Running.active
+                        rideWord: "run"
+                        namePrefix: "run"
                     }
                 }
             }

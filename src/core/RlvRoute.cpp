@@ -106,14 +106,15 @@ QString resolveFile(const QDir &dir, QString path)
     return local.isFile() ? local.absoluteFilePath() : QString();
 }
 
-const QStringList &videoSuffixes()
+} // namespace
+
+const QStringList &RlvRoute::videoSuffixes()
 {
+    // (the server's media library takes the same: MEDIA_VIDEO_EXTENSIONS in server/lib/media.php)
     static const QStringList s { QStringLiteral("mp4"), QStringLiteral("m4v"), QStringLiteral("mov"),
                                  QStringLiteral("mkv"), QStringLiteral("avi"), QStringLiteral("webm") };
     return s;
 }
-
-} // namespace
 
 // --- helpers --------------------------------------------------------------------
 

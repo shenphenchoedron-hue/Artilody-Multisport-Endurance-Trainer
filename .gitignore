@@ -28,6 +28,20 @@ CPackSourceConfig.cmake
 *.sqlite
 *.sqlite-journal
 
+# Diagnostic logs (rider name, weight, home paths, Bluetooth addresses)
+*.log
+
 # Real Life Video example routes (CC BY-NC-SA video/GPS data, never committed)
 FR_Le_petit_Menglonnais/
 *.mp4
+
+# Raw 3D source models (the processed ones live in assets/models)
+/rower/
+
+# Artilody server data (XAMPP copies keep them next to the code)
+server/config.php
+server/data/uploads/*
+!server/data/uploads/.keep
+server/public/blobs/*
+!server/public/blobs/.keep
+!server/public/blobs/.htaccess

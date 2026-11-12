@@ -1,0 +1,18 @@
+# Artilody server in a folder of a web server's site (XAMPP: htdocs/artilody).
+# (The Debian / Ubuntu / Raspberry Pi install - install.sh - does not use this
+# file: there public/ is the site itself.)
+#
+# The address http://<server>/artilody/ shows public/; the code (lib/), the
+# data (data/), the configuration and the scripts are never served.
+Options -Indexes
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(lib|data|tests|systemd|apache)(/|$) - [F,L]
+    RewriteRule ^(config\.php|schema\.sql|[^/]*\.sh|admin-password\.php)$ - [F,L]
+    RewriteCond %{REQUEST_URI} !/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+<IfModule !mod_rewrite.c>
+    # (without mod_rewrite: nothing outside public/ is served; use .../artilody/public/)
+    Require all denied
+</IfModule>

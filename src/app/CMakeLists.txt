@@ -56,6 +56,10 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/FreeRideChart.qml
     # real life video
     ${QML_ROOT}/components/RouteProfile.qml
+    ${QML_ROOT}/components/GhostPicker.qml
+    ${QML_ROOT}/components/GhostBadge.qml
+    ${QML_ROOT}/components/PacerPicker.qml
+    ${QML_ROOT}/components/LiveRidersPanel.qml
     ${QML_ROOT}/components/WorkoutStrip.qml
     ${QML_ROOT}/components/SessionBlockNotice.qml
     ${QML_ROOT}/components/TrainerStatusNotice.qml
@@ -88,6 +92,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/dialogs/GearSetupDialog.qml
     ${QML_ROOT}/dialogs/AntResultDialog.qml
     ${QML_ROOT}/dialogs/AntDialog.qml
+    ${QML_ROOT}/dialogs/MediaLibraryDialog.qml
 )
 
 # All QML files live flat in the module root inside the resource system so they
@@ -194,6 +199,16 @@ if(SAMPLE_MUSIC)
             COMMENT "Copying sample music"
             VERBATIM)
     endif()
+endif()
+
+# macOS: sign the built bundle ad hoc (as the release does after macdeployqt).
+# Unsigned, macOS cannot keep a privacy permission for it - Local Network is
+# then denied without asking, so Settings > Server cannot reach the server.
+if(APPLE)
+    add_custom_command(TARGET ArtilodyWattTrainer POST_BUILD
+        COMMAND codesign --force --deep --sign - $<TARGET_BUNDLE_DIR:ArtilodyWattTrainer>
+        COMMENT "Signing the app bundle (ad hoc)"
+        VERBATIM)
 endif()
 
 include(GNUInstallDirs)
