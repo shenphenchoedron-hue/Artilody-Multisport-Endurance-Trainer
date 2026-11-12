@@ -137,8 +137,11 @@ MediaSync::~MediaSync()
         m_hashCancel->store(true);
     if (m_hashThread)
         m_hashThread->wait(5000);
-    if (m_reply)
-        m_reply->abort();
+    if (m_reply) {   // (its finished() is ignored: this object is going)
+        QNetworkReply *r = m_reply;
+        m_reply = nullptr;
+        r->abort();
+    }
 }
 
 void MediaSync::setState(const QString &state, const QString &message)

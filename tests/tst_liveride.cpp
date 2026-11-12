@@ -171,7 +171,9 @@ private slots:
         b.me.distanceM = 0;
         b.ask(server);
         QCOMPARE(b.live.count(), 1);
-        QVERIFY(std::abs(b.live.list().first().distanceM - 520) < 2);
+        // (20 m for the 2 s, a little more for the real time between the two asks)
+        const double d = b.live.list().first().distanceM;
+        QVERIFY2(d >= 519 && d < 545, qPrintable(QString::number(d)));
         server.extraAgeMs = 0;
 
         // a loop: 9900 m behind on a 10 km lap is 100 m ahead the short way round

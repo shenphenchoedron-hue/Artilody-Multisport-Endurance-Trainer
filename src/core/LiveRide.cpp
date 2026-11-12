@@ -31,8 +31,11 @@ LiveRide::LiveRide(const QString &sport, const QString &stationId, ServerConnect
 
 LiveRide::~LiveRide()
 {
-    if (m_reply)
-        m_reply->abort();
+    if (m_reply) {   // (its finished() is ignored: this object is going)
+        QNetworkReply *r = m_reply;
+        m_reply = nullptr;
+        r->abort();
+    }
 }
 
 void LiveRide::setServer(const QString &baseUrl)

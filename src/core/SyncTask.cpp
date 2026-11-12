@@ -29,8 +29,11 @@ SyncTask::SyncTask(Database *db, const QString &what, const QString &settingsPre
 
 SyncTask::~SyncTask()
 {
-    if (m_reply)
-        m_reply->abort();
+    if (m_reply) {   // (its finished() is ignored: this object is going)
+        QNetworkReply *r = m_reply;
+        m_reply = nullptr;
+        r->abort();
+    }
 }
 
 void SyncTask::follow(ServerConnection *connection, RevOf revOf)
