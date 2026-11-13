@@ -46,7 +46,11 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.0.1
+## What's new in 2.0.2
+
+**Riding together: see each other before the start.** As soon as a station has the GPX Ride page (or Treadmill Run) open with a route, its rider is shown to the others on the same route – standing at its start, marked *ready* in the *Riding with* panel – instead of appearing only once it rides. So when you load a route that someone else already has open, they are there beside you from the first metre. A rider right beside you is no longer faded out: the others have their own lanes. Install over 2.0.1 on the stations – see the [2.0.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.0.2).
+
+## Also included from 2.0.1
 
 **Riding together, better.** Fixes from the first test with two stations on the same route:
 
@@ -444,7 +448,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.0.1](#whats-new-in-201)
+- [What's new in 2.0.2](#whats-new-in-202)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

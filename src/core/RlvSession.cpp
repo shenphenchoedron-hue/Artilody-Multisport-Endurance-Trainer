@@ -1992,12 +1992,13 @@ void RlvSession::setLive(LiveRide *live)
     m_live = live;
     if (!m_live)
         return;
-    // what this station tells the others: its place on the route while riding
+    // what this station tells the others: its place on the route (riding, or waiting on its page)
     m_live->setSource([this] {
         LiveRide::Me me;
         me.route = isGpx() && hasRoute();
         me.routeKey = m_routeKey;
-        me.riding = active();
+        // (on the route: riding, or its page open with this route - waiting at the start)
+        me.riding = active() || (m_live->present() && me.route);
         me.distanceM = distanceMeters();
         me.returning = returning();
         me.speedKmh = running() ? speedKmh() : 0.0;
@@ -2011,6 +2012,7 @@ void RlvSession::setLive(LiveRide *live)
         me.loop = loopRide();
         return me;
     });
+    connect(this, &RlvSession::routeChanged, m_live, &LiveRide::askNow);   // (another route: shown there at once)
     connect(m_live, &LiveRide::changed, this, &RlvSession::liveChanged);
 }
 

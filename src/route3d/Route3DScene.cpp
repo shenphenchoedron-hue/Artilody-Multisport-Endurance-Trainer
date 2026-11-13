@@ -939,8 +939,10 @@ float Route3DScene::rivalOpacity(const Rival &r, double distance) const
     const double sep = rivalAhead(r, distance);
     if (sep > 400.0)   // too far to see (and not worth building)
         return 0.f;
-    // just in front of the camera it would fill the picture: faded out
-    return r.opacity * float(std::clamp((sep - 1.5) / 2.5, 0.0, 1.0));
+    // just in front of the camera it would fill the picture: faded out (a
+    // live rider less: in its own lane it is seen beside you at the start)
+    const double from = r.tintWeight > 0.f ? 1.5 : 0.3, over = r.tintWeight > 0.f ? 2.5 : 1.2;
+    return r.opacity * float(std::clamp((sep - from) / over, 0.0, 1.0));
 }
 
 double Route3DScene::rivalAhead(const Rival &r, double distance) const

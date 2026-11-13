@@ -46,6 +46,14 @@ Item {
     property bool hudVisible: true
     onFullscreenChanged: ApplicationWindow.window.setImmersive(fullscreen)
     onVisibleChanged: if (!visible) fullscreen = false
+    // riding together: open with a GPX route, this rider is shown to the
+    // others at once (waiting at its start), not only once it rides
+    Binding {
+        target: page.gpx ? page.session.live : null
+        property: "present"
+        value: page.visible
+        when: page.gpx && !!page.session.live
+    }
     Connections {
         target: ApplicationWindow.window
         function onImmersiveChanged() { if (!ApplicationWindow.window.immersive) page.fullscreen = false }

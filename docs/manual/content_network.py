@@ -578,8 +578,9 @@ def build(s, env):
         "each other: each other rider appears in the 3D view in its own lane, in the figure and colours of its own "
         "profile, and the panel "
         "<b>Riding with</b> shows how far ahead (+) or behind (−) each one is, and their watts. Nothing needs to "
-        "be switched on – just choose the same route. Start whenever you like; everyone is shown where they "
-        "really are on the route.")
+        "be switched on – just choose the same route. A rider is shown as soon as their GPX Ride page is open with "
+        "the route, waiting at the start (\"ready\"), so you see each other before you set off. Start whenever you "
+        "like; everyone is shown where they really are on the route.")
     s.p("The ghost list (GPX Ride and Treadmill Run) also offers the other riders' earlier rides on the route, "
         "marked with their name.")
 

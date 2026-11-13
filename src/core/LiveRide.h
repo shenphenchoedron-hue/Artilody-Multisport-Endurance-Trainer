@@ -32,6 +32,9 @@ class LiveRide : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantList riders READ riders NOTIFY changed)
     Q_PROPERTY(int count READ count NOTIFY changed)
+    // the session's page is open (QML): this rider is shown to the others as
+    // soon as a route is chosen there - waiting at its start - not only riding
+    Q_PROPERTY(bool present READ present WRITE setPresent NOTIFY presentChanged)
 
 public:
     static constexpr int kMaxRiders = 6;          // drawn at most (the nearest)
@@ -44,7 +47,7 @@ public:
     {
         bool route = false;          // a route is chosen (else: nothing asked)
         QString routeKey;
-        bool riding = false;         // a ride runs / is paused: shown to the others
+        bool riding = false;         // on the route: a ride runs / is paused, or its page is open (shown to the others)
         double distanceM = 0;        // place on the route
         bool returning = false;
         double speedKmh = 0;
@@ -75,10 +78,13 @@ public:
     const QVector<Rider> &list() const { return m_riders; }   // nearest first, at most kMaxRiders
 
     void setServer(const QString &baseUrl);   // "" = none
+    bool present() const { return m_present; }
+    void setPresent(bool on);
     void askNow();                            // (the timer; tests)
 
 signals:
     void changed();
+    void presentChanged();
 
 private:
     void onReply(QNetworkReply *reply, const Me &me);
@@ -94,6 +100,7 @@ private:
     QVector<Rider> m_riders;
     QElapsedTimer m_sinceAnswer;
     bool m_wasRiding = false;
+    bool m_present = false;
 };
 
 } // namespace watt

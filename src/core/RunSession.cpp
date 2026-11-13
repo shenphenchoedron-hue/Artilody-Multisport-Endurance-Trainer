@@ -956,12 +956,13 @@ void RunSession::setLive(LiveRide *live)
     m_live = live;
     if (!m_live)
         return;
-    // what this station tells the others: its place on the route while running
+    // what this station tells the others: its place on the route (running, or waiting on its page)
     m_live->setSource([this] {
         LiveRide::Me me;
         me.route = hasRoute();
         me.routeKey = m_routeKey;
-        me.riding = active();
+        // (on the route: riding, or its page open with this route - waiting at the start)
+        me.riding = active() || (m_live->present() && me.route);
         me.distanceM = distanceMeters();
         me.speedKmh = running() ? speedKmh() : 0.0;
         if (m_profiles) {
@@ -973,6 +974,7 @@ void RunSession::setLive(LiveRide *live)
         me.loop = m_loop;   // (a lap: the gap the short way round, the others not stuck at the finish)
         return me;
     });
+    connect(this, &RunSession::routeChanged, m_live, &LiveRide::askNow);   // (another route: shown there at once)
     connect(m_live, &LiveRide::changed, this, &RunSession::liveChanged);
 }
 

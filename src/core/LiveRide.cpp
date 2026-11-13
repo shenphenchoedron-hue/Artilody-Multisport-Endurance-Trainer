@@ -48,7 +48,17 @@ void LiveRide::setServer(const QString &baseUrl)
         clear();
     } else if (!m_timer.isActive()) {
         m_timer.start();
+        askNow();   // (seen at once, not a second later)
     }
+}
+
+void LiveRide::setPresent(bool on)
+{
+    if (on == m_present)
+        return;
+    m_present = on;
+    emit presentChanged();
+    askNow();   // (shown to / hidden from the others at once)
 }
 
 void LiveRide::clear()
@@ -119,6 +129,10 @@ void LiveRide::askNow()
         if (!me.look.isEmpty())
             body.insert(QStringLiteral("look"), QJsonObject::fromVariantMap(me.look));
     }
+    if ((me.route && me.riding) != m_wasRiding)
+        DiagLog::write("LIVE", QStringLiteral("%1: %2 the others (route %3)")
+                                   .arg(m_sport, me.route && me.riding ? QStringLiteral("shown to") : QStringLiteral("hidden from"),
+                                        me.routeKey.left(12)));
     m_wasRiding = me.route && me.riding;
     QNetworkRequest req(QUrl(m_url + QStringLiteral("api/live.php")));
     req.setTransferTimeout(kTimeoutMs);

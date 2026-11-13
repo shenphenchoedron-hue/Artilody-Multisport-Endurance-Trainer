@@ -73,7 +73,9 @@ Rectangle {
                     id: stats
                     width: 60
                     horizontalAlignment: Text.AlignRight
-                    text: panel.showWatts && modelData.watts > 0 ? modelData.watts + " W" : modelData.speedKmh.toFixed(1) + " km/h"
+                    // (standing: waiting at the start, or paused)
+                    text: modelData.speedKmh < 0.5 && modelData.watts <= 0 ? "ready"
+                          : panel.showWatts && modelData.watts > 0 ? modelData.watts + " W" : modelData.speedKmh.toFixed(1) + " km/h"
                     color: Qt.rgba(1, 1, 1, 0.8)
                     font.pixelSize: 13
                     anchors.verticalCenter: parent.verticalCenter

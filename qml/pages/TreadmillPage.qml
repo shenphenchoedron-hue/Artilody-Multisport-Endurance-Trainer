@@ -13,6 +13,14 @@ import Artilody.Backend
 //   * AnT test: built-in workout, evaluated at the end of its test block.
 Item {
     id: page
+    // running together: open with a route, this runner is shown to the
+    // others at once (waiting at its start), not only once it runs
+    Binding {
+        target: Running.live
+        property: "present"
+        value: page.visible
+        when: !!Running.live
+    }
     signal openDevices()
     signal requestFinish()
     signal message(string text)
