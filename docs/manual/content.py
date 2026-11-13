@@ -2060,7 +2060,7 @@ def build(s, env):
         f"own lane, in that rider's own figure and colours, and the panel {UI('Riding with')} shows the gaps (and laps on "
         "a loop) and watts. Riders and runners mix: a runner on the treadmill and a cyclist on the same GPX file see "
         "each other – best on a short loop, where the cyclist laps the runner again and again. A triangle in each rider's "
-        "jersey colour shows them on the elevation profile; with two or more others, name signs float above their heads.",
+        "jersey colour shows them on the elevation profile; a name sign floats above each one's head.",
         "Without the server – switched off, or the server computer asleep – every station works on its own and "
         "catches up the next time the server is there. Nothing is fetched or sent during a ride.",
     ])

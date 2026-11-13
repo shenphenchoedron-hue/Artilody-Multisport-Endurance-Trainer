@@ -1,11 +1,15 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.1.2
+## What's new in 2.1.3
+
+**Name signs with two riders too.** The name sign over the other rider's head in 3D now shows whenever someone else is on the route – also when you are only two (before, it appeared only from three riders on). Only the app changes – install over 2.1.2 on the stations.
+
+## Also included from 2.1.2
 
 **Riding together: who is where.**
 
 - **On the elevation profile** each other rider is marked with a small triangle standing on its point, in the colour of their jersey – also in the full-screen HUD and on the Treadmill Run page.
-- **Name signs in 3D**: when two or more others are on the route, a small sign with each one's name floats just above their head (edged in their jersey colour, smaller further off). Signs of riders close together are stacked, never on top of each other. With only one other rider there is no sign – who is who is plain.
+- **Name signs in 3D**: a small sign with each one's name floats just above their head (edged in their jersey colour, smaller further off). Signs of riders close together are stacked, never on top of each other.
 
 Only the app changes – install over 2.1.1 on the stations.
 

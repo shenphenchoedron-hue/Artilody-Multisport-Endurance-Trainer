@@ -1,8 +1,7 @@
 import QtQuick
 
 // Riding together: a small name sign over each other station's rider in the
-// 3D view (Route3DView.liveLabels: only when two or more others are on the
-// route), with a stripe in the rider's jersey colour. Placed over the view
+// 3D view (Route3DView.liveLabels: whenever someone else is on the route), with a stripe in the rider's jersey colour. Placed over the view
 // (the same size and position).
 //
 //   LiveNameSigns { anchors.fill: sceneLoader; labels: sceneLoader.item ? sceneLoader.item.liveLabels : [] }

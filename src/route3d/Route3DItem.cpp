@@ -191,15 +191,15 @@ void Route3DItem::setLabelSpots(const std::array<LabelSpot, 6> &spots)
     }, Qt::QueuedConnection);
 }
 
-// The name signs: only when two or more others are on the route (alone with
-// one other, who is who is plain), each over its rider's head.
+// The name signs: whenever someone else is on the route (riding alone: none),
+// each over its rider's head.
 void Route3DItem::publishLabels()
 {
     QVariantList labels;
     int others = 0;
     for (int i = 0; i < kMaxLive; ++i)
         others += m_rivalFrames[size_t(2 + i)].shown ? 1 : 0;
-    if (others >= 2) {
+    if (others >= 1) {
         for (int i = 0; i < kMaxLive; ++i) {
             const RivalFrame &f = m_rivalFrames[size_t(2 + i)];
             const LabelSpot &sp = m_spots[size_t(i)];

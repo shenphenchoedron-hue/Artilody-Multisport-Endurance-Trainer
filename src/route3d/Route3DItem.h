@@ -43,8 +43,8 @@ class RouteProgressSource;
 class Route3DItem : public QQuickFramebufferObject
 {
     Q_OBJECT
-    // Riding together: a name sign over each other station's rider, when two or
-    // more others are on the route - [{ name, jersey, x, y, scale }] in item
+    // Riding together: a name sign over each other station's rider (whenever
+    // someone else is on the route) - [{ name, jersey, x, y, scale }] in item
     // pixels (above the head; updated each frame).
     Q_PROPERTY(QVariantList liveLabels READ liveLabels NOTIFY liveLabelsChanged)
     Q_PROPERTY(QObject *session READ session WRITE setSession NOTIFY sessionChanged)

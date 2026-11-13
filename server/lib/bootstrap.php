@@ -3,7 +3,7 @@
 // (docs/server-plan.md). Lives outside the web root (public/).
 declare(strict_types=1);
 
-const ARTILODY_SERVER_VERSION = '2.1.2';   // (with the app's release)
+const ARTILODY_SERVER_VERSION = '2.1.3';   // (with the app's release)
 // The API generation the stations speak; raised only when old stations can
 // no longer talk to this server.
 const ARTILODY_API = 1;
