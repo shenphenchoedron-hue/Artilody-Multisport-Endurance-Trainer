@@ -75,7 +75,13 @@ class RunSession : public QObject, public RouteProgressSource
     Q_PROPERTY(bool hasRoute READ hasRoute NOTIFY routeChanged)
     Q_PROPERTY(QString routeName READ routeName NOTIFY routeChanged)
     Q_PROPERTY(QString routePath READ routePath NOTIFY routeChanged)
-    Q_PROPERTY(bool routeIsLoop READ routeIsLoop NOTIFY routeChanged)
+    Q_PROPERTY(bool routeIsLoop READ routeIsLoop NOTIFY routeChanged)   // the track is closed (start = end)
+    // Loop route (as in GPX Ride; set before the start, kept in "run/loop"): a
+    // closed track round and round, any other out and back again - until
+    // Finish. Off: the run ends at the route's end. The standard route always loops.
+    Q_PROPERTY(bool loop READ loop WRITE setLoop NOTIFY routeChanged)
+    Q_PROPERTY(bool looping READ loopRide NOTIFY routeChanged)          // this run loops
+    Q_PROPERTY(bool returning READ returning NOTIFY positionChanged)    // on the way back (out and back)
     Q_PROPERTY(double routeLengthM READ routeLengthM NOTIFY routeChanged)
     Q_PROPERTY(double routeAscentM READ routeAscentM NOTIFY routeChanged)
     Q_PROPERTY(QVariantList profile READ profile NOTIFY routeChanged)   // [{d, ele}]
@@ -181,7 +187,12 @@ public:
     const RlvRoute &route() const override { return m_gpxEnabled && m_gpxRoute.isValid() ? m_gpxRoute : m_standard; }
     QString routeName() const;
     QString routePath() const override;
-    bool routeIsLoop() const { return m_loop; }
+    bool routeIsLoop() const { return m_roundTrip; }
+    bool loop() const { return m_loopSetting; }
+    void setLoop(bool on);
+    bool loopRide() const override { return hasRoute() && m_loop; }
+    bool returning() const override { return m_returning; }
+    int lapsDone() const override { return m_lap - 1; }
     double routeLengthM() const { return route().totalDistance(); }
     double routeAscentM() const { return route().ascent(); }
     QVariantList profile() const { return m_profile; }
@@ -246,6 +257,7 @@ public:
     QObject *ghostObject() const { return m_ghost; }
     bool ghostVisible() const override { return hasRoute() && m_ghost->shown(); }
     double ghostDistanceMeters() const override { return m_ghost->routePos().distance; }
+    bool ghostReturning() const override { return m_ghost->routePos().returning; }
     double ghostSpeedKmh() const override { return running() ? m_ghost->speedKmh() : 0.0; }
     // running together: the other stations' runners on this route
     void setLive(LiveRide *live);   // (main.cpp, before QML)
@@ -334,6 +346,9 @@ private:
     QVariantList m_profile;
     double m_position = 0;
     int m_lap = 1;
+    bool m_returning = false;      // out and back: on the way back
+    bool m_roundTrip = false;      // the track is closed
+    bool m_loopSetting = false;    // Loop route ("run/loop")
 
     // workout
     std::optional<RunWorkout> m_workout;

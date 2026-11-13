@@ -2001,6 +2001,7 @@ void RlvSession::setLive(LiveRide *live)
         me.riding = active() || (m_live->present() && me.route);
         me.distanceM = distanceMeters();
         me.lap = lap();
+        me.roundTrip = roundTrip();
         me.returning = returning();
         me.speedKmh = running() ? speedKmh() : 0.0;
         me.watts = running() ? watts() : 0;

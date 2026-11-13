@@ -1990,6 +1990,17 @@ def build(s, env):
         "minute. CSV export works as for rides.")
 
     # =====================================================================
+    
+    s.section("Loop route and the GPX library")
+    s.bullets([
+        f"{UI('Loop route')} (right-hand panel, before the start): a closed GPX track is run round and round, any "
+        "other track out and back again, until you press Finish – as in GPX Ride. The lap and \"the way back\" are "
+        "shown under the switch. Off, the run ends at the route's end. The standard route always loops.",
+        f"The folder button next to the route opens the GPX library menu, the same as in GPX Ride: "
+        f"{UI('Open GPX File…')}, {UI('Add Folder…')}, {UI('Choose GPX Folder…')}, {UI('Open GPX Folder')}, "
+        f"{UI('Rescan Library')} and, with a network server, {UI('Server Library…')} and {UI('Send to Server')}.",
+    ])
+
     s.chapter("Music player",
               "Play your own music while you ride – from the Watt Training page, without leaving the app.")
     s.section("The player card")

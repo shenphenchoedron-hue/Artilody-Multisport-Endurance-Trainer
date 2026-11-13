@@ -46,7 +46,16 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.1.0
+## What's new in 2.1.1
+
+**Treadmill Run, like GPX Ride.**
+
+- **Loop route on the treadmill.** A new *Loop route* switch on the Treadmill Run page (set before the start): a closed GPX track is run round and round, any other track out and back again – until you press Finish – exactly as in GPX Ride. The lap (and "the way back") is shown, the way back runs downhill where the way out climbed, and the 3D view draws the loop. So a runner and a cyclist on the same short loop really do meet again and again.
+- **The folder button opens the GPX library menu** (as in GPX Ride): Open GPX File…, Add Folder…, Choose GPX Folder…, Open GPX Folder, Rescan Library – and, with a server, Server Library… and Send to Server.
+
+Install over 2.1.0 – see the [2.1.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.1.1).
+
+## Also included from 2.1.0
 
 **Run with someone who rides.** Riding together now mixes the sports: a runner on the treadmill (Treadmill Run) and a cyclist on the trainer (GPX Ride) on the same GPX route see each other live – the cyclist appears on a bike in the runner's 3D view, the runner appears running in the cyclist's, each in the figure and colours of their own profile and in their own lane. Two runners on treadmills see each other too.
 
@@ -458,7 +467,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.1.0](#whats-new-in-210)
+- [What's new in 2.1.1](#whats-new-in-211)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

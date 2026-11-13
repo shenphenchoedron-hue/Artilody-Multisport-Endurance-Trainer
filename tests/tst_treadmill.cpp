@@ -641,6 +641,36 @@ private slots:
         QVERIFY(std::abs(f.run->distanceMeters() - f.run->routeLengthM()) < 1e-6);
     }
 
+    void loopRouteOutAndBack()
+    {
+        // Loop route on a point-to-point GPX (as GPX Ride): out, back, out ... until
+        // Finish - a lap each way, the way back counted down; set before the start only
+        Fixture f;
+        QVERIFY(f.init());
+        const QString path = f.dir.filePath(QStringLiteral("straight.gpx"));
+        QVERIFY(writeGpx(path, 500));
+        QVERIFY(f.run->selectGpx(path));
+        QVERIFY(!f.run->loop());
+        QVERIFY(!f.run->loopRide());
+        f.run->setLoop(true);
+        QVERIFY(f.run->loop() && f.run->loopRide());
+        RunSession again(&f.db, f.profiles.get(), f.hub.get(), f.lib.get());
+        QVERIFY(again.loop());   // (remembered)
+        QVERIFY(f.run->start());
+        f.run->setLoop(false);   // locked while running
+        QVERIFY(f.run->loop());
+        f.runFor(180, 12.0);     // 600 m: at the end, 100 m back
+        QCOMPARE(f.run->lap(), 2);
+        QVERIFY(f.run->returning());
+        QVERIFY(std::abs(f.run->distanceMeters() - 400.0) < 15.0);
+        QVERIFY(f.run->routeGradePercent() < 0);   // (the way back: downhill on a rising track)
+        f.runFor(150, 12.0);     // +500 m: back at the start, 100 m out again
+        QCOMPARE(f.run->lap(), 3);
+        QVERIFY(!f.run->returning());
+        QVERIFY(f.run->active());   // (not finished at the route's end)
+        QVERIFY(std::abs(f.run->distanceMeters() - 100.0) < 15.0);
+    }
+
     void workoutTargetsAndSuggestions()
     {
         Fixture f;

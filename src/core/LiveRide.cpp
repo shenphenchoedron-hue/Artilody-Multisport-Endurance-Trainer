@@ -76,17 +76,21 @@ void LiveRide::clear()
 void LiveRide::gap(const Me &me, double distance, bool returning, int lap, double *shortWay, int *laps)
 {
     const double L = me.routeLength;
-    const auto along = [&](double d, bool back) { return back && L > 0 ? 2 * L - d : d; };
-    double g = along(distance, returning) - along(me.distanceM, me.returning);
     *laps = 0;
-    if (me.loop && L > 0) {
-        const double cycle = (returning || me.returning) ? 2 * L : L;
-        const double total = g + double(lap - me.lap) * cycle;
-        g = std::remainder(total, cycle);
-        // whole laps done more (+) / fewer (-): 1.9 laps on is "+1 lap", 200 m behind on the road
-        *laps = int(std::trunc(total / cycle));
+    if (!me.loop || L <= 0) {
+        const auto along = [&](double d, bool back) { return back && L > 0 ? 2 * L - d : d; };
+        *shortWay = along(distance, returning) - along(me.distanceM, me.returning);
+        return;
     }
+    // how far each has come on the loop: round and round a lap is the track;
+    // out and back each way is a lap (GPX Ride / Treadmill Run count so)
+    const auto progress = [&](int lp, double d, bool back) { return double(std::max(1, lp) - 1) * L + (back ? L - d : d); };
+    const double total = progress(lap, distance, returning) - progress(me.lap, me.distanceM, me.returning);
+    const double cycle = me.roundTrip ? L : 2 * L;   // (the road repeats after this)
+    const double g = std::remainder(total, cycle);
     *shortWay = g;
+    // whole rounds done more (+) / fewer (-): 1.9 rounds on is "+1 lap", behind on the road
+    *laps = int(std::trunc(total / cycle));
 }
 
 QVariantList LiveRide::riders() const

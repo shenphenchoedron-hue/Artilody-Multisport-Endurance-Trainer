@@ -22,6 +22,7 @@ constexpr int kTickMs = 250;
 constexpr int kProfileSamples = 500;
 const QString kSettingGpx = QStringLiteral("run/gpxPath");
 const QString kSettingGpxOn = QStringLiteral("run/gpxEnabled");
+const QString kSettingLoop = QStringLiteral("run/loop");
 } // namespace
 
 RunSession::RunSession(Database *db, ProfileManager *profiles, SensorHub *hub, RunLibrary *library, QObject *parent)
@@ -66,10 +67,11 @@ RunSession::RunSession(Database *db, ProfileManager *profiles, SensorHub *hub, R
             m_gpxRoute = std::move(r);
     }
     m_gpxEnabled = m_gpxRoute.isValid() && m_db->setting(kSettingGpxOn, false).toBool();
+    m_loopSetting = m_db->setting(kSettingLoop, false).toBool();
     // the ghost: an earlier run on this route, at the same running time
     m_ghost = new RouteGhost(m_db, QStringLiteral("run"), this);
     m_ghost->setPositioner([this](double covered) {
-        return RouteRival::runPosition(covered, route().totalDistance(), m_loop);
+        return RouteRival::gpxPosition(covered, 0.0, route().totalDistance(), m_loop, m_roundTrip);
     });
     connect(m_ghost, &RouteGhost::ghostChanged, this, &RunSession::ghostChanged);
     if (m_profiles)
@@ -199,7 +201,11 @@ void RunSession::setState(State s)
 void RunSession::rebuildRouteData()
 {
     const RlvRoute &r = route();
-    m_loop = runroutes::isLoop(r);
+    m_roundTrip = runroutes::isLoop(r);
+    // (the standard route always loops; a GPX track when Loop route is on)
+    m_loop = m_gpxEnabled && m_gpxRoute.isValid() ? m_loopSetting : m_roundTrip;
+    if (!m_loop || m_roundTrip)
+        m_returning = false;
     m_profile.clear();
     for (const QPointF &p : r.profile(kProfileSamples))
         m_profile.append(QVariantMap { { QStringLiteral("d"), std::round(p.x() * 10.0) / 10.0 },
@@ -259,6 +265,7 @@ void RunSession::setGpxEnabled(bool on)
         reset();
     m_position = 0;
     m_lap = 1;
+    m_returning = false;
     setError(QString());
     rebuildRouteData();
 }
@@ -288,6 +295,7 @@ bool RunSession::selectGpx(const QString &pathOrUrl)
         reset();
     m_position = 0;
     m_lap = 1;
+    m_returning = false;
     setError(QString());
     rebuildRouteData();
     return true;
@@ -295,7 +303,23 @@ bool RunSession::selectGpx(const QString &pathOrUrl)
 
 double RunSession::routeGradePercent() const
 {
-    return hasRoute() ? route().gradeAheadAtDistance(m_position) : 0.0;
+    if (!hasRoute())
+        return 0.0;
+    return m_returning ? route().gradeBackAtDistance(m_position) : route().gradeAheadAtDistance(m_position);
+}
+
+void RunSession::setLoop(bool on)
+{
+    if (on == m_loopSetting || active())
+        return;
+    m_loopSetting = on;
+    m_db->setSetting(kSettingLoop, on);
+    if (m_state == State::Finished)
+        reset();
+    m_position = 0;
+    m_lap = 1;
+    m_returning = false;
+    rebuildRouteData();
 }
 
 // --- live values ------------------------------------------------------------------
@@ -578,6 +602,7 @@ void RunSession::clearRecording()
     m_targetSec = m_inRangeSec = 0;
     m_position = 0;
     m_lap = 1;
+    m_returning = false;
     m_lastStep = -2;
     m_antEvaluated = false;
     m_acceptedTestId = -1;
@@ -700,14 +725,32 @@ void RunSession::process(int ms)
     if (len > 0) {
         m_position += d;
         const bool workoutLive = m_workout && !workoutFinished();
-        while (m_position >= len) {
-            if (m_loop || workoutLive) {
-                m_position -= len;
-                ++m_lap;
-            } else {
-                m_position = len;
-                routeEnded = true;
-                break;
+        if (m_loop && !m_roundTrip) {
+            // out and back again (as GPX Ride): a lap at the end and one back at the start
+            m_position += m_returning ? -2 * d : 0.0;   // (moving back: the distance counts down)
+            for (int guard = 0; guard < 8; ++guard) {
+                if (!m_returning && m_position >= len) {
+                    m_position = std::max(0.0, 2 * len - m_position);
+                    m_returning = true;
+                    ++m_lap;
+                } else if (m_returning && m_position <= 0) {
+                    m_position = std::min(len, -m_position);
+                    m_returning = false;
+                    ++m_lap;
+                } else {
+                    break;
+                }
+            }
+        } else {
+            while (m_position >= len) {
+                if (m_loop || workoutLive) {
+                    m_position -= len;
+                    ++m_lap;
+                } else {
+                    m_position = len;
+                    routeEnded = true;
+                    break;
+                }
             }
         }
     }
@@ -965,6 +1008,8 @@ void RunSession::setLive(LiveRide *live)
         me.riding = active() || (m_live->present() && me.route);
         me.distanceM = distanceMeters();
         me.lap = m_lap;
+        me.returning = m_returning;
+        me.roundTrip = m_roundTrip;
         me.speedKmh = running() ? speedKmh() : 0.0;
         if (m_profiles) {
             me.userUuid = m_profiles->current().uuid;

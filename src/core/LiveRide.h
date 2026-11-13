@@ -57,7 +57,8 @@ public:
         double routeLength = 0;      // (the gap on a loop: the short way round)
         bool loop = false;
         QVariantMap look;            // the rider's 3D figure and colours (ProfileManager::avatar3d / runner3d)
-        int lap = 1;                 // the lap being ridden (a loop)
+        int lap = 1;                 // the lap being ridden (a loop; out and back: each way is a lap)
+        bool roundTrip = true;       // a loop: round and round (else out and back)
     };
     struct Rider
     {

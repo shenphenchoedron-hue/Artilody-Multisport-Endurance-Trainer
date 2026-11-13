@@ -24,6 +24,7 @@ Item {
     signal openDevices()
     signal requestFinish()
     signal message(string text)
+    signal openServerLibrary()   // (Main: the server's media library dialog, GPX routes)
 
     readonly property string st: Running.state
     readonly property bool locked: Running.active
@@ -82,6 +83,30 @@ Item {
             if (!Running.selectGpx(selectedFile))
                 page.toast(Running.lastError.length > 0 ? Running.lastError : "Could not load the route")
         }
+    }
+    // the GPX library (the same as GPX Ride's: GpxRoutes)
+    FolderDialog {
+        id: addFolderDialog
+        title: "Add a folder with GPX routes"
+        onAccepted: {
+            if (GpxRoutes.addFolder(selectedFolder))
+                page.toast("Looking for GPX routes in that folder …")
+            else
+                page.toast(GpxRoutes.lastError.length > 0 ? GpxRoutes.lastError : "Could not add the folder")
+        }
+    }
+    FolderDialog {
+        id: libraryFolderDialog
+        title: "Choose the GPX routes folder"
+        onAccepted: GpxRoutes.libraryFolder = selectedFolder
+    }
+    function openLibraryFolder() {
+        if (GpxRoutes.ensureLibraryFolder().length > 0)
+            Qt.openUrlExternally(GpxRoutes.libraryFolderUrl)
+    }
+    function rescanLibrary() {
+        GpxRoutes.rescan()
+        toast(GpxRoutes.scanning ? "Scanning the GPX library …" : GpxRoutes.count + " GPX routes")
     }
     AntDialog {
         id: antDialog
@@ -221,6 +246,7 @@ Item {
                                     width: parent.width
                                     text: (Running.routeLengthM / 1000).toFixed(1) + " km  ·  " + Math.round(Running.routeAscentM) + " m ↑  ·  "
                                           + (Running.routeIsLoop ? "loop" : "point to point")
+                                          + (Running.gpxEnabled && Running.loop ? "  ·  looped" : "")
                                           + (Running.gpxEnabled ? "" : "  ·  standard route")
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.small(13)
@@ -234,9 +260,65 @@ Item {
                         height: 58
                         iconName: "folder"
                         iconSize: 24
-                        tooltip: "Open a GPX file"
-                        enabled: !page.locked
-                        onClicked: gpxFileDialog.open()
+                        tooltip: "GPX library"
+                        onClicked: libraryMenu.open()
+
+                        // the same as GPX Ride's library menu
+                        AppMenu {
+                            id: libraryMenu
+                            y: parent.height + 4
+                            AppMenuItem {
+                                text: "Open GPX File…"
+                                iconName: "mapPin"
+                                enabled: !page.locked
+                                onTriggered: gpxFileDialog.open()
+                            }
+                            AppMenuItem {
+                                text: "Add Folder…"
+                                iconName: "plus"
+                                onTriggered: addFolderDialog.open()
+                            }
+                            AppMenuItem {
+                                text: "Choose GPX Folder…"
+                                iconName: "folder"
+                                onTriggered: libraryFolderDialog.open()
+                            }
+                            AppMenuItem {
+                                text: "Open GPX Folder"
+                                iconName: "export"
+                                onTriggered: page.openLibraryFolder()
+                            }
+                            AppMenuItem {
+                                text: GpxRoutes.scanning ? "Scanning…" : "Rescan Library"
+                                iconName: "refresh"
+                                enabled: !GpxRoutes.scanning
+                                onTriggered: page.rescanLibrary()
+                            }
+                            // the server's media library (Settings › Server on)
+                            AppMenuItem {
+                                visible: Server.active
+                                height: visible ? implicitHeight : 0
+                                text: "Server Library…"
+                                iconName: "download"
+                                onTriggered: page.openServerLibrary()
+                            }
+                            AppMenuItem {
+                                readonly property string routePath: Running.gpxEnabled ? Running.gpxPath : ""
+                                readonly property bool onServer: { MediaLibrary.items; return routePath.length > 0 && MediaLibrary.onServer(routePath) }
+                                visible: Server.active
+                                height: visible ? implicitHeight : 0
+                                text: onServer ? "On the Server" : "Send to Server"
+                                iconName: "export"
+                                enabled: MediaLibrary.serverThere && routePath.length > 0 && !onServer
+                                         && GpxRoutes.indexOfPath(routePath) >= 0
+                                onTriggered: {
+                                    if (MediaLibrary.upload(routePath, "gpx"))
+                                        page.toast("Sending " + Running.routeName + " to the server …")
+                                    else
+                                        page.toast(MediaLibrary.message)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -742,6 +824,45 @@ Item {
                         width: parent.width
                         text: page.startBlockedReason
                         color: Theme.warningText
+                        font.pixelSize: 14
+                        wrapMode: Text.WordWrap
+                    }
+                    // a GPX route: loop it until Finish (set before the start; as GPX Ride)
+                    Item {
+                        visible: Running.gpxEnabled && Running.hasRoute
+                        width: parent.width
+                        height: visible ? 34 : 0
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 8
+                            Icon { name: "refresh"; size: 18; color: Theme.textSecondary; anchors.verticalCenter: parent.verticalCenter }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Loop route"
+                                color: Theme.text
+                                font.pixelSize: 16
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        ToggleSwitch {
+                            objectName: "runLoopSwitch"
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            accessibleName: "Loop route"
+                            onColor: Theme.runningColor
+                            enabled: !Running.active
+                            checked: Running.loop
+                            onToggled: (on) => Running.loop = on
+                        }
+                    }
+                    Text {
+                        visible: Running.gpxEnabled && Running.hasRoute && (Running.loop || Running.active && Running.looping)
+                        width: parent.width
+                        text: Running.looping && Running.active
+                              ? "Lap " + Running.lap + (Running.returning ? " (the way back)" : "")
+                              : Running.routeIsLoop ? "Round and round until you press Finish."
+                              : "Out and back again until you press Finish."
+                        color: Theme.textSecondary
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                     }

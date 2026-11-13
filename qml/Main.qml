@@ -258,6 +258,7 @@ ApplicationWindow {
                     onOpenDevices: window.showPage("devices")
                     onRequestFinish: runFinishDialog.open()
                     onMessage: (text) => window.showToast(text)
+                    onOpenServerLibrary: mediaLibraryDialog.openFor("gpx")
                 }
                 RowingPage {
                     id: rowingPage

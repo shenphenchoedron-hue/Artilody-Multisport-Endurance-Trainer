@@ -1,6 +1,15 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.1.0
+## What's new in 2.1.1
+
+**Treadmill Run, like GPX Ride.**
+
+- **Loop route on the treadmill.** A new *Loop route* switch on the Treadmill Run page (set before the start): a closed GPX track is run round and round, any other track out and back again – until you press Finish – exactly as in GPX Ride. The lap (and "the way back") is shown, the way back runs downhill where the way out climbed, and the 3D view draws the loop. So a runner and a cyclist on the same short loop really do meet again and again.
+- **The folder button opens the GPX library menu** (as in GPX Ride): Open GPX File…, Add Folder…, Choose GPX Folder…, Open GPX Folder, Rescan Library – and, with a server, Server Library… and Send to Server.
+
+Only the app changes – install over 2.1.0 on the stations.
+
+## Also included from 2.1.0
 
 **Run with someone who rides.** Riding together now mixes the sports: a runner on the treadmill (Treadmill Run) and a cyclist on the trainer (GPX Ride) on the same GPX route see each other live – the cyclist appears on a bike in the runner's 3D view, the runner appears running in the cyclist's, each in the figure and colours of their own profile and in their own lane. Two runners on treadmills see each other too.
 
