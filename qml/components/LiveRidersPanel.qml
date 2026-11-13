@@ -1,8 +1,9 @@
 import QtQuick
 
-// Riding together (LiveRide): the other stations' riders on this route -
-// each with its jersey colour (as drawn in 3D), how far ahead (+) / behind
-// (−), speed and watts. Hidden when nobody else rides the route.
+// Riding together (LiveRide): the other stations' riders and runners on this
+// route - each with its jersey colour (as drawn in 3D), bike or running icon,
+// how far ahead (+) / behind (−) and, on a loop, whole laps, speed and watts.
+// Hidden when nobody else is on the route.
 //
 //   LiveRidersPanel { live: page.session.live; showWatts: true }
 Rectangle {
@@ -12,15 +13,18 @@ Rectangle {
     readonly property var riders: live ? live.riders : []
 
     visible: riders.length > 0
-    width: 250
+    width: 290
     height: col.implicitHeight + 16
     radius: 12
     color: Qt.rgba(0, 0, 0, 0.58)
 
-    function gapText(m) {
+    function gapText(m, laps) {
         const a = Math.abs(m)
         const v = a >= 1000 ? (a / 1000).toFixed(1) + " km" : Math.round(a) + " m"
-        return a < 5 ? "with you" : (m > 0 ? "+" : "−") + v
+        const near = a < 5 ? "with you" : (m > 0 ? "+" : "−") + v
+        // a loop: whole laps ahead / behind first ("+1 lap")
+        return laps === 0 || laps === undefined ? near
+             : (laps > 0 ? "+" : "−") + Math.abs(laps) + (Math.abs(laps) === 1 ? " lap" : " laps")
     }
 
     Column {
@@ -51,8 +55,15 @@ Rectangle {
                     border.width: 1
                     anchors.verticalCenter: parent.verticalCenter
                 }
+                Icon {
+                    // (rides or runs)
+                    name: modelData.runner ? "run" : "bike"
+                    size: 16
+                    color: Qt.rgba(1, 1, 1, 0.85)
+                    anchors.verticalCenter: parent.verticalCenter
+                }
                 Text {
-                    width: parent.width - 18 - gap.width - stats.width - 16
+                    width: parent.width - 18 - 24 - gap.width - stats.width - 24
                     text: modelData.name
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
@@ -62,20 +73,22 @@ Rectangle {
                 }
                 Text {
                     id: gap
-                    width: 70
+                    width: 74
                     horizontalAlignment: Text.AlignRight
-                    text: panel.gapText(modelData.gapM)
-                    color: modelData.gapM > 5 ? "#ff9b8a" : modelData.gapM < -5 ? "#8fe3a5" : "white"
+                    text: panel.gapText(modelData.gapM, modelData.lapsAhead)
+                    readonly property real ahead: modelData.lapsAhead !== 0 ? modelData.lapsAhead : modelData.gapM
+                    color: ahead > (modelData.lapsAhead !== 0 ? 0 : 5) ? "#ff9b8a" : ahead < (modelData.lapsAhead !== 0 ? 0 : -5) ? "#8fe3a5" : "white"
                     font.pixelSize: 15
                     font.weight: Font.DemiBold
                 }
                 Text {
                     id: stats
-                    width: 60
+                    width: 66
                     horizontalAlignment: Text.AlignRight
                     // (standing: waiting at the start, or paused)
                     text: modelData.speedKmh < 0.5 && modelData.watts <= 0 ? "ready"
-                          : panel.showWatts && modelData.watts > 0 ? modelData.watts + " W" : modelData.speedKmh.toFixed(1) + " km/h"
+                          : panel.showWatts && modelData.watts > 0 && !modelData.runner ? modelData.watts + " W"
+                          : modelData.speedKmh.toFixed(1) + " km/h"
                     color: Qt.rgba(1, 1, 1, 0.8)
                     font.pixelSize: 13
                     anchors.verticalCenter: parent.verticalCenter

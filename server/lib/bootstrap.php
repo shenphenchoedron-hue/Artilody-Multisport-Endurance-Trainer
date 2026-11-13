@@ -3,7 +3,7 @@
 // (docs/server-plan.md). Lives outside the web root (public/).
 declare(strict_types=1);
 
-const ARTILODY_SERVER_VERSION = '2.0.2';   // (with the app's release)
+const ARTILODY_SERVER_VERSION = '2.1.0';   // (with the app's release)
 // The API generation the stations speak; raised only when old stations can
 // no longer talk to this server.
 const ARTILODY_API = 1;
@@ -146,6 +146,29 @@ function require_station_header(): void
     $station = strtolower(request_header('X-Artilody-Station', 36));
     if (!is_uuid($station) && request_header('X-Artilody-Web', 8) !== '1') {
         json_out(['error' => 'the X-Artilody-Station header is needed'], 403);
+    }
+}
+
+// schema.sql applied (setup.php, the tests; install.sh uses the mariadb
+// client): statement by statement. "ALTER TABLE t ADD COLUMN IF NOT EXISTS c
+// ..." is MariaDB's - on MySQL the column is added when it is missing.
+function artilody_apply_schema(PDO $pdo, string $sql): void
+{
+    $sql = preg_replace('/^--.*$/m', '', str_replace("\r\n", "\n", $sql));
+    foreach (array_filter(array_map('trim', explode(";\n", $sql))) as $statement) {
+        try {
+            $pdo->exec($statement);
+        } catch (PDOException $e) {
+            if (!preg_match('/^ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)\s+(.*)$/is', $statement, $m)) {
+                throw $e;
+            }
+            $q = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()'
+                . ' AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+            $q->execute([$m[1], $m[2]]);
+            if ((int)$q->fetchColumn() === 0) {
+                $pdo->exec("ALTER TABLE `{$m[1]}` ADD COLUMN `{$m[2]}` {$m[3]}");
+            }
+        }
     }
 }
 

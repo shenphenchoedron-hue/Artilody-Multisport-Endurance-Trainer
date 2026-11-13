@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS meta (
     v TEXT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO meta (k, v) VALUES ('schema_version', '7');
-UPDATE meta SET v = '7' WHERE k = 'schema_version' AND CAST(v AS UNSIGNED) < 7;
+INSERT IGNORE INTO meta (k, v) VALUES ('schema_version', '8');
+UPDATE meta SET v = '8' WHERE k = 'schema_version' AND CAST(v AS UNSIGNED) < 8;
 -- This server's own id: a station that finds another id (a new / reinstalled
 -- server) sends all its profiles again.
 INSERT IGNORE INTO meta (k, v) VALUES ('server_id', UUID());
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS users (
     rower3d TEXT NOT NULL,          -- JSON: the rower
     picture_hash CHAR(40) NULL,     -- pictures.hash (sha1), NULL: none
     deleted TINYINT NOT NULL DEFAULT 0,
+    merged_into CHAR(36) NULL,      -- (a tombstone) joined into this user (the same rider made twice)
     updated_ms BIGINT NOT NULL,
     updated_by VARCHAR(100) NOT NULL DEFAULT '',   -- station name / 'web'
     rev BIGINT NOT NULL,
@@ -65,7 +66,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- (schema 7) a user merged into another (the same rider made on two
 -- stations): a tombstone that names the one kept - the stations move its
--- rides there and drop their copy
+-- rides there and drop their copy. (ADD COLUMN IF NOT EXISTS: MariaDB; on
+-- MySQL artilody_apply_schema() adds a missing column itself.)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS merged_into CHAR(36) NULL;
 
 -- Profile pictures, by their sha1 (the same picture is stored once).
@@ -164,9 +166,12 @@ CREATE TABLE IF NOT EXISTS live_riders (
     speed_kmh DOUBLE NOT NULL DEFAULT 0,
     watts INT NOT NULL DEFAULT 0,
     look TEXT NULL,                            -- JSON: the rider's 3D figure and colours (users.php avatar_clean)
+    lap INT NOT NULL DEFAULT 1,                -- the lap being ridden (a loop)
     updated_ms BIGINT NOT NULL,
     PRIMARY KEY (station_uuid, sport),
     KEY idx_live_route (sport, route_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- (schema 7) the riders' look
 ALTER TABLE live_riders ADD COLUMN IF NOT EXISTS look TEXT NULL;
+-- (schema 8) the lap; riders and runners on the same route see each other
+ALTER TABLE live_riders ADD COLUMN IF NOT EXISTS lap INT NOT NULL DEFAULT 1;

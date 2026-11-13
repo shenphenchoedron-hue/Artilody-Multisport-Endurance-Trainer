@@ -39,14 +39,24 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Treadmill Run** | Run on any FTMS treadmill through the same 3D world – GPX routes or the built-in *Artilody Lakeside 10K*. Running workouts in % of your **AnT** (anaerobic threshold) or km/h, a built-in 30-min AnT test with reminders, running zones. The treadmill is only read, never controlled. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
 | **History & export** | Distance, Effort Power / Intensity Ratio / Training Load, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
-| **Training together (new in 2.0)** | Optional server at home (XAMPP on Windows/Mac, or one script on Debian, Ubuntu, Raspberry Pi): shared riders, a media library for GPX routes and videos, every station's training in History and **analysed in the browser**, the ghost races other riders, and riders on the same GPX route **see each other live**. |
+| **Training together (new in 2.0)** | Optional server at home (XAMPP on Windows/Mac, or one script on Debian, Ubuntu, Raspberry Pi): shared riders, a media library for GPX routes and videos, every station's training in History and **analysed in the browser**, the ghost races other riders, and riders and runners on the same GPX route **see each other live** – run on the treadmill with someone who rides. |
 | **Ghost & pacer** | Race an earlier ride on the same GPX route (yours or another rider's), or a **pacer** at a fixed W/kg – adjustable during the ride. |
 | **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
 | **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
 
 ---
 
-## What's new in 2.0.2
+## What's new in 2.1.0
+
+**Run with someone who rides.** Riding together now mixes the sports: a runner on the treadmill (Treadmill Run) and a cyclist on the trainer (GPX Ride) on the same GPX route see each other live – the cyclist appears on a bike in the runner's 3D view, the runner appears running in the cyclist's, each in the figure and colours of their own profile and in their own lane. Two runners on treadmills see each other too.
+
+- **Best on a short loop** (start and finish at the same place, e.g. 1–2 km, *Loop route* on): the cyclist laps the runner again and again, and you meet many times.
+- **Laps in the *Riding with* panel**: on a loop each rider shows how far ahead (+) or behind (−) they are on the road and, once someone is a whole lap or more ahead, the laps ("+1 lap"). A bike or running icon shows who rides and who runs; runners show their speed, cyclists their watts.
+- The panel on the Treadmill Run page now sits under the route-grade badge.
+
+**Update:** install 2.1.0 on every station **and update the server** (it now lets riders and runners see each other): Raspberry Pi / Debian / Ubuntu – unzip the new artilody-server zip from the release, `cd artilody`, `sudo bash install.sh`; XAMPP – copy the new folder over the old one and click *Update the database* on `setup.php`. The server's setup now also works with MySQL, not only MariaDB.
+
+## Also included from 2.0.2
 
 **Riding together: see each other before the start.** As soon as a station has the GPX Ride page (or Treadmill Run) open with a route, its rider is shown to the others on the same route – standing at its start, marked *ready* in the *Riding with* panel – instead of appearing only once it rides. So when you load a route that someone else already has open, they are there beside you from the first metre. A rider right beside you is no longer faded out: the others have their own lanes. Install over 2.0.1 on the stations – see the [2.0.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.0.2).
 
@@ -448,7 +458,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.0.2](#whats-new-in-202)
+- [What's new in 2.1.0](#whats-new-in-210)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

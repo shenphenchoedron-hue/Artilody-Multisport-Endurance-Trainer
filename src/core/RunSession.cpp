@@ -964,6 +964,7 @@ void RunSession::setLive(LiveRide *live)
         // (on the route: riding, or its page open with this route - waiting at the start)
         me.riding = active() || (m_live->present() && me.route);
         me.distanceM = distanceMeters();
+        me.lap = m_lap;
         me.speedKmh = running() ? speedKmh() : 0.0;
         if (m_profiles) {
             me.userUuid = m_profiles->current().uuid;

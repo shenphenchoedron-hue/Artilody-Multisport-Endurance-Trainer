@@ -876,12 +876,14 @@ void Route3DScene::setRival(int i, bool shown, double drawnMetres, double speedK
 
 // The rivals (the ghost, the pacer, the other stations' riders) wear the
 // rider's figure and colours (copied when they change).
-void Route3DScene::setLiveLook(int i, const QVariantMap &look)
+void Route3DScene::setLiveLook(int i, const QVariantMap &look, bool runner)
 {
     Rival &r = m_rivals[size_t(2 + std::clamp(i, 0, kMaxLive - 1))];
-    if (look == r.look)
+    const int kind = runner ? 1 : 0;
+    if (look == r.look && kind == r.kind)
         return;
     r.look = look;
+    r.kind = kind;
     r.lookInterim = false;
     r.dirty = true;
 }
@@ -891,15 +893,19 @@ void Route3DScene::syncRival(Rival &r)
     if (!r.dirty)
         return;
     r.dirty = false;
-    if (!r.look.isEmpty()) {
-        // another station's rider: its own figure and colours (loaded in the
-        // background - the rider's figure meanwhile, looked for every frame)
-        const RiderAvatar a = RiderAvatar::fromVariant(r.look, m_runner ? RiderAvatar::Runner : RiderAvatar::Cyclist);
+    const bool runs = rivalRuns(r);
+    const bool ownKind = runs == m_runner;
+    r.hidden = false;
+    if (!r.look.isEmpty() || !ownKind) {
+        // another station's rider: its own figure and colours - a runner or a
+        // cyclist, whichever the own rider is (loaded in the background: the
+        // rider's figure meanwhile when of the same kind, else not drawn yet)
+        const RiderAvatar a = RiderAvatar::fromVariant(r.look, runs ? RiderAvatar::Runner : RiderAvatar::Cyclist);
         bool pending = false, walkPending = false;
         const auto figure = a.figureIfReady(&pending);
-        const auto walk = m_runner ? a.walkingFigureIfReady(&walkPending) : nullptr;
+        const auto walk = runs ? a.walkingFigureIfReady(&walkPending) : nullptr;
         if (!pending && !walkPending && figure) {
-            if (m_runner) {
+            if (runs) {
                 r.runner.setModel(figure);
                 r.runner.setColors(a.figureColors(*figure));
                 if (walk)
@@ -916,9 +922,16 @@ void Route3DScene::syncRival(Rival &r)
         }
         if (pending || walkPending) {
             r.dirty = true;   // (again next frame)
+            if (!ownKind) {
+                r.hidden = true;
+                return;
+            }
             if (r.lookInterim)
                 return;
             r.lookInterim = true;   // (the rider's figure until then, below)
+        } else if (!ownKind) {
+            r.hidden = true;   // (no figure of that kind at all)
+            return;
         }
     }
     r.rider.setFrameColor(m_ghost.frameColour());
@@ -934,7 +947,7 @@ void Route3DScene::syncRival(Rival &r)
 
 float Route3DScene::rivalOpacity(const Rival &r, double distance) const
 {
-    if (!r.shown || !m_route)
+    if (!r.shown || r.hidden || !m_route)
         return 0.f;
     const double sep = rivalAhead(r, distance);
     if (sep > 400.0)   // too far to see (and not worth building)
@@ -969,7 +982,7 @@ double Route3DScene::rivalAhead(const Rival &r, double distance) const
 // showing through), then the colour, blended.
 void Route3DScene::drawRival(Rival &r)
 {
-    const auto &index = m_runner ? r.runner.indices() : r.rider.indices();
+    const auto &index = rivalRuns(r) ? r.runner.indices() : r.rider.indices();
     if (r.body) {
         m_rivalVertices.clear();
         m_rivalVertices.reserve(r.body->size());
@@ -3152,12 +3165,13 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         const double rd = route.wrap(r.distance);
         const bool far = rivalAhead(r, distance) > kGhostFarM;
         const bool moved = std::abs(rd - r.builtDistance) > 1e-4 || std::abs(r.phase - r.builtPhase) > 1e-4;
-        const bool stale = !r.built || r.builtRunner != m_runner;
+        const bool runs = rivalRuns(r);
+        const bool stale = !r.built || r.builtRunner != runs;
         if (stale || (moved && (!far || ++r.farFrame % kGhostFarEvery == 0))) {
-            r.body = m_runner ? &r.runner.build(route, rd, r.speed, r.phase) : &r.rider.build(route, rd, r.speed, r.phase);
+            r.body = runs ? &r.runner.build(route, rd, r.speed, r.phase) : &r.rider.build(route, rd, r.speed, r.phase);
             r.builtDistance = rd;
             r.builtPhase = r.phase;
-            r.builtRunner = m_runner;
+            r.builtRunner = runs;
         }
         r.draw = true;
         auto pose = ghostPose(route, rd, r.speed, r.lane);
@@ -3171,7 +3185,7 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
             return float(route.at(along + QVector3D::dotProduct(q - c, fwd)).y) + .06f;
         };
         shadowDisc(ghostVertices, c + QVector3D(-m_sun.x(), 0, -m_sun.z()).normalized() * .12f, fwd,
-                   m_runner ? .30f : .34f, m_runner ? .45f : .85f, .34f * r.alpha / kGhostOpacity * .6f, roadHeight);
+                   runs ? .30f : .34f, runs ? .45f : .85f, .34f * r.alpha / kGhostOpacity * .6f, roadHeight);
     }
     const size_t ghostShadowCount = ghostVertices.size();
     glEnable(GL_BLEND);

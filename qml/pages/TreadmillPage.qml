@@ -363,12 +363,12 @@ Item {
                     active: Running.active || page.st === "finished"
                     visible: sceneCard.showScene && hasGhost && Running.ghost.shown
                 }
-                // running together: the other stations' runners on this route (with a server)
+                // running together: the other stations' runners and riders on this route (with a server)
                 LiveRidersPanel {
                     objectName: "runLiveRiders"
                     anchors.right: parent.right
                     anchors.rightMargin: 16
-                    y: 64
+                    y: routeGradeBadge.y + routeGradeBadge.height + 10   // (under the route grade)
                     live: Running.live
                     showWatts: false
                     visible: sceneCard.showScene && riders.length > 0
@@ -437,6 +437,7 @@ Item {
 
                 // route grade: what the incline would be outside
                 Rectangle {
+                    id: routeGradeBadge
                     visible: sceneCard.showScene
                     anchors.right: parent.right
                     anchors.rightMargin: 16

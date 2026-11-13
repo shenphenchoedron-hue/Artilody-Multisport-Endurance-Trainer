@@ -71,17 +71,22 @@ void LiveRide::clear()
 }
 
 // metres the other is ahead (+) or behind (-), along the way the rider goes
-// (a there-and-back loop: out then back; a closed loop: the short way round)
-double LiveRide::gap(const Me &me, double distance, bool returning)
+// (a there-and-back loop: out then back; a closed loop: the short way round,
+// and how many whole laps one has done more than the other)
+void LiveRide::gap(const Me &me, double distance, bool returning, int lap, double *shortWay, int *laps)
 {
     const double L = me.routeLength;
     const auto along = [&](double d, bool back) { return back && L > 0 ? 2 * L - d : d; };
     double g = along(distance, returning) - along(me.distanceM, me.returning);
+    *laps = 0;
     if (me.loop && L > 0) {
         const double cycle = (returning || me.returning) ? 2 * L : L;
-        g = std::remainder(g, cycle);
+        const double total = g + double(lap - me.lap) * cycle;
+        g = std::remainder(total, cycle);
+        // whole laps done more (+) / fewer (-): 1.9 laps on is "+1 lap", 200 m behind on the road
+        *laps = int(std::trunc(total / cycle));
     }
-    return g;
+    *shortWay = g;
 }
 
 QVariantList LiveRide::riders() const
@@ -96,6 +101,8 @@ QVariantList LiveRide::riders() const
             { QStringLiteral("speedKmh"), r.speedKmh },
             { QStringLiteral("watts"), r.watts },
             { QStringLiteral("gapM"), r.gapM },
+            { QStringLiteral("lapsAhead"), r.lapsAhead },
+            { QStringLiteral("runner"), r.runner },
             { QStringLiteral("jersey"), r.look.value(QStringLiteral("jersey")).toString() },
         });
     return out;
@@ -126,6 +133,7 @@ void LiveRide::askNow()
         body.insert(QStringLiteral("returning"), me.returning);
         body.insert(QStringLiteral("speedKmh"), std::round(me.speedKmh * 10) / 10);
         body.insert(QStringLiteral("watts"), me.watts);
+        body.insert(QStringLiteral("lap"), me.lap);
         if (!me.look.isEmpty())
             body.insert(QStringLiteral("look"), QJsonObject::fromVariantMap(me.look));
     }
@@ -169,13 +177,15 @@ void LiveRide::onReply(QNetworkReply *reply, const Me &me)
         r.speedKmh = std::clamp(o.value(QStringLiteral("speedKmh")).toDouble(), 0.0, 200.0);
         r.watts = o.value(QStringLiteral("watts")).toInt();
         r.look = o.value(QStringLiteral("look")).toObject().toVariantMap();
+        r.runner = o.value(QStringLiteral("sport")).toString() == QLatin1String("run");
+        const int lap = std::max(1, o.value(QStringLiteral("lap")).toInt(1));
         // where it is now: its report moved on by its speed for the report's age
         const double age = std::clamp(o.value(QStringLiteral("ageMs")).toDouble(), 0.0, double(kStaleMs)) / 1000.0;
         double d = o.value(QStringLiteral("distanceM")).toDouble() + (r.returning ? -1 : 1) * r.speedKmh / 3.6 * age;
         if (me.routeLength > 0)
             d = me.loop ? d : std::clamp(d, 0.0, me.routeLength);
         r.distanceM = d;
-        r.gapM = gap(me, r.distanceM, r.returning);
+        gap(me, r.distanceM, r.returning, lap, &r.gapM, &r.lapsAhead);
         riders.append(r);
     }
     std::sort(riders.begin(), riders.end(), [](const Rider &a, const Rider &b) { return std::abs(a.gapM) < std::abs(b.gapM); });

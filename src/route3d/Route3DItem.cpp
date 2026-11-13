@@ -127,7 +127,7 @@ public:
         m_scene.setPacer(p.shown, p.frame, p.speedKmh, p.phase);
         for (int i = 0; i < Route3DItem::kMaxLive; ++i) {
             const auto &l = view->frameRival(2 + i);
-            m_scene.setLiveLook(i, l.look);
+            m_scene.setLiveLook(i, l.look, l.kind == 1);
             m_scene.setLive(i, l.shown, l.frame, l.speedKmh, l.phase);
         }
         m_distance = view->frameDistance();
@@ -735,8 +735,10 @@ void Route3DItem::onPosition()
         const LiveRide::Rider r = shown ? others->list().at(i) : LiveRide::Rider();
         RivalFrame &f = m_rivalFrames[size_t(2 + i)];
         f.smooth = true;
-        if (shown)
+        if (shown) {
             f.look = r.look;
+            f.kind = r.runner ? 1 : 0;
+        }
         tickRival(f, shown, r.distanceM, r.returning, r.speedKmh);
     }
     const bool running = m_session && m_session->running();
@@ -872,7 +874,7 @@ void Route3DItem::frameRivalStep(RivalFrame &r, double dt)
     if (m_route && m_route->closed && std::abs(moved) > m_route->length() / 2)
         moved += moved > 0 ? -m_route->length() : m_route->length();
     const bool moving = std::abs(moved) < 25.0 && moved > 0;
-    if (m_runner) {
+    if (r.kind < 0 ? m_runner : r.kind == 1) {   // (a runner - also another station's beside a cyclist)
         if (moving) {   // a stride (two steps), longer the faster
             const double cycle = std::clamp(0.9 + r.speedKmh / 3.6 * 0.42, 1.2, 3.0);
             r.phase = std::fmod(r.phase + moved / cycle * 2 * M_PI, 2 * M_PI);

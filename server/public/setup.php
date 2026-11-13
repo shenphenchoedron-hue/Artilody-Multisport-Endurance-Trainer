@@ -78,10 +78,7 @@ if ($local && $done && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST[
     csrf_check();
     try {
         $pdo = artilody_db();
-        $schema = preg_replace('/^--.*$/m', '', (string)file_get_contents($root . '/schema.sql'));
-        foreach (array_filter(array_map('trim', explode(";\n", str_replace("\r\n", "\n", $schema)))) as $sql) {
-            $pdo->exec($sql);
-        }
+        artilody_apply_schema($pdo, (string)file_get_contents($root . '/schema.sql'));
         $updated = 'The database is up to date (server ' . ARTILODY_SERVER_VERSION . ').';
     } catch (Throwable $e) {
         $error = 'The update did not work: ' . $e->getMessage();
@@ -113,10 +110,7 @@ if ($local && !$done && $allOk && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST')
             }
             $pdo->exec('FLUSH PRIVILEGES');
             $pdo->exec('USE `artilody`');
-            $schema = preg_replace('/^--.*$/m', '', (string)file_get_contents($root . '/schema.sql'));
-            foreach (array_filter(array_map('trim', explode(";\n", str_replace("\r\n", "\n", $schema)))) as $sql) {
-                $pdo->exec($sql);
-            }
+            artilody_apply_schema($pdo, (string)file_get_contents($root . '/schema.sql'));
             $q = $pdo->prepare("INSERT INTO meta (k, v) VALUES ('admin_hash', ?) ON DUPLICATE KEY UPDATE v = VALUES(v)");
             $q->execute([password_hash($admin, PASSWORD_DEFAULT)]);
             $config = "<?php\n// Artilody server configuration - made by setup.php, not in git.\nreturn " . var_export([

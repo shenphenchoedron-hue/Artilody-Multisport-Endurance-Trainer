@@ -17,12 +17,8 @@ $root = new PDO('mysql:unix_socket=/run/mysqld/mysqld.sock;charset=utf8mb4', 'ro
 $root->exec('DROP DATABASE IF EXISTS artilody_test');
 $root->exec('CREATE DATABASE artilody_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 $root->exec('USE artilody_test');
-foreach (array_filter(array_map('trim', explode(";\n", preg_replace('/^--.*$/m', '', file_get_contents($dir . '/schema.sql'))))) as $sql) {
-    $root->exec($sql);
-}
-// (the schema applied twice: an update never fails)
-foreach (array_filter(array_map('trim', explode(";\n", preg_replace('/^--.*$/m', '', file_get_contents($dir . '/schema.sql'))))) as $sql) {
-    $root->exec($sql);
+foreach ([1, 2] as $_) {   // (twice: an update never fails)
+    artilody_apply_schema($root, file_get_contents($dir . '/schema.sql'));
 }
 
 $failures = 0;

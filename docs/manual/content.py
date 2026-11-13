@@ -2046,7 +2046,9 @@ def build(s, env):
         f"{UI('Training')} is sent after every ride; rides from other stations appear in History "
         "(<i>on &lt;station&gt;</i>), and the ghost can race them.",
         f"{UI('Riding together')}: everyone on the same GPX route sees the others in the 3D view, each in its "
-        f"own lane, in that rider's own figure and colours, and the panel {UI('Riding with')} shows the gaps and watts.",
+        f"own lane, in that rider's own figure and colours, and the panel {UI('Riding with')} shows the gaps (and laps on "
+        "a loop) and watts. Riders and runners mix: a runner on the treadmill and a cyclist on the same GPX file see "
+        "each other – best on a short loop, where the cyclist laps the runner again and again.",
         "Without the server – switched off, or the server computer asleep – every station works on its own and "
         "catches up the next time the server is there. Nothing is fetched or sent during a ride.",
     ])

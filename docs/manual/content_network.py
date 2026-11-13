@@ -574,13 +574,18 @@ def build(s, env):
            f"Server Library marks it, and {B('Download copy')} fetches the server's as \"name (server).gpx\".")
 
     s.section("Ride together")
-    s.p("When two or more stations ride the same GPX route (or treadmill route) while the server is on, they see "
+    s.p("When two or more stations are on the same GPX route while the server is on, they see "
         "each other: each other rider appears in the 3D view in its own lane, in the figure and colours of its own "
         "profile, and the panel "
         "<b>Riding with</b> shows how far ahead (+) or behind (−) each one is, and their watts. Nothing needs to "
         "be switched on – just choose the same route. A rider is shown as soon as their GPX Ride page is open with "
         "the route, waiting at the start (\"ready\"), so you see each other before you set off. Start whenever you "
         "like; everyone is shown where they really are on the route.")
+    s.p("Riders and runners mix: a runner on the treadmill (Treadmill Run) and a cyclist on the trainer "
+        "(GPX Ride) who choose the same GPX file see each other – the cyclist on a bike, the runner running. "
+        "Best on a short loop (start and finish at the same place, Loop route on): the cyclist laps the runner "
+        "again and again. On a loop the panel also shows whole laps ahead or behind (\"+1 lap\"), and a bike "
+        "or running icon by each name.")
     s.p("The ghost list (GPX Ride and Treadmill Run) also offers the other riders' earlier rides on the route, "
         "marked with their name.")
 

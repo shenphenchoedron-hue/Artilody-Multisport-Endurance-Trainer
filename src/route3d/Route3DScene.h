@@ -144,8 +144,9 @@ public:
     // Another station's rider (i < kMaxLive): the same, in its lane and colour.
     void setLive(int i, bool shown, double drawnMetres, double speedKmh, double phase) { setRival(2 + i, shown, drawnMetres, speedKmh, phase); }
     // Its figure and colours (the rider's avatar3d / runner3d map; empty: the
-    // own rider's figure).
-    void setLiveLook(int i, const QVariantMap &look);
+    // standard figure), and whether it runs (a treadmill) or rides - drawn so,
+    // whichever the own rider does.
+    void setLiveLook(int i, const QVariantMap &look, bool runner);
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -336,6 +337,8 @@ private:
         float opacity = kGhostOpacity;
         QVariantMap look;             // (a live rider) its own figure and colours; empty: the rider's
         bool lookInterim = false;     // its figure still loading: the rider's meanwhile
+        int kind = -1;                // (a live rider) 0 a cyclist, 1 a runner; -1: as the own rider
+        bool hidden = false;          // its figure (of the other kind) still loading: not drawn yet
         bool dirty = true;            // the rider's figure / colours changed: copied before drawing
         bool shown = false;
         double distance = 0, speed = 0, phase = 0;
@@ -359,6 +362,7 @@ private:
     void setRival(int i, bool shown, double drawnMetres, double speedKmh, double phase);
     void markRivalsDirty() { for (Rival &r : m_rivals) r.dirty = true; }
     void syncRival(Rival &r);
+    bool rivalRuns(const Rival &r) const { return r.kind < 0 ? m_runner : r.kind == 1; }
     double rivalAhead(const Rival &r, double distance) const;   // metres from the camera's figure to its figure
     // how strongly it shows (0 = not drawn) for the camera at distance
     float rivalOpacity(const Rival &r, double distance) const;

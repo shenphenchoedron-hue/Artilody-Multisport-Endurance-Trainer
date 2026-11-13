@@ -3,12 +3,13 @@
 // station on a GPX Ride / Treadmill Run route asks about once a second:
 //   POST /api/live.php {"station":"<uuid>","userUuid","name","sport":"gpx"|"run",
 //                       "routeKey","riding":true,"distanceM","returning","speedKmh","watts",
-//                       "look":{model, jersey, ...}}   (the rider's 3D figure: avatar3d / runner3d)
-//   -> {"riders":[{"station","userUuid","name","distanceM","returning","speedKmh","watts","look","ageMs"}, ...]}
+//                       "lap", "look":{model, jersey, ...}}   (the rider's 3D figure: avatar3d / runner3d)
+//   -> {"riders":[{"station","userUuid","name","sport","lap","distanceM","returning","speedKmh","watts","look","ageMs"}, ...]}
 // riding true: its place is kept (shown to the others); false (only looking,
 // or finished): its row for this sport is removed (a station's GPX Ride and
-// Treadmill Run are kept apart). The answer: the others on the same route
-// (sport and routeKey) seen in the last LIVE_SHOWN_MS.
+// Treadmill Run are kept apart). The answer has everyone on the same route
+// (route key) - riders and runners alike: each with its sport and lap - seen
+// in the last LIVE_SHOWN_MS.
 declare(strict_types=1);
 
 require __DIR__ . '/../../lib/bootstrap.php';
@@ -41,25 +42,27 @@ try {
         $user = strtolower((string)($in['userUuid'] ?? ''));
         // (the rider's own 3D figure and colours: the others draw it so)
         $look = is_array($in['look'] ?? null) ? json_encode(avatar_clean($in['look'])) : null;
-        $pdo->prepare('INSERT INTO live_riders (station_uuid, user_uuid, name, sport, route_key, distance_m, is_back, speed_kmh, watts, look, updated_ms)'
-            . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_uuid = VALUES(user_uuid), name = VALUES(name),'
+        $pdo->prepare('INSERT INTO live_riders (station_uuid, user_uuid, name, sport, route_key, distance_m, is_back, speed_kmh, watts, look, lap, updated_ms)'
+            . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_uuid = VALUES(user_uuid), name = VALUES(name),'
             . ' sport = VALUES(sport), route_key = VALUES(route_key), distance_m = VALUES(distance_m), is_back = VALUES(is_back),'
-            . ' speed_kmh = VALUES(speed_kmh), watts = VALUES(watts), look = VALUES(look), updated_ms = VALUES(updated_ms)')
+            . ' speed_kmh = VALUES(speed_kmh), watts = VALUES(watts), look = VALUES(look), lap = VALUES(lap), updated_ms = VALUES(updated_ms)')
             ->execute([$station, is_uuid($user) ? $user : '', mb_substr(trim((string)($in['name'] ?? '')), 0, 100), $sport, $route,
-                $num('distanceM', 1e7), empty($in['returning']) ? 0 : 1, $num('speedKmh', 200), (int)$num('watts', 5000), $look, $now]);
+                $num('distanceM', 1e7), empty($in['returning']) ? 0 : 1, $num('speedKmh', 200), (int)$num('watts', 5000), $look, max(1, (int)$num('lap', 100000)), $now]);
     } else {
         $pdo->prepare('DELETE FROM live_riders WHERE station_uuid = ? AND sport = ?')->execute([$station, $sport]);
     }
     if (random_int(0, 30) === 0) {
         $pdo->prepare('DELETE FROM live_riders WHERE updated_ms < ?')->execute([$now - LIVE_KEPT_MS]);
     }
-    $q = $pdo->prepare('SELECT station_uuid, user_uuid, name, distance_m, is_back, speed_kmh, watts, look, updated_ms FROM live_riders'
-        . ' WHERE sport = ? AND route_key = ? AND station_uuid <> ? AND updated_ms >= ? ORDER BY name');
-    $q->execute([$sport, $route, $station, $now - LIVE_SHOWN_MS]);
+    $q = $pdo->prepare('SELECT station_uuid, user_uuid, name, sport, distance_m, is_back, speed_kmh, watts, look, lap, updated_ms'
+        . ' FROM live_riders WHERE route_key = ? AND station_uuid <> ? AND updated_ms >= ? ORDER BY name');
+    $q->execute([$route, $station, $now - LIVE_SHOWN_MS]);
     $riders = array_map(fn($r) => [
         'station' => $r['station_uuid'],
         'userUuid' => $r['user_uuid'],
         'name' => $r['name'],
+        'sport' => $r['sport'],
+        'lap' => (int)$r['lap'],
         'distanceM' => round((float)$r['distance_m'], 1),
         'returning' => (bool)$r['is_back'],
         'speedKmh' => round((float)$r['speed_kmh'], 1),

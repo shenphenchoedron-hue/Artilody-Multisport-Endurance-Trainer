@@ -62,8 +62,8 @@ private:
         }
         QJsonArray riders;
         for (const QJsonObject &r : live) {
+            // (everyone on the route - riders and runners: api/live.php)
             if (r.value(QStringLiteral("station")).toString() == station
-                || r.value(QStringLiteral("sport")) != in.value(QStringLiteral("sport"))
                 || r.value(QStringLiteral("routeKey")) != in.value(QStringLiteral("routeKey")))
                 continue;
             QJsonObject o = r;
@@ -82,8 +82,8 @@ struct Station
 {
     LiveRide live;
     LiveRide::Me me;
-    explicit Station(const QString &station, const QString &name)
-        : live(QStringLiteral("gpx"), station, nullptr)
+    explicit Station(const QString &station, const QString &name, const QString &sport = QStringLiteral("gpx"))
+        : live(sport, station, nullptr)
     {
         me.route = true;
         me.routeKey = QStringLiteral("route-1");
@@ -159,6 +159,39 @@ private slots:
         // no server: nobody
         b.live.setServer(QString());
         QCOMPARE(b.live.count(), 0);
+    }
+
+    void runnerAndCyclistOnALoop()
+    {
+        // a runner (Treadmill Run) and a cyclist (GPX Ride) on the same 2 km loop:
+        // they see each other, each as what it is, with the laps between them
+        FakeServer server;
+        Station bike(QStringLiteral("a1111111-0000-4000-8000-000000000001"), QStringLiteral("Lone"));
+        Station run(QStringLiteral("b2222222-0000-4000-8000-000000000002"), QStringLiteral("Anne"), QStringLiteral("run"));
+        for (Station *s : { &bike, &run }) {
+            s->me.riding = true;
+            s->me.loop = true;
+            s->me.routeLength = 2000;
+        }
+        bike.me.distanceM = 300;
+        bike.me.lap = 3;   // (two laps on)
+        bike.me.speedKmh = 0;
+        run.me.distanceM = 500;
+        run.me.lap = 1;
+        run.me.speedKmh = 0;
+        bike.ask(server);
+        run.ask(server);
+        bike.ask(server);
+        QCOMPARE(run.live.count(), 1);
+        QCOMPARE(bike.live.count(), 1);
+        QVERIFY(!run.live.list().first().runner);   // (the cyclist: drawn on a bike)
+        QVERIFY(bike.live.list().first().runner);   // (the runner: drawn running)
+        // the cyclist 1.9 laps on: 200 m behind the runner on the road, one whole lap more
+        QCOMPARE(run.live.list().first().gapM, -200.0);
+        QCOMPARE(run.live.list().first().lapsAhead, 1);
+        QCOMPARE(bike.live.list().first().gapM, 200.0);
+        QCOMPARE(bike.live.list().first().lapsAhead, -1);
+        QCOMPARE(bike.live.riders().first().toMap().value(QStringLiteral("runner")).toBool(), true);
     }
 
     void movedOnByTheReportsAgeAndTheShortWayRound()

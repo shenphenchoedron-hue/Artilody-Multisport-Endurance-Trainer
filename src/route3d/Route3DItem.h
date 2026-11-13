@@ -135,6 +135,7 @@ public:
         // report (kLiveEaseSec) instead of stopping and jumping
         bool smooth = false;
         QVariantMap look;                           // (a live rider) its figure and colours
+        int kind = -1;                              // (a live rider) 0 rides, 1 runs; -1: as the own rider
     };
     const RivalFrame &frameRival(int i) const { return m_rivalFrames[size_t(i)]; }
     static constexpr int kMaxLive = 6;   // other stations' riders drawn (= Route3DScene::kMaxLive = LiveRide::kMaxRiders)
