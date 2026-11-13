@@ -35,6 +35,9 @@ Item {
     readonly property color gravelColor: "#c8a26a"
     property real ghostPosition: -1            // the ghost's place on the route (m); < 0 = none
     property real pacerPosition: -1            // the pacer's (orange) place on the route (m); < 0 = none
+    // riding together: the other stations' riders (LiveRide.riders: distanceM, jersey) -
+    // each a triangle on its point in its jersey colour
+    property var liveRiders: []
     property bool showKmLabels: true            // off: a mini profile without the km row (full-screen HUD)
     // the sprint / KOM whose pin the mouse is near (its name goes into the hover bubble), or null
     readonly property var hoverSegment: {
@@ -375,6 +378,34 @@ Item {
         color: Qt.rgba(1.0, 0.62, 0.25, 0.9)
         border.width: 2
         border.color: Qt.rgba(0.55, 0.30, 0.08, 0.9)
+    }
+
+    // the other stations' riders: a triangle standing on its point, in the rider's jersey colour
+    Repeater {
+        model: prof.hasData && prof.showPosition ? prof.liveRiders : []
+        delegate: Canvas {
+            required property var modelData
+            readonly property color fill: modelData.jersey ? modelData.jersey : "#9aa5c8"
+            width: 14
+            height: 12
+            x: prof.xOf(Math.max(0, Math.min(prof.total, modelData.distanceM))) - width / 2
+            y: prof.yOf(prof.eleAt(Math.max(0, Math.min(prof.total, modelData.distanceM)))) - height - 1
+            onFillChanged: requestPaint()
+            onPaint: {
+                const c = getContext("2d")
+                c.reset()
+                c.beginPath()
+                c.moveTo(1, 1)
+                c.lineTo(width - 1, 1)
+                c.lineTo(width / 2, height - 1)
+                c.closePath()
+                c.fillStyle = fill
+                c.fill()
+                c.lineWidth = 1.5
+                c.strokeStyle = Qt.rgba(1, 1, 1, 0.9)
+                c.stroke()
+            }
+        }
     }
 
     // the ghost (an earlier ride on this route): a pale dot; < 0 = none

@@ -585,7 +585,8 @@ def build(s, env):
         "(GPX Ride) who choose the same GPX file see each other – the cyclist on a bike, the runner running. "
         "Best on a short loop (start and finish at the same place, Loop route on): the cyclist laps the runner "
         "again and again. On a loop the panel also shows whole laps ahead or behind (\"+1 lap\"), and a bike "
-        "or running icon by each name.")
+        "or running icon by each name. A triangle in each rider's jersey colour marks where they are on the elevation "
+        "profile, and with two or more others on the route a small name sign floats above each one's head.")
     s.p("The ghost list (GPX Ride and Treadmill Run) also offers the other riders' earlier rides on the route, "
         "marked with their name.")
 

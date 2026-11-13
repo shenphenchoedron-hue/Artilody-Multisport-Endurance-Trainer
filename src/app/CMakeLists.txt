@@ -60,6 +60,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/components/GhostBadge.qml
     ${QML_ROOT}/components/PacerPicker.qml
     ${QML_ROOT}/components/LiveRidersPanel.qml
+    ${QML_ROOT}/components/LiveNameSigns.qml
     ${QML_ROOT}/components/WorkoutStrip.qml
     ${QML_ROOT}/components/SessionBlockNotice.qml
     ${QML_ROOT}/components/TrainerStatusNotice.qml

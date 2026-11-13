@@ -3155,6 +3155,9 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
     // show) and a faint shadow each. (A figure is posed on the CPU like the
     // rider's: built again only when it moved or its legs did, and far away
     // only every kGhostFarEvery-th frame.)
+    for (LabelSpot &spot : m_liveSpots)
+        spot.seen = false;
+    const QMatrix4x4 viewProj = projection * view;
     for (Rival &r : m_rivals) {
         syncRival(r);
         r.alpha = rivalOpacity(r, distance);
@@ -3175,6 +3178,22 @@ void Route3DScene::render(const QSize &pixelSize, double distance, double speedK
         }
         r.draw = true;
         auto pose = ghostPose(route, rd, r.speed, r.lane);
+        if (const int li = int(&r - m_rivals.data()) - 2; li >= 0 && li < kMaxLive) {
+            // its name sign: just above the head (a runner ~1.8 m tall, a cyclist bent over ~1.55 m)
+            const QVector3D head(float(pose.center.x), float(pose.center.y) + (rivalRuns(r) ? 1.78f : 1.5f), float(pose.center.z));
+            const QVector4D clip = viewProj * QVector4D(head, 1.f);
+            const double ahead = rivalAhead(r, distance);
+            if (clip.w() > .5f && ahead < 150.0) {
+                const float nx = clip.x() / clip.w(), ny = clip.y() / clip.w();
+                if (std::abs(nx) < 1.1f && std::abs(ny) < 1.1f) {
+                    LabelSpot &spot = m_liveSpots[size_t(li)];
+                    spot.seen = true;
+                    spot.x = (nx + 1.f) / 2.f;
+                    spot.y = (1.f - ny) / 2.f;
+                    spot.scale = float(std::clamp(14.0 / std::max(1.0, ahead), .55, 1.0));   // (smaller further off)
+                }
+            }
+        }
         QVector3D fwd(float(pose.fx), 0, float(pose.fz));
         if (fwd.lengthSquared() < 1e-4f)
             fwd = QVector3D(0, 0, -1);

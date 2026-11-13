@@ -147,6 +147,11 @@ public:
     // standard figure), and whether it runs (a treadmill) or rides - drawn so,
     // whichever the own rider does.
     void setLiveLook(int i, const QVariantMap &look, bool runner);
+    // Where each other station's rider's head was in the last frame: x, y in
+    // 0..1 of the picture (top left 0, 0) and whether it was seen (in front, in
+    // the picture, not too far) - for its name sign (Route3DItem::liveLabels).
+    struct LabelSpot { bool seen = false; float x = 0, y = 0, scale = 1; };
+    const std::array<LabelSpot, kMaxLive> &liveLabelSpots() const { return m_liveSpots; }
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -358,6 +363,7 @@ private:
         float alpha = 0;
     };
     std::array<Rival, 2 + kMaxLive> m_rivals;
+    std::array<LabelSpot, kMaxLive> m_liveSpots;
     std::vector<Vertex> m_rivalVertices;
     void setRival(int i, bool shown, double drawnMetres, double speedKmh, double phase);
     void markRivalsDirty() { for (Rival &r : m_rivals) r.dirty = true; }

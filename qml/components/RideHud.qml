@@ -18,6 +18,7 @@ Rectangle {
     property real elevation: 0
     property var segments: []
     property var gravel: []
+    property var liveRiders: []   // (riding together: triangles on the profile)
 
     width: 236
     height: col.implicitHeight + 24
@@ -107,6 +108,7 @@ Rectangle {
             position: hud.position
             startDistance: 0
             elevation: hud.elevation
+            liveRiders: hud.liveRiders
             informations: []
             currentInformation: -1
             interactive: false

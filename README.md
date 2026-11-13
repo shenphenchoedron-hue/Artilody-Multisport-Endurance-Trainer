@@ -46,7 +46,16 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.1.1
+## What's new in 2.1.2
+
+**Riding together: who is where.**
+
+- **On the elevation profile** each other rider is marked with a small triangle standing on its point, in the colour of their jersey – also in the full-screen HUD and on the Treadmill Run page.
+- **Name signs in 3D**: when two or more others are on the route, a small sign with each one's name floats just above their head (edged in their jersey colour, smaller further off). Signs of riders close together are stacked, never on top of each other. With only one other rider there is no sign – who is who is plain.
+
+Install over 2.1.1 – see the [2.1.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.1.2).
+
+## Also included from 2.1.1
 
 **Treadmill Run, like GPX Ride.**
 
@@ -467,7 +476,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.1.1](#whats-new-in-211)
+- [What's new in 2.1.2](#whats-new-in-212)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

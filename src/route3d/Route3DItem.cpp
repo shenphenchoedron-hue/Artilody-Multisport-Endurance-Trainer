@@ -130,6 +130,14 @@ public:
             m_scene.setLiveLook(i, l.look, l.kind == 1);
             m_scene.setLive(i, l.shown, l.frame, l.speedKmh, l.phase);
         }
+        {
+            std::array<Route3DItem::LabelSpot, 6> spots {};
+            for (int i = 0; i < Route3DItem::kMaxLive; ++i) {
+                const auto &sp = m_scene.liveLabelSpots()[size_t(i)];
+                spots[size_t(i)] = { sp.seen, sp.x, sp.y, sp.scale };
+            }
+            view->setLabelSpots(spots);
+        }
         m_distance = view->frameDistance();
         m_speedKmh = view->frameSpeedKmh();
         m_crank = view->frameCrank();
@@ -173,6 +181,65 @@ Route3DItem::Route3DItem(QQuickItem *parent)
 }
 
 Route3DItem::~Route3DItem() = default;
+
+void Route3DItem::setLabelSpots(const std::array<LabelSpot, 6> &spots)
+{
+    // (the render thread: handed to the GUI thread)
+    QMetaObject::invokeMethod(this, [this, spots] {
+        m_spots = spots;
+        publishLabels();
+    }, Qt::QueuedConnection);
+}
+
+// The name signs: only when two or more others are on the route (alone with
+// one other, who is who is plain), each over its rider's head.
+void Route3DItem::publishLabels()
+{
+    QVariantList labels;
+    int others = 0;
+    for (int i = 0; i < kMaxLive; ++i)
+        others += m_rivalFrames[size_t(2 + i)].shown ? 1 : 0;
+    if (others >= 2) {
+        for (int i = 0; i < kMaxLive; ++i) {
+            const RivalFrame &f = m_rivalFrames[size_t(2 + i)];
+            const LabelSpot &sp = m_spots[size_t(i)];
+            if (!f.shown || !sp.seen || f.name.isEmpty())
+                continue;
+            labels.append(QVariantMap { { QStringLiteral("name"), f.name }, { QStringLiteral("jersey"), f.jersey },
+                                        { QStringLiteral("x"), double(sp.x) * width() },
+                                        { QStringLiteral("y"), double(sp.y) * height() },
+                                        { QStringLiteral("scale"), double(sp.scale) } });
+        }
+    }
+    // two riders close together: their signs stacked (the nearer - larger - one
+    // lowest, on its rider; the other lifted above it), never on top of each other
+    std::sort(labels.begin(), labels.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value(QStringLiteral("scale")).toDouble() > b.toMap().value(QStringLiteral("scale")).toDouble();
+    });
+    QVector<QRectF> placed;
+    for (QVariant &v : labels) {
+        QVariantMap m = v.toMap();
+        const double sc = m.value(QStringLiteral("scale")).toDouble();
+        const double w = m.value(QStringLiteral("name")).toString().size() * 9.5 * sc + 22, h = 24 * sc + 6;
+        QRectF r(m.value(QStringLiteral("x")).toDouble() - w / 2, m.value(QStringLiteral("y")).toDouble() - h, w, h);
+        for (bool moved = true; moved;) {
+            moved = false;
+            for (const QRectF &o : std::as_const(placed)) {
+                if (r.intersects(o)) {
+                    r.moveBottom(o.top() - 2);
+                    moved = true;
+                }
+            }
+        }
+        placed.append(r);
+        m.insert(QStringLiteral("y"), r.bottom());
+        v = m;
+    }
+    if (labels != m_liveLabels) {
+        m_liveLabels = labels;
+        emit liveLabelsChanged();
+    }
+}
 
 QQuickFramebufferObject::Renderer *Route3DItem::createRenderer() const
 {
@@ -738,6 +805,8 @@ void Route3DItem::onPosition()
         if (shown) {
             f.look = r.look;
             f.kind = r.runner ? 1 : 0;
+            f.name = r.name;
+            f.jersey = r.look.value(QStringLiteral("jersey")).toString();
         }
         tickRival(f, shown, r.distanceM, r.returning, r.speedKmh);
     }

@@ -419,6 +419,12 @@ Item {
                     anchors.margins: 1
                     sourceComponent: Route3DView { session: Running; runnerAvatar: Profiles.runner3d }
                 }
+                // running together: the others' names over their heads (two or more others)
+                LiveNameSigns {
+                    anchors.fill: sceneLoader
+                    visible: sceneCard.showScene
+                    labels: sceneLoader.item ? sceneLoader.item.liveLabels : []
+                }
                 FullscreenTapLayer {
                     enabled: sceneCard.showScene
                     onToggle: page.fullscreen = !page.fullscreen
@@ -667,6 +673,7 @@ Item {
                     maxEle: Running.maxElevationM
                     position: Running.distanceMeters
                     elevation: Running.elevationM
+                    liveRiders: Running.live ? Running.live.riders : []
                 }
                 FullscreenControls {
                     visible: sceneCard.showScene
@@ -699,6 +706,7 @@ Item {
                     startDistance: 0
                     elevation: Running.elevationM
                     ghostPosition: Running.ghost && Running.ghost.shown ? Running.ghost.routeDistanceM : -1
+                    liveRiders: Running.live ? Running.live.riders : []
                     informations: []
                     currentInformation: -1
                 }

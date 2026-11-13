@@ -1110,6 +1110,12 @@ Item {
                         avatar: Profiles.avatar3d   // (the profile's rider: figure and colours)
                     }
                 }
+                // riding together: the others' names over their heads (two or more others)
+                LiveNameSigns {
+                    anchors.fill: sceneLoader
+                    visible: videoCard.showScene
+                    labels: sceneLoader.item ? sceneLoader.item.liveLabels : []
+                }
                 FullscreenTapLayer {
                     enabled: videoCard.showOverlay
                     onToggle: page.fullscreen = !page.fullscreen
@@ -1767,6 +1773,7 @@ Item {
                     elevation: page.session.elevationM
                     segments: page.gpx ? page.session.segmentMarkers : []
                     gravel: page.gpx ? page.session.gravelMarkers : []
+                    liveRiders: page.gpx && page.session.live ? page.session.live.riders : []
                 }
                 FullscreenControls {
                     visible: videoCard.showOverlay
@@ -2188,6 +2195,7 @@ Item {
                                        ? page.session.pacer.routeDistanceM : -1
                         ghostPosition: page.gpx && page.session.ghost && page.session.ghost.shown
                                        ? page.session.ghost.routeDistanceM : -1
+                        liveRiders: page.gpx && page.session.live ? page.session.live.riders : []
                         onStartChosen: (meters) => page.session.seekToDistance(meters)
                     }
                     Text {

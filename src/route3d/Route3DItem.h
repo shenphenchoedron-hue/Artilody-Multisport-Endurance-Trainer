@@ -43,6 +43,10 @@ class RouteProgressSource;
 class Route3DItem : public QQuickFramebufferObject
 {
     Q_OBJECT
+    // Riding together: a name sign over each other station's rider, when two or
+    // more others are on the route - [{ name, jersey, x, y, scale }] in item
+    // pixels (above the head; updated each frame).
+    Q_PROPERTY(QVariantList liveLabels READ liveLabels NOTIFY liveLabelsChanged)
     Q_PROPERTY(QObject *session READ session WRITE setSession NOTIFY sessionChanged)
     // a route is loaded and drawable (the 3D road could be built from it)
     Q_PROPERTY(bool hasScene READ hasScene NOTIFY sceneChanged)
@@ -136,7 +140,14 @@ public:
         bool smooth = false;
         QVariantMap look;                           // (a live rider) its figure and colours
         int kind = -1;                              // (a live rider) 0 rides, 1 runs; -1: as the own rider
+        QString name;                               // (a live rider) its name (the sign)
+        QString jersey;
     };
+    QVariantList liveLabels() const { return m_liveLabels; }
+    // (render thread, synchronize(): the GUI thread is blocked) the signs' spots
+    // of the last frame: seen, x, y (0..1 of the picture), scale
+    struct LabelSpot { bool seen = false; float x = 0, y = 0, scale = 1; };
+    void setLabelSpots(const std::array<LabelSpot, 6> &spots);
     const RivalFrame &frameRival(int i) const { return m_rivalFrames[size_t(i)]; }
     static constexpr int kMaxLive = 6;   // other stations' riders drawn (= Route3DScene::kMaxLive = LiveRide::kMaxRiders)
     void setRendererError(const QString &error);
@@ -173,6 +184,7 @@ signals:
     void errorChanged();
     void avatarChanged();
     void runnerAvatarChanged();
+    void liveLabelsChanged();
 
 protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
@@ -182,6 +194,9 @@ private slots:
     void onPosition();
 
 private:
+    void publishLabels();
+    std::array<LabelSpot, 6> m_spots {};
+    QVariantList m_liveLabels;
     void onFrame();
     void updateTimer();
     void checkSupported();

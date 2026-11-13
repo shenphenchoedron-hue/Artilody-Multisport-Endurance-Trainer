@@ -1,13 +1,13 @@
 ; Inno Setup script for Artilody Multisport Endurance Trainer (Windows x64).
 ;
 ; Built in CI (.github/workflows/release.yml):
-;   iscc /DAppVersion=2.1.1 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
+;   iscc /DAppVersion=2.1.2 /DSourceDir=<staging dir> /DOutputDir=<dist dir> packaging\windows\installer.iss
 ;
 ; SourceDir must contain the windeployqt'ed application:
 ;   "Artilody Multisport Endurance Trainer.exe", Qt DLLs, plugins, qml\, music\ ...
 
 #ifndef AppVersion
-  #define AppVersion "2.1.1"
+  #define AppVersion "2.1.2"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\windows\Artilody Multisport Endurance Trainer"
