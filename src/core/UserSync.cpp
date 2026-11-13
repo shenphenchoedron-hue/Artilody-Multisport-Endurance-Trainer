@@ -194,6 +194,10 @@ void UserSync::sendProfiles()
                         DiagLog::write("SYNC", QStringLiteral("profiles: %1 refused: %2")
                                                    .arg(r.value(QStringLiteral("uuid")).toString(),
                                                         r.value(QStringLiteral("error")).toString()));
+                    if (r.contains(QStringLiteral("mergedInto")))   // (joined to the server's rider of that name)
+                        m_profilesTouched |= applyUser(QJsonObject { { QStringLiteral("uuid"), r.value(QStringLiteral("uuid")) },
+                                                                     { QStringLiteral("deleted"), true },
+                                                                     { QStringLiteral("mergedInto"), r.value(QStringLiteral("mergedInto")) } });
                     if (!r.value(QStringLiteral("taken")).toBool() && r.contains(QStringLiteral("user")))
                         m_profilesTouched |= applyUser(r.value(QStringLiteral("user")).toObject());
                 }
@@ -245,6 +249,27 @@ bool UserSync::applyUser(const QJsonObject &u)
         return false;
     const qint64 id = m_db->profileIdForUuid(uuid);
     const std::optional<Profile> local = id >= 0 ? m_db->profile(id) : std::nullopt;
+
+    // the same rider made on two stations: the server keeps one - this
+    // station's copy becomes that one (its rides go with it)
+    const QString into = u.value(QStringLiteral("mergedInto")).toString().toLower();
+    if (u.value(QStringLiteral("deleted")).toBool() && !QUuid(into).isNull() && into != uuid) {
+        if (!local)
+            return false;
+        const qint64 keep = m_db->profileIdForUuid(into);
+        if (keep >= 0) {
+            m_db->mergeProfile(id, keep);   // (its rides, records ... to the one here; the copy goes)
+            for (const QString &kind : ProfileManager::avatarKinds())
+                m_db->removeSetting(ProfileManager::avatarSettingKey(kind, id));
+            if (m_db->setting(QStringLiteral("currentProfile")).toLongLong() == id)
+                m_db->setSetting(QStringLiteral("currentProfile"), keep);
+        } else {
+            m_db->setProfileUuid(id, into);   // (the server's version follows: storeServerProfile by uuid)
+        }
+        DiagLog::write("SYNC", QStringLiteral("profiles: %1 is the same rider as on the server - joined").arg(local->name));
+        return true;
+    }
+
     if (local && local->dirty)
         return false;   // (changed here again: it is sent next, the newest wins there)
 

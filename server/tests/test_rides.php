@@ -93,6 +93,17 @@ $r = rides_push($pdo, ['rides' => [['uuid' => 'a0000000-0000-4000-8000-000000000
 check(($r['results'][0]['deleted'] ?? false) === true, 'deleted before it arrived: not taken');
 check(count(rides_of_user($pdo, $user)) === 1, 'deleted ones are not listed');
 
+// a user joined into another: its rides follow (a new rev each)
+$keep = 'f51db3d3-7c56-4aec-bc8d-720622dcdd2a';
+$r9 = ['uuid' => 'a0000000-0000-4000-8000-0000000000b9', 'deleted' => false] + $ride;
+unset($r9['trace']);
+rides_push($pdo, ['rides' => [$r9]]);
+$rev = rides_rev($pdo);
+$pdo->beginTransaction();
+user_merge($pdo, $user, $keep, 'Lone', 'test');
+$pdo->commit();
+check(ride_get($pdo, $r9['uuid'])['userUuid'] === $keep && ride_get($pdo, $r9['uuid'])['rev'] > $rev, 'rides follow a joined user');
+
 $root->exec('DROP DATABASE artilody_test');
 unlink($conf);
 echo $failures === 0 ? "OK: $checks checks\n" : "$failures of $checks checks FAILED\n";

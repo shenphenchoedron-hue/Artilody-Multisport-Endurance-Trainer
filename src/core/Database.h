@@ -108,6 +108,11 @@ public:
     // set): inserted or updated by its uuid, not marked to send. Its id or -1.
     qint64 storeServerProfile(const Profile &p);
     int profileRideCount(qint64 id) const;
+    // The same rider twice (joined on the server): everything of `from` -
+    // rides, records, plans, traces, AnT tests - moves to `into`, and `from`
+    // is deleted (the server is not told). False on an error.
+    bool mergeProfile(qint64 from, qint64 into);
+    bool setProfileUuid(qint64 id, const QString &uuid);
     void markAllProfilesToSend();   // (another server: all of them again)
 
     // The server's media library as last fetched (schema v14, MediaSync).

@@ -629,10 +629,11 @@ bool Route3DScene::initialize(QOpenGLContext *context)
         r.built = false;
         r.bufferBytes = 0;
         // the ghost: pale blue, inside the rider; the pacer: pale orange, across
-        // the centre line; the other stations' riders: each its lane and colour
+        // the centre line; the other stations' riders: each its lane, untinted
         r.lane = i == 0 ? kGhostLaneM : i == 1 ? kPacerLaneM : kLiveLanesM[size_t(i - 2)];
-        r.tint = i == 0 ? QVector3D(.80f, .88f, 1.f) : i == 1 ? QVector3D(1.f, .62f, .25f) : liveTint(i - 2);
+        r.tint = i == 0 ? QVector3D(.80f, .88f, 1.f) : i == 1 ? QVector3D(1.f, .62f, .25f) : QVector3D();
         r.opacity = i < 2 ? kGhostOpacity : kLiveOpacity;
+        r.tintWeight = i < 2 ? .4f : 0.f;   // (a live rider: its own colours)
         r.rider.setLateral(r.lane);
         r.runner.setLateral(r.lane);
     }
@@ -864,14 +865,6 @@ void Route3DScene::setRunnerFigure(std::shared_ptr<const route3d::GlbModel> figu
     markRivalsDirty();
 }
 
-QVector3D Route3DScene::liveTint(int i)
-{
-    // red, green, yellow, purple, cyan, pink (the QML list shows the same: LiveRidersPanel)
-    static const QVector3D tints[kMaxLive] = { { .95f, .30f, .30f }, { .30f, .85f, .40f }, { .98f, .85f, .25f },
-                                               { .70f, .40f, .95f }, { .25f, .85f, .95f }, { .98f, .45f, .75f } };
-    return tints[std::clamp(i, 0, kMaxLive - 1)];
-}
-
 void Route3DScene::setRival(int i, bool shown, double drawnMetres, double speedKmh, double phase)
 {
     Rival &r = m_rivals[size_t(i)];
@@ -883,11 +876,51 @@ void Route3DScene::setRival(int i, bool shown, double drawnMetres, double speedK
 
 // The rivals (the ghost, the pacer, the other stations' riders) wear the
 // rider's figure and colours (copied when they change).
+void Route3DScene::setLiveLook(int i, const QVariantMap &look)
+{
+    Rival &r = m_rivals[size_t(2 + std::clamp(i, 0, kMaxLive - 1))];
+    if (look == r.look)
+        return;
+    r.look = look;
+    r.lookInterim = false;
+    r.dirty = true;
+}
+
 void Route3DScene::syncRival(Rival &r)
 {
     if (!r.dirty)
         return;
     r.dirty = false;
+    if (!r.look.isEmpty()) {
+        // another station's rider: its own figure and colours (loaded in the
+        // background - the rider's figure meanwhile, looked for every frame)
+        const RiderAvatar a = RiderAvatar::fromVariant(r.look, m_runner ? RiderAvatar::Runner : RiderAvatar::Cyclist);
+        bool pending = false, walkPending = false;
+        const auto figure = a.figureIfReady(&pending);
+        const auto walk = m_runner ? a.walkingFigureIfReady(&walkPending) : nullptr;
+        if (!pending && !walkPending && figure) {
+            if (m_runner) {
+                r.runner.setModel(figure);
+                r.runner.setColors(a.figureColors(*figure));
+                if (walk)
+                    r.runner.setWalkModel(walk);
+            } else {
+                r.rider.setFrameColor(a.bikeColor);
+                r.rider.setRiderModel(figure);
+                r.rider.setRiderColors(a.figureColors(*figure));
+            }
+            r.lookInterim = false;
+            r.indexSource = nullptr;
+            r.built = false;
+            return;
+        }
+        if (pending || walkPending) {
+            r.dirty = true;   // (again next frame)
+            if (r.lookInterim)
+                return;
+            r.lookInterim = true;   // (the rider's figure until then, below)
+        }
+    }
     r.rider.setFrameColor(m_ghost.frameColour());
     r.rider.setRiderModel(m_ghost.riderModel());
     r.rider.setRiderColors(m_ghost.riderColorList());
@@ -939,7 +972,7 @@ void Route3DScene::drawRival(Rival &r)
         m_rivalVertices.clear();
         m_rivalVertices.reserve(r.body->size());
         for (const auto &g : *r.body) {
-            const QVector3D col = g.color * .6f + r.tint * .4f;
+            const QVector3D col = g.color * (1.f - r.tintWeight) + r.tint * r.tintWeight;
             m_rivalVertices.push_back({ g.position.x(), g.position.y(), g.position.z(), col.x(), col.y(), col.z(),
                                         g.normal.x(), g.normal.y(), g.normal.z(), float(Solid), 0 });
         }

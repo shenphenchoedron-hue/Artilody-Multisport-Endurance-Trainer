@@ -45,7 +45,7 @@ NETWORK_OUT = DOCS / "Artilody-Network-Server-Manual.pdf"
 NETSHOTS = DOCS / "screenshots" / "network"
 
 APP = "Artilody Multisport Endurance Trainer"
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 DATE = "November 2026"
 REPO = "https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer"
 

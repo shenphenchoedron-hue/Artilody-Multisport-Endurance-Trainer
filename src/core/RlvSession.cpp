@@ -2005,6 +2005,7 @@ void RlvSession::setLive(LiveRide *live)
         if (m_profiles) {
             me.userUuid = m_profiles->current().uuid;
             me.name = m_profiles->current().name;
+            me.look = m_profiles->avatar3d();   // (the others draw this rider in its own figure and colours)
         }
         me.routeLength = hasRoute() ? m_route.totalDistance() : 0.0;
         me.loop = loopRide();

@@ -1,16 +1,14 @@
 import QtQuick
 
 // Riding together (LiveRide): the other stations' riders on this route -
-// each with its colour in the 3D view, how far ahead (+) / behind (−), speed
-// and watts. Hidden when nobody else rides the route.
+// each with its jersey colour (as drawn in 3D), how far ahead (+) / behind
+// (−), speed and watts. Hidden when nobody else rides the route.
 //
 //   LiveRidersPanel { live: page.session.live; showWatts: true }
 Rectangle {
     id: panel
     property var live: null
     property bool showWatts: true
-    // the same colours as the figures (Route3DScene::liveTint)
-    readonly property var tints: ["#f24d4d", "#4dd966", "#fad940", "#b366f2", "#40d9f2", "#fa73bf"]
     readonly property var riders: live ? live.riders : []
 
     visible: riders.length > 0
@@ -48,7 +46,9 @@ Rectangle {
                     width: 10
                     height: 10
                     radius: 5
-                    color: panel.tints[index % panel.tints.length]
+                    color: modelData.jersey ? modelData.jersey : "#9aa5c8"   // (its jersey; the figure's own: grey)
+                    border.color: Qt.rgba(1, 1, 1, 0.6)
+                    border.width: 1
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {

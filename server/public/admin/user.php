@@ -62,6 +62,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $in[$key] = $a;
     }
     [$error, $clean] = user_validate($in);
+    if ($error === '' && user_named($pdo, $clean['name'], $isNew ? '' : $uuid)) {
+        $error = 'There is already a user called ' . $clean['name'] . ' - choose another name.';
+    }
 
     $picture = $user['pictureHash'];
     if ($error === '' && !empty($_POST['removePicture'])) {

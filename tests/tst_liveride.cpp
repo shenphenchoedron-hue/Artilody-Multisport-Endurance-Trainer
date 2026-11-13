@@ -117,12 +117,16 @@ private slots:
         a.me.distanceM = 1000;
         a.me.speedKmh = 0;
         a.me.watts = 180;
+        a.me.look = { { QStringLiteral("model"), QStringLiteral("female") }, { QStringLiteral("jersey"), QStringLiteral("#ff0000") } };
         a.ask(server);
         b.me.distanceM = 0;
         b.ask(server);
         QCOMPARE(b.live.count(), 1);
         QCOMPARE(b.live.list().first().name, QStringLiteral("Lone"));
         QCOMPARE(b.live.list().first().watts, 180);
+        // its own figure and colours come along (drawn so; the panel's dot)
+        QCOMPARE(b.live.list().first().look.value(QStringLiteral("model")).toString(), QStringLiteral("female"));
+        QCOMPARE(b.live.riders().first().toMap().value(QStringLiteral("jersey")).toString(), QStringLiteral("#ff0000"));
         QCOMPARE(b.live.list().first().gapM, 1000.0);   // (ahead)
         QTRY_COMPARE(a.live.count(), 0);
         a.ask(server);

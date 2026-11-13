@@ -967,6 +967,7 @@ void RunSession::setLive(LiveRide *live)
         if (m_profiles) {
             me.userUuid = m_profiles->current().uuid;
             me.name = m_profiles->current().name;
+            me.look = m_profiles->runner3d();   // (the others draw this rider in its own figure and colours)
         }
         me.routeLength = routeLengthM();
         me.loop = m_loop;   // (a lap: the gap the short way round, the others not stuck at the finish)

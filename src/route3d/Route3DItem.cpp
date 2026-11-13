@@ -127,6 +127,7 @@ public:
         m_scene.setPacer(p.shown, p.frame, p.speedKmh, p.phase);
         for (int i = 0; i < Route3DItem::kMaxLive; ++i) {
             const auto &l = view->frameRival(2 + i);
+            m_scene.setLiveLook(i, l.look);
             m_scene.setLive(i, l.shown, l.frame, l.speedKmh, l.phase);
         }
         m_distance = view->frameDistance();
@@ -732,7 +733,11 @@ void Route3DItem::onPosition()
     for (int i = 0; i < kMaxLive; ++i) {
         const bool shown = others && i < others->list().size();
         const LiveRide::Rider r = shown ? others->list().at(i) : LiveRide::Rider();
-        tickRival(m_rivalFrames[size_t(2 + i)], shown, r.distanceM, r.returning, r.speedKmh);
+        RivalFrame &f = m_rivalFrames[size_t(2 + i)];
+        f.smooth = true;
+        if (shown)
+            f.look = r.look;
+        tickRival(f, shown, r.distanceM, r.returning, r.speedKmh);
     }
     const bool running = m_session && m_session->running();
     if (m_baseDistance != old || running != m_running)
@@ -837,7 +842,25 @@ void Route3DItem::tickRival(RivalFrame &r, bool shown, double metres, bool retur
 void Route3DItem::frameRivalStep(RivalFrame &r, double dt)
 {
     const double before = r.frame;
-    if (r.shown && m_running && m_route) {
+    if (r.smooth && r.shown && m_running && m_route) {
+        // where its last report says it is now, and a frame of its own speed
+        // towards it - eased, never a jump (unless far off: appears / turned)
+        const double v = r.speedKmh / 3.6;
+        const double target = r.base + v * std::min(r.sinceTick.elapsed() / 1000.0, kLiveExtrapolationSec);
+        double error = target - r.frame;
+        if (m_route->closed && std::abs(error) > m_route->length() / 2)
+            error += error > 0 ? -m_route->length() : m_route->length();
+        if (std::abs(error) > 25.0) {
+            r.frame = target;
+        } else {
+            double step = v * dt + error * (1.0 - std::exp(-dt / kLiveEaseSec));
+            if (v > 0.5)
+                step = std::max(step, 0.0);   // (riding on: never backwards - it only slows a little)
+            r.frame += step;
+        }
+        if (!m_route->closed)
+            r.frame = std::min(m_route->finish(), r.frame);
+    } else if (r.shown && m_running && m_route) {
         const double gdt = std::min(r.sinceTick.elapsed() / 1000.0, kMaxExtrapolationSec);
         const double ahead = r.base + r.speedKmh / 3.6 * gdt;
         r.frame = m_route->closed ? ahead : std::min(m_route->finish(), ahead);

@@ -62,12 +62,11 @@ public:
     static constexpr double kPacerLaneM = -0.9;
     static constexpr float kGhostOpacity = 0.5f;
     // Riding together (LiveRide): up to kMaxLive other stations' riders, each
-    // in a lane and colour of its own (kLiveLanesM / liveTint()), nearly solid
-    // - real riders, not ghosts.
+    // in a lane of its own (kLiveLanesM), solid and in its own figure and
+    // colours (setLiveLook()) - real riders, not ghosts.
     static constexpr int kMaxLive = 6;
-    static constexpr float kLiveOpacity = 0.9f;
+    static constexpr float kLiveOpacity = 1.0f;
     static constexpr std::array<double, kMaxLive> kLiveLanesM { -0.9, 0.25, -2.0, -0.35, 0.8, -1.45 };
-    static QVector3D liveTint(int i);
     // farther ahead than this the ghost's figure is posed only every
     // kGhostFarEvery-th frame (a few pixels: the CPU skinning is not worth it)
     static constexpr double kGhostFarM = 80.0;
@@ -144,6 +143,9 @@ public:
     void setPacer(bool shown, double drawnMetres, double speedKmh, double phase) { setRival(1, shown, drawnMetres, speedKmh, phase); }
     // Another station's rider (i < kMaxLive): the same, in its lane and colour.
     void setLive(int i, bool shown, double drawnMetres, double speedKmh, double phase) { setRival(2 + i, shown, drawnMetres, speedKmh, phase); }
+    // Its figure and colours (the rider's avatar3d / runner3d map; empty: the
+    // own rider's figure).
+    void setLiveLook(int i, const QVariantMap &look);
 
     // Draws one frame into the bound framebuffer. distance: metres along the
     // route3d::Route; speedKmh: the rider's speed (lean in bends); crank: the
@@ -329,8 +331,11 @@ private:
         route3d::GhostRider rider;
         route3d::GhostRunner runner;
         double lane = 0;
-        QVector3D tint;               // blended into its colours (40 %)
+        QVector3D tint;               // blended into its colours (tintWeight)
+        float tintWeight = .4f;
         float opacity = kGhostOpacity;
+        QVariantMap look;             // (a live rider) its own figure and colours; empty: the rider's
+        bool lookInterim = false;     // its figure still loading: the rider's meanwhile
         bool dirty = true;            // the rider's figure / colours changed: copied before drawing
         bool shown = false;
         double distance = 0, speed = 0, phase = 0;

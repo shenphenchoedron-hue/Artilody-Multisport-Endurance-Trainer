@@ -110,6 +110,27 @@ private:
                 QJsonObject u = v.toObject();
                 const QString uuid = u.value(QStringLiteral("uuid")).toString();
                 const bool known = users.contains(uuid);
+                if (known && users.value(uuid).contains(QStringLiteral("mergedInto"))) {   // (joined before)
+                    const QString into = users.value(uuid).value(QStringLiteral("mergedInto")).toString();
+                    results.append(QJsonObject { { QStringLiteral("uuid"), uuid }, { QStringLiteral("taken"), false },
+                                                 { QStringLiteral("mergedInto"), into }, { QStringLiteral("user"), users.value(into) } });
+                    continue;
+                }
+                // the same rider made on another station (a live user of the same name): joined (server/lib/users.php)
+                if (!known && !u.value(QStringLiteral("deleted")).toBool()) {
+                    QString twin;
+                    for (const QJsonObject &o : users)
+                        if (!o.value(QStringLiteral("deleted")).toBool()
+                            && o.value(QStringLiteral("name")).toString().compare(u.value(QStringLiteral("name")).toString(), Qt::CaseInsensitive) == 0)
+                            twin = o.value(QStringLiteral("uuid")).toString();
+                    if (!twin.isEmpty()) {
+                        users.insert(uuid, QJsonObject { { QStringLiteral("uuid"), uuid }, { QStringLiteral("deleted"), true },
+                                                         { QStringLiteral("mergedInto"), twin }, { QStringLiteral("rev"), ++rev } });
+                        results.append(QJsonObject { { QStringLiteral("uuid"), uuid }, { QStringLiteral("taken"), false },
+                                                     { QStringLiteral("mergedInto"), twin }, { QStringLiteral("user"), users.value(twin) } });
+                        continue;
+                    }
+                }
                 bool take = !known || u.value(QStringLiteral("updatedMs")).toInteger()
                                           > users.value(uuid).value(QStringLiteral("updatedMs")).toInteger();
                 if (take && u.value(QStringLiteral("deleted")).toBool() && !known)
@@ -325,6 +346,58 @@ private slots:
         QCOMPARE(f.db.profiles().size(), 1);
         QCOMPARE(f.db.profiles().first().id, anne);
         QCOMPARE(f.profiles->profileId(), anne);   // (the current one moved to one still here)
+    }
+
+    void sameRiderOnTwoStationsIsJoined()
+    {
+        // "Lone" made on the server (another station) and here (edited, with a
+        // ride): one rider - this station's copy becomes the server's, its ride kept
+        Fixture f;
+        const QString server = QStringLiteral("c11fffc6-cc95-421a-a39d-b65743745edc");
+        f.server.edit(server, { { QStringLiteral("name"), QStringLiteral("Lone") }, { QStringLiteral("weightKg"), 68 },
+                                { QStringLiteral("ftp"), 110 }, { QStringLiteral("rowingFtp"), 150 },
+                                { QStringLiteral("maxHr"), 185 }, { QStringLiteral("restHr"), 60 },
+                                { QStringLiteral("cadence"), 85 }, { QStringLiteral("deleted"), false } });
+        f.server.users[server][QStringLiteral("updatedMs")] = 1;   // (older than this station's edit)
+        f.profiles->saveProfile({ { QStringLiteral("name"), QStringLiteral("Lone") }, { QStringLiteral("ftp"), 120 } });
+        const qint64 here = f.profiles->profileId();
+        RideRecord ride;
+        ride.profileId = here;
+        ride.startedAt = QDateTime::currentDateTime();
+        QVERIFY(f.db.saveRide(ride, {}) > 0);
+        QVERIFY(f.round());
+        QVERIFY(f.round());   // (the joined rider's version settles)
+        const QVector<Profile> all = f.db.profiles();
+        QCOMPARE(all.size(), 1);
+        QCOMPARE(all.first().uuid, server);
+        QCOMPARE(f.db.rides(all.first().id).size(), 1);
+        QCOMPARE(f.profiles->name(), QStringLiteral("Lone"));
+        int live = 0;
+        for (const QJsonObject &u : f.server.users)
+            live += !u.value(QStringLiteral("deleted")).toBool();
+        QCOMPARE(live, 1);   // (no second Lone on the server)
+
+        // a station that already has the server's Lone and fetches the join: its copy merged in
+        Fixture g;
+        Profile a;
+        a.name = QStringLiteral("Lone");
+        a.uuid = server;
+        a.updatedMs = 1;
+        const qint64 keep = g.db.storeServerProfile(a);
+        Profile b = a;
+        b.uuid = QStringLiteral("57afe90f-09b5-47e5-8efb-920a076c897f");
+        const qint64 dup = g.db.storeServerProfile(b);
+        RideRecord r2;
+        r2.profileId = dup;
+        r2.startedAt = QDateTime::currentDateTime();
+        QVERIFY(g.db.saveRide(r2, {}) > 0);
+        g.server.users = f.server.users;
+        g.server.users.insert(b.uuid, QJsonObject { { QStringLiteral("uuid"), b.uuid }, { QStringLiteral("deleted"), true },
+                                                     { QStringLiteral("mergedInto"), server }, { QStringLiteral("rev"), ++g.server.rev } });
+        g.server.rev += 10;
+        QVERIFY(g.round());
+        QVERIFY(!g.db.profile(dup));
+        QCOMPARE(g.db.rides(keep).size(), 1);   // (its ride went with it)
     }
 
     void anotherServerGetsEverything()

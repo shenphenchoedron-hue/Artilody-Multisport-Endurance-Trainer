@@ -137,6 +137,7 @@ function user_from_row(array $r): array
         'rower3d' => avatar_clean(json_decode((string)$r['rower3d'], true)),
         'pictureHash' => $r['picture_hash'],
         'deleted' => (bool)$r['deleted'],
+        'mergedInto' => $r['merged_into'] ?? null,
         'updatedMs' => (int)$r['updated_ms'],
         'updatedBy' => $r['updated_by'],
         'rev' => (int)$r['rev'],
@@ -182,6 +183,65 @@ function user_write(PDO $pdo, string $uuid, array $c, ?string $pictureHash, bool
     ]);
 }
 
+// The live user of this name (another uuid), case and spaces ignored - the
+// same rider made on two stations; null when none.
+function user_named(PDO $pdo, string $name, string $notUuid): ?array
+{
+    $q = $pdo->prepare('SELECT * FROM users WHERE deleted = 0 AND uuid <> ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))'
+        . ' ORDER BY created_at, uuid LIMIT 1');
+    $q->execute([$notUuid, $name]);
+    $r = $q->fetch();
+    return $r ? user_from_row($r) : null;
+}
+
+// $dup merged into $into (inside a transaction): a tombstone naming $into,
+// its rides moved there (a new rev each: the stations fetch them again).
+function user_merge(PDO $pdo, string $dup, string $into, string $name, string $by): void
+{
+    $rev = users_next_rev($pdo);
+    $pdo->prepare('INSERT INTO users (uuid, name, zones, avatar3d, runner3d, rower3d, deleted, merged_into, updated_ms,'
+        . ' updated_by, rev, created_at) VALUES (?, ?, \'[]\', \'{}\', \'{}\', \'{}\', 1, ?, ?, ?, ?, UTC_TIMESTAMP())'
+        . ' ON DUPLICATE KEY UPDATE deleted = 1, merged_into = VALUES(merged_into), picture_hash = NULL,'
+        . ' updated_ms = VALUES(updated_ms), updated_by = VALUES(updated_by), rev = VALUES(rev)')
+        ->execute([$dup, mb_substr($name, 0, 100), $into, now_ms(), mb_substr($by, 0, 100), $rev]);
+    // its rides belong to the one kept (each a new rev: the analysis and the stations follow)
+    $q = $pdo->prepare('SELECT uuid FROM rides WHERE user_uuid = ?');
+    $q->execute([$dup]);
+    $move = $pdo->prepare('UPDATE rides SET user_uuid = ?, rev = ? WHERE uuid = ?');
+    foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $ride) {
+        $pdo->exec("UPDATE counters SET v = LAST_INSERT_ID(v + 1) WHERE k = 'rides'");
+        $move->execute([$into, (int)$pdo->query('SELECT LAST_INSERT_ID()')->fetchColumn(), $ride]);
+    }
+}
+
+// The same rider twice (made on two stations before they met the server, or
+// deleted by hand while a station still has it with rides): every other user
+// of the same name - live, or deleted but not merged - is merged into the
+// oldest live one. Cheap (a few rows); run before the stations look.
+function users_repair_duplicates(PDO $pdo): int
+{
+    $n = 0;
+    $rows = $pdo->query('SELECT uuid, name, deleted, merged_into FROM users ORDER BY created_at, uuid')->fetchAll();
+    $keep = [];
+    foreach ($rows as $r) {
+        if (!$r['deleted']) {
+            $keep[mb_strtolower(trim($r['name']))] ??= $r['uuid'];
+        }
+    }
+    foreach ($rows as $r) {
+        $key = mb_strtolower(trim($r['name']));
+        $into = $keep[$key] ?? null;
+        if ($into === null || $into === $r['uuid'] || $r['merged_into'] !== null || trim($r['name']) === '') {
+            continue;
+        }
+        $pdo->beginTransaction();
+        user_merge($pdo, $r['uuid'], $into, $r['name'], 'server');
+        $pdo->commit();
+        ++$n;
+    }
+    return $n;
+}
+
 function picture_exists(PDO $pdo, string $hash): bool
 {
     $q = $pdo->prepare('SELECT 1 FROM pictures WHERE hash = ?');
@@ -214,6 +274,20 @@ function users_push(PDO $pdo, array $payload): array
             $q = $pdo->prepare('SELECT * FROM users WHERE uuid = ? FOR UPDATE');
             $q->execute([$uuid]);
             $row = $q->fetch();
+            // the same rider as one already here (another station made it): merged into that one
+            $twin = !$row && !$deleted ? user_named($pdo, (string)($u['name'] ?? ''), $uuid) : null;
+            if ($twin) {
+                user_merge($pdo, $uuid, $twin['uuid'], (string)$u['name'], $by);
+                $pdo->commit();
+                $results[] = ['uuid' => $uuid, 'taken' => false, 'mergedInto' => $twin['uuid'], 'user' => $twin];
+                continue;
+            }
+            if ($row && $row['merged_into']) {   // (merged before: the station moves to the one kept)
+                $pdo->commit();
+                $results[] = ['uuid' => $uuid, 'taken' => false, 'mergedInto' => $row['merged_into'],
+                    'user' => user_get($pdo, $row['merged_into'])];
+                continue;
+            }
             $take = !$row || $updated > (int)$row['updated_ms'];
             $error = '';
             if ($take && $deleted) {

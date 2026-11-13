@@ -46,7 +46,18 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.0.0
+## What's new in 2.0.1
+
+**Riding together, better.** Fixes from the first test with two stations on the same route:
+
+- **Smooth riders.** The other station's rider moved in a jump about once a second. It now rides on at its own speed between the server's reports and is eased onto each new report – no jumps.
+- **In their own figure and colours.** Each rider is shown with the figure (male/female) and the colours of the jersey, shorts, helmet, shoes, hair and bike chosen in their own profile – no longer a copy of your own figure. The *Riding with* panel shows each rider's jersey colour.
+- **Real riders, not ghosts.** The other riders are drawn solid and untinted; only the ghost and the pacer are see-through.
+- **No more double riders.** The same rider created on two stations before they met the server (e.g. "Lone" on both) is now joined into one on the server: the stations' copies become that rider and their rides go with it. Duplicates already on a server are joined by themselves the next time a station looks. Creating a user with a name that already exists is refused in the web interface.
+
+Install over 2.0.0 and update the server too – see the [2.0.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.0.1).
+
+## Also included from 2.0.0
 
 **Training together – your own server at home.** Several Artilody computers (stations) can now share one server. It is optional: without it every station works on its own, exactly as before, and a station never waits for the server.
 
@@ -55,7 +66,7 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 - **Media library.** Upload GPX routes and Real Life Videos once (browser, or *Send to Server* from a station). GPX routes arrive on every station by themselves; videos are fetched with *Server Library → Download* (interrupted downloads resume).
 - **Training everywhere.** Every ride, row and run is sent to the server; History shows your rides from all stations, and the ghost can race them.
 - **Analysis in the browser.** Per rider: last 7/28/365 days, weekly hours and Training Load, FTP over time, best power, and every ride with its chart, zones and laps.
-- **Ride together.** Everyone on the same GPX route (or treadmill route) sees the others live in 3D – each in its own lane and colour – with gaps and watts in the *Riding with* panel.
+- **Ride together.** Everyone on the same GPX route (or treadmill route) sees the others live in 3D – each in its own lane, in their own figure and colours – with gaps and watts in the *Riding with* panel.
 
 **Ghost and pacer (GPX Ride).** Race a **ghost** – an earlier ride on the same route (best, latest, any ride, or another rider's) – or a **pacer** holding a fixed W/kg with your weight and the ride's physics; change its W/kg during the ride. Treadmill Run has the ghost too. Ghost riders' pedals now spin at a real cadence.
 
@@ -433,7 +444,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.0.0](#whats-new-in-200)
+- [What's new in 2.0.1](#whats-new-in-201)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

@@ -18,6 +18,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 try {
     $pdo = artilody_db();
     if ($method === 'GET') {
+        users_repair_duplicates($pdo);   // (the same rider twice: merged before the stations look)
         $since = max(0, (int)($_GET['since'] ?? 0));
         json_out(['serverId' => server_id($pdo), 'rev' => users_rev($pdo), 'users' => users_pull($pdo, $since)]);
     }

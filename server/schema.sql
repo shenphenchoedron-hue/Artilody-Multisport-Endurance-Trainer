@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS meta (
     v TEXT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO meta (k, v) VALUES ('schema_version', '6');
-UPDATE meta SET v = '6' WHERE k = 'schema_version' AND CAST(v AS UNSIGNED) < 6;
+INSERT IGNORE INTO meta (k, v) VALUES ('schema_version', '7');
+UPDATE meta SET v = '7' WHERE k = 'schema_version' AND CAST(v AS UNSIGNED) < 7;
 -- This server's own id: a station that finds another id (a new / reinstalled
 -- server) sends all its profiles again.
 INSERT IGNORE INTO meta (k, v) VALUES ('server_id', UUID());
@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME NOT NULL,   -- UTC
     KEY idx_users_rev (rev)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- (schema 7) a user merged into another (the same rider made on two
+-- stations): a tombstone that names the one kept - the stations move its
+-- rides there and drop their copy
+ALTER TABLE users ADD COLUMN IF NOT EXISTS merged_into CHAR(36) NULL;
 
 -- Profile pictures, by their sha1 (the same picture is stored once).
 CREATE TABLE IF NOT EXISTS pictures (
@@ -158,7 +163,10 @@ CREATE TABLE IF NOT EXISTS live_riders (
     is_back TINYINT NOT NULL DEFAULT 0,        -- on the way back (a looped there-and-back road)
     speed_kmh DOUBLE NOT NULL DEFAULT 0,
     watts INT NOT NULL DEFAULT 0,
+    look TEXT NULL,                            -- JSON: the rider's 3D figure and colours (users.php avatar_clean)
     updated_ms BIGINT NOT NULL,
     PRIMARY KEY (station_uuid, sport),
     KEY idx_live_route (sport, route_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- (schema 7) the riders' look
+ALTER TABLE live_riders ADD COLUMN IF NOT EXISTS look TEXT NULL;

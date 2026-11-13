@@ -1096,6 +1096,42 @@ qint64 Database::storeServerProfile(const Profile &p)
     return existing >= 0 ? existing : q.lastInsertId().toLongLong();
 }
 
+bool Database::mergeProfile(qint64 from, qint64 into)
+{
+    if (from == into || from < 0 || into < 0)
+        return false;
+    QSqlDatabase d = db();
+    if (!d.transaction())
+        return false;
+    QSqlQuery q(d);
+    for (const char *table : { "rides", "planned_workouts", "rowing_records", "ant_tests", "segment_records", "route_traces" }) {
+        q.prepare(QStringLiteral("UPDATE %1 SET profile_id = ? WHERE profile_id = ?").arg(QLatin1String(table)));
+        q.addBindValue(into);
+        q.addBindValue(from);
+        if (!q.exec()) {
+            setError(QStringLiteral("mergeProfile"), q.lastError().text());
+            d.rollback();
+            return false;
+        }
+    }
+    q.prepare(QStringLiteral("DELETE FROM profiles WHERE id = ?"));
+    q.addBindValue(from);
+    if (!q.exec() || !d.commit()) {
+        d.rollback();
+        return false;
+    }
+    return true;
+}
+
+bool Database::setProfileUuid(qint64 id, const QString &uuid)
+{
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("UPDATE profiles SET uuid = ?, dirty = 0 WHERE id = ?"));
+    q.addBindValue(uuid);
+    q.addBindValue(id);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
 int Database::profileRideCount(qint64 id) const
 {
     QSqlQuery q(db());

@@ -60,6 +60,10 @@ public:
     static constexpr int kFrameMs = 33;        // ~30 FPS while riding
     static constexpr int kIdleFrameMs = 100;   // clouds / trees keep moving when not riding
     static constexpr double kMaxExtrapolationSec = 0.6;
+    // a live rider: extrapolated for at most this long without a report, and
+    // eased onto a new report over about kLiveEaseSec
+    static constexpr double kLiveExtrapolationSec = 3.0;
+    static constexpr double kLiveEaseSec = 0.8;
     // The rider's legs follow the real cadence (RlvSession::cadence, ~1 Hz):
     // the shown rpm approaches it with this time constant, so the legs do not
     // jerk at each new value. 0 rpm (coasting, no cadence) = legs still.
@@ -126,6 +130,11 @@ public:
         double phase = 0;                           // pedal angle (rivalRpm()) / stride phase (distance moved)
         double shownRpm = 0;                        // cyclist: smoothed like the rider's
         QElapsedTimer sinceTick;
+        // a live rider (another station's): its reports come about once a
+        // second - moved on at its speed every frame and eased onto each new
+        // report (kLiveEaseSec) instead of stopping and jumping
+        bool smooth = false;
+        QVariantMap look;                           // (a live rider) its figure and colours
     };
     const RivalFrame &frameRival(int i) const { return m_rivalFrames[size_t(i)]; }
     static constexpr int kMaxLive = 6;   // other stations' riders drawn (= Route3DScene::kMaxLive = LiveRide::kMaxRiders)

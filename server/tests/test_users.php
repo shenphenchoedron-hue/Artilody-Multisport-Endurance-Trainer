@@ -114,6 +114,25 @@ check($r['results'][0]['taken'] === true && user_get($pdo, $a)['deleted'] === fa
 $r = users_push($pdo, ['nowMs' => now_ms(), 'users' => [['uuid' => $b, 'deleted' => true, 'updatedMs' => now_ms()]]]);
 check($r['results'][0]['taken'] === false && user_get($pdo, $b) === null, 'unknown deletion ignored');
 
+// the same rider made on another station (another uuid, the same name): joined
+usleep(2000);
+$twin = 'aaaaaaaa-0000-4000-8000-000000000001';
+$r = users_push($pdo, ['name' => 'Pi 2', 'nowMs' => now_ms(), 'users' => [['uuid' => $twin, 'name' => ' lone '] + $lone + ['updatedMs' => now_ms()]]]);
+check(($r['results'][0]['mergedInto'] ?? '') === $a && ($r['results'][0]['user']['uuid'] ?? '') === $a, 'same name: joined to the one there');
+$t = user_get($pdo, $twin);
+check($t['deleted'] && $t['mergedInto'] === $a, 'the copy: a tombstone naming the one kept');
+$r = users_push($pdo, ['nowMs' => now_ms(), 'users' => [['uuid' => $twin, 'name' => 'Lone'] + $lone + ['updatedMs' => now_ms() + 50]]]);
+check(($r['results'][0]['mergedInto'] ?? '') === $a && user_get($pdo, $twin)['deleted'], 'sent again: still joined');
+check(count(array_filter(users_pull($pdo, 0), fn($u) => !$u['deleted'] && strcasecmp(trim($u['name']), 'lone') === 0)) === 1, 'one Lone');
+// duplicates from before (deleted by hand, not joined): repaired
+$old = 'bbbbbbbb-0000-4000-8000-000000000002';
+$pdo->beginTransaction();
+[, $c] = user_validate($lone);
+user_write($pdo, $old, $c, null, true, now_ms(), 'web');
+$pdo->commit();
+check(users_repair_duplicates($pdo) === 1 && user_get($pdo, $old)['mergedInto'] === $a, 'an old duplicate joined');
+check(users_repair_duplicates($pdo) === 0, 'repaired once');
+
 $root->exec('DROP DATABASE artilody_test');
 unlink($conf);
 echo $failures === 0 ? "OK: $checks checks\n" : "$failures of $checks checks FAILED\n";

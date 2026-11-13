@@ -86,6 +86,7 @@ QVariantList LiveRide::riders() const
             { QStringLiteral("speedKmh"), r.speedKmh },
             { QStringLiteral("watts"), r.watts },
             { QStringLiteral("gapM"), r.gapM },
+            { QStringLiteral("jersey"), r.look.value(QStringLiteral("jersey")).toString() },
         });
     return out;
 }
@@ -115,6 +116,8 @@ void LiveRide::askNow()
         body.insert(QStringLiteral("returning"), me.returning);
         body.insert(QStringLiteral("speedKmh"), std::round(me.speedKmh * 10) / 10);
         body.insert(QStringLiteral("watts"), me.watts);
+        if (!me.look.isEmpty())
+            body.insert(QStringLiteral("look"), QJsonObject::fromVariantMap(me.look));
     }
     m_wasRiding = me.route && me.riding;
     QNetworkRequest req(QUrl(m_url + QStringLiteral("api/live.php")));
@@ -151,6 +154,7 @@ void LiveRide::onReply(QNetworkReply *reply, const Me &me)
         r.returning = o.value(QStringLiteral("returning")).toBool();
         r.speedKmh = std::clamp(o.value(QStringLiteral("speedKmh")).toDouble(), 0.0, 200.0);
         r.watts = o.value(QStringLiteral("watts")).toInt();
+        r.look = o.value(QStringLiteral("look")).toObject().toVariantMap();
         // where it is now: its report moved on by its speed for the report's age
         const double age = std::clamp(o.value(QStringLiteral("ageMs")).toDouble(), 0.0, double(kStaleMs)) / 1000.0;
         double d = o.value(QStringLiteral("distanceM")).toDouble() + (r.returning ? -1 : 1) * r.speedKmh / 3.6 * age;

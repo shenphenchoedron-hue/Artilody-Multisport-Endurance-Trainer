@@ -575,7 +575,8 @@ def build(s, env):
 
     s.section("Ride together")
     s.p("When two or more stations ride the same GPX route (or treadmill route) while the server is on, they see "
-        "each other: each other rider appears in the 3D view in its own lane and colour, and the panel "
+        "each other: each other rider appears in the 3D view in its own lane, in the figure and colours of its own "
+        "profile, and the panel "
         "<b>Riding with</b> shows how far ahead (+) or behind (−) each one is, and their watts. Nothing needs to "
         "be switched on – just choose the same route. Start whenever you like; everyone is shown where they "
         "really are on the route.")

@@ -1,6 +1,17 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.0.0
+## What's new in 2.0.1
+
+**Riding together, better.** Fixes from the first test with two stations on the same route:
+
+- **Smooth riders.** The other station's rider moved in a jump about once a second. It now rides on at its own speed between the server's reports and is eased onto each new report – no jumps.
+- **In their own figure and colours.** Each rider is shown with the figure (male/female) and the colours of the jersey, shorts, helmet, shoes, hair and bike chosen in their own profile – no longer a copy of your own figure. The *Riding with* panel shows each rider's jersey colour.
+- **Real riders, not ghosts.** The other riders are drawn solid and untinted; only the ghost and the pacer are see-through.
+- **No more double riders.** The same rider created on two stations before they met the server (e.g. "Lone" on both) is now joined into one on the server: the stations' copies become that rider and their rides go with it. Duplicates already on a server are joined by themselves the next time a station looks. Creating a user with a name that already exists is refused in the web interface.
+
+**Update:** install the app over 2.0.0 on every station, and update the server (Raspberry Pi / Debian / Ubuntu: `sudo bash install.sh` from the new zip; XAMPP: copy the new folder over and click *Update the database* on `setup.php`).
+
+## Also included from 2.0.0
 
 **Training together – your own server at home.** Several Artilody computers (stations) can share one server in your home or club. It is optional: without it every station works on its own, exactly as before, and a station never waits for the server (switched off, it catches up the next time).
 

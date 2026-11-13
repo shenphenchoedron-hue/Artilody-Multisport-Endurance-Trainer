@@ -6,6 +6,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 #include <functional>
 
@@ -25,7 +26,7 @@ class ServerConnection;
 // liveRiders()) and QML lists them (the session's "live").
 //
 // riders: [{ name, distanceM, returning, speedKmh, watts, gapM (+ ahead of
-//            you), userUuid }] - nearest first
+//            you), userUuid, jersey ("#rrggbb" / "") }] - nearest first
 class LiveRide : public QObject
 {
     Q_OBJECT
@@ -51,6 +52,7 @@ public:
         QString userUuid, name;
         double routeLength = 0;      // (the gap on a loop: the short way round)
         bool loop = false;
+        QVariantMap look;            // the rider's 3D figure and colours (ProfileManager::avatar3d / runner3d)
     };
     struct Rider
     {
@@ -60,6 +62,7 @@ public:
         double speedKmh = 0;
         int watts = 0;
         double gapM = 0;             // ahead of this rider (+) / behind (-)
+        QVariantMap look;            // its 3D figure and colours (drawn so)
     };
 
     LiveRide(const QString &sport, const QString &stationId, ServerConnection *connection, QObject *parent = nullptr);
