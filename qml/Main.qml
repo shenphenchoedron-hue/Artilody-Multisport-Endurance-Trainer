@@ -128,6 +128,8 @@ ApplicationWindow {
         case "settings": showPage("dashboard"); settingsDialog.open(); break
         case "media-gpx": showPage("gpx"); mediaLibraryDialog.openFor("gpx"); break
         case "media-video": showPage("video"); mediaLibraryDialog.openFor("video"); break
+        case "media-workout": showPage("workouts"); mediaLibraryDialog.openFor("workout"); break
+        case "media-plan": showPage("calendar"); mediaLibraryDialog.openFor("plan"); break
         case "diagnostics": showPage("devices"); devicesPage.openScreenshotDialog("diagnostics"); break
         case "gradienttest": showPage("devices"); devicesPage.openScreenshotDialog("gradienttest"); break
         case "advanced": showPage("devices"); devicesPage.openScreenshotDialog("advanced"); break
@@ -273,6 +275,7 @@ ApplicationWindow {
                 WorkoutsPage {
                     id: workoutsPage
                     onStarted: window.showPage("dashboard")
+                    onOpenServerLibrary: mediaLibraryDialog.openFor("workout")
                     onEditWorkout: (id) => window.editWorkout(id)
                     onNewWorkout: {
                         Builder.newWorkout()
@@ -280,7 +283,10 @@ ApplicationWindow {
                     }
                     onMessage: (text) => window.showToast(text)
                 }
-                CalendarPage { id: calendarPage }
+                CalendarPage {
+                    id: calendarPage
+                    onOpenServerPlans: mediaLibraryDialog.openFor("plan")
+                }
                 BuilderPage {
                     id: builderPage
                     onMessage: (text) => window.showToast(text)
@@ -321,6 +327,11 @@ ApplicationWindow {
         // a download / upload of the server's media library ended (not the automatic GPX ones)
         Connections {
             target: MediaLibrary
+            // a training plan of the server is here: imported in the Calendar (onto a start date)
+            function onPlanReady(path, name) {
+                window.showPage("calendar")
+                calendarPage.importPlanFile(path)
+            }
             function onTransferFinished(ok, what, error) {
                 if (error !== "cancelled")
                     window.showToast(ok ? what : what.replace(/ (downloaded|sent to the server)$/, "") + ": " + error)

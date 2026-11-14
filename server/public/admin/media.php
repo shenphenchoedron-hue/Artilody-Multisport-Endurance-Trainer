@@ -36,6 +36,7 @@ $free = @disk_free_space(blobs_dir());
 page_start('Media');
 ?>
 <h1>Media library</h1>
+<p class="muted" style="margin-top:-10px">GPX routes, video routes, workouts and training plans for the stations.</p>
 <?php if ($notice !== ''): ?><div class="notice"><?= h($notice) ?></div><?php endif; ?>
 <?php if ($error !== ''): ?><div class="error"><?= h($error) ?></div><?php endif; ?>
 
@@ -44,6 +45,8 @@ page_start('Media');
   <div class="row">
     <label style="margin:0"><input type="radio" name="kind" value="gpx" checked> GPX route</label>
     <label style="margin:0"><input type="radio" name="kind" value="video"> Video route</label>
+    <label style="margin:0"><input type="radio" name="kind" value="workout"> Workout</label>
+    <label style="margin:0"><input type="radio" name="kind" value="plan"> Training plan</label>
   </div>
   <p class="muted" id="kindHelp"></p>
   <div class="grid">
@@ -60,13 +63,13 @@ page_start('Media');
 <div class="card">
   <h2 style="margin-top:0">On the server</h2>
   <?php if (!$items): ?>
-    <p class="muted">Nothing yet. Upload here, or on a station: the route menu › Send to server.</p>
+    <p class="muted">Nothing yet. Upload here, or on a station: Send to Server (route menu, workout menu, Calendar › Plans).</p>
   <?php else: ?>
     <table>
       <tr><th>Kind</th><th>Name</th><th>Files</th><th>Size</th><th>From</th><th></th></tr>
       <?php foreach ($items as $m): ?>
         <tr>
-          <td><?= $m['kind'] === 'video' ? 'Video' : 'GPX' ?></td>
+          <td><?= ['video' => 'Video', 'gpx' => 'GPX', 'workout' => 'Workout', 'plan' => 'Plan'][$m['kind']] ?? h($m['kind']) ?></td>
           <td>
             <form method="post" class="row" style="margin:0;gap:6px">
               <?= csrf_field() ?><input type="hidden" name="uuid" value="<?= h($m['uuid']) ?>">
@@ -96,7 +99,9 @@ page_start('Media');
   const BASE = <?= json_encode(base_path(), JSON_HEX_TAG | JSON_UNESCAPED_SLASHES) ?>;
   const help = {
     gpx: 'One .gpx file. The stations fetch GPX routes by themselves.',
-    video: 'One video (mp4, m4v, mov, mkv, avi, webm) and its .gpx (optionally its .xml). The stations fetch videos when asked (their library › Download).'
+    video: 'One video (mp4, m4v, mov, mkv, avi, webm) and its .gpx (optionally its .xml). The stations fetch videos when asked (their library › Download).',
+    workout: 'One workout file (<?= implode(', ', array_map(fn($e) => ".$e", MEDIA_WORKOUT_EXTENSIONS)) ?> – exported from the app, or a Zwift workout). The stations add workouts to their library by themselves.',
+    plan: 'One training plan (.awplan – Calendar › Plans › Export weeks as a plan). The stations import it when asked (Calendar › Plans › Server plans), onto a start date.'
   };
   const $ = (id) => document.getElementById(id);
   const kind = () => document.querySelector('input[name=kind]:checked').value;

@@ -8,8 +8,12 @@
 // in pieces (upload_start / upload_chunk / upload_finish), so a video of
 // several GB never has to fit in one request.
 //
+// Workouts (.awt / .json / .zwo) and training plans (.awplan) are items
+// of one file too: the stations import workouts into their library by
+// themselves, a plan when asked (onto a start date).
+//
 // An item as exchanged with the stations (JSON):
-//   { "uuid": "...", "kind": "gpx" | "video", "name": "Menglonnais",
+//   { "uuid": "...", "kind": "gpx" | "video" | "workout" | "plan", "name": "Menglonnais",
 //     "folder": "Menglonnais" (video: its folder on the stations, gpx: ""),
 //     "files": [ { "name": "Menglonnais.mp4", "hash": "<sha1>", "size": 123 }, ... ],
 //     "sizeBytes": 123, "deleted": false, "updatedMs": ..., "rev": 7 }
@@ -20,6 +24,10 @@ const MEDIA_CHUNK_MAX_BYTES = 8 * 1024 * 1024;          // one piece of an uploa
 const MEDIA_DISK_RESERVE_BYTES = 2 * 1024 * 1024 * 1024; // kept free on the server's disk
 const MEDIA_VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'mkv', 'avi', 'webm'];   // (the app's RlvRoute::videoSuffixes(): tst_mediasync checks)
 const MEDIA_UPLOAD_TTL_SEC = 24 * 3600;                 // an unfinished upload is removed after a day
+// workouts: the app's import formats (workoutio::parseFile); training plans: the app's .awplan
+const MEDIA_WORKOUT_EXTENSIONS = ['awt', 'json', 'zwo'];
+const MEDIA_PLAN_EXTENSIONS = ['awplan'];
+const MEDIA_KINDS = ['gpx', 'video', 'workout', 'plan'];
 
 function blobs_dir(): string
 {
@@ -187,7 +195,7 @@ function media_ext(string $name): string
 function media_validate(string $kind, array $files): array
 {
     $clean = [];
-    $count = ['gpx' => 0, 'xml' => 0, 'video' => 0];
+    $count = ['gpx' => 0, 'xml' => 0, 'video' => 0, 'workout' => 0, 'plan' => 0];
     foreach ($files as $f) {
         $name = media_clean_filename((string)($f['name'] ?? ''));
         $hash = strtolower((string)($f['hash'] ?? ''));
@@ -198,9 +206,11 @@ function media_validate(string $kind, array $files): array
         if (blob_size($hash) < 0) {
             return ["$name is not uploaded", []];
         }
-        $type = $ext === 'gpx' ? 'gpx' : ($ext === 'xml' ? 'xml' : (in_array($ext, MEDIA_VIDEO_EXTENSIONS, true) ? 'video' : ''));
+        $type = $ext === 'gpx' ? 'gpx' : ($ext === 'xml' ? 'xml' : (in_array($ext, MEDIA_VIDEO_EXTENSIONS, true) ? 'video'
+            : (in_array($ext, MEDIA_WORKOUT_EXTENSIONS, true) ? 'workout' : (in_array($ext, MEDIA_PLAN_EXTENSIONS, true) ? 'plan' : ''))));
         if ($type === '') {
-            return ["$name: only .gpx, .xml and videos (" . implode(', ', MEDIA_VIDEO_EXTENSIONS) . ')', []];
+            return ["$name: only .gpx, .xml, videos (" . implode(', ', MEDIA_VIDEO_EXTENSIONS) . '), workouts ('
+                . implode(', ', MEDIA_WORKOUT_EXTENSIONS) . ') and plans (.awplan)', []];
         }
         ++$count[$type];
         foreach ($clean as $c) {
@@ -210,14 +220,21 @@ function media_validate(string $kind, array $files): array
         }
         $clean[] = ['name' => $name, 'hash' => $hash, 'size' => blob_size($hash)];
     }
-    if ($kind === 'gpx' && !($count['gpx'] === 1 && $count['xml'] === 0 && $count['video'] === 0)) {
+    if (!in_array($kind, MEDIA_KINDS, true)) {
+        return ['kind must be ' . implode(', ', MEDIA_KINDS), []];
+    }
+    if ($kind === 'gpx' && !(count($clean) === 1 && $count['gpx'] === 1)) {
         return ['a GPX route is one .gpx file', []];
     }
-    if ($kind === 'video' && !($count['video'] === 1 && $count['gpx'] === 1 && $count['xml'] <= 1)) {
+    if ($kind === 'video' && !($count['video'] === 1 && $count['gpx'] === 1 && $count['xml'] <= 1
+            && count($clean) === 2 + $count['xml'])) {
         return ['a video route is one video and one .gpx (and optionally one .xml)', []];
     }
-    if ($kind !== 'gpx' && $kind !== 'video') {
-        return ['kind must be gpx or video', []];
+    if ($kind === 'workout' && !(count($clean) === 1 && $count['workout'] === 1)) {
+        return ['a workout is one file (' . implode(', ', MEDIA_WORKOUT_EXTENSIONS) . ')', []];
+    }
+    if ($kind === 'plan' && !(count($clean) === 1 && $count['plan'] === 1)) {
+        return ['a training plan is one .awplan file', []];
     }
     return ['', $clean];
 }

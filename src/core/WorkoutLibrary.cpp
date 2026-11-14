@@ -560,6 +560,29 @@ int WorkoutLibrary::importFile(const QUrl &file)
     return importFiles({ file });
 }
 
+int WorkoutLibrary::importFromServer(const QString &path)
+{
+    QVector<Workout> existing = m_db->workouts();
+    int imported = 0;
+    for (Workout w : workoutio::parseFile(path).workouts) {
+        if (isDuplicate(w, existing))
+            continue;
+        w.name = uniqueName(w.name, existing);
+        w.id = m_db->saveWorkout(w);
+        if (w.id < 0)
+            continue;
+        existing.append(w);
+        ++imported;
+    }
+    if (imported > 0) {
+        const qint64 keep = m_selectedId;
+        reload();
+        if (keep >= 0)
+            setSelectedId(keep);
+    }
+    return imported;
+}
+
 int WorkoutLibrary::importFiles(const QList<QUrl> &files)
 {
     if (files.isEmpty()) {

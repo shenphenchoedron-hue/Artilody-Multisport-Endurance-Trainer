@@ -35,14 +35,20 @@ class ServerConnection;
 //   - videos are fetched when asked (download(): several GB) into the video
 //     library folder, "<folder>/" with its files - the video first, the .gpx
 //     last (only then is it a route); an interrupted download resumes.
-//   - upload(): a route of this station's libraries is sent to the server:
+//   - workouts (.awt / .json / .zwo) are fetched by themselves too and
+//     added to the workout library (setWorkoutImporter: duplicates skipped);
+//     training plans (.awplan) when asked (importPlan(): planReady() - the
+//     Calendar imports it onto a start date). Both are kept in fileFolder.
+//   - upload(): a route of this station's libraries is sent to the server
+//     (uploadFile(): a workout / plan file):
 //     its files hashed (worker thread), the ones the server lacks uploaded in
 //     8 MB pieces (api/upload.php), then the item (api/media.php).
 // One transfer at a time (a queue). While a ride runs nothing is fetched by
 // itself and the libraries are rescanned only afterwards. Exposed to QML as
 // "MediaLibrary".
 //
-// items: [{ uuid, kind, name, sizeBytes, sizeText, uploadedBy, localPath,
+// items: [{ uuid, kind ("gpx" / "video" / "workout" / "plan"), name, sizeBytes,
+//           sizeText, uploadedBy, localPath,
 //           state: "local" | "available" | "conflict" | "queued" | "downloading" }]
 class MediaSync : public QObject
 {
@@ -69,6 +75,10 @@ public:
     // While it returns true (a ride runs) nothing is fetched by itself and the
     // libraries are rescanned only afterwards.
     void setBusyCheck(std::function<bool()> busy) { m_busy = std::move(busy); }
+    // where the server's workout and plan files are kept here; a fetched
+    // workout file is given to the importer (the workout library)
+    void setFileFolder(const QString &dir) { m_fileFolder = dir; }
+    void setWorkoutImporter(std::function<int(const QString &path)> import) { m_importWorkout = std::move(import); }
 
     QString state() const { return m_state; }
     QString message() const { return m_message; }
@@ -85,6 +95,20 @@ public:
     // Sends a route of the libraries to the server: kind "gpx" / "video", path
     // as in the library (its .gpx / .xml). False with message when it cannot.
     Q_INVOKABLE bool upload(const QString &path, const QString &kind);
+    // Sends a workout / plan file to the server (kind "workout" / "plan"; name
+    // shown there). False with message when it cannot.
+    Q_INVOKABLE bool uploadFile(const QString &fileOrUrl, const QString &kind, const QString &name);
+    // A new file to write a workout / plan into before uploadFile() ("" on
+    // error); removed once the item is on the server.
+    Q_INVOKABLE QString outgoingFile(const QString &name, const QString &suffix);
+    // Is an item of this kind and name on the server?
+    Q_INVOKABLE bool hasItem(const QString &kind, const QString &name) const;
+    // A training plan of the server: fetched (when not here yet), then planReady().
+    Q_INVOKABLE bool importPlan(const QString &uuid);
+    // A workout of the server into the workout library, when asked (e.g. once
+    // deleted there): fetched when not here yet, otherwise added from the copy
+    // here (one already in the library is not added twice). transferFinished().
+    Q_INVOKABLE bool addWorkout(const QString &uuid);
     Q_INVOKABLE void cancel();   // the transfer under way and the queue
     // The route (library path) is on the server.
     Q_INVOKABLE bool onServer(const QString &path) const;
@@ -100,6 +124,8 @@ signals:
     void transferChanged();
     // a transfer ended: ok, what ("Menglonnais downloaded"), why not
     void transferFinished(bool ok, const QString &what, const QString &error);
+    // a training plan of the server is here to import (importPlan())
+    void planReady(const QString &path, const QString &name);
 
 private:
     struct Job
@@ -107,9 +133,10 @@ private:
         enum Type { Download, Upload } type = Download;
         QString uuid;              // download
         bool copy = false;         // download a GPX route in conflict as "<name> (server).gpx"
-        QString path, kind;        // upload
+        QString path, kind;        // upload (a route: its library path; a workout / plan: the file)
         QString name;              // shown
-        bool automatic = false;    // (a GPX route fetched by itself)
+        bool automatic = false;    // (a GPX route / workout fetched by itself)
+        bool openPlan = false;     // (a plan: planReady() when here)
     };
     struct FileStep              // one file of the job under way
     {
@@ -129,6 +156,7 @@ private:
     void finishFile(int index);
     // uploads
     void startUpload();
+    void startHashing(const QStringList &paths);
     void uploadFile(int index);
     void uploadPiece(int index, const QString &id, qint64 offset);
     void sendItem();
@@ -142,12 +170,18 @@ private:
     void setProgress(double p);
     std::optional<ServerMedia> item(const QString &uuid) const;
     QString gpxTarget(const ServerMedia &m, bool copy) const;   // "" when a copy would have no name
+    // a workout / plan: its place in m_fileFolder ("" when its uuid / file type is not one it can be)
+    QString fileTarget(const ServerMedia &m) const;
+    QString outgoingDir() const;                                // outgoingFile()'s folder
+    static bool isFileKind(const QString &kind) { return kind == QLatin1String("workout") || kind == QLatin1String("plan"); }
     bool localValid(const ServerMedia &m) const;
     bool busy() const { return m_busy && m_busy(); }
 
     Database *m_db;
     QPointer<RlvLibrary> m_gpx, m_videos;
     std::function<bool()> m_busy;
+    QString m_fileFolder;
+    std::function<int(const QString &)> m_importWorkout;
     QNetworkAccessManager m_net;
     QPointer<QNetworkReply> m_reply;
 

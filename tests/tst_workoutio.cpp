@@ -559,6 +559,43 @@ private slots:
         QCOMPARE(lib.importFile(QUrl::fromLocalFile(path)), 1);
         QCOMPARE(lib.workout(lib.selectedId())->sport, sport::rowing());
     }
+
+    void importFromServerIsQuiet()
+    {
+        // a workout of the server's media library (MediaSync): added once, the selection and message stay
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        db.seedDefaults();
+        ProfileManager profiles(&db);
+        profiles.load();
+        WorkoutLibrary lib(&db, &profiles);
+        lib.reload();
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Workout w = Workout::builtInLibrary().first();
+        w.builtIn = false;
+        w.name = QStringLiteral("From the server");
+        w.intervals[1].durationSec = 777;
+        const QString path = dir.filePath(QStringLiteral("x.awt"));
+        QVERIFY(writeBytes(path, workoutio::toAwt({ w }, QStringLiteral("test"))));
+
+        const qint64 selected = lib.selectedId();
+        const QString message = lib.lastMessage();
+        const int before = db.workouts().size();
+        QCOMPARE(lib.importFromServer(path), 1);
+        QCOMPARE(db.workouts().size(), before + 1);
+        QCOMPARE(lib.selectedId(), selected);
+        QCOMPARE(lib.lastMessage(), message);
+        bool found = false;
+        for (const Workout &x : db.workouts())
+            found |= x.name == QLatin1String("From the server") && !x.builtIn;
+        QVERIFY(found);
+        // again (another server item with the same workout): not twice
+        QCOMPARE(lib.importFromServer(path), 0);
+        QCOMPARE(db.workouts().size(), before + 1);
+        // not a workout file: nothing
+        QCOMPARE(lib.importFromServer(dir.filePath(QStringLiteral("nope.awt"))), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestWorkoutIO)

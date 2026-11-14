@@ -91,8 +91,30 @@ check($error !== '', 'other files refused');
 [$error] = media_add($pdo, ['kind' => 'gpx', 'files' => [['name' => 'a.gpx', 'hash' => str_repeat('0', 40)]]], 'web');
 check($error !== '', 'a file not uploaded: refused');
 
+// a workout and a training plan: one file each, of their own kinds
+[$hw] = upload('{"format":"artilody-watts-trainer/workouts","workouts":[]}');
+[$error, $wk] = media_add($pdo, ['kind' => 'workout', 'name' => 'Sweet spot', 'files' => [['name' => 'Sweet spot.awt', 'hash' => $hw]]], 'web');
+check($error === '' && $wk['kind'] === 'workout', 'a workout');
+[$error] = media_add($pdo, ['kind' => 'workout', 'files' => [['name' => 'x.gpx', 'hash' => $h]]], 'web');
+check($error !== '', 'a workout is not a gpx');
+[$hp] = upload('{"format":"artilody-watts-trainer/plan"}');
+[$error, $pl] = media_add($pdo, ['kind' => 'plan', 'name' => '8 weeks', 'files' => [['name' => '8 weeks.awplan', 'hash' => $hp]]], 'web');
+check($error === '' && $pl['kind'] === 'plan', 'a training plan');
+[$error] = media_add($pdo, ['kind' => 'plan', 'files' => [['name' => 'p.awt', 'hash' => $hw]]], 'web');
+check($error !== '', 'a plan is an .awplan');
+// a route never carries a workout / plan file along
+[$error] = media_add($pdo, ['kind' => 'gpx', 'files' => [['name' => 'R.gpx', 'hash' => $h], ['name' => 'A.awt', 'hash' => $hw]]], 'web');
+check($error !== '', 'a gpx route with a workout file: refused');
+[$error] = media_add($pdo, ['kind' => 'video', 'files' => [['name' => 'V.mp4', 'hash' => $hv], ['name' => 'V.gpx', 'hash' => $h],
+    ['name' => 'P.awplan', 'hash' => $hp]]], 'web');
+check($error !== '', 'a video route with a plan file: refused');
+[$error] = media_add($pdo, ['kind' => 'other', 'files' => [['name' => 'x.awt', 'hash' => $hw]]], 'web');
+check($error !== '', 'an unknown kind: refused');
+media_delete($pdo, $wk['uuid']);
+media_delete($pdo, $pl['uuid']);
+
 // pulled by rev
-check(count(media_pull($pdo, 0)) === 2 && count(media_pull($pdo, 1)) === 1, 'pulled by rev');
+check(count(media_pull($pdo, 0)) === 4 && count(media_pull($pdo, 1)) === 3, 'pulled by rev');
 
 // rename, delete: a tombstone; a file still used by another item stays
 check(media_rename($pdo, $item['uuid'], 'Flat route') && media_get($pdo, $item['uuid'])['name'] === 'Flat route', 'renamed');

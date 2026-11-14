@@ -331,6 +331,11 @@ QStringList allowedCategories()
              QStringLiteral("FTP Tests") };
 }
 
+QStringList importSuffixes()
+{
+    return { QStringLiteral("awt"), QStringLiteral("json"), QStringLiteral("zwo"), QStringLiteral("xml") };
+}
+
 Format formatForFileName(const QString &fileName)
 {
     const QString suffix = QFileInfo(fileName).suffix().toLower();
@@ -785,10 +790,8 @@ ImportResult parseData(const QByteArray &data, const QString &fileName)
         return r;
     }
     const QString suffix = QFileInfo(fileName).suffix().toLower();
-    if (suffix == QLatin1String("zwo") || suffix == QLatin1String("xml"))
-        return parseZwo(body);
-    if (suffix == QLatin1String("awt") || suffix == QLatin1String("json"))
-        return parseAwt(body);
+    if (importSuffixes().contains(suffix))
+        return formatForFileName(fileName) == Format::Zwo ? parseZwo(body) : parseAwt(body);
     ImportResult r;
     r.error = QStringLiteral("Unrecognised file format. Supported are Artilody workouts (.awt) and Zwift workouts (.zwo).");
     return r;

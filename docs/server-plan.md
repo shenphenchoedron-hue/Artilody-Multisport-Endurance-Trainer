@@ -261,6 +261,39 @@ med samme navn er "conflict" og kan hentes som "<navn> (server).gpx").
   Download copy og fremskridt) og "Send to Server"; status i Settings.
   Tests: `tst_mediasync`, `tst_migration`.
 
+### Workouts og træningsplaner i mediebiblioteket
+
+**Status: implementeret (2026-11-14).** Beslutninger: workouts hentes
+automatisk og lægges i workout-biblioteket (en workout, der allerede findes,
+lægges ikke ind igen); træningsplaner hentes, når man beder om det, og
+importeres i kalenderen fra en valgt startdato.
+
+- Server: to nye `kind` i `media`: `workout` (én `.awt` / `.json` / `.zwo` –
+  de formater appens `workoutio::parseFile` læser) og `plan` (én `.awplan`).
+  Web: `/admin/media.php` har "Workout" og "Training plan" ved upload. Test:
+  `server/tests/test_media.php`.
+- App: `MediaSync` gemmer serverens workout- og plan-filer i `server-files/`
+  ved databasen (`<kind>/<uuid>.<endelse>`). En hentet workout gives til
+  `WorkoutLibrary::importFromServer()` (stille: valg og besked bevares,
+  dubletter springes over). En plan hentes med `importPlan()` og åbnes i
+  kalenderens import-dialog (`planReady`). Det, stationen selv sender, gemmes
+  som kopi og hentes ikke tilbage. Serverens `uuid` og filtype indgår i
+  stien og godkendes kun, når de er helt som forventet. En station, der
+  opdateres fra en ældre version (som sprang de nye typer over), henter
+  listen forfra én gang (`server/mediaKinds`). Hver afsendelse får sin egen
+  fil i `server-files/outgoing/`, som slettes, når den er på serveren.
+- UI (ingen ekstra knapper): når Server er slået til, går de eksisterende
+  Import/Export til serveren i stedet for til harddisken. Workouts › Import
+  åbner serverens workouts ("Add to Workouts" lægger en ind igen, fx efter
+  sletning; man får besked, når en workout tilføjes eller allerede findes);
+  Export › "Send selected workout / all my workouts to the server".
+  Calendar: "Import plan…" (Add-dialogen) og Plans › "Import a plan…" åbner
+  serverens planer (dag 1 på den valgte dag); Plans › "Export weeks as a
+  plan…" › "Send to Server". Med Server slået fra: filer som før.
+  Tests: `tst_mediasync` (`workoutsByThemselvesPlansWhenAsked`,
+  `workoutAndPlanUploads`, `workoutSuffixesMatchTheServer`), `tst_workoutio`
+  (`importFromServerIsQuiet`).
+
 Oprindelig plan – server:
 
 - Upload af GPX- og videofiler via web interfacet.

@@ -498,6 +498,9 @@ int main(int argc, char *argv[])
     // the server's media library: GPX routes fetched by themselves, videos when asked
     MediaSync mediaLibrary(&db, &gpxRoutes, &videos, &serverStatus);
     mediaLibrary.setBusyCheck(anySessionActive);
+    // the server's workouts (added to the library by themselves) and training plans (imported when asked)
+    mediaLibrary.setFileFolder(QFileInfo(dbPath).absoluteDir().filePath(QStringLiteral("server-files")));
+    mediaLibrary.setWorkoutImporter([&](const QString &path) { return library.importFromServer(path); });
     // the rides kept with the server: sent after saving, the other stations' fetched into History
     RideSync rideSync(&db, &profiles, &serverStatus);
     rideSync.setBusyCheck(anySessionActive);

@@ -42,6 +42,9 @@ def build(s, env):
         "weight, FTP, picture and 3D figure. Change your FTP on one station and the others get it too.",
         f"{UI('Routes and videos')} – GPX routes and Real Life Videos are put on the server once. The stations "
         "fetch GPX routes by themselves; videos (large files) are fetched when you ask for them.",
+        f"{UI('Workouts and training plans')} – put a workout or a plan on the server once (for example a "
+        "coach's eight-week plan). Workouts are added to every station's workout library by themselves; a plan "
+        "is put into a rider's calendar when they import it.",
         f"{UI('Training')} – every ride, row and run is sent to the server. Your History shows your rides from "
         "every station, and the ghost can race rides from the other stations and from other riders.",
         f"{UI('Analysis in the browser')} – the server has web pages with each rider's training: weekly hours, "
@@ -514,6 +517,12 @@ def build(s, env):
         "profile takes the server's riders instead. From then on, a change on one station reaches the others "
         "within a minute.",
         f"{UI('GPX routes')} – the server's routes appear by themselves in the GPX Ride library.",
+        f"{UI('Workouts')} – the server's workouts are added to the workout library by themselves, with a short "
+        "message (a workout that is already there is not added twice).",
+        f"{UI('Import and Export')} – on the Workouts page and in the Calendar, {B('Import')} and "
+        f"{B('Export')} now use the server instead of files on the computer (see "
+        "<i>Share workouts and training plans</i> in the next chapter). Switch Server off and they work with "
+        "files again.",
         f"{UI('Training')} – each finished ride is sent a few seconds after it is saved. Rides from other stations "
         "appear in History with <i>on &lt;station&gt;</i>.",
         f"{UI('During a ride')} – nothing is fetched or sent while you ride, so the picture stays smooth; it "
@@ -525,8 +534,8 @@ def build(s, env):
 
     # =====================================================================
     s.chapter("Using the server", lead=
-              "Day to day you hardly notice the server. This chapter shows its web pages, the media library and "
-              "riding together.")
+              "Day to day you hardly notice the server. This chapter shows its web pages, the media library "
+              "(routes, videos, workouts and training plans) and riding together.")
 
     s.section("The web pages")
     s.p(f"Open the server's address with http:// in any browser at home: {C('http://192.168.1.20')} (Raspberry Pi, "
@@ -537,7 +546,7 @@ def build(s, env):
                                "FTP over time, best power, and the list of rides. Click a ride for its chart."],
         [UI("Users"), "admin", "Create, change and delete riders: name, weight, FTP, heart rates, picture and the "
                                "colours of the 3D figures."],
-        [UI("Media"), "admin", "Upload GPX routes and videos, rename and delete them."],
+        [UI("Media"), "admin", "Upload GPX routes, videos, workouts and training plans, rename and delete them."],
         [UI("Server"), "admin", "Shut down or restart the server (Raspberry Pi, Debian, Ubuntu)."],
     ], [1.1, 0.8, 4.7])
     s.figure(NET / "web-training.png", "Training: one rider's totals, weekly hours and Training Load, FTP over "
@@ -572,6 +581,31 @@ def build(s, env):
              "already on the station say so.", width_frac=0.6)
     s.note("A GPX route edited on a station (GPX Workshop) is never overwritten by the server's version. The "
            f"Server Library marks it, and {B('Download copy')} fetches the server's as \"name (server).gpx\".")
+
+    s.section("Share workouts and training plans")
+    s.p("Workouts and training plans live in the same media library. With Server switched on in a station's "
+        "Settings, the app's own Import and Export buttons use the server – there are no extra buttons. With "
+        "Server off they work with files on the computer as before.")
+    s.sub("Put them on the server")
+    s.bullets([
+        f"<b>In the browser:</b> {B('Media')} › choose {B('Workout')} (one .awt, .json or Zwift .zwo file) or "
+        f"{B('Training plan')} (one .awplan file) › choose the file › {B('Upload')}.",
+        f"<b>A workout from a station:</b> Workouts › select the workout › {B('Export')} › "
+        f"{B('Send selected workout to the server')} (or {B('Send all my workouts to the server')}).",
+        f"<b>A plan from a station:</b> Calendar › {B('Plans')} › {B('Export weeks as a plan…')} › choose the "
+        f"weeks and a name › {B('Send to Server')}.",
+    ])
+    s.sub("Get them on a station")
+    s.bullets([
+        f"<b>Workouts</b> arrive in the workout library by themselves. Workouts › {B('Import')} shows the "
+        f"server's workouts; {B('Add to Workouts')} adds one again, for example after it was deleted on the "
+        "station. A workout that is already in the library (for example a built-in one) is never added twice.",
+        f"<b>Training plans</b> are imported when you want them: Calendar › {B('Add')} › {B('Import plan…')} "
+        f"(or {B('Plans')} › {B('Import a plan…')}) shows the server's plans › {B('Import…')} › choose the day "
+        f"for day 1 › {B('Import')}.",
+    ])
+    s.note("A station updated from an older version (before 2.2.0) fetches the server's list once from the "
+           "start, so workouts and plans put on the server before the update arrive too.")
 
     s.section("Ride together")
     s.p("When two or more stations are on the same GPX route while the server is on, they see "

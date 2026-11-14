@@ -66,6 +66,11 @@ ImportResult parseFile(const QString &path);
 
 // Categories an imported workout may have (same as the Builder offers).
 QStringList allowedCategories();
+// The file name extensions parseData() reads by name (lower case, no dot):
+// awt, json, zwo, xml. The server's media library takes them as workouts,
+// except xml (a video route's file there): MEDIA_WORKOUT_EXTENSIONS,
+// tst_mediasync checks.
+QStringList importSuffixes();
 // Format from a file name: ".zwo"/".xml" -> Zwo, everything else -> Awt.
 Format formatForFileName(const QString &fileName);
 // Turns a workout name into a safe file name (without extension).

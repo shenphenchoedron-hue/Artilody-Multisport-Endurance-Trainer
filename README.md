@@ -39,14 +39,28 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 | **Treadmill Run** | Run on any FTMS treadmill through the same 3D world – GPX routes or the built-in *Artilody Lakeside 10K*. Running workouts in % of your **AnT** (anaerobic threshold) or km/h, a built-in 30-min AnT test with reminders, running zones. The treadmill is only read, never controlled. |
 | **Rowing (Concept2 PM5)** | Free Row, Watt Plan and Ghost Race against your personal best over Bluetooth LE. |
 | **History & export** | Distance, Effort Power / Intensity Ratio / Training Load, time in zones, charts; export to **FIT** (Strava, Garmin Connect, TrainingPeaks, intervals.icu) and CSV. |
-| **Training together (new in 2.0)** | Optional server at home (XAMPP on Windows/Mac, or one script on Debian, Ubuntu, Raspberry Pi): shared riders, a media library for GPX routes and videos, every station's training in History and **analysed in the browser**, the ghost races other riders, and riders and runners on the same GPX route **see each other live** – run on the treadmill with someone who rides. |
+| **Training together (new in 2.0)** | Optional server at home (XAMPP on Windows/Mac, or one script on Debian, Ubuntu, Raspberry Pi): shared riders, a media library for GPX routes, videos, workouts and training plans, every station's training in History and **analysed in the browser**, the ghost races other riders, and riders and runners on the same GPX route **see each other live** – run on the treadmill with someone who rides. |
 | **Ghost & pacer** | Race an earlier ride on the same GPX route (yours or another rider's), or a **pacer** at a fixed W/kg – adjustable during the ride. |
 | **Music, profiles & more** | Built-in music player, multiple rider profiles with zones, light/dark theme, virtual devices to try everything without hardware. |
 | **Platforms** | Windows 10/11, macOS 12+ (Apple Silicon & Intel), Debian 12, Ubuntu 24.04 and **Raspberry Pi OS** (Pi 3/4/5/400, scales down to the 7" display). Fully offline. |
 
 ---
 
-## What's new in 2.1.3
+## What's new in 2.2.0
+
+**Workouts and training plans on the server.** The server's media library now holds workouts and training plans too, not only GPX routes and videos – a coach (or you) puts them on the server once, and every station has them.
+
+- **No extra buttons – Import and Export follow the server.** With *Settings → Server* on, the existing buttons use the server instead of the computer's disk; with the server off they work with files exactly as before.
+  - **Workouts:** *Import* opens the server's workouts; *Export* (and the workout's **⋯** menu) becomes *Send selected workout to the server* / *Send all my workouts to the server*.
+  - **Calendar:** *Import plan…* (in the **Add** dialog and under *Plans*) opens the server's training plans and puts day 1 on the day you chose; *Plans → Export weeks as a plan…* sends the plan to the server.
+- **Workouts arrive by themselves.** A workout put on the server is added to every station's workout library when it next finds the server, with a short message. One that is already there (e.g. a built-in workout) is not added twice; *Add to Workouts* in the server's list adds one again after you deleted it.
+- **Plans when you want them.** A training plan is fetched only when you import it, and opens in the usual import view (day 1 on the date you choose).
+- **Upload in the browser too.** The server's *Media* page takes *Workout* (`.awt`, `.json` or Zwift `.zwo`) and *Training plan* (`.awplan`) besides GPX and video routes.
+- A station updated from an older version fetches the server's list once from the start, so workouts and plans put on the server before the update arrive too.
+
+**Update:** install 2.2.0 on every station **and update the server**: Raspberry Pi / Debian / Ubuntu – unzip the new artilody-server zip from the release, `cd artilody`, `sudo bash install.sh`; XAMPP – copy the new folder over the old one. No database change on the stations or the server.
+
+## Also included from 2.1.3
 
 **Name signs with two riders too.** The name sign over the other rider's head in 3D now shows whenever someone else is on the route – also when you are only two (before, it appeared only from three riders on). Only the app changes – install over 2.1.2 on the stations.
 
@@ -480,7 +494,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.1.3](#whats-new-in-213)
+- [What's new in 2.2.0](#whats-new-in-220)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
@@ -620,7 +634,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
   <img src="docs/screenshots/calendar.png" alt="Workout calendar" width="820">
 </p>
 
-- **Training plans**: *Plans → Export weeks as a plan…* saves weeks of your calendar as one shareable *.awplan* file with its workouts and GPX routes (video rides keep only the route name; free rides / rows / runs their kind and duration). *Import plan…* (also from the **+** on a day) shows the plan, then puts day 1 on the date you choose – existing workouts are reused, GPX routes go into your GPX library, and video rides are linked to a video of the same name or wait for yours. **GPX Ride**, **Free Row** and **Free Run** can be planned too.
+- **Training plans**: *Plans → Export weeks as a plan…* saves weeks of your calendar as one shareable *.awplan* file with its workouts and GPX routes (video rides keep only the route name; free rides / rows / runs their kind and duration). *Import plan…* (also from the **+** on a day) shows the plan, then puts day 1 on the date you choose – existing workouts are reused, GPX routes go into your GPX library, and video rides are linked to a video of the same name or wait for yours. **GPX Ride**, **Free Row** and **Free Run** can be planned too. With a [server](#training-together-network-server) (*Settings → Server* on), *Import plan…* opens the server's training plans and *Export weeks as a plan…* sends the plan to the server, so every station can import it.
 
 ### Row (Concept2 PM5)
 - **Concept2 PM5 over Bluetooth LE**: on the PM5 choose *More Options → Turn Wireless ON → Connect Device*, then connect it under **Devices → Rowers (Concept2 PM5)**. A **Virtual Rower** lets you try everything without a rower. Opening the Rowing page gets the row ready (*Ready – press Start*); strokes on the rower never start it. Heart rate comes from a connected heart-rate strap if you have one, otherwise from the PM5.
@@ -648,7 +662,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 - **Workout library** with 8 built-in workouts (Sweet Spot, Endurance, VO₂ Max, Threshold, Tempo, Over-Unders, Recovery and a Ramp FTP Test). It has search, category filters, sorting, favourites and a preview, and lets you duplicate or delete workouts. Built-in workouts can't be deleted.
 - **Cycling and rowing workouts**: every workout has a sport. The library shows *Cycling*/*Rowing* badges and a sport filter, rowing workouts have a **Row Workout** button, and the Builder has a Cycling/Rowing selector (rowing targets use your rowing FTP and stroke rate in SPM). Any workout can be added to the calendar.
 - **Workout Builder**, a visual editor: add blocks from presets (Warm Up, Steady, Intervals, Recovery, Cool Down, Ramp) and set the duration, target in watts or % FTP, ramp end power, cadence and RPE. The preview updates as you edit. If you edit a built-in workout, it is saved as your own copy. **Reorder** a block by dragging the ⋮⋮ grip strip at the top of its card (a blue line shows where it lands), with the ‹ / › buttons on the card, from the right-click menu (Move earlier/later, Move to start/end, Duplicate, Delete) or with Alt+←/→ or Alt+↑/↓ (⌥ on a Mac) for the selected block. **Delete** a block with the red trash button on its card. A hint line above the block list and tooltips on every button explain this.
-- **Share workouts**: export any workout as an Artilody `.awt` file or a Zwift `.zwo` file, export all your own workouts in one file, and import `.awt`/`.zwo` files from friends, coaches or other apps (Zwift, TrainerRoad, Golden Cheetah, MyWhoosh, …). See [Sharing workouts](#sharing-workouts).
+- **Share workouts**: export any workout as an Artilody `.awt` file or a Zwift `.zwo` file, export all your own workouts in one file, and import `.awt`/`.zwo` files from friends, coaches or other apps (Zwift, TrainerRoad, Golden Cheetah, MyWhoosh, …). With a server, Import and Export use the server's workouts instead. See [Sharing workouts](#sharing-workouts).
 - **FTP test**: when you finish an FTP test workout, the app estimates your FTP and asks whether to update your profile. A ramp test (the built-in *Ramp FTP Test*, or a test whose main block is a rising ramp) uses 75 % of your best 1-minute power; a 20-minute test (an *FTP Tests* workout with a block of 20 minutes or more) uses 95 % of your best 20-minute power. You can also pick any FTP test ride in History and use it as your FTP.
 
 ### Analyse
@@ -820,7 +834,7 @@ Optional: one computer in your home (or club) becomes the server, and every trai
 | macOS | XAMPP + the folder in `/Applications/XAMPP/xamppfiles/htdocs`, then `setup.php` | `192.168.x.x/artilody` |
 | Raspberry Pi OS, Debian, Ubuntu | unzip `artilody-server-<version>.zip`, `cd artilody`, `sudo bash install.sh` | `192.168.x.x` |
 
-What it gives you: shared riders, a media library (GPX routes and videos), every station's training in History and in the browser (`http://<server>/training.php`), ghosts from other stations and riders, and live riding together on GPX routes. The server is for your home network only – never forward ports to it. Everything is explained for non-experts in the **[Network Server Manual](docs/Artilody-Network-Server-Manual.pdf)**; the server code is in [`server/`](server/).
+What it gives you: shared riders, a media library (GPX routes, videos, workouts and training plans), every station's training in History and in the browser (`http://<server>/training.php`), ghosts from other stations and riders, and live riding together on GPX routes. The server is for your home network only – never forward ports to it. Everything is explained for non-experts in the **[Network Server Manual](docs/Artilody-Network-Server-Manual.pdf)**; the server code is in [`server/`](server/).
 
 <p align="center">
   <img src="docs/screenshots/network/web-training.png" alt="The server's training analysis in the browser" width="700">
@@ -840,6 +854,8 @@ What it gives you: shared riders, a media library (GPX routes and videos), every
 ## Sharing workouts
 
 On the **Workouts** page, click **Export** in the filter bar (next to **Import**) and choose **Export selected workout…** to save the selected workout, or **Export all my workouts…** to save all your own workouts in one file. The selected workout can also be exported with the share button next to **Edit** at the bottom of the Workout Preview (or from its **⋯** menu). Use the **Import** button to import one or more files. To write workouts on another computer (or without the app), use the companion **[Artilody Workout Creator](https://github.com/shenphenchoedron-hue/Artilody-Workout-Creator)** – it creates `.awt` and `.zwo` cycling and rowing workouts you can import here.
+
+**With a server** (*Settings → Server* on) the same buttons use the server instead of files: **Import** opens the server's workouts, and **Export** sends the selected workout (or all your own) to the server. Every station adds the server's workouts to its library by itself – a workout already there is not added twice. Workouts can also be uploaded in the browser on the server's *Media* page (`.awt`, `.json` or `.zwo`). With the server off, Import and Export work with files as described here.
 
 | Format | Best for | Notes |
 |---|---|---|

@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS pictures (
 -- file is kept once. A deleted item stays as a tombstone (deleted = 1).
 INSERT IGNORE INTO counters (k, v) VALUES ('media', 0);
 
--- kind: 'gpx' (one .gpx) or 'video' (a folder: video + .gpx [+ .xml]).
+-- kind: 'gpx' (one .gpx), 'video' (a folder: video + .gpx [+ .xml]),
+-- 'workout' (one .awt / .json / .zwo) or 'plan' (one .awplan).
 -- folder: the video route's folder name on the stations ('' for gpx).
 CREATE TABLE IF NOT EXISTS media (
     uuid CHAR(36) NOT NULL PRIMARY KEY,

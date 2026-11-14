@@ -5,6 +5,7 @@
 #include "RlvLibrary.h"
 #include "RlvRoute.h"
 #include "ServerConnection.h"
+#include "WorkoutIO.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -24,11 +25,33 @@ namespace watt {
 namespace {
 const QString kServerIdKey = QStringLiteral("server/mediaServerId");
 const QString kRevKey = QStringLiteral("server/mediaRev");
+// The kinds this version keeps (1: gpx / video, 2: + workout / plan). A list
+// fetched by an older version skipped the newer kinds but kept the server's
+// rev: on an update it is fetched once from the start.
+const QString kKindsKey = QStringLiteral("server/mediaKinds");
+constexpr int kKindsVersion = 2;
 
 bool isSha1(const QString &s)
 {
     static const QRegularExpression re(QStringLiteral("^[0-9a-f]{40}$"));
     return re.match(s).hasMatch();
+}
+
+// a uuid as the server makes them, exactly (it becomes part of a file path:
+// QUuid() alone accepts anything after the first 36 characters)
+bool isUuid(const QString &s)
+{
+    static const QRegularExpression re(QStringLiteral("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"));
+    return re.match(s).hasMatch();
+}
+
+// the file name extensions a workout / plan item may have here (the server's
+// MEDIA_WORKOUT_EXTENSIONS / MEDIA_PLAN_EXTENSIONS)
+bool fileSuffixAllowed(const QString &kind, const QString &suffix)
+{
+    if (kind == QLatin1String("workout"))
+        return suffix != QLatin1String("xml") && workoutio::importSuffixes().contains(suffix);
+    return kind == QLatin1String("plan") && suffix == QLatin1String("awplan");
 }
 
 // sha1 of a file; stops (returns "") when cancelled. done: bytes read so far (added to).
@@ -197,8 +220,14 @@ void MediaSync::serverAnswered(const QString &baseUrl, const QString &serverId, 
         m_db->clearServerMedia();
         m_db->setSetting(kRevKey, 0);
         m_db->setSetting(kServerIdKey, serverId);
+        m_db->setSetting(kKindsKey, kKindsVersion);
         m_media.clear();
         rebuildItems();
+    } else if (m_db->setting(kKindsKey, 1).toInt() < kKindsVersion) {
+        // updated from a version that skipped the newer kinds: the list once more
+        // from the start (what is here stays, with where it is)
+        m_db->setSetting(kRevKey, 0);
+        m_db->setSetting(kKindsKey, kKindsVersion);
     }
     if (m_state == QLatin1String("off"))
         setState(QStringLiteral("idle"));
@@ -246,11 +275,11 @@ void MediaSync::applyList(const QJsonObject &o)
     for (const QJsonValue &v : o.value(QStringLiteral("media")).toArray()) {
         const QJsonObject j = v.toObject();
         const ServerMedia m = mediaFromJson(j);
-        if (QUuid(m.uuid).isNull())
+        if (!isUuid(m.uuid))
             continue;
         if (j.value(QStringLiteral("deleted")).toBool()) {
             m_db->removeServerMedia(m.uuid);   // (the copy here stays)
-        } else if ((m.kind == QLatin1String("gpx") || m.kind == QLatin1String("video")) && !m.files.isEmpty()) {
+        } else if ((m.kind == QLatin1String("gpx") || m.kind == QLatin1String("video") || isFileKind(m.kind)) && !m.files.isEmpty()) {
             m_db->storeServerMedia(m);
         }
         ++n;
@@ -266,7 +295,7 @@ bool MediaSync::localValid(const ServerMedia &m) const
 {
     if (m.localPath.isEmpty())
         return false;
-    if (m.kind == QLatin1String("gpx"))
+    if (m.kind == QLatin1String("gpx") || isFileKind(m.kind))
         return QFileInfo(m.localPath).isFile();
     for (const ServerMediaFile &f : m.files) {
         if (isVideoFile(f.name)) {
@@ -283,7 +312,10 @@ void MediaSync::refreshLocal()
         if (localValid(m))
             continue;
         QString found;
-        if (m.kind == QLatin1String("gpx") && m.files.size() == 1 && m_gpx) {
+        if (isFileKind(m.kind)) {
+            if (QFileInfo(fileTarget(m)).isFile())
+                found = fileTarget(m);
+        } else if (m.kind == QLatin1String("gpx") && m.files.size() == 1 && m_gpx) {
             // a .gpx with the same content (by size, then sha1)
             const ServerMediaFile &f = m.files.first();
             QStringList candidates;
@@ -342,6 +374,16 @@ QString MediaSync::gpxTarget(const ServerMedia &m, bool copy) const
     return QString();
 }
 
+QString MediaSync::fileTarget(const ServerMedia &m) const
+{
+    if (m_fileFolder.isEmpty() || m.files.isEmpty() || !isFileKind(m.kind) || !isUuid(m.uuid))
+        return QString();
+    const QString suffix = QFileInfo(m.files.first().name).suffix().toLower();
+    if (!fileSuffixAllowed(m.kind, suffix))
+        return QString();
+    return QDir(m_fileFolder).filePath(QStringLiteral("%1/%2.%3").arg(m.kind, m.uuid, suffix));
+}
+
 void MediaSync::rebuildItems()
 {
     QVariantList list;
@@ -393,7 +435,9 @@ void MediaSync::queueAutomatic()
     if (m_url.isEmpty() || busy())
         return;
     for (const ServerMedia &m : std::as_const(m_media)) {
-        if (m.kind != QLatin1String("gpx") || localValid(m) || QFileInfo::exists(gpxTarget(m, false)))
+        if (m.kind == QLatin1String("workout") ? (localValid(m) || !m_importWorkout || fileTarget(m).isEmpty())
+                                                : (m.kind != QLatin1String("gpx") || localValid(m)
+                                                   || QFileInfo::exists(gpxTarget(m, false))))
             continue;
         const bool known = (m_job && m_job->uuid == m.uuid)
                            || std::any_of(m_queue.begin(), m_queue.end(), [&](const Job &j) { return j.uuid == m.uuid; });
@@ -421,6 +465,85 @@ bool MediaSync::download(const QString &uuid)
     j.uuid = uuid;
     j.name = m->name;
     j.copy = m->kind == QLatin1String("gpx") && !localValid(*m) && QFileInfo::exists(gpxTarget(*m, false));
+    enqueue(j);
+    startNext();
+    return true;
+}
+
+bool MediaSync::importPlan(const QString &uuid)
+{
+    const std::optional<ServerMedia> m = item(uuid);
+    if (!m || m->kind != QLatin1String("plan")) {
+        setState(m_state, QStringLiteral("not on the server any more"));
+        return false;
+    }
+    if (localValid(*m)) {
+        emit planReady(m->localPath, m->name);
+        return true;
+    }
+    Job j;
+    j.uuid = uuid;
+    j.name = m->name;
+    j.openPlan = true;
+    enqueue(j);
+    startNext();
+    return true;
+}
+
+bool MediaSync::addWorkout(const QString &uuid)
+{
+    const std::optional<ServerMedia> m = item(uuid);
+    if (!m || m->kind != QLatin1String("workout")) {
+        setState(m_state, QStringLiteral("not on the server any more"));
+        return false;
+    }
+    if (!localValid(*m))
+        return download(uuid);   // (added to the library when it is here: downloadFile)
+    const int added = m_importWorkout ? m_importWorkout(m->localPath) : 0;
+    emit transferFinished(true, added > 0 ? QStringLiteral("%1 added to your workouts").arg(m->name)
+                                          : QStringLiteral("%1 is in your workouts already").arg(m->name),
+                          QString());
+    return true;
+}
+
+QString MediaSync::outgoingDir() const
+{
+    return m_fileFolder.isEmpty() ? QString() : QDir(m_fileFolder).absoluteFilePath(QStringLiteral("outgoing"));
+}
+
+QString MediaSync::outgoingFile(const QString &name, const QString &suffix)
+{
+    const QString dirPath = outgoingDir();
+    if (dirPath.isEmpty() || !QDir().mkpath(dirPath))
+        return QString();
+    QString base = safeName(name).simplified().left(100);
+    if (base.isEmpty())
+        base = QStringLiteral("file");
+    // a file of its own for each send: one still waiting to go is never
+    // overwritten by the next (the name on the server is uploadFile()'s name)
+    const QString tag = QUuid::createUuid().toString(QUuid::Id128).left(8);
+    return QDir(dirPath).filePath(QStringLiteral("%1-%2.%3").arg(base, tag, safeName(suffix)));
+}
+
+bool MediaSync::hasItem(const QString &kind, const QString &name) const
+{
+    return std::any_of(m_media.begin(), m_media.end(), [&](const ServerMedia &m) {
+        return m.kind == kind && m.name.compare(name.simplified(), Qt::CaseInsensitive) == 0;
+    });
+}
+
+bool MediaSync::uploadFile(const QString &fileOrUrl, const QString &kind, const QString &name)
+{
+    const QString path = RlvLibrary::toLocalPath(fileOrUrl);
+    if (!isFileKind(kind) || !QFileInfo(path).isFile()) {
+        setState(m_state, QStringLiteral("the file to send is missing"));
+        return false;
+    }
+    Job j;
+    j.type = Job::Upload;
+    j.kind = kind;
+    j.path = path;
+    j.name = name.simplified().isEmpty() ? QFileInfo(path).completeBaseName() : name.simplified();
     enqueue(j);
     startNext();
     return true;
@@ -559,7 +682,14 @@ void MediaSync::startDownload()
         return;
     }
     m_transferKind = QStringLiteral("download");
-    if (m->kind == QLatin1String("gpx")) {
+    if (isFileKind(m->kind)) {
+        m_jobTarget = fileTarget(*m);
+        if (m_jobTarget.isEmpty() || !QDir().mkpath(QFileInfo(m_jobTarget).absolutePath())) {
+            endJob(false, QStringLiteral("no folder for the server's files"));
+            return;
+        }
+        m_steps.append({ m_jobTarget, m->files.first() });
+    } else if (m->kind == QLatin1String("gpx")) {
         if (!m_gpx) {
             endJob(false, QStringLiteral("no GPX library"));
             return;
@@ -617,7 +747,24 @@ void MediaSync::downloadFile(int index)
             if (m.uuid == m_job->uuid)
                 m.localPath = m_jobTarget;
         const std::optional<ServerMedia> m = item(m_job->uuid);
-        scheduleRescan(m && m->kind == QLatin1String("video") ? m_videos.data() : m_gpx.data());
+        if (m && m->kind == QLatin1String("workout")) {
+            const int added = m_importWorkout ? m_importWorkout(m_jobTarget) : 0;
+            DiagLog::write("SYNC", added > 0 ? QStringLiteral("media: workout %1 added to the library").arg(m->name)
+                                             : QStringLiteral("media: workout %1 is in the library already").arg(m->name));
+            // told also when fetched by itself (a new workout in the list); one
+            // already there (e.g. a built-in one) only when asked
+            if (added > 0 || !m_job->automatic) {
+                emit transferFinished(true, added > 0 ? QStringLiteral("%1 added to your workouts").arg(m->name)
+                                                      : QStringLiteral("%1 is in your workouts already").arg(m->name),
+                                      QString());
+                m_job->automatic = true;   // (told: not "downloaded" as well, endJob)
+            }
+        } else if (m && m->kind == QLatin1String("plan")) {
+            if (m_job->openPlan)
+                emit planReady(m_jobTarget, m->name);
+        } else {
+            scheduleRescan(m && m->kind == QLatin1String("video") ? m_videos.data() : m_gpx.data());
+        }
         endJob(true);
         return;
     }
@@ -721,6 +868,21 @@ void MediaSync::finishFile(int index)
 
 void MediaSync::startUpload()
 {
+    if (isFileKind(m_job->kind)) {
+        // a workout / plan file: one step, then the item
+        FileStep s;
+        s.local = m_job->path;
+        s.file.name = safeName(m_job->name + QLatin1Char('.') + QFileInfo(m_job->path).suffix().toLower());
+        s.file.size = QFileInfo(m_job->path).size();
+        m_steps.append(s);
+        m_jobBytes = s.file.size;
+        m_jobTarget.clear();   // (kept in m_fileFolder once on the server: sendItem)
+        m_uploadItem = QJsonObject { { QStringLiteral("kind"), m_job->kind }, { QStringLiteral("name"), m_job->name },
+                                     { QStringLiteral("folder"), QString() },
+                                     { QStringLiteral("station"), QSysInfo::machineHostName().left(90) } };
+        startHashing({ m_job->path });
+        return;
+    }
     RlvLibrary *lib = m_job->kind == QLatin1String("video") ? m_videos.data() : m_gpx.data();
     const int row = lib ? lib->indexOfPath(m_job->path) : -1;
     if (row < 0) {
@@ -757,7 +919,12 @@ void MediaSync::startUpload()
         { QStringLiteral("station"), QSysInfo::machineHostName().left(90) },
     };
 
-    // 1. the files' sha1 (worker thread: a video is GBs)
+    startHashing(paths);
+}
+
+// 1. the files' sha1 (worker thread: a video is GBs)
+void MediaSync::startHashing(const QStringList &paths)
+{
     m_transferKind = QStringLiteral("checking");
     emit transferChanged();
     m_hashCancel = std::make_shared<std::atomic<bool>>(false);
@@ -909,12 +1076,26 @@ void MediaSync::sendItem()
          [this](QNetworkReply *r) {
              const QJsonObject o = QJsonDocument::fromJson(r->readAll()).object();
              const ServerMedia m = mediaFromJson(o.value(QStringLiteral("item")).toObject());
-             if (QUuid(m.uuid).isNull()) {
+             if (!isUuid(m.uuid)) {
                  endJob(false, QStringLiteral("the server did not take the route"));
                  return;
              }
              m_db->storeServerMedia(m);
-             m_db->setServerMediaLocalPath(m.uuid, m_jobTarget);
+             QString here = m_jobTarget;
+             if (isFileKind(m.kind)) {
+                 // (a copy kept with the server's files: it is "here", not fetched again)
+                 here = fileTarget(m);
+                 if (!here.isEmpty()) {
+                     QDir().mkpath(QFileInfo(here).absolutePath());
+                     QFile::remove(here);
+                     if (!QFile::copy(m_steps.first().local, here))
+                         here.clear();
+                 }
+                 // (a file of outgoingFile(): done with - never another file of the user's)
+                 if (QFileInfo(m_steps.first().local).absolutePath() == outgoingDir())
+                     QFile::remove(m_steps.first().local);
+             }
+             m_db->setServerMediaLocalPath(m.uuid, here);
              m_media = m_db->serverMedia();
              endJob(true);
          });

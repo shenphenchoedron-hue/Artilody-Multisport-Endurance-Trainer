@@ -83,6 +83,10 @@ public:
     // Imports .awt/.json/.zwo files as custom workouts. Returns the number imported.
     Q_INVOKABLE int importFile(const QUrl &file);
     Q_INVOKABLE int importFiles(const QList<QUrl> &files);
+    // A workout file from the server's media library (MediaSync): its new
+    // workouts added (duplicates skipped), quietly - the selection, filter and
+    // message stay. The number added.
+    int importFromServer(const QString &path);
     // format: "awt", "zwo" or "all" (bulk export of custom workouts).
     Q_INVOKABLE QUrl suggestedExportUrl(qint64 id, const QString &format) const;
 

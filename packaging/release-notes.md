@@ -1,6 +1,20 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.1.3
+## What's new in 2.2.0
+
+**Workouts and training plans on the server.** The server's media library now holds workouts and training plans too, not only GPX routes and videos – a coach (or you) puts them on the server once, and every station has them.
+
+- **No extra buttons – Import and Export follow the server.** With *Settings → Server* on, the existing buttons use the server instead of the computer's disk; with the server off they work with files exactly as before.
+  - **Workouts:** *Import* opens the server's workouts; *Export* (and the workout's **⋯** menu) becomes *Send selected workout to the server* / *Send all my workouts to the server*.
+  - **Calendar:** *Import plan…* (in the **Add** dialog and under *Plans*) opens the server's training plans and puts day 1 on the day you chose; *Plans → Export weeks as a plan…* sends the plan to the server.
+- **Workouts arrive by themselves.** A workout put on the server is added to every station's workout library when it next finds the server, with a short message. One that is already there (e.g. a built-in workout) is not added twice; *Add to Workouts* in the server's list adds one again after you deleted it.
+- **Plans when you want them.** A training plan is fetched only when you import it, and opens in the usual import view (day 1 on the date you choose).
+- **Upload in the browser too.** The server's *Media* page takes *Workout* (`.awt`, `.json` or Zwift `.zwo`) and *Training plan* (`.awplan`) besides GPX and video routes.
+- A station updated from an older version fetches the server's list once from the start, so workouts and plans put on the server before the update arrive too.
+
+**Update:** install 2.2.0 on every station **and update the server**: Raspberry Pi / Debian / Ubuntu – unzip the new artilody-server zip from this release, `cd artilody`, `sudo bash install.sh`; XAMPP – copy the new folder over the old one. No database change on the stations or the server.
+
+## Also included from 2.1.3
 
 **Name signs with two riders too.** The name sign over the other rider's head in 3D now shows whenever someone else is on the route – also when you are only two (before, it appeared only from three riders on). Only the app changes – install over 2.1.2 on the stations.
 

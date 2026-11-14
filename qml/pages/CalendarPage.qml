@@ -40,6 +40,7 @@ Item {
         if (w && typeof w.showPage === "function")
             w.showPage(name)
     }
+    signal openServerPlans()   // (Main: the server's training plans)
     function toast(text) {
         var w = ApplicationWindow.window
         if (w && typeof w.showToast === "function")
@@ -1240,15 +1241,44 @@ Item {
         return addDays(iso, -back)
     }
     property string importTargetIso: ""
+    // a plan of the server, fetched (MediaLibrary.planReady): the import dialog
+    // for it, day 1 on the day importPlanFor() was asked for
+    function importPlanFile(path) {
+        if (importTargetIso.length === 0)
+            importTargetIso = page.selectedDate || todayIso
+        importDialog.openFile(path)
+    }
+    // Import a plan: the server's plans when the app uses the server
+    // (Settings › Server on), otherwise a file on this computer.
     function importPlanFor(iso) {
         importTargetIso = iso || todayIso
-        planOpenDialog.open()
+        if (Server.active)
+            page.openServerPlans()
+        else
+            planOpenDialog.open()
     }
     FileDialog {
         id: planOpenDialog
         title: "Import a training plan"
         nameFilters: ["Training plans (*.awplan)", "All files (*)"]
         onAccepted: importDialog.openFile(selectedFile.toString())
+    }
+    function savePlanFile() {
+        planSaveDialog.selectedFile = Planner.suggestedPlanUrl(planName.text)
+        planSaveDialog.open()
+    }
+    function sendPlanToServer() {
+        var f = MediaLibrary.outgoingFile(planName.text, "awplan")
+        if (f.length === 0) {
+            page.toast("Could not prepare the plan for the server")
+        } else if (!Planner.exportPlan(exportDialog.firstIso, Math.round(exportWeeks.value), planName.text, planDesc.text, f)) {
+            page.toast(Planner.lastError)
+        } else if (!MediaLibrary.uploadFile(f, "plan", planName.text)) {
+            page.toast(MediaLibrary.message)
+        } else {
+            exportDialog.close()
+            page.toast("Sending " + planName.text + " to the server …")
+        }
     }
     FileDialog {
         id: planSaveDialog
@@ -1378,15 +1408,15 @@ Item {
             spacing: 12
             Item { Layout.fillWidth: true }
             AppButton { Layout.preferredHeight: 52; kind: "secondary"; bold: false; text: "Cancel"; onClicked: exportDialog.close() }
+            // Export: to the server when the app uses it (the other stations
+            // import it there), otherwise into a file on this computer
             AppButton {
                 Layout.preferredHeight: 52
                 iconName: "share"
-                text: "Export…"
+                text: Server.active ? "Send to Server" : "Export…"
                 enabled: exportDialog.preview.length > 0
-                onClicked: {
-                    planSaveDialog.selectedFile = Planner.suggestedPlanUrl(planName.text)
-                    planSaveDialog.open()
-                }
+                         && (!Server.active || (MediaLibrary.serverThere && planName.text.trim().length > 0))
+                onClicked: Server.active ? page.sendPlanToServer() : page.savePlanFile()
             }
         }
     }

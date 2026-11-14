@@ -5,6 +5,7 @@
 #include "MediaSync.h"
 #include "RlvLibrary.h"
 #include "RlvRoute.h"
+#include "WorkoutIO.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -474,6 +475,190 @@ private slots:
 
         // not a route of the library: refused
         QVERIFY(!f.sync->upload(f.dir.filePath(QStringLiteral("nope.gpx")), QStringLiteral("gpx")));
+    }
+
+    void workoutsByThemselvesPlansWhenAsked()
+    {
+        Fixture f;
+        f.sync->setFileFolder(f.dir.filePath(QStringLiteral("server-files")));
+        QStringList imported;
+        f.sync->setWorkoutImporter([&](const QString &path) { imported << path; return 1; });
+        const QByteArray awt = "{\"format\":\"artilody-watts-trainer/workouts\",\"workouts\":[]}";
+        const QByteArray plan = "{\"format\":\"artilody-watts-trainer/plan\"}";
+        const QString w = f.server.add(QStringLiteral("workout"), QStringLiteral("Sweet spot"), { { QStringLiteral("Sweet spot.awt"), awt } });
+        const QString p = f.server.add(QStringLiteral("plan"), QStringLiteral("8 weeks"), { { QStringLiteral("8 weeks.awplan"), plan } });
+        f.answer();
+        QVERIFY(f.idle());
+        // the workout arrived by itself and went to the library; the plan waits
+        QCOMPARE(imported.size(), 1);
+        QCOMPARE(Fixture::read(imported.first()), awt);
+        QVERIFY(imported.first().endsWith(QLatin1String(".awt")));   // (its format by the suffix)
+        QCOMPARE(f.stateOf(w), QStringLiteral("local"));
+        QCOMPARE(f.stateOf(p), QStringLiteral("available"));
+        QVERIFY(f.sync->hasItem(QStringLiteral("workout"), QStringLiteral("sweet spot")));
+        QVERIFY(!f.sync->hasItem(QStringLiteral("plan"), QStringLiteral("Sweet spot")));
+        QCOMPARE(f.server.blobGets, 1);
+
+        // not imported again next time
+        f.answer();
+        QVERIFY(f.idle());
+        QCOMPARE(imported.size(), 1);
+
+        // the plan asked for: fetched, then planReady (the Calendar imports it)
+        QSignalSpy ready(f.sync.get(), &MediaSync::planReady);
+        QVERIFY(f.sync->importPlan(p));
+        QVERIFY(f.idle());
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(Fixture::read(ready.first().at(0).toString()), plan);
+        QCOMPARE(ready.first().at(1).toString(), QStringLiteral("8 weeks"));
+        QCOMPARE(f.stateOf(p), QStringLiteral("local"));
+        // again: from here, without fetching
+        const int gets = f.server.blobGets;
+        QVERIFY(f.sync->importPlan(p));
+        QCOMPARE(ready.count(), 2);
+        QCOMPARE(f.server.blobGets, gets);
+        QVERIFY(!f.sync->importPlan(w));   // (a workout is not a plan)
+
+        // a workout added again when asked (e.g. deleted in the library): from the copy here
+        QSignalSpy finished(f.sync.get(), &MediaSync::transferFinished);
+        QVERIFY(f.sync->addWorkout(w));
+        QCOMPARE(imported.size(), 2);
+        QCOMPARE(f.server.blobGets, gets);
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(0).toBool());
+        QVERIFY(!f.sync->addWorkout(p));   // (a plan is not a workout)
+    }
+
+    void workoutAndPlanUploads()
+    {
+        Fixture f;
+        f.sync->setFileFolder(f.dir.filePath(QStringLiteral("server-files")));
+        int imported = 0;
+        f.sync->setWorkoutImporter([&](const QString &) { return ++imported; });
+        f.answer();
+        QVERIFY(f.idle());
+        const QString out = f.sync->outgoingFile(QStringLiteral("Over/under"), QStringLiteral("awt"));
+        QVERIFY(!out.isEmpty());
+        QVERIFY(!QFileInfo(out).fileName().contains(QLatin1Char('/')));
+        const QByteArray awt = "{\"format\":\"artilody-watts-trainer/workouts\",\"workouts\":[1]}";
+        Fixture::write(out, awt);
+        QSignalSpy finished(f.sync.get(), &MediaSync::transferFinished);
+        QVERIFY(f.sync->uploadFile(out, QStringLiteral("workout"), QStringLiteral("Over/under")));
+        QVERIFY(f.idle());
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(0).toBool());
+        QCOMPARE(f.server.media.size(), 1);
+        const QJsonObject item = f.server.media.first();
+        QCOMPARE(item.value(QStringLiteral("kind")).toString(), QStringLiteral("workout"));
+        QCOMPARE(item.value(QStringLiteral("name")).toString(), QStringLiteral("Over/under"));
+        QVERIFY(f.server.blobs.contains(sha1(awt)));
+        // here already (the station's own): not fetched back, not imported twice
+        QCOMPARE(f.stateOf(f.server.media.firstKey()), QStringLiteral("local"));
+        QVERIFY(f.sync->hasItem(QStringLiteral("workout"), QStringLiteral("Over/under")));
+        f.answer();
+        QVERIFY(f.idle());
+        QCOMPARE(f.server.blobGets, 0);
+        QCOMPARE(imported, 0);
+
+        // a plan (as a URL, like QML gives it)
+        const QString planFile = f.sync->outgoingFile(QStringLiteral("Base"), QStringLiteral("awplan"));
+        Fixture::write(planFile, "{\"format\":\"artilody-watts-trainer/plan\"}");
+        QVERIFY(f.sync->uploadFile(QUrl::fromLocalFile(planFile).toString(), QStringLiteral("plan"), QStringLiteral("Base")));
+        QVERIFY(f.idle());
+        QCOMPARE(f.server.media.size(), 2);
+        QVERIFY(f.sync->hasItem(QStringLiteral("plan"), QStringLiteral("Base")));
+
+        // refused: a missing file, another kind
+        QVERIFY(!f.sync->uploadFile(f.dir.filePath(QStringLiteral("nope.awt")), QStringLiteral("workout"), QString()));
+        QVERIFY(!f.sync->uploadFile(planFile, QStringLiteral("gpx"), QString()));
+    }
+
+    void serverNamesNeverLeaveTheFileFolder()
+    {
+        // a uuid / file type from the server becomes part of a path here: only exact ones
+        Fixture f;
+        const QString folder = f.dir.filePath(QStringLiteral("server-files"));
+        f.sync->setFileFolder(folder);
+        int imported = 0;
+        f.sync->setWorkoutImporter([&](const QString &) { return ++imported; });
+        const QByteArray awt = "{\"format\":\"artilody-watts-trainer/workouts\",\"workouts\":[]}";
+        const QString bad = f.server.add(QStringLiteral("workout"), QStringLiteral("Evil"), { { QStringLiteral("e.awt"), awt } });
+        f.server.media[bad][QStringLiteral("uuid")] = bad + QStringLiteral("/../../../evil");   // (QUuid() takes it)
+        const QString exe = f.server.add(QStringLiteral("workout"), QStringLiteral("Exe"), { { QStringLiteral("x.exe"), "MZ" } });
+        f.answer();
+        QVERIFY(f.idle());
+        QCOMPARE(f.sync->items().size(), 1);           // (the bad uuid: skipped)
+        QCOMPARE(f.stateOf(exe), QStringLiteral("available"));
+        QCOMPARE(f.server.blobGets, 0);                 // (no place for an .exe: not fetched)
+        QCOMPARE(imported, 0);
+        QVERIFY(!QFileInfo::exists(f.dir.filePath(QStringLiteral("evil.awt"))));
+        QVERIFY(!QFileInfo::exists(QDir(f.dir.path()).filePath(QStringLiteral("../evil.awt"))));
+    }
+
+    void updatedStationFetchesTheNewKinds()
+    {
+        // an older version saw the list (skipping workouts / plans) and kept the server's rev
+        Fixture f;
+        f.sync->setFileFolder(f.dir.filePath(QStringLiteral("server-files")));
+        int imported = 0;
+        f.sync->setWorkoutImporter([&](const QString &) { return ++imported; });
+        const QString w = f.server.add(QStringLiteral("workout"), QStringLiteral("W"),
+                                       { { QStringLiteral("W.awt"), "{\"format\":\"artilody-watts-trainer/workouts\",\"workouts\":[]}" } });
+        f.db.setSetting(QStringLiteral("server/mediaServerId"), f.server.id);
+        f.db.setSetting(QStringLiteral("server/mediaRev"), f.server.rev);
+        f.answer();
+        QVERIFY(f.idle());
+        QCOMPARE(f.stateOf(w), QStringLiteral("local"));   // (the list once more from the start)
+        QCOMPARE(imported, 1);
+        // only once: later the list goes on from its rev
+        QCOMPARE(f.db.setting(QStringLiteral("server/mediaKinds")).toInt(), 2);
+        f.answer();
+        QVERIFY(f.idle());
+        QCOMPARE(imported, 1);
+    }
+
+    void twoSendsOfOneNameBothArrive()
+    {
+        Fixture f;
+        f.sync->setFileFolder(f.dir.filePath(QStringLiteral("server-files")));
+        f.answer();
+        QVERIFY(f.idle());
+        const QString a = f.sync->outgoingFile(QStringLiteral("Base"), QStringLiteral("awplan"));
+        const QString b = f.sync->outgoingFile(QStringLiteral("Base"), QStringLiteral("awplan"));
+        QVERIFY(a != b);
+        Fixture::write(a, "{\"format\":\"artilody-watts-trainer/plan\",\"weeks\":4}");
+        Fixture::write(b, "{\"format\":\"artilody-watts-trainer/plan\",\"weeks\":8}");
+        QSignalSpy finished(f.sync.get(), &MediaSync::transferFinished);
+        QVERIFY(f.sync->uploadFile(a, QStringLiteral("plan"), QStringLiteral("Base")));
+        QVERIFY(f.sync->uploadFile(b, QStringLiteral("plan"), QStringLiteral("Base")));
+        QVERIFY(f.idle());
+        QCOMPARE(finished.count(), 2);
+        QVERIFY(finished.at(0).at(0).toBool() && finished.at(1).at(0).toBool());
+        QVERIFY(f.server.blobs.contains(sha1("{\"format\":\"artilody-watts-trainer/plan\",\"weeks\":4}")));
+        QVERIFY(f.server.blobs.contains(sha1("{\"format\":\"artilody-watts-trainer/plan\",\"weeks\":8}")));
+        // the outgoing files are done with; a file of the user's sent is kept
+        QVERIFY(!QFileInfo::exists(a) && !QFileInfo::exists(b));
+        const QString mine = f.dir.filePath(QStringLiteral("Mine.awt"));
+        Fixture::write(mine, "{\"format\":\"artilody-watts-trainer/workouts\",\"workouts\":[2]}");
+        QVERIFY(f.sync->uploadFile(mine, QStringLiteral("workout"), QString()));
+        QVERIFY(f.idle());
+        QVERIFY(QFileInfo::exists(mine));
+    }
+
+    void workoutSuffixesMatchTheServer()
+    {
+        // the server takes the workout files the app imports (MEDIA_WORKOUT_EXTENSIONS: workoutio::parseFile)
+        QFile php(QStringLiteral(WATT_SOURCE_DIR "/server/lib/media.php"));
+        QVERIFY(php.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(php.readAll());
+        const QRegularExpressionMatch m = QRegularExpression(QStringLiteral("MEDIA_WORKOUT_EXTENSIONS = \\[([^\\]]*)\\]")).match(text);
+        QVERIFY(m.hasMatch());
+        QStringList server = m.captured(1).remove(QLatin1Char('\'')).remove(QLatin1Char(' ')).split(QLatin1Char(','));
+        QStringList app = workoutio::importSuffixes();
+        app.removeAll(QStringLiteral("xml"));   // (.xml on the server: a video route's file)
+        server.sort();
+        app.sort();
+        QCOMPARE(server, app);
     }
 
     void notDuringARideAndAnotherServer()

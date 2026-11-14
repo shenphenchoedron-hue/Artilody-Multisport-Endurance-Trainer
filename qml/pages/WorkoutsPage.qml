@@ -10,6 +10,7 @@ Item {
     signal editWorkout(int id)
     signal newWorkout()
     signal message(string text)
+    signal openServerLibrary()   // (Main: the server's workouts)
 
     readonly property var sel: Workouts.selected
     readonly property bool selRowing: sel.sport === "rowing"
@@ -167,7 +168,7 @@ Item {
             bold: false
             text: "Import"
             iconName: "import"
-            onClicked: importDialog.open()
+            onClicked: page.startImport()
         }
 
         AppButton {
@@ -183,13 +184,13 @@ Item {
             AppMenu {
                 id: exportMenu
                 AppMenuItem {
-                    text: "Export selected workout…"
+                    text: Server.active ? "Send selected workout to the server" : "Export selected workout…"
                     iconName: "export"
                     enabled: page.sel.workoutId !== undefined
                     onTriggered: page.startExport(false)
                 }
                 AppMenuItem {
-                    text: "Export all my workouts…"
+                    text: Server.active ? "Send all my workouts to the server" : "Export all my workouts…"
                     iconName: "folder"
                     enabled: Workouts.customCount > 0
                     onTriggered: page.startExport(true)
@@ -238,10 +239,46 @@ Item {
     }
 
     // --- sharing (export / import) -------------------------------------------
+    // Import and Export use the server when the app does (Settings › Server on),
+    // otherwise files on this computer.
+    function startImport() {
+        if (Server.active)
+            page.openServerLibrary()
+        else
+            importDialog.open()
+    }
+    // workouts to the server (an .awt): the other stations add them to their library
+    function sendToServer(all) {
+        if (!MediaLibrary.serverThere) {
+            page.message("The server is not connected – try again when it is on")
+            return
+        }
+        var name = all ? "My workouts" : page.sel.name
+        if (!all && MediaLibrary.hasItem("workout", name)) {
+            page.message(name + " is on the server already")
+            return
+        }
+        var f = MediaLibrary.outgoingFile(name, "awt")
+        // (a file URL also for a Windows path: "C:/…" -> "file:///C:/…")
+        var url = f.length > 0 ? (f.charAt(0) === "/" ? "file://" : "file:///") + f : ""
+        var ok = f.length > 0 && (all ? Workouts.exportAllCustom(url) > 0 : Workouts.exportWorkout(page.sel.workoutId, url, "awt"))
+        if (!ok) {
+            page.message(Workouts.lastMessage.length > 0 ? Workouts.lastMessage : "Could not prepare the workout for the server")
+            return
+        }
+        if (MediaLibrary.uploadFile(f, "workout", name))
+            page.message("Sending " + name + " to the server …")
+        else
+            page.message(MediaLibrary.message)
+    }
     function startExport(all) {
         if (all && Workouts.customCount === 0) {
             Workouts.exportAllCustom("")   // sets the "nothing to export" message
             page.message(Workouts.lastMessage)
+            return
+        }
+        if (Server.active) {
+            page.sendToServer(all)
             return
         }
         exportDialog.exportAll = all
@@ -469,12 +506,12 @@ Item {
                     }
                     AppMenuSeparator {}
                     AppMenuItem {
-                        text: "Export selected workout…"
+                        text: Server.active ? "Send selected workout to the server" : "Export selected workout…"
                         iconName: "export"
                         onTriggered: page.startExport(false)
                     }
                     AppMenuItem {
-                        text: "Export all my workouts…"
+                        text: Server.active ? "Send all my workouts to the server" : "Export all my workouts…"
                         iconName: "folder"
                         enabled: Workouts.customCount > 0
                         onTriggered: page.startExport(true)

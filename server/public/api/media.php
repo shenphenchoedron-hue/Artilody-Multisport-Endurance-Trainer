@@ -2,7 +2,7 @@
 // The media library for the stations (MediaSync in the app; lib/media.php):
 //   GET  /api/media.php?since=<rev>  -> {"serverId":"...","rev":7,"media":[item, ...]}
 //        the items (deleted ones as tombstones) changed after rev `since`
-//   POST /api/media.php  {"kind":"gpx"|"video","name":"...","folder":"...","name":"<host>",
+//   POST /api/media.php  {"kind":"gpx"|"video"|"workout"|"plan","name":"...","folder":"...",
 //                         "station":"<host>","files":[{"name":"x.gpx","hash":"<sha1>"}, ...]}
 //        -> {"serverId":"...","rev":8,"item":item,"created":true}
 //        a new item, its files uploaded first (api/upload.php); the same files

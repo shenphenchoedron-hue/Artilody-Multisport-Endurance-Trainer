@@ -771,6 +771,20 @@ def build(s, env):
            "zone is derived from the intensity again after import), and Steady, Interval and Recovery blocks "
            "are all written as <i>SteadyState</i>. Use .awt when sharing with other Artilody Multisport Endurance Trainer "
            "users to keep every detail.")
+    s.sub("With a network server")
+    s.p(f"When the app uses a network server ({UI('Settings')} › {UI('Server')} on, chapter 16), the same buttons "
+        "work with the server instead of files – there are no extra buttons:")
+    s.bullets([
+        f"{UI('Import')} opens the server's workouts ({UI('Server workouts')}). Every station adds the server's "
+        "workouts to its library <b>by itself</b> when it finds the server, with a short message – a workout "
+        f"already in the library (for example a built-in one) is not added twice. {UI('Add to Workouts')} next "
+        "to a workout adds it again, for example after you deleted it.",
+        f"{UI('Export')} (and the {UI('•••')} menu of the preview) offers {UI('Send selected workout to the server')} "
+        f"and {UI('Send all my workouts to the server')}. The other stations then add it to their library.",
+        f"Workouts can also be uploaded in the browser on the server's {UI('Media')} page ({C('.awt')}, "
+        f"{C('.json')} or {C('.zwo')}).",
+        "With the server switched off, Import and Export work with files as described above.",
+    ])
 
     s.section("Ride mode: ERG or Free Ride")
     s.p(f"Under {UI('Ride Mode')} choose {UI('ERG Mode')} (<i>automatically match target power</i>) or "
@@ -1290,6 +1304,39 @@ def build(s, env):
         f"as completed, edit (Free Ride / Video Ride), move and remove. {UI('+')} adds another entry to the day.",
         f"{UI('Upcoming')} lists the next open workouts from today onwards (<i>Today</i>, <i>Tomorrow</i>, "
         "then the date). Click a row to select its day, double-click it or press the play button to start it.",
+    ])
+    s.section("Training plans: export and import")
+    s.p("A training plan is a number of weeks from your calendar in one file (" + C(".awplan") + ") – for example "
+        "a coach's eight-week build-up – that another rider (or you, on another computer) puts into their own "
+        "calendar from any start date.")
+    s.sub("Exporting weeks as a plan")
+    s.steps([
+        f"Click {UI('Plans')} at the top right of the Calendar page and choose {UI('Export weeks as a plan…')}.",
+        f"Choose the first week ({UI('From')}, always a Monday), the number of {UI('Weeks')} (1–52), a name and "
+        "optionally a description. The list shows every entry that goes into the plan.",
+        f"Click {UI('Export…')} and save the file. Workouts and GPX routes are included; video rides keep only "
+        "the route name (the importer chooses their own video); free rides, rows and runs keep their kind and "
+        "duration.",
+    ])
+    s.sub("Importing a plan")
+    s.steps([
+        f"Click {UI('Plans')} › {UI('Import a plan…')}, or {UI('Import plan…')} in the {UI('Add to Calendar')} "
+        "dialog of a day, and choose the plan file.",
+        f"The import view shows the plan (weeks, entries, workouts, GPX routes). Set the day 1 date with the "
+        f"arrows and click {UI('Import')}.",
+        "Existing workouts are reused, the plan's other workouts are added to your library, GPX routes go into "
+        "your GPX library, and video rides are linked to a video of the same name or wait for yours.",
+    ])
+    s.sub("Plans on the network server")
+    s.p(f"When the app uses a network server ({UI('Settings')} › {UI('Server')} on, chapter 16), the same buttons "
+        "use the server instead of files:")
+    s.bullets([
+        f"{UI('Import plan…')} and {UI('Plans')} › {UI('Import a plan…')} open the server's training plans. "
+        f"{UI('Import…')} next to a plan fetches it and opens the import view – day 1 on the day you chose.",
+        f"In {UI('Export weeks as a plan…')} the button is {UI('Send to Server')}: the plan goes to the server, "
+        "and every station can import it from there.",
+        f"Plans can also be uploaded in the browser on the server's {UI('Media')} page ({C('.awplan')}).",
+        "With the server switched off, plans are exported and imported as files.",
     ])
     s.tip("The plan belongs to the current profile, like the ride history. Each rider in a shared installation "
           "has a separate calendar.")
@@ -2038,7 +2085,7 @@ def build(s, env):
     # =====================================================================
     s.chapter("Training together: the network server",
               lead="Several training computers in one home or club can share one server: riders, GPX routes, "
-                   "videos and training are then the same everywhere, the server shows every rider's training "
+                   "videos, workouts, training plans and training are then the same everywhere, the server shows every rider's training "
                    "in the browser, and riders on the same GPX route see each other live.")
     s.p(f"Everything about setting up the server – on Windows, macOS, Debian, Ubuntu or a Raspberry Pi – is in "
         f"the separate <b>Artilody Network Server Manual</b> (PDF), on the release page next to this manual: "
@@ -2054,6 +2101,10 @@ def build(s, env):
         f"{UI('GPX routes')} on the server arrive by themselves; {UI('videos')} are fetched in GPX Ride / Video "
         f"Ride › folder button › {UI('Server Library…')} › {UI('Download')}. {UI('Send to Server')} in the same "
         "menu puts the chosen route on the server.",
+        f"{UI('Workouts')} on the server are added to every station's workout library by themselves; "
+        f"{UI('training plans')} are imported when you want them. With the server on, {UI('Import')} / "
+        f"{UI('Export')} on the Workouts page and {UI('Import plan…')} / {UI('Export weeks as a plan…')} in the "
+        "Calendar use the server instead of files (chapters 6 and 10).",
         f"{UI('Training')} is sent after every ride; rides from other stations appear in History "
         "(<i>on &lt;station&gt;</i>), and the ghost can race them.",
         f"{UI('Riding together')}: everyone on the same GPX route sees the others in the 3D view, each in its "
