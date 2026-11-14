@@ -86,6 +86,7 @@ public:
     bool present() const { return m_present; }
     void setPresent(bool on);
     void askNow();                            // (the timer; tests)
+    bool asking() const { return !m_reply.isNull(); }   // a question under way (tests)
 
 signals:
     void changed();

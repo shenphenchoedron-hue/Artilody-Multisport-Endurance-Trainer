@@ -94,10 +94,11 @@ struct Station
     void ask(FakeServer &server)
     {
         live.setServer(server.url());
+        QTRY_VERIFY(!live.asking());   // (one under way: answered first)
         const int before = server.asks;
         live.askNow();
         QTRY_VERIFY(server.asks > before);
-        QTest::qWait(30);   // (the answer)
+        QTRY_VERIFY(!live.asking());   // (the answer handled - however slow the machine)
     }
 };
 
