@@ -193,6 +193,7 @@ ApplicationWindow {
                 id: builderPage
                 anchors.fill: parent
                 showExport: true
+                showNewActions: false   // File menu: New / Save As
                 pageSubtitle: {
                     var sport = Theme.sportName(Builder.sport) + " workout"
                     if (Library.currentPath.length === 0)

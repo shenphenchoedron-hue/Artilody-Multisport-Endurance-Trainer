@@ -55,6 +55,9 @@ class WorkoutBuilder : public QObject
     Q_OBJECT
     Q_PROPERTY(qint64 workoutId READ workoutId NOTIFY workoutChanged)
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY workoutChanged)
+    // Name the workout had when it was last loaded / saved ("" = not saved
+    // yet). The page compares it with name to ask "rename or save as new?".
+    Q_PROPERTY(QString savedName READ savedName NOTIFY workoutChanged)
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY workoutChanged)
     Q_PROPERTY(QString focus READ focus WRITE setFocus NOTIFY workoutChanged)
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY workoutChanged)
@@ -96,6 +99,7 @@ public:
     qint64 workoutId() const { return m_workout.id; }
     QString name() const { return m_workout.name; }
     void setName(const QString &name);
+    QString savedName() const { return m_savedName; }
     QString category() const { return m_workout.category; }
     void setCategory(const QString &c);
     QString focus() const { return m_workout.focus; }
@@ -132,6 +136,9 @@ public:
     Q_INVOKABLE void newWorkout(const QString &sport = QString());
     Q_INVOKABLE bool loadWorkout(qint64 id);
     Q_INVOKABLE qint64 save();     // returns id or -1
+    // Saves the current blocks as a new workout (the one loaded before is
+    // kept unchanged); the Builder then edits the new one. Returns id or -1.
+    Q_INVOKABLE qint64 saveAsNew();
 
     // Block editing (index = block row)
     Q_INVOKABLE void addBlock(const QString &type);     // warmup, steady, intervals, recovery, cooldown, ramp
@@ -207,10 +214,12 @@ private:
     void resetSelection();                 // selection = { m_selected }
     int insertRow() const;                 // where new blocks go: after the selection
     void insertGroup(int at, const QVector<Interval> &blocks);
+    qint64 saveImpl(bool asNew);
 
     BuilderBackend *m_backend;
     IntervalModel m_model;
     Workout m_workout;
+    QString m_savedName;
     int m_selected = -1;
     QVector<int> m_selection;              // ascending, contains m_selected
     int m_batchDepth = 0;

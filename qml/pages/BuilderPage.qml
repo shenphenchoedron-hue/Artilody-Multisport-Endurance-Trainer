@@ -53,6 +53,10 @@ Item {
                                 : page.rowing ? "Design your own rowing session" : "Design your own training session"
     property bool showExport: false     // adds an "Export" button next to Save
     signal exportRequested()
+    // "New" button, and saving a renamed workout as a new workout (the old one
+    // is kept). The Workout Creator has its own File menu (New / Save As) and
+    // turns these off.
+    property bool showNewActions: true
 
     PageHeader {
         x: Theme.pageMargin + 8
@@ -118,22 +122,31 @@ Item {
             ]
             onActivated: (v) => Builder.sport = v
         }
+        // Workout type: the filter it is listed under on the Workouts page
+        // (FTP tests also get the "Use as FTP" button in the History).
         AppComboBox {
-            Layout.preferredWidth: 180
+            id: typeBox
+            Layout.preferredWidth: 236
             Layout.fillHeight: true
+            prefix: "Type: "
+            ToolTip.visible: typeBox.hovered && !typeBox.popup.visible
+            ToolTip.delay: 500
+            ToolTip.text: "Workout type – decides under which filter the workout is listed on the Workouts page."
+                          + (page.running ? "" : " FTP Tests rides get a \"Use as FTP\" button in the History.")
             model: Builder.categories
             currentIndex: Math.max(0, Builder.categories.indexOf(Builder.category))
             onActivated: (index) => Builder.category = Builder.categories[index]
         }
         Item { Layout.preferredWidth: 20 }
         AppButton {
-            Layout.preferredWidth: page.showExport ? 146 : 166
+            visible: page.showNewActions
+            Layout.preferredWidth: 146
             Layout.fillHeight: true
             kind: "secondary"
-            iconName: "play"
-            text: "Preview"
+            iconName: "plus"
+            text: "New"
             bold: false
-            onClicked: previewDialog.open()
+            onClicked: page.requestNew()
         }
         AppButton {
             visible: page.showExport
@@ -335,12 +348,32 @@ Item {
         }
     }
 
-    function save() {
-        var id = Builder.save()
-        if (id >= 0)
-            page.message("Workout \"" + Builder.name + "\" saved")
-        else
+    // Saves the workout. A saved workout that got another name is saved as a
+    // new workout and the old one is kept unchanged, so building a new workout
+    // over a loaded one never overwrites it. after() runs once it is saved.
+    function save(after) {
+        var asNew = page.showNewActions && Builder.workoutId >= 0 && Builder.savedName.length > 0
+                    && Builder.name.trim() !== Builder.savedName
+        var id = asNew ? Builder.saveAsNew() : Builder.save()
+        if (id < 0) {
             page.message(Builder.lastError)
+            return
+        }
+        page.message(asNew ? "Saved as new workout \"" + Builder.name + "\"" : "Workout \"" + Builder.name + "\" saved")
+        if (after)
+            after()
+    }
+    // Starts an empty workout of the current sport (asks about unsaved changes).
+    function requestNew() {
+        if (Builder.dirty)
+            unsavedNewDialog.open()
+        else
+            page.startNew()
+    }
+    function startNew() {
+        Builder.newWorkout(Builder.sport)
+        nameField.forceActiveFocus()
+        nameField.selectAll()
     }
 
     // --- timeline card -------------------------------------------------------
@@ -1105,70 +1138,32 @@ Item {
                 value: Builder.blockCount + " blocks"
             }
         }
-        AppButton {
+        RowLayout {
             id: saveButton
             x: 20
             width: parent.width - 40
             height: 62
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 20
-            iconName: "save"
-            text: Builder.dirty ? "Save Workout •" : "Save Workout"
-            fontSize: 20
-            onClicked: page.save()
-        }
-    }
-
-    // --- preview dialog -------------------------------------------------------
-    AppDialog {
-        id: previewDialog
-        title: Builder.name
-        panelWidth: 980
-        panelHeight: 560
-
-        Text {
-            x: 28
-            y: 72
-            text: Math.round(Builder.totalDurationSec / 60) + " min  •  " + Builder.blockCount + " blocks  •  "
-                  + Builder.intensity + "% " + page.ftpLabel + "  •  estimated Training Load " + Builder.tss + "  •  " + page.ftpLabel + " "
-                  + (page.running ? Builder.antSpeedKmh.toFixed(1) + " km/h" : Builder.ftp + " W")
-            color: Theme.textSecondary
-            font.pixelSize: 17
-        }
-        ZoneLegend {
-            x: 28
-            y: 108
-            showHeartRate: false
-        }
-        WorkoutChart {
-            x: 14
-            y: 146
-            width: previewDialog.panelWidth - 40
-            height: 300
-            segments: Builder.segments
-            totalSec: Builder.totalDurationSec
-            showHeartRate: false
-            sport: Builder.sport
-            ftp: Builder.ftp
-        }
-        RowLayout {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.margins: 24
-            Item { Layout.fillWidth: true }
+            spacing: 10
             AppButton {
+                visible: page.showNewActions
+                Layout.preferredWidth: 110
+                Layout.fillHeight: true
                 kind: "secondary"
-                text: "Close"
-                onClicked: previewDialog.close()
+                iconName: "plus"
+                text: "New"
+                bold: false
+                onClicked: page.requestNew()
             }
             AppButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 iconName: "save"
-                text: "Save Workout"
-                onClicked: {
-                    previewDialog.close()
-                    page.save()
-                }
+                text: Builder.dirty ? "Save Workout •" : "Save Workout"
+                fontSize: page.showNewActions ? 18 : 20
+                horizontalPadding: 14
+                onClicked: page.save()
             }
         }
     }
@@ -1189,5 +1184,14 @@ Item {
         acceptText: "Delete"
         acceptKind: "danger"
         onAccepted: Builder.removeSelection()
+    }
+    ConfirmDialog {
+        id: unsavedNewDialog
+        title: "Unsaved changes"
+        message: "Save the changes to \"" + Builder.name + "\" before starting a new workout? Otherwise they are lost."
+        acceptText: "Save"
+        secondaryText: "Don't Save"
+        onAccepted: page.save(page.startNew)
+        onSecondary: page.startNew()
     }
 }

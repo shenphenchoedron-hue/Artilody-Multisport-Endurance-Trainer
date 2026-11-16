@@ -167,6 +167,46 @@ private slots:
         QVERIFY(id != original.id);
         QCOMPARE(db->workout(original.id)->intervals, original.intervals);   // untouched
         QVERIFY(!db->workout(id)->builtIn);
+        QCOMPARE(b.savedName(), b.name());
+    }
+
+    void saveAsNewKeepsTheSavedWorkout()
+    {
+        WorkoutBuilder b(db, profiles);
+        QVERIFY(b.savedName().isEmpty());
+        b.setName(QStringLiteral("First"));
+        const qint64 first = b.save();
+        QVERIFY(first > 0);
+        QCOMPARE(b.savedName(), QStringLiteral("First"));
+        db->setWorkoutFavorite(first, true);
+
+        // a different workout built over the saved one
+        b.removeBlock(0);
+        b.setName(QStringLiteral("Second"));
+        QCOMPARE(b.savedName(), QStringLiteral("First"));   // renamed: the page saves it as new
+        const qint64 second = b.saveAsNew();
+        QVERIFY(second > 0);
+        QVERIFY(second != first);
+        QCOMPARE(b.workoutId(), second);
+        QCOMPARE(b.savedName(), QStringLiteral("Second"));
+        QVERIFY(!b.dirty());
+        QCOMPARE(db->workout(first)->name, QStringLiteral("First"));
+        QCOMPARE(db->workout(first)->intervals.size(), 3);
+        QCOMPARE(db->workout(second)->intervals.size(), 2);
+        QVERIFY(!db->workout(second)->favorite);
+
+        // plain save now updates the new workout only
+        b.setWatts(0, 150);
+        QCOMPARE(b.save(), second);
+        QCOMPARE(db->workout(first)->intervals.size(), 3);
+
+        // New starts an unsaved workout: the next save inserts
+        b.newWorkout();
+        QCOMPARE(b.workoutId(), qint64(-1));
+        QVERIFY(b.savedName().isEmpty());
+        b.setName(QStringLiteral("Third"));
+        const qint64 third = b.save();
+        QVERIFY(third != first && third != second);
     }
 
     void libraryFilterAndSort()

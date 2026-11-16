@@ -1,6 +1,17 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.2.0
+## What's new in 2.2.1
+
+**Workout Builder: New, and a new name saves a new workout.** Building several workouts in a row no longer overwrites the one you saved before.
+
+- **New** sits right next to **Save Workout** (at the top and at the bottom of *Interval Settings*): it starts an empty workout in the chosen sport, with the name field ready to type in. With unsaved changes it asks whether to save them first.
+- **A new name = a new workout.** Give a saved workout another name and *Save Workout* saves it as a new workout – the old one stays as it was. Saving without changing the name updates the workout as before.
+- **Type** – the drop-down beside the sport now reads *Type: Intervals* (Endurance, Intervals, Recovery, FTP Tests / AnT Test) and explains in its tooltip that it decides the filter the workout is listed under on the Workouts page.
+- The **Preview** button is gone – the workout's chart is already on the page.
+
+Only the app changes – install over 2.2.0 on the stations (the server can stay on 2.2.0).
+
+## Also included from 2.2.0
 
 **Workouts and training plans on the server.** The server's media library now holds workouts and training plans too, not only GPX routes and videos – a coach (or you) puts them on the server once, and every station has them.
 

@@ -897,14 +897,15 @@ def build(s, env):
              "The Workout Builder: timeline chart and block list (left), interval settings and summary (right).")
     s.section("Creating and opening workouts")
     s.bullets([
-        f"<b>New workout:</b> {UI('Workouts → New Workout')}. It starts as <i>New Workout</i> (category "
+        f"<b>New workout:</b> {UI('Workouts → New Workout')}, or {UI('New')} next to {UI('Save Workout')} in the "
+        "Builder. It starts as <i>New Workout</i> (type "
         "Intervals) with three blocks: a 10-minute warm-up, a 12-minute sweet-spot interval and a 5-minute "
         "cool-down.",
         f"<b>Edit a workout:</b> double-click it in the library, choose {UI('Edit')} in the preview, or "
         f"{UI('Edit Workout')} on the Watt Training page.",
     ])
-    s.p("At the top of the page you enter the <b>workout name</b> and choose the <b>category</b> (Endurance, "
-        "Intervals, Recovery or FTP Tests). The <b>Cycling / Rowing</b> selector sets the sport; rowing "
+    s.p(f"At the top of the page you enter the <b>workout name</b> and choose the workout <b>type</b> in the {UI('Type')} drop-down (Endurance, "
+        "Intervals, Recovery or FTP Tests) – it decides the filter the workout is listed under on the Workouts page. The <b>Cycling / Rowing</b> selector sets the sport; rowing "
         "workouts use your rowing FTP and stroke rate (SPM) instead of cadence (section 11.9).")
     s.note("A workout in the <i>FTP Tests</i> category is treated as an FTP test: when you finish it, the app "
            "estimates your FTP (chapter 8).")
@@ -973,13 +974,15 @@ def build(s, env):
           "workout again from the library without saving to get the saved version back; otherwise add the "
           "block again from the Add Block panel.")
 
-    s.section("Summary, preview and saving")
+    s.section("Summary, saving and new workouts")
     s.p(f"{UI('Workout Summary')} shows the average intensity (% FTP), the estimated Training Load, the total duration "
-        f"and the number of blocks. {UI('Preview')} opens a large chart of the workout with a "
-        f"{UI('Save Workout')} button.")
+        "and the number of blocks.")
     s.p(f"Click {UI('Save Workout')} to store the workout (a dot – <i>Save Workout •</i> – indicates unsaved "
         "changes). A workout needs a name and at least one block. After saving, the workout is selected in "
         "the library.")
+    s.p(f"If you give a saved workout a <b>new name</b>, {UI('Save Workout')} saves it as a <b>new workout</b> "
+        f"and keeps the old one unchanged. Click {UI('New')} – right next to {UI('Save Workout')} – to start "
+        "an empty workout; if there are unsaved changes, the app asks whether to save them first.")
     s.note("Built-in workouts are never overwritten. When you save changes to a built-in workout, the app "
            "saves them as a <b>new personal copy</b> and leaves the original untouched.")
 

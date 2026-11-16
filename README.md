@@ -46,7 +46,18 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.0
+## What's new in 2.2.1
+
+**Workout Builder: New, and a new name saves a new workout.** Building several workouts in a row no longer overwrites the one you saved before.
+
+- **New** sits right next to **Save Workout** (at the top and at the bottom of *Interval Settings*): it starts an empty workout in the chosen sport, with the name field ready to type in. With unsaved changes it asks whether to save them first.
+- **A new name = a new workout.** Give a saved workout another name and *Save Workout* saves it as a new workout – the old one stays as it was. Saving without changing the name updates the workout as before.
+- **Type** – the drop-down beside the sport now reads *Type: Intervals* (Endurance, Intervals, Recovery, FTP Tests / AnT Test) and explains in its tooltip that it decides the filter the workout is listed under on the Workouts page.
+- The **Preview** button is gone – the workout's chart is already on the page.
+
+Install over 2.2.0 on the stations (the server can stay on 2.2.0) – see the [2.2.1 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.1).
+
+## Also included from 2.2.0
 
 **Workouts and training plans on the server.** The server's media library now holds workouts and training plans too, not only GPX routes and videos – a coach (or you) puts them on the server once, and every station has them.
 
@@ -494,7 +505,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.0](#whats-new-in-220)
+- [What's new in 2.2.1](#whats-new-in-221)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)
@@ -661,7 +672,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 ### Train
 - **Workout library** with 8 built-in workouts (Sweet Spot, Endurance, VO₂ Max, Threshold, Tempo, Over-Unders, Recovery and a Ramp FTP Test). It has search, category filters, sorting, favourites and a preview, and lets you duplicate or delete workouts. Built-in workouts can't be deleted.
 - **Cycling and rowing workouts**: every workout has a sport. The library shows *Cycling*/*Rowing* badges and a sport filter, rowing workouts have a **Row Workout** button, and the Builder has a Cycling/Rowing selector (rowing targets use your rowing FTP and stroke rate in SPM). Any workout can be added to the calendar.
-- **Workout Builder**, a visual editor: add blocks from presets (Warm Up, Steady, Intervals, Recovery, Cool Down, Ramp) and set the duration, target in watts or % FTP, ramp end power, cadence and RPE. The preview updates as you edit. If you edit a built-in workout, it is saved as your own copy. **Reorder** a block by dragging the ⋮⋮ grip strip at the top of its card (a blue line shows where it lands), with the ‹ / › buttons on the card, from the right-click menu (Move earlier/later, Move to start/end, Duplicate, Delete) or with Alt+←/→ or Alt+↑/↓ (⌥ on a Mac) for the selected block. **Delete** a block with the red trash button on its card. A hint line above the block list and tooltips on every button explain this.
+- **Workout Builder**, a visual editor: add blocks from presets (Warm Up, Steady, Intervals, Recovery, Cool Down, Ramp) and set the duration, target in watts or % FTP, ramp end power, cadence and RPE. The preview updates as you edit. **New** (next to **Save Workout**) starts an empty workout; giving a saved workout a new name saves it as a new workout and keeps the old one. If you edit a built-in workout, it is saved as your own copy. **Reorder** a block by dragging the ⋮⋮ grip strip at the top of its card (a blue line shows where it lands), with the ‹ / › buttons on the card, from the right-click menu (Move earlier/later, Move to start/end, Duplicate, Delete) or with Alt+←/→ or Alt+↑/↓ (⌥ on a Mac) for the selected block. **Delete** a block with the red trash button on its card. A hint line above the block list and tooltips on every button explain this.
 - **Share workouts**: export any workout as an Artilody `.awt` file or a Zwift `.zwo` file, export all your own workouts in one file, and import `.awt`/`.zwo` files from friends, coaches or other apps (Zwift, TrainerRoad, Golden Cheetah, MyWhoosh, …). With a server, Import and Export use the server's workouts instead. See [Sharing workouts](#sharing-workouts).
 - **FTP test**: when you finish an FTP test workout, the app estimates your FTP and asks whether to update your profile. A ramp test (the built-in *Ramp FTP Test*, or a test whose main block is a rising ramp) uses 75 % of your best 1-minute power; a 20-minute test (an *FTP Tests* workout with a block of 20 minutes or more) uses 95 % of your best 20-minute power. You can also pick any FTP test ride in History and use it as your FTP.
 

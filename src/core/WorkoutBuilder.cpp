@@ -379,6 +379,7 @@ void WorkoutBuilder::newWorkout(const QString &sport)
         blocks[1].startPercent = blocks[1].endPercent = 0.85;
     }
     m_model.setIntervals(blocks);
+    m_savedName.clear();
     m_selected = 1;
     resetSelection();
     m_dirty = false;
@@ -396,6 +397,7 @@ bool WorkoutBuilder::loadWorkout(qint64 id)
         return false;
     }
     m_workout = *w;
+    m_savedName = w->builtIn ? QString() : w->name;   // built-ins are saved as a copy
     m_model.setSport(w->sport);
     m_model.setIntervals(w->intervals);
     m_selected = w->intervals.isEmpty() ? -1 : 0;
@@ -410,6 +412,16 @@ bool WorkoutBuilder::loadWorkout(qint64 id)
 
 qint64 WorkoutBuilder::save()
 {
+    return saveImpl(false);
+}
+
+qint64 WorkoutBuilder::saveAsNew()
+{
+    return saveImpl(true);
+}
+
+qint64 WorkoutBuilder::saveImpl(bool asNew)
+{
     Workout w = currentWorkout();
     if (w.name.trimmed().isEmpty()) {
         setError(QStringLiteral("Please give the workout a name"));
@@ -419,9 +431,11 @@ qint64 WorkoutBuilder::save()
         setError(QStringLiteral("Add at least one block"));
         return -1;
     }
-    // Editing a built-in workout creates a personal copy, keeping the originals.
-    if (w.builtIn) {
+    // Editing a built-in workout creates a personal copy, keeping the originals;
+    // "Save as New" does the same for any workout.
+    if (asNew || w.builtIn) {
         w.id = -1;
+        w.uuid.clear();
         w.builtIn = false;
         w.timesUsed = 0;
         w.favorite = false;
@@ -440,6 +454,7 @@ qint64 WorkoutBuilder::save()
     }
     m_workout = w;
     m_workout.id = id;
+    m_savedName = w.name;
     m_dirty = false;
     setError(QString());
     emit workoutChanged();
