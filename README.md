@@ -46,7 +46,15 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.3
+## What's new in 2.2.4
+
+**KETTLER Track: the PIN is asked for again when the treadmill has forgotten the pairing.** The treadmill makes a new PIN in APP mode and forgets the earlier pairing, while the Raspberry Pi kept the old one – every connection was refused at once and the PIN window never came.
+
+- When a treadmill refuses the connection twice in a row and the Pi has it paired, the app removes the old pairing once and connects again – the *Bluetooth PIN* window opens for the new PIN.
+
+Install over 2.2.3 on the stations (the server can stay on 2.2.0) – see the [2.2.4 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.4).
+
+## Also included from 2.2.3
 
 **KETTLER Track treadmills connect as treadmills.** The KETTLER Track S2 – S10 have no Bluetooth FTMS: they send their belt speed like a foot pod (*Running Speed and Cadence*) next to a heart-rate service – so 2.2.2 listed the S10 as a heart-rate sensor.
 
@@ -529,7 +537,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.3](#whats-new-in-223)
+- [What's new in 2.2.4](#whats-new-in-224)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

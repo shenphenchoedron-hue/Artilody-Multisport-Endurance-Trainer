@@ -447,6 +447,12 @@ private:
     // The treadmill refused Treadmill Data: pair it (PIN) and reconnect.
     void onTreadmillDataRefused(const QString &id, const QString &name);
 
+    // The treadmill's connection failed before it ever connected (counts;
+    // the second one checks for an old pairing the device has forgotten).
+    void onTreadmillConnectFailed(const QString &id);
+    int m_treadmillFailures = 0;
+    bool m_treadmillEverConnected = false;
+    QSet<QString> m_stalePairingChecked;          // once per device and session
     BluezPairingAgent *m_pairingAgent = nullptr;   // Linux only, else null
     QString m_pairingRetried;                      // id paired after a refusal (once per connect)
 

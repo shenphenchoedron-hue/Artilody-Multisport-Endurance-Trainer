@@ -36,6 +36,8 @@
 #include <QSet>
 #include <QString>
 
+#include <functional>
+
 namespace watt {
 
 class BluezPairingAgent : public QObject, protected QDBusContext
@@ -74,6 +76,13 @@ public:
     // pairFinished() reports the result; alreadyPaired = it was paired
     // before (nothing was done).
     void pairIfNeeded(const QString &address);
+    // A device that refuses every connection although BlueZ has it paired:
+    // the treadmill has forgotten the pairing (KETTLER Track: a new PIN in
+    // APP mode), BlueZ keeps using the old keys and never asks for the PIN.
+    // Removes the device (Adapter1.RemoveDevice) when it is paired, so the
+    // next connection pairs again with the new PIN. stalePairingChecked()
+    // reports whether a pairing was removed.
+    void removeStalePairing(const QString &address);
 
     // "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF" -> "AA:BB:CC:DD:EE:FF" ("" when no device path)
     static QString addressFromPath(const QString &path);
@@ -86,6 +95,7 @@ signals:
     void registeredChanged();
     void pairFinished(const QString &address, bool ok, bool alreadyPaired, const QString &error);
     void logMessage(const QString &text, bool ok);
+    void stalePairingChecked(const QString &address, bool removed);
 
 public slots:
     // --- org.bluez.Agent1 (called by bluetoothd) -------------------------
@@ -105,6 +115,8 @@ private:
     // rejects the current D-Bus call unless the device is allowed; true = accepted
     bool acceptIfAllowed(const QDBusObjectPath &device, const QString &what);
     void requestDefaultAgent();
+    // async lookup of the device's object path ("" when BlueZ does not know it)
+    void findDevicePath(const QString &address, std::function<void(const QString &)> done);
     void readPairedAndPair(const QString &address, const QString &path);
     void callPair(const QString &address, const QString &path);
 

@@ -1,6 +1,14 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.2.3
+## What's new in 2.2.4
+
+**KETTLER Track: the PIN is asked for again when the treadmill has forgotten the pairing.** The treadmill makes a new PIN in APP mode and forgets the earlier pairing, while the Raspberry Pi kept the old one – every connection was refused at once and the PIN window never came.
+
+- When a treadmill refuses the connection twice in a row and the Pi has it paired, the app removes the old pairing once and connects again – the *Bluetooth PIN* window opens for the new PIN.
+
+Only the app changes – install over 2.2.3 on the stations (the server can stay on 2.2.0).
+
+## Also included from 2.2.3
 
 **KETTLER Track treadmills connect as treadmills.** The KETTLER Track S2 – S10 have no Bluetooth FTMS: they send their belt speed like a foot pod (*Running Speed and Cadence*) next to a heart-rate service – so 2.2.2 listed the S10 as a heart-rate sensor.
 

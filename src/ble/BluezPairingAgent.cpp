@@ -9,6 +9,8 @@
 #include <QDBusVariant>
 #include <QRegularExpression>
 
+#include <functional>
+
 namespace watt {
 
 namespace {
@@ -256,18 +258,17 @@ void BluezPairingAgent::Cancel()
 
 // --- explicit pairing (all asynchronous) ------------------------------------
 
-void BluezPairingAgent::pairIfNeeded(const QString &address)
+void BluezPairingAgent::findDevicePath(const QString &address, std::function<void(const QString &)> done)
 {
-    allowDevice(address);
     // GetManagedObjects returns a{oa{sa{sv}}}; only the paths are needed:
     // the object whose path ends with dev_AA_BB_... (any adapter).
     const QDBusMessage call = QDBusMessage::createMethodCall(kService, QStringLiteral("/"),
                                                              QStringLiteral("org.freedesktop.DBus.ObjectManager"),
                                                              QStringLiteral("GetManagedObjects"));
     auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(call), this);
-    connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, address] {
+    connect(w, &QDBusPendingCallWatcher::finished, this, [w, address, done = std::move(done)] {
         w->deleteLater();
-        const QString suffix = QStringLiteral("/dev_") + address.toUpper().replace(QLatin1Char(':'), QLatin1Char('_'));
+        const QString suffix = QStringLiteral("/dev_") + QString(address).toUpper().replace(QLatin1Char(':'), QLatin1Char('_'));
         QString path;
         const QDBusMessage r = w->reply();
         if (r.type() == QDBusMessage::ReplyMessage && !r.arguments().isEmpty()) {
@@ -282,12 +283,57 @@ void BluezPairingAgent::pairIfNeeded(const QString &address)
                     path = p.path();
             }
         }
+        done(path);
+    });
+}
+
+void BluezPairingAgent::pairIfNeeded(const QString &address)
+{
+    allowDevice(address);
+    findDevicePath(address, [this, address](const QString &path) {
         if (path.isEmpty()) {
             DiagLog::write("PAIR", QStringLiteral("%1: no BlueZ device object").arg(address));
             emit pairFinished(address, false, false, QStringLiteral("device not known to BlueZ – scan again"));
             return;
         }
         readPairedAndPair(address, path);
+    });
+}
+
+void BluezPairingAgent::removeStalePairing(const QString &address)
+{
+    findDevicePath(address, [this, address](const QString &path) {
+        if (path.isEmpty()) {
+            emit stalePairingChecked(address, false);
+            return;
+        }
+        QDBusMessage get = QDBusMessage::createMethodCall(kService, path, kProps, QStringLiteral("Get"));
+        get << kDeviceIface << QStringLiteral("Paired");
+        auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(get), this);
+        connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, address, path] {
+            w->deleteLater();
+            const QDBusPendingReply<QDBusVariant> r = *w;
+            if (r.isError() || !r.value().variant().toBool()) {
+                DiagLog::write("PAIR", QStringLiteral("%1: not paired, nothing to remove").arg(address));
+                emit stalePairingChecked(address, false);
+                return;
+            }
+            // the adapter is the parent object: /org/bluez/hci0/dev_... -> /org/bluez/hci0
+            const QString adapter = path.left(path.lastIndexOf(QLatin1Char('/')));
+            QDBusMessage rm = QDBusMessage::createMethodCall(kService, adapter, QStringLiteral("org.bluez.Adapter1"),
+                                                             QStringLiteral("RemoveDevice"));
+            rm << QVariant::fromValue(QDBusObjectPath(path));
+            auto *w2 = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(rm), this);
+            connect(w2, &QDBusPendingCallWatcher::finished, this, [this, w2, address] {
+                w2->deleteLater();
+                const QDBusPendingReply<> r2 = *w2;
+                if (r2.isError())
+                    DiagLog::write("PAIR", QStringLiteral("%1: removing the pairing failed: %2").arg(address, r2.error().message()));
+                else
+                    DiagLog::write("PAIR", QStringLiteral("%1: old pairing removed (the device refused it)").arg(address));
+                emit stalePairingChecked(address, !r2.isError());
+            });
+        });
     });
 }
 

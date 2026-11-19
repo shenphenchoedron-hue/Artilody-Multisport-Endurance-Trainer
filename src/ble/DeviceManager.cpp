@@ -1301,7 +1301,37 @@ void DeviceManager::startPairingAgent()
             });
         }
     });
+    connect(m_pairingAgent, &BluezPairingAgent::stalePairingChecked, this, [this](const QString &address, bool removed) {
+        if (!removed)
+            return;
+        QString name = address;
+        if (m_treadmill && m_treadmill->id().compare(address, Qt::CaseInsensitive) == 0)
+            name = m_treadmill->name();
+        addLog(QStringLiteral("%1 refused the old pairing – removed it. Connecting again: type the new PIN shown on "
+                              "the treadmill").arg(name), true);
+        // BlueZ forgot the device with its pairing: it must be seen advertising again
+        ensureScanning();
+    });
     m_pairingAgent->start();   // asynchronous; the result goes to the diagnostic log
+#endif
+}
+
+void DeviceManager::onTreadmillConnectFailed(const QString &id)
+{
+    ++m_treadmillFailures;
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    // Every connection refused at once although the treadmill advertises: it
+    // may have forgotten an earlier pairing (KETTLER Track: a new PIN in APP
+    // mode) while BlueZ still uses the old keys and never asks for the PIN.
+    // Remove BlueZ's pairing once, so the next connection asks for the PIN.
+    if (m_treadmillFailures == 2 && m_pairingAgent && m_pairingAgent->isRegistered()
+        && !id.startsWith(QLatin1String("sim:")) && !m_stalePairingChecked.contains(id)) {
+        m_stalePairingChecked.insert(id);
+        addDiag(QStringLiteral("%1: connection refused twice – checking for an old pairing").arg(id));
+        m_pairingAgent->removeStalePairing(id);
+    }
+#else
+    Q_UNUSED(id)
 #endif
 }
 
@@ -2179,7 +2209,15 @@ void DeviceManager::attachTreadmill(TreadmillDevice *t)
     });
     connect(t, &TreadmillDevice::logMessage, this, &DeviceManager::addLog);
     connect(t, &TreadmillDevice::gattReport, this, [this, id = t->id()](const QString &g) { recordGatt(id, g); });
+    m_treadmillFailures = 0;
+    m_treadmillEverConnected = false;
     connect(t, &TreadmillDevice::stateChanged, this, [this, t](LinkState s) {
+        if (s == LinkState::Connected) {
+            m_treadmillEverConnected = true;
+            m_treadmillFailures = 0;
+        } else if (s == LinkState::Disconnected && !m_treadmillEverConnected) {
+            onTreadmillConnectFailed(t->id());
+        }
         m_treadmills.setState(t->id(), int(s));
         DiagLog::write("TREAD", QStringLiteral("treadmill %1 [%2] %3").arg(t->name(), t->id(),
                                     s == LinkState::Connected ? QStringLiteral("connected")
