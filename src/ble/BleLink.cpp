@@ -30,6 +30,10 @@ BleLink::BleLink(const QBluetoothDeviceInfo &info, const QBluetoothUuid &service
     connect(&m_detailsTimeout, &QTimer::timeout, this, [this] {
         if (m_state != LinkState::Connecting || !m_controller)
             return;
+        if (s_pairingInProgress) {   // the user is typing a PIN: wait
+            m_detailsTimeout.start();
+            return;
+        }
         emit logMessage(QStringLiteral("%1: service discovery timed out").arg(displayName()), false);
         m_controller->disconnectFromDevice();
     });

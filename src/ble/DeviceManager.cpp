@@ -6,6 +6,10 @@
 #include "BleHeartRateSensor.h"
 #include "BleTrainer.h"
 #include "BleTreadmill.h"
+#include "BleLink.h"
+#ifdef WATT_HAVE_BLUEZ_AGENT
+#include "BluezPairingAgent.h"
+#endif
 #include "Database.h"
 #include "DiagLog.h"
 #include "FtmsProtocol.h"
@@ -297,6 +301,7 @@ void DeviceManager::initialize()
     m_forcedTreadmills = QSet<QString>(treadmills.cbegin(), treadmills.cend());
 
     addLog(QStringLiteral("Application started"), true);
+    startPairingAgent();
     refreshAdapter();
     addSimulatedEntries();
     emit preferencesChanged();
@@ -1242,6 +1247,129 @@ void DeviceManager::onTrainerIsRower(const QString &id)
     });
 }
 
+// --- Bluetooth pairing with a PIN (BlueZ) -----------------------------------
+
+void DeviceManager::startPairingAgent()
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (m_pairingAgent)
+        return;
+    m_pairingAgent = new BluezPairingAgent(this);
+    connect(m_pairingAgent, &BluezPairingAgent::logMessage, this, &DeviceManager::addLog);
+    connect(m_pairingAgent, &BluezPairingAgent::requestChanged, this, [this] {
+        const bool open = m_pairingAgent->pendingKind() != BluezPairingAgent::RequestKind::None;
+        BleLink::setPairingInProgress(open);
+        if (open) {
+            addLog(QStringLiteral("%1 asks for its PIN – type the number shown on its display").arg(pairingDeviceName()), true);
+            addDiag(QStringLiteral("PIN requested by %1").arg(m_pairingAgent->pendingAddress()));
+        }
+        emit pairingChanged();
+    });
+    connect(m_pairingAgent, &BluezPairingAgent::pairFinished, this,
+            [this](const QString &address, bool ok, bool alreadyPaired, const QString &error) {
+        BleLink::setPairingInProgress(false);
+        if (alreadyPaired) {
+            // paired, and still no data: pairing is not the problem
+            setScanError(QStringLiteral("The treadmill is paired but does not send its data. Put it in APP mode, close "
+                                        "other apps connected to it (e.g. Zwift Companion) and connect again."));
+            return;
+        }
+        if (!ok) {
+            addLog(QStringLiteral("Pairing with %1 failed: %2").arg(address, error), false);
+            setScanError(QStringLiteral("Pairing failed (%1). Put the treadmill in APP mode, connect again and type the PIN "
+                                        "shown on its display within 30 seconds.").arg(error));
+            return;
+        }
+        addLog(QStringLiteral("Paired with %1").arg(address), true);
+        // reconnect so the treadmill data is subscribed over the encrypted link
+        if (m_treadmill && m_treadmill->id().compare(address, Qt::CaseInsensitive) == 0) {
+            TreadmillDevice *t = m_treadmill;
+            t->disconnectDevice();
+            QTimer::singleShot(1500, this, [this, t] {
+                if (m_treadmill == t)
+                    t->connectDevice();
+            });
+        }
+    });
+    m_pairingAgent->start();   // asynchronous; the result goes to the diagnostic log
+#endif
+}
+
+void DeviceManager::onTreadmillDataRefused(const QString &id, const QString &name)
+{
+    addDiag(QStringLiteral("%1: Treadmill Data notifications refused").arg(id));
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (m_pairingAgent && m_pairingAgent->isRegistered() && m_pairingRetried != id) {
+        m_pairingRetried = id;
+        addLog(QStringLiteral("%1 may need to be paired – pairing (type the PIN shown on the treadmill)").arg(name), true);
+        BleLink::setPairingInProgress(true);
+        m_pairingAgent->pairIfNeeded(id);
+        return;
+    }
+#endif
+    setScanError(QStringLiteral("%1 does not send its data. It may need to be paired: put it in APP mode and connect again; "
+                                "if no PIN dialog appears, pair it once with bluetoothctl (agent on, pair %2).").arg(name, id));
+}
+
+bool DeviceManager::pairingPinRequested() const
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    return m_pairingAgent && m_pairingAgent->pendingKind() != BluezPairingAgent::RequestKind::None;
+#else
+    return false;
+#endif
+}
+
+QString DeviceManager::pairingDeviceName() const
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (!m_pairingAgent)
+        return QString();
+    const QString address = m_pairingAgent->pendingAddress();
+    for (auto it = m_infos.cbegin(); it != m_infos.cend(); ++it) {
+        if (it.key().compare(address, Qt::CaseInsensitive) == 0) {
+            const QString n = effectiveName(it.value());
+            return n.isEmpty() ? address : n;
+        }
+    }
+    return address;
+#else
+    return QString();
+#endif
+}
+
+int DeviceManager::pairingMaxDigits() const
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (m_pairingAgent && m_pairingAgent->pendingKind() == BluezPairingAgent::RequestKind::PinCode)
+        return 16;
+#endif
+    return 6;
+}
+
+bool DeviceManager::submitPairingPin(const QString &pin)
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (m_pairingAgent && m_pairingAgent->submit(pin)) {
+        addLog(QStringLiteral("PIN sent – waiting for the device"), true);
+        return true;
+    }
+#else
+    Q_UNUSED(pin)
+#endif
+    return false;
+}
+
+void DeviceManager::cancelPairing()
+{
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    if (m_pairingAgent && pairingPinRequested()) {
+        m_pairingAgent->reject();
+        addLog(QStringLiteral("Pairing cancelled"), false);
+    }
+#endif
+}
+
 void DeviceManager::connectAsTreadmill(const QString &id)
 {
     if (!m_infos.contains(id)) {
@@ -1304,7 +1432,8 @@ bool DeviceManager::nameLooksLikeTreadmill(const QString &n)
 {
     static const QStringList hints { QStringLiteral("TREADMILL"), QStringLiteral("WALKINGPAD"), QStringLiteral("KINGSMITH"),
                                      QStringLiteral("NORDICTRACK"), QStringLiteral("TREAD"), QStringLiteral("LAUFBAND"),
-                                     QStringLiteral("LØBEBÅND"), QStringLiteral("RUNNING MACHINE") };
+                                     QStringLiteral("LØBEBÅND"), QStringLiteral("RUNNING MACHINE"),
+                                     QStringLiteral("KETTLER TRACK"), QStringLiteral("ALPHA RUN") };
     const QString u = n.toUpper();
     for (const QString &h : hints) {
         if (u.contains(h))
@@ -1374,6 +1503,12 @@ void DeviceManager::connectDevice(const QString &id)
     const auto hosts = QBluetoothLocalDevice::allDevices();
     if (m_selectedAdapter > 0 && m_selectedAdapter <= hosts.size())
         adapter = hosts.at(m_selectedAdapter - 1).address();
+#ifdef WATT_HAVE_BLUEZ_AGENT
+    // the pairing agent accepts Just Works / service requests only from
+    // devices the app connects to itself
+    if (m_pairingAgent && !id.startsWith(QLatin1String("sim:")))
+        m_pairingAgent->allowDevice(id);
+#endif
 
     // The driver follows the entry kind; an id is only in one list (see
     // onDiscovered), the connected kind wins if it ever is in more.
@@ -1494,6 +1629,7 @@ void DeviceManager::connectDevice(const QString &id)
             return;
         }
         releaseTreadmill();
+        m_pairingRetried.clear();
         TreadmillDevice *t = nullptr;
         if (id == kSimTreadmill) {
             t = new SimulatedTreadmill(this);
@@ -1503,6 +1639,9 @@ void DeviceManager::connectDevice(const QString &id)
                 rememberTreadmill(id, false);
                 setScanError(QStringLiteral("%1 offers no FTMS Treadmill Data (0x2ACD). It is not a Bluetooth FTMS treadmill.").arg(name));
                 addDiag(QStringLiteral("%1: no Treadmill Data (0x2ACD) found").arg(id));
+            });
+            connect(bt, &BleTreadmill::treadmillDataRefused, this, [this, id, name = bt->name()] {
+                onTreadmillDataRefused(id, name);
             });
             t = bt;
         }

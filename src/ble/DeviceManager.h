@@ -23,6 +23,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcBle)
 
 namespace watt {
 
+class BluezPairingAgent;
 class Database;
 class GradientTest;
 class SensorHub;
@@ -129,6 +130,14 @@ class DeviceManager : public QObject
     Q_PROPERTY(double treadmillSpeedOffset READ treadmillSpeedOffset WRITE setTreadmillSpeedOffset NOTIFY treadmillDataChanged)
     Q_PROPERTY(double treadmillRawSpeed READ treadmillRawSpeed NOTIFY treadmillDataChanged)
     Q_PROPERTY(bool treadmillInclineKnown READ treadmillInclineKnown NOTIFY treadmillDataChanged)
+
+    // Bluetooth pairing with a PIN (Linux/BlueZ only, BluezPairingAgent): a
+    // device asks for the PIN shown on its display (e.g. KETTLER Track in APP
+    // mode). The app shows PairingPinDialog while pairingPinRequested.
+    Q_PROPERTY(bool pairingPinRequested READ pairingPinRequested NOTIFY pairingChanged)
+    Q_PROPERTY(QString pairingDeviceName READ pairingDeviceName NOTIFY pairingChanged)
+    // 6 for a passkey (digits only), 16 for a legacy PIN code
+    Q_PROPERTY(int pairingMaxDigits READ pairingMaxDigits NOTIFY pairingChanged)
 
     Q_PROPERTY(QVariantList log READ log NOTIFY logChanged)
     Q_PROPERTY(bool autoConnect READ autoConnect WRITE setAutoConnect NOTIFY preferencesChanged)
@@ -255,6 +264,14 @@ public:
     void setTreadmillSpeedOffset(double kmh);
     bool treadmillInclineKnown() const { return m_treadmill && m_treadmill->inclineKnown(); }
 
+    bool pairingPinRequested() const;
+    QString pairingDeviceName() const;
+    int pairingMaxDigits() const;
+    // Answers the open PIN request; false when the value is not accepted
+    // (wrong length / not digits) - the request stays open.
+    Q_INVOKABLE bool submitPairingPin(const QString &pin);
+    Q_INVOKABLE void cancelPairing();
+
     QVariantList log() const { return m_log; }
     bool autoConnect() const { return m_autoConnect; }
     void setAutoConnect(bool on);
@@ -339,6 +356,7 @@ signals:
     void controllerShiftUp();
     void controllerShiftDown();
     void controllerButtonsChanged(bool plus, bool minus);
+    void pairingChanged();
 
 public:
     enum class Kind { Unknown, Trainer, HeartRate, Rower, Controller, Treadmill };
@@ -423,6 +441,12 @@ private:
     void releaseHeartRate();
     void releaseRower();
     void savePreferences();
+    void startPairingAgent();
+    // The treadmill refused Treadmill Data: pair it (PIN) and reconnect.
+    void onTreadmillDataRefused(const QString &id, const QString &name);
+
+    BluezPairingAgent *m_pairingAgent = nullptr;   // Linux only, else null
+    QString m_pairingRetried;                      // id paired after a refusal (once per connect)
 
     Database *m_db;
     SensorHub *m_hub;

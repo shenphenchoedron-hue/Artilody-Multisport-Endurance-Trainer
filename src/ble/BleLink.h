@@ -51,6 +51,10 @@ public:
     void setInspectOtherServices(bool on) { m_inspectOthers = on; }
     static constexpr int kInspectDelayMs = 1500;
     static constexpr int kInspectTimeoutMs = 8000;
+    // A PIN dialog is open (BluezPairingAgent): the service discovery timeout
+    // waits while the user types the PIN instead of dropping the link.
+    static void setPairingInProgress(bool on) { s_pairingInProgress = on; }
+    static bool pairingInProgress() { return s_pairingInProgress; }
 
     LinkState state() const override { return m_state; }
     QLowEnergyService *service() const { return m_service; }
@@ -75,6 +79,7 @@ public:
     bool read(const QBluetoothUuid &characteristic) override;
 
 private:
+    static inline bool s_pairingInProgress = false;
     void setState(LinkState s);
     void cleanup();
     void onServiceState(QLowEnergyService::ServiceState s);

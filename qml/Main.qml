@@ -472,6 +472,22 @@ ApplicationWindow {
             onMessage: (text) => window.showToast(text)
         }
 
+        // Bluetooth PIN (Linux/BlueZ): above everything, the device waits
+        // for the answer (KETTLER Track treadmill in APP mode, ...)
+        PairingPinDialog {
+            id: pairingPinDialog
+            z: 1002
+        }
+        Connections {
+            target: Devices
+            function onPairingChanged() {
+                if (Devices.pairingPinRequested)
+                    pairingPinDialog.open()
+                else if (pairingPinDialog.visible)
+                    pairingPinDialog.close()
+            }
+        }
+
         Toast {
             id: toast
             anchors.horizontalCenter: parent.horizontalCenter

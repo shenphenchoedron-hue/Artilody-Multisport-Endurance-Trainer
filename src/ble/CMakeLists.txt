@@ -28,3 +28,12 @@ qt_add_library(watt_ble STATIC
 )
 target_include_directories(watt_ble PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(watt_ble PUBLIC watt_bleprotocol watt_core Qt6::Bluetooth Qt6::Gui)
+
+# Linux (BlueZ): an in-app pairing agent so devices that pair with a PIN
+# (e.g. KETTLER Track treadmills) can be paired on a Raspberry Pi.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    target_sources(watt_ble PRIVATE BluezPairingAgent.h BluezPairingAgent.cpp)
+    target_link_libraries(watt_ble PUBLIC Qt6::DBus)
+    target_compile_definitions(watt_ble PUBLIC WATT_HAVE_BLUEZ_AGENT)
+endif()

@@ -46,7 +46,20 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.1
+## What's new in 2.2.2
+
+**Bluetooth treadmills that pair with a PIN (KETTLER Track S2 – S10, Alpha Run) on the Raspberry Pi.** These treadmills only send their speed over a paired link: in APP mode the console shows a 6-digit PIN that has to be typed on the connecting device. A phone asks for it by itself, the Raspberry Pi did not – the pairing failed silently and the treadmill never connected.
+
+- **The app now asks for the PIN itself** (Linux / Raspberry Pi): when a device wants to pair, a *Bluetooth PIN* window opens on top of everything. Type the number shown on the treadmill on the keyboard, or tap it in on the **number pad** in the window (for a Pi with a touch screen and no keyboard), then *Pair*. You have about 30 seconds.
+- If the treadmill refuses to send its data, the app pairs it and connects again by itself. Once paired, it reconnects without asking again.
+- **KETTLER Track** and **Alpha Run** treadmills are recognised as treadmills from their name.
+- Safe while the app runs: only devices the app connects to itself are accepted without a PIN – pairing or connection requests from any other Bluetooth device nearby are refused.
+
+How to connect: close Zwift Companion (or switch off Bluetooth on the phone – the treadmill takes one connection at a time), choose *Start Menu → APP Mode* on the treadmill, scan and connect on the Devices page, and type the PIN when the window opens.
+
+Install over 2.2.1 on the stations (the server can stay on 2.2.0) – see the [2.2.2 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.2).
+
+## Also included from 2.2.1
 
 **Workout Builder: New, and a new name saves a new workout.** Building several workouts in a row no longer overwrites the one you saved before.
 
@@ -505,7 +518,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.1](#whats-new-in-221)
+- [What's new in 2.2.2](#whats-new-in-222)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

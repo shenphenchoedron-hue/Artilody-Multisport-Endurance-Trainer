@@ -94,6 +94,7 @@ set(APP_QML_FILES
     ${QML_ROOT}/dialogs/AntResultDialog.qml
     ${QML_ROOT}/dialogs/AntDialog.qml
     ${QML_ROOT}/dialogs/MediaLibraryDialog.qml
+    ${QML_ROOT}/dialogs/PairingPinDialog.qml
 )
 
 # All QML files live flat in the module root inside the resource system so they

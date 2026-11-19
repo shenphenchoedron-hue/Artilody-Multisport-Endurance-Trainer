@@ -1986,6 +1986,13 @@ def build(s, env):
     s.p(f"Treadmills appear on the Devices page under {UI('Treadmills')}. Any treadmill that sends the standard "
         "Bluetooth <b>FTMS Treadmill Data</b> works – most current connected treadmills and many walking pads. "
         f"The {UI('Virtual Treadmill')} lets you try everything without one; its speed follows the workout.")
+    s.p("<b>Treadmills that pair with a PIN</b> (e.g. KETTLER Track S2 – S10 and Alpha Run): choose "
+        f"{UI('Start Menu → APP Mode')} on the treadmill and close other apps connected to it (Zwift Companion – the "
+        "treadmill takes one connection at a time). Connect on the Devices page; on Linux and the Raspberry Pi a "
+        f"{UI('Bluetooth PIN')} window opens – type the 6-digit number shown on the treadmill on the keyboard or on "
+        f"the window's number pad and press {UI('Pair')} (within about 30 seconds). Once paired, it reconnects "
+        "without asking again. On Windows, pair such a treadmill once in the Bluetooth settings; macOS asks for "
+        "the PIN itself.")
     s.p(f"<b>Speed correction</b>: when the treadmill or foot pod is connected, its row shows a "
         f"{UI('Speed correction')} tile. Compare the speed with your watch or foot pod and press "
         f"{UI('−')} / {UI('+')} until they agree – 0.1 km/h per press, up to ±3 km/h. Example: if your watch "

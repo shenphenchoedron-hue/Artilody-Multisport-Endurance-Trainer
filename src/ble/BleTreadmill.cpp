@@ -24,6 +24,14 @@ BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAdd
     connect(m_link, &BleLink::serviceReady, this, &BleTreadmill::onServiceReady);
     connect(m_link, &BleLink::serviceMissing, this, &BleTreadmill::treadmillDataMissing);
     connect(m_link, &BleLink::characteristicChanged, this, &BleTreadmill::processNotification);
+    connect(m_link, &BleLink::notificationResult, this, [this](const QBluetoothUuid &uuid, bool enabled, bool ok) {
+        // A treadmill that wants an encrypted (paired) link refuses the CCCD
+        // write when pairing did not happen (e.g. KETTLER Track: PIN).
+        if (uuid == uuid16(ftms::kTreadmillDataUuid) && !enabled && !ok) {
+            DiagLog::write("TREAD", QStringLiteral("%1 [%2]: Treadmill Data notifications refused").arg(m_name, m_id));
+            emit treadmillDataRefused();
+        }
+    });
     connect(m_link, &BleLink::characteristicRead, this, [this](const QBluetoothUuid &uuid, const QByteArray &value) {
         if (uuid == uuid16(ftms::kFeatureUuid))
             DiagLog::write("TREAD", QStringLiteral("%1 features: %2").arg(m_name, ftms::describeFeatures(value)));

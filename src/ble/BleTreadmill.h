@@ -39,6 +39,9 @@ public:
 signals:
     // Connected, but the device has no FTMS Treadmill Data characteristic.
     void treadmillDataMissing();
+    // The device refused to send Treadmill Data (CCCD write failed) - usually
+    // it needs to be paired first (PIN).
+    void treadmillDataRefused();
 
 private:
     void onServiceReady();
