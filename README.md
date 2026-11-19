@@ -46,7 +46,18 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.2
+## What's new in 2.2.3
+
+**KETTLER Track treadmills connect as treadmills.** The KETTLER Track S2 – S10 have no Bluetooth FTMS: they send their belt speed like a foot pod (*Running Speed and Cadence*) next to a heart-rate service – so 2.2.2 listed the S10 as a heart-rate sensor.
+
+- **Running Speed and Cadence (RSC) treadmills and foot pods** are now listed under *Treadmills* and give the Treadmill Run its speed and distance (Stryd, Zwift RunPod and other RSC foot pods too). They send no incline – set it on the treadmill, the run uses 0 %.
+- A device that was connected as a heart-rate sensor and turns out to send running speed moves to *Treadmills* by itself. A chest strap with running dynamics (Garmin HRM-Pro, …) stays a heart-rate sensor.
+- The console's pulse (hand grips) of such a treadmill is used when no heart-rate strap is connected.
+- Pairing with the PIN from 2.2.2 stays: in APP mode the treadmill asks for its 6-digit PIN the first time.
+
+Install over 2.2.2 on the stations (the server can stay on 2.2.0) – see the [2.2.3 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.3).
+
+## Also included from 2.2.2
 
 **Bluetooth treadmills that pair with a PIN (KETTLER Track S2 – S10, Alpha Run) on the Raspberry Pi.** These treadmills only send their speed over a paired link: in APP mode the console shows a 6-digit PIN that has to be typed on the connecting device. A phone asks for it by itself, the Raspberry Pi did not – the pairing failed silently and the treadmill never connected.
 
@@ -518,7 +529,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.2](#whats-new-in-222)
+- [What's new in 2.2.3](#whats-new-in-223)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

@@ -3,6 +3,7 @@
 qt_add_library(watt_bleprotocol STATIC
     FtmsProtocol.h FtmsProtocol.cpp
     HrsProtocol.h HrsProtocol.cpp
+    RscProtocol.h RscProtocol.cpp
     Pm5Protocol.h Pm5Protocol.cpp
     ZwiftClickProtocol.h ZwiftClickProtocol.cpp
     ZwiftHubProtocol.h ZwiftHubProtocol.cpp

@@ -348,6 +348,14 @@ private slots:
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Ski"), { rowing })), K::Unknown);
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("PM5 430012345 Bike"), { ftms })), K::Unknown);
         QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("KICKR CORE"), { ftms })), K::Trainer);
+        // Running Speed and Cadence without FTMS: a treadmill sending its speed
+        // like a foot pod (KETTLER Track "S10": RSC + Heart Rate), or a foot pod
+        const QBluetoothUuid rscUuid(quint16(0x1814)), hr(quint16(0x180D));
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("S10"), { hr, rscUuid })), K::Treadmill);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("Stryd"), { rscUuid })), K::Treadmill);
+        // a chest strap with running dynamics stays a heart-rate sensor
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("HRM-Pro:123456"), { hr, rscUuid })), K::HeartRate);
+        QCOMPARE(DeviceManager::classify(leDevice(QStringLiteral("S10"), { hr })), K::HeartRate);
     }
 
     void classifyPm5Names_data()

@@ -18,6 +18,10 @@ BleHeartRateSensor::BleHeartRateSensor(const QBluetoothDeviceInfo &info, const Q
     connect(m_link, &BleLink::logMessage, this, &BleHeartRateSensor::logMessage);
     connect(m_link, &BleLink::gattDiscovered, this, &BleHeartRateSensor::gattReport);
     connect(m_link, &BleLink::serviceReady, this, [this] {
+        // Heart Rate next to Running Speed and Cadence: maybe a treadmill
+        // that sends its speed like a foot pod (KETTLER Track) - DeviceManager decides
+        if (m_link->discoveredServices().contains(QBluetoothUuid(quint16(0x1814))))
+            emit runningSpeedFound();
         if (!m_link->enableNotifications(QBluetoothUuid(hrs::kMeasurementUuid)))
             emit logMessage(QStringLiteral("Heart rate measurement not available on %1").arg(m_name), false);
         else

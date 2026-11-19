@@ -1,6 +1,17 @@
 Artilody Multisport Endurance Trainer (formerly Artilody Watts Trainer) is a free, open-source (GPL-3.0) desktop app for structured indoor cycling, rowing and treadmill running. It connects to your Bluetooth smart trainer, FTMS treadmill, heart-rate sensor and Concept2 PM5 rower, controls the trainer resistance in ERG mode and records every ride, row and run locally on your computer.
 
-## What's new in 2.2.2
+## What's new in 2.2.3
+
+**KETTLER Track treadmills connect as treadmills.** The KETTLER Track S2 – S10 have no Bluetooth FTMS: they send their belt speed like a foot pod (*Running Speed and Cadence*) next to a heart-rate service – so 2.2.2 listed the S10 as a heart-rate sensor.
+
+- **Running Speed and Cadence (RSC) treadmills and foot pods** are now listed under *Treadmills* and give the Treadmill Run its speed and distance (Stryd, Zwift RunPod and other RSC foot pods too). They send no incline – set it on the treadmill, the run uses 0 %.
+- A device that was connected as a heart-rate sensor and turns out to send running speed moves to *Treadmills* by itself. A chest strap with running dynamics (Garmin HRM-Pro, …) stays a heart-rate sensor.
+- The console's pulse (hand grips) of such a treadmill is used when no heart-rate strap is connected.
+- Pairing with the PIN from 2.2.2 stays: in APP mode the treadmill asks for its 6-digit PIN the first time.
+
+Only the app changes – install over 2.2.2 on the stations (the server can stay on 2.2.0).
+
+## Also included from 2.2.2
 
 **Bluetooth treadmills that pair with a PIN (KETTLER Track S2 – S10, Alpha Run) on the Raspberry Pi.** These treadmills only send their speed over a paired link: in APP mode the console shows a 6-digit PIN that has to be typed on the connecting device. A phone asks for it by itself, the Raspberry Pi did not – the pairing failed silently and the treadmill never connected.
 

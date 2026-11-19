@@ -25,6 +25,10 @@ public:
     void setAutoReconnect(bool on) override;
     bool reconnectNow() override;
 
+signals:
+    // the device also offers Running Speed and Cadence (0x1814)
+    void runningSpeedFound();
+
 private:
     QString m_id;
     QString m_name;

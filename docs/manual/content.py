@@ -1984,7 +1984,9 @@ def build(s, env):
              "on the right the treadmill, your AnT and the running workouts.")
     s.section("Connecting a treadmill")
     s.p(f"Treadmills appear on the Devices page under {UI('Treadmills')}. Any treadmill that sends the standard "
-        "Bluetooth <b>FTMS Treadmill Data</b> works – most current connected treadmills and many walking pads. "
+        "Bluetooth <b>FTMS Treadmill Data</b> works – most current connected treadmills and many walking pads – "
+        "and so do treadmills and foot pods that send <b>Running Speed and Cadence</b> (e.g. KETTLER Track, Stryd; "
+        "speed and distance, no incline). "
         f"The {UI('Virtual Treadmill')} lets you try everything without one; its speed follows the workout.")
     s.p("<b>Treadmills that pair with a PIN</b> (e.g. KETTLER Track S2 – S10 and Alpha Run): choose "
         f"{UI('Start Menu → APP Mode')} on the treadmill and close other apps connected to it (Zwift Companion – the "

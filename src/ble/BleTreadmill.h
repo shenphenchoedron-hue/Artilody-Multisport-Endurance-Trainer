@@ -12,6 +12,10 @@ namespace watt {
 class BleLink;
 
 // FTMS treadmill (Fitness Machine Service 0x1826, Treadmill Data 0x2ACD).
+// Without FTMS, Running Speed and Cadence (0x1814, RSC Measurement 0x2A53) is
+// used: treadmills that send their belt speed like a foot pod (KETTLER Track
+// S2 ... S10) and foot pods; speed and distance only, no incline. The
+// console's heart rate (0x2A37) of such a device is passed on.
 //
 // Strictly read-only: only notifications of Treadmill Data are enabled (and
 // the Fitness Machine Feature is read for the log). The Fitness Machine
@@ -26,8 +30,11 @@ public:
 
     QString id() const override { return m_id; }
     QString name() const override { return m_name; }
-    QString protocol() const override { return QStringLiteral("Bluetooth FTMS treadmill"); }
-    QString dataSourceText() const override { return QStringLiteral("FTMS Treadmill Data (0x2ACD)"); }
+    // FTMS Treadmill Data, or (no FTMS) Running Speed and Cadence like a foot
+    // pod (KETTLER Track): known after connecting
+    QString protocol() const override;
+    QString dataSourceText() const override;
+    bool usesRsc() const { return m_rsc; }
     void connectDevice() override;
     void disconnectDevice() override;
     void setAutoReconnect(bool on) override;
@@ -50,6 +57,7 @@ private:
     QString m_name;
     BleLink *m_link;
     bool m_logged = false;
+    bool m_rsc = false;   // connected through RSC (0x1814), not FTMS
 };
 
 } // namespace watt

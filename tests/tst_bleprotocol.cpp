@@ -1,5 +1,6 @@
 #include "FtmsProtocol.h"
 #include "HrsProtocol.h"
+#include "RscProtocol.h"
 
 #include <QtTest>
 #include <limits>
@@ -82,6 +83,32 @@ private slots:
         QVERIFY(f->simulation);
         QVERIFY(!f->resistanceTarget);
         QVERIFY(!ftms::parseFeatures(bytes({ 0x01 })));
+    }
+
+    void rscMeasurement()
+    {
+        // speed only: 3.0 m/s = 768/256 -> 10.8 km/h, cadence 160, walking
+        auto m = rsc::parseMeasurement(bytes({ 0x00, 0x00, 0x03, 0xA0 }));
+        QVERIFY(m);
+        QCOMPARE(m->speedKmh, 10.8);
+        QCOMPARE(m->cadence, 160);
+        QVERIFY(!m->running);
+        QVERIFY(!m->strideLengthM);
+        QVERIFY(!m->totalDistanceM);
+        // stride (1.20 m) + total distance (12345 = 1234.5 m) + running
+        m = rsc::parseMeasurement(bytes({ 0x07, 0x00, 0x03, 0xA0, 0x78, 0x00, 0x39, 0x30, 0x00, 0x00 }));
+        QVERIFY(m);
+        QVERIFY(m->running);
+        QCOMPARE(*m->strideLengthM, 1.2);
+        QCOMPARE(*m->totalDistanceM, 1234.5);
+        // distance without stride
+        m = rsc::parseMeasurement(bytes({ 0x02, 0x80, 0x02, 0x00, 0x10, 0x00, 0x00, 0x00 }));
+        QVERIFY(m);
+        QCOMPARE(m->speedKmh, 640 / 256.0 * 3.6);
+        QCOMPARE(*m->totalDistanceM, 1.6);
+        // too short for the flags / at all
+        QVERIFY(!rsc::parseMeasurement(bytes({ 0x02, 0x00, 0x03, 0xA0, 0x10 })));
+        QVERIFY(!rsc::parseMeasurement(bytes({ 0x00, 0x00, 0x03 })));
     }
 
     void controlPointCommands()

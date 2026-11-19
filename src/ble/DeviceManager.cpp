@@ -16,6 +16,7 @@
 #include "HrsProtocol.h"
 #include "Pm5Protocol.h"
 #include "Pm5Rower.h"
+#include "RscProtocol.h"
 #include "SensorHub.h"
 #include "SimulatedDevices.h"
 #include "ZwiftClick.h"
@@ -736,6 +737,12 @@ DeviceManager::Kind DeviceManager::classify(const QBluetoothDeviceInfo &info)
     const auto uuids = info.serviceUuids();
     if (uuids.contains(QBluetoothUuid(ftms::kServiceUuid)) || !info.serviceData(QBluetoothUuid(ftms::kServiceUuid)).isEmpty())
         return nameLooksLikeTreadmill(name) ? Kind::Treadmill : Kind::Trainer;
+    // Running Speed and Cadence without FTMS: a treadmill that sends its belt
+    // speed like a foot pod (KETTLER Track S2 ... S10 also offer Heart Rate),
+    // or a foot pod. A chest strap that also sends running dynamics as RSC
+    // (Garmin HRM-Pro, ...) stays a heart-rate sensor by its name.
+    if (uuids.contains(QBluetoothUuid(rsc::kServiceUuid)) && !nameLooksLikeHr(name))
+        return Kind::Treadmill;
     if (uuids.contains(QBluetoothUuid(hrs::kServiceUuid)))
         return Kind::HeartRate;
     // Before the name hints: "Zwift Click" would match the trainer hint "ZWIFT".
@@ -876,8 +883,11 @@ void DeviceManager::handleDeviceInfo(const QBluetoothDeviceInfo &incoming, bool 
         e.known = id == m_knownRower;
         m_rowers.upsert(e);
     } else if (kind == Kind::Treadmill) {
+        const bool rscOnly = info.serviceUuids().contains(QBluetoothUuid(rsc::kServiceUuid))
+                             && !info.serviceUuids().contains(QBluetoothUuid(ftms::kServiceUuid));
         e.protocol = activeTreadmill && m_treadmill->state() == LinkState::Connected ? m_treadmill->protocol()
-                                                                                     : QStringLiteral("Bluetooth FTMS treadmill");
+                     : rscOnly ? QStringLiteral("Bluetooth Running Speed and Cadence (RSC)")
+                               : QStringLiteral("Bluetooth FTMS treadmill");
         e.kind = kKindTreadmill;
         e.known = id == m_knownTreadmill;
         m_treadmills.upsert(e);
@@ -1428,6 +1438,25 @@ void DeviceManager::onTrainerIsTreadmill(const QString &id)
     });
 }
 
+void DeviceManager::onHeartRateIsTreadmill(const QString &id)
+{
+    if (!m_hr || m_hr->id() != id)
+        return;
+    addLog(QStringLiteral("%1 sends running speed – moved to Treadmills").arg(m_hr->name()), true);
+    addDiag(QStringLiteral("%1: heart-rate connection found Running Speed and Cadence, switching to the treadmill driver").arg(id));
+    releaseHeartRate();
+    if (m_knownHr == id) {
+        m_knownHr.clear();
+        m_db->setSetting(QStringLiteral("ble/knownHr"), QString());
+    }
+    m_hrSensors.remove(id);
+    moveToTreadmills(id);
+    QTimer::singleShot(1500, this, [this, id] {
+        if (!(m_treadmill && m_treadmill->id() == id))
+            connectDevice(id);
+    });
+}
+
 bool DeviceManager::nameLooksLikeTreadmill(const QString &n)
 {
     static const QStringList hints { QStringLiteral("TREADMILL"), QStringLiteral("WALKINGPAD"), QStringLiteral("KINGSMITH"),
@@ -1580,7 +1609,13 @@ void DeviceManager::connectDevice(const QString &id)
             sim->setPhysiology(m_restHr, m_maxHr, m_ftp);
             h = sim;
         } else if (m_infos.contains(id)) {
-            h = new BleHeartRateSensor(m_infos.value(id), adapter, this);
+            auto *bh = new BleHeartRateSensor(m_infos.value(id), adapter, this);
+            connect(bh, &BleHeartRateSensor::runningSpeedFound, this, [this, id, name = bh->name()] {
+                // a chest strap with running dynamics (HRM-Pro, ...) stays a heart-rate sensor
+                if (!nameLooksLikeHr(name))
+                    QTimer::singleShot(0, this, [this, id] { onHeartRateIsTreadmill(id); });
+            });
+            h = bh;
         }
         if (!h)
             return;

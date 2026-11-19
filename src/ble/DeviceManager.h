@@ -412,6 +412,8 @@ private:
     void rememberRower(const QString &id, bool on);
     void onTrainerIsRower(const QString &id);
     void onTrainerIsTreadmill(const QString &id);
+    // A heart-rate connection found Running Speed and Cadence (KETTLER Track).
+    void onHeartRateIsTreadmill(const QString &id);
     void rememberTreadmill(const QString &id, bool on);
     void attachTreadmill(TreadmillDevice *t);
     void releaseTreadmill();
