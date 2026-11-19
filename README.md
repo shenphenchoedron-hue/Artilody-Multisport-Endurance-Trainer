@@ -46,7 +46,13 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.4
+## What's new in 2.2.5
+
+**KETTLER Track: a fresh pairing when the treadmill refuses the connection.** When a treadmill refuses the connection twice in a row, the app now stops reconnecting, forgets the treadmill in the Raspberry Pi's Bluetooth, waits until it advertises again and pairs it fresh – the *Bluetooth PIN* window opens for the PIN shown on the treadmill. If pairing fails, the app shows the Bluetooth system's real reason instead of "Unknown Error", and the diagnostic log records the treadmill's Bluetooth state and the reason for every disconnection.
+
+Install over 2.2.4 on the stations (the server can stay on 2.2.0) – see the [2.2.5 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.5).
+
+## Also included from 2.2.4
 
 **KETTLER Track: the PIN is asked for again when the treadmill has forgotten the pairing.** The treadmill makes a new PIN in APP mode and forgets the earlier pairing, while the Raspberry Pi kept the old one – every connection was refused at once and the PIN window never came.
 
@@ -537,7 +543,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.4](#whats-new-in-224)
+- [What's new in 2.2.5](#whats-new-in-225)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

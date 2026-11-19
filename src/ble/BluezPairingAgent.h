@@ -76,13 +76,13 @@ public:
     // pairFinished() reports the result; alreadyPaired = it was paired
     // before (nothing was done).
     void pairIfNeeded(const QString &address);
-    // A device that refuses every connection although BlueZ has it paired:
-    // the treadmill has forgotten the pairing (KETTLER Track: a new PIN in
-    // APP mode), BlueZ keeps using the old keys and never asks for the PIN.
-    // Removes the device (Adapter1.RemoveDevice) when it is paired, so the
-    // next connection pairs again with the new PIN. stalePairingChecked()
-    // reports whether a pairing was removed.
-    void removeStalePairing(const QString &address);
+    // The device refuses every connection: forget it in BlueZ (keys, cached
+    // services), wait until it advertises again and pair it fresh with
+    // Device1.Pair (the PIN dialog opens). repairFinished() gives the result
+    // with BlueZ's real error text (Qt only says "Unknown Error").
+    void repair(const QString &address);
+    // Diagnostics: BlueZ's Device1 properties (Paired, Bonded, AddressType, ...) to the log.
+    void logDeviceState(const QString &address);
 
     // "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF" -> "AA:BB:CC:DD:EE:FF" ("" when no device path)
     static QString addressFromPath(const QString &path);
@@ -95,7 +95,9 @@ signals:
     void registeredChanged();
     void pairFinished(const QString &address, bool ok, bool alreadyPaired, const QString &error);
     void logMessage(const QString &text, bool ok);
-    void stalePairingChecked(const QString &address, bool removed);
+    void repairFinished(const QString &address, bool ok, const QString &error);
+    // BlueZ's reason for a disconnection of a device the app uses (BlueZ >= 5.73)
+    void deviceDisconnected(const QString &address, const QString &reason, const QString &message);
 
 public slots:
     // --- org.bluez.Agent1 (called by bluetoothd) -------------------------
@@ -109,7 +111,12 @@ public slots:
     void AuthorizeService(const QDBusObjectPath &device, const QString &uuid);
     void Cancel();
 
+private slots:
+    // (private: not exported on D-Bus as an Agent1 method)
+    void onBluezDisconnected(const QDBusMessage &msg);
+
 private:
+    void waitForDeviceAndPair(const QString &address);
     void beginRequest(RequestKind kind, const QDBusObjectPath &device);
     void clearRequest();
     // rejects the current D-Bus call unless the device is allowed; true = accepted
@@ -125,6 +132,8 @@ private:
     QString m_address;
     QDBusMessage m_pending;   // the delayed reply for the open request
     QSet<QString> m_allowed;  // upper-case addresses the app connects to
+    QString m_repairAddress;  // repair() in progress
+    int m_repairTries = 0;
 };
 
 } // namespace watt

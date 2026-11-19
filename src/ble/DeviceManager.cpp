@@ -1301,16 +1301,30 @@ void DeviceManager::startPairingAgent()
             });
         }
     });
-    connect(m_pairingAgent, &BluezPairingAgent::stalePairingChecked, this, [this](const QString &address, bool removed) {
-        if (!removed)
+    connect(m_pairingAgent, &BluezPairingAgent::deviceDisconnected, this,
+            [this](const QString &address, const QString &reason, const QString &message) {
+        addDiag(QStringLiteral("%1 disconnected: %2 %3").arg(address, reason, message));
+    });
+    connect(m_pairingAgent, &BluezPairingAgent::repairFinished, this, [this](const QString &address, bool ok, const QString &error) {
+        BleLink::setPairingInProgress(false);
+        if (!(m_treadmill && m_treadmill->id().compare(address, Qt::CaseInsensitive) == 0))
             return;
-        QString name = address;
-        if (m_treadmill && m_treadmill->id().compare(address, Qt::CaseInsensitive) == 0)
-            name = m_treadmill->name();
-        addLog(QStringLiteral("%1 refused the old pairing – removed it. Connecting again: type the new PIN shown on "
-                              "the treadmill").arg(name), true);
-        // BlueZ forgot the device with its pairing: it must be seen advertising again
-        ensureScanning();
+        if (!ok) {
+            addLog(QStringLiteral("Pairing with %1 failed: %2").arg(m_treadmill->name(), error), false);
+            setScanError(QStringLiteral("%1 could not be paired: %2. Put it in APP mode (it must show the Bluetooth "
+                                        "symbol / PIN), close other apps connected to it and connect again.")
+                             .arg(m_treadmill->name(), error));
+            return;
+        }
+        addLog(QStringLiteral("Paired with %1 – connecting").arg(m_treadmill->name()), true);
+        m_treadmillFailures = 0;
+        TreadmillDevice *t = m_treadmill;
+        QTimer::singleShot(1000, this, [this, t] {
+            if (m_treadmill == t) {
+                t->setAutoReconnect(m_autoConnect);
+                t->connectDevice();
+            }
+        });
     });
     m_pairingAgent->start();   // asynchronous; the result goes to the diagnostic log
 #endif
@@ -1320,15 +1334,25 @@ void DeviceManager::onTreadmillConnectFailed(const QString &id)
 {
     ++m_treadmillFailures;
 #ifdef WATT_HAVE_BLUEZ_AGENT
-    // Every connection refused at once although the treadmill advertises: it
-    // may have forgotten an earlier pairing (KETTLER Track: a new PIN in APP
-    // mode) while BlueZ still uses the old keys and never asks for the PIN.
-    // Remove BlueZ's pairing once, so the next connection asks for the PIN.
-    if (m_treadmillFailures == 2 && m_pairingAgent && m_pairingAgent->isRegistered()
-        && !id.startsWith(QLatin1String("sim:")) && !m_stalePairingChecked.contains(id)) {
+    if (!m_pairingAgent || id.startsWith(QLatin1String("sim:")))
+        return;
+    if (m_treadmillFailures <= 3)
+        m_pairingAgent->logDeviceState(id);
+    // Every connection refused at once although the treadmill advertises
+    // (KETTLER Track: a new PIN in APP mode, an old or half pairing in BlueZ,
+    // a cached BR/EDR bearer): stop reconnecting, forget the device in BlueZ
+    // and pair it fresh with Device1.Pair - the PIN dialog opens and a
+    // failure gives BlueZ's real reason instead of Qt's "Unknown Error".
+    if (m_treadmillFailures == 2 && m_pairingAgent->isRegistered() && !m_stalePairingChecked.contains(id)
+        && m_treadmill && m_treadmill->id() == id) {
         m_stalePairingChecked.insert(id);
-        addDiag(QStringLiteral("%1: connection refused twice – checking for an old pairing").arg(id));
-        m_pairingAgent->removeStalePairing(id);
+        addDiag(QStringLiteral("%1: connection refused twice – pairing it fresh").arg(id));
+        addLog(QStringLiteral("%1 refuses the connection – pairing it again. Type the PIN shown on the treadmill "
+                              "when the window opens").arg(m_treadmill->name()), true);
+        m_treadmill->disconnectDevice();   // no reconnect attempts while pairing
+        BleLink::setPairingInProgress(true);
+        ensureScanning();                  // BlueZ must see it advertise after the removal
+        m_pairingAgent->repair(id);
     }
 #else
     Q_UNUSED(id)
