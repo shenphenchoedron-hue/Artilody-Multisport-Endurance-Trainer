@@ -128,6 +128,7 @@ void BluezPairingAgent::repair(const QString &address)
     allowDevice(address);
     m_repairAddress = address;
     m_repairTries = 0;
+    m_pairRetries = 0;
     findDevicePath(address, [this, address](const QString &path) {
         if (path.isEmpty()) {
             waitForDeviceAndPair(address);
@@ -179,6 +180,16 @@ void BluezPairingAgent::waitForDeviceAndPair(const QString &address)
                 set << kDeviceIface << QStringLiteral("Trusted") << QVariant::fromValue(QDBusVariant(true));
                 QDBusConnection::systemBus().send(set);
                 emit repairFinished(address, true, QString());
+            } else if (r.error().name() == QLatin1String("org.bluez.Error.ConnectionAttemptFailed") && m_pairRetries < 3) {
+                // "Page Timeout": the treadmill did not answer the connection
+                // request in time (busy after the refused attempts) - again
+                ++m_pairRetries;
+                DiagLog::write("PAIR", QStringLiteral("%1 pairing: %2 – trying again (%3/3)")
+                                           .arg(address, r.error().message()).arg(m_pairRetries));
+                m_repairAddress = address;
+                m_repairTries = 0;
+                QTimer::singleShot(3000, this, [this, address] { waitForDeviceAndPair(address); });
+                return;
             } else {
                 DiagLog::write("PAIR", QStringLiteral("%1 pairing failed: %2 %3").arg(address, r.error().name(), r.error().message()));
                 emit repairFinished(address, false, QStringLiteral("%1 (%2)").arg(r.error().message(), r.error().name()));

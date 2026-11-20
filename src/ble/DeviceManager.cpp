@@ -1318,6 +1318,7 @@ void DeviceManager::startPairingAgent()
         }
         addLog(QStringLiteral("Paired with %1 – connecting").arg(m_treadmill->name()), true);
         m_treadmillFailures = 0;
+        m_repairCount.remove(address);
         TreadmillDevice *t = m_treadmill;
         QTimer::singleShot(1000, this, [this, t] {
             if (m_treadmill == t) {
@@ -1343,10 +1344,13 @@ void DeviceManager::onTreadmillConnectFailed(const QString &id)
     // a cached BR/EDR bearer): stop reconnecting, forget the device in BlueZ
     // and pair it fresh with Device1.Pair - the PIN dialog opens and a
     // failure gives BlueZ's real reason instead of Qt's "Unknown Error".
-    if (m_treadmillFailures == 2 && m_pairingAgent->isRegistered() && !m_stalePairingChecked.contains(id)
+    // At the first refusal: a KETTLER Track makes a new PIN in every APP mode
+    // session, so a pairing kept from an earlier session is always stale.
+    // Up to 3 fresh pairings per device and app session.
+    if (m_treadmillFailures == 1 && m_pairingAgent->isRegistered() && m_repairCount.value(id) < 3
         && m_treadmill && m_treadmill->id() == id) {
-        m_stalePairingChecked.insert(id);
-        addDiag(QStringLiteral("%1: connection refused twice – pairing it fresh").arg(id));
+        m_repairCount[id] = m_repairCount.value(id) + 1;
+        addDiag(QStringLiteral("%1: connection refused – pairing it fresh").arg(id));
         addLog(QStringLiteral("%1 refuses the connection – pairing it again. Type the PIN shown on the treadmill "
                               "when the window opens").arg(m_treadmill->name()), true);
         m_treadmill->disconnectDevice();   // no reconnect attempts while pairing

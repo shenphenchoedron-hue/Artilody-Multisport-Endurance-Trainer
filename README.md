@@ -46,7 +46,13 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.6
+## What's new in 2.2.7
+
+**KETTLER Track: connecting again the next day.** The treadmill makes a new PIN every time it is put in APP mode, so the pairing the Raspberry Pi kept from the last run is never accepted again. The app now pairs it fresh at the first refused connection (the *Bluetooth PIN* window opens), and tries the pairing up to three times when the treadmill does not answer at once ("Page Timeout").
+
+Install over 2.2.6 on the stations (the server can stay on 2.2.0) – see the [2.2.7 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.7).
+
+## Also included from 2.2.6
 
 **KETTLER Track: looking for the incline.** The treadmill sends speed and cadence over Running Speed and Cadence, which has no incline. 2.2.6 also listens to the treadmill's own (KETTLER) data channel and writes every change of it, and of the speed packets, to the diagnostic log (*TRAW* lines), together with the treadmill's model and firmware – so the incline can be found in it and added in a later version. Nothing is sent to the treadmill.
 
@@ -549,7 +555,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.6](#whats-new-in-226)
+- [What's new in 2.2.7](#whats-new-in-227)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

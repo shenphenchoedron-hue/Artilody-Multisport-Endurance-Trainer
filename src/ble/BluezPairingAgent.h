@@ -134,6 +134,7 @@ private:
     QSet<QString> m_allowed;  // upper-case addresses the app connects to
     QString m_repairAddress;  // repair() in progress
     int m_repairTries = 0;
+    int m_pairRetries = 0;    // Pair retried after "Page Timeout"
 };
 
 } // namespace watt

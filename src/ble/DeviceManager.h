@@ -452,7 +452,7 @@ private:
     void onTreadmillConnectFailed(const QString &id);
     int m_treadmillFailures = 0;
     bool m_treadmillEverConnected = false;
-    QSet<QString> m_stalePairingChecked;          // once per device and session
+    QHash<QString, int> m_repairCount;            // fresh pairings per device (this session)
     BluezPairingAgent *m_pairingAgent = nullptr;   // Linux only, else null
     QString m_pairingRetried;                      // id paired after a refusal (once per connect)
 
