@@ -52,12 +52,16 @@ signals:
 
 private:
     void onServiceReady();
+    // diagnostics: a raw packet to the log (TRAW) when it changed
+    void logRaw(const QString &what, const QByteArray &value, QByteArray &last);
 
     QString m_id;
     QString m_name;
     BleLink *m_link;
     bool m_logged = false;
     bool m_rsc = false;   // connected through RSC (0x1814), not FTMS
+    int m_rawLines = 0;
+    QByteArray m_lastVendor, m_lastRsc;
 };
 
 } // namespace watt

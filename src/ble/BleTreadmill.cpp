@@ -9,6 +9,13 @@ namespace watt {
 
 namespace {
 QBluetoothUuid uuid16(quint16 v) { return QBluetoothUuid(v); }
+// KETTLER Track (S2 ... S10): vendor service 04831523-..., notify 04831524-...
+// (write 04831525-...). Its content is unknown - maybe the incline, which RSC
+// has no field for. Only logged (raw), never written to.
+const QBluetoothUuid kKettlerNotifyUuid(QStringLiteral("{04831524-6C9D-6CA9-5D41-03AD4FFF4ABB}"));
+constexpr int kMaxRawLines = 3000;   // per connection, diagnostic log size
+// Device Information: manufacturer, model, firmware, software
+constexpr quint16 kDisChars[] = { 0x2A29, 0x2A24, 0x2A26, 0x2A28 };
 } // namespace
 
 BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAddress &localAdapter, QObject *parent)
@@ -28,6 +35,19 @@ BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAdd
         if (m_rsc && m_link->hasCharacteristic(uuid16(hrs::kMeasurementUuid))
             && m_link->enableNotifications(uuid16(hrs::kMeasurementUuid)))
             DiagLog::write("TREAD", QStringLiteral("%1: heart rate of the console subscribed").arg(m_name));
+        if (!m_rsc)
+            return;
+        for (quint16 c : kDisChars)
+            if (m_link->hasCharacteristic(uuid16(c)))
+                m_link->read(uuid16(c));
+        // diagnostics: the vendor data, to find the incline in it
+        if (m_link->hasCharacteristic(kKettlerNotifyUuid)) {
+            if (m_link->enableNotifications(kKettlerNotifyUuid))
+                DiagLog::write("TREAD", QStringLiteral("%1: vendor data 04831524 subscribed (raw values are logged as "
+                                                       "TRAW lines - change the incline to find it)").arg(m_name));
+            else
+                DiagLog::write("TREAD", QStringLiteral("%1: vendor data 04831524 has no notifications").arg(m_name));
+        }
     });
     connect(m_link, &BleLink::stateChanged, this, [this](LinkState s) { setState(s); });
     connect(m_link, &BleLink::rssiChanged, this, [this](int r) { setRssi(r); });
@@ -37,6 +57,9 @@ BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAdd
     connect(m_link, &BleLink::serviceMissing, this, &BleTreadmill::treadmillDataMissing);
     connect(m_link, &BleLink::characteristicChanged, this, &BleTreadmill::processNotification);
     connect(m_link, &BleLink::notificationResult, this, [this](const QBluetoothUuid &uuid, bool enabled, bool ok) {
+        if (uuid == kKettlerNotifyUuid)
+            DiagLog::write("TREAD", QStringLiteral("%1: vendor data 04831524 notifications %2")
+                                        .arg(m_name, ok && enabled ? QStringLiteral("on") : QStringLiteral("refused")));
         // A treadmill that wants an encrypted (paired) link refuses the CCCD
         // write when pairing did not happen (e.g. KETTLER Track: PIN).
         if ((uuid == uuid16(ftms::kTreadmillDataUuid) || uuid == uuid16(rsc::kMeasurementUuid)) && !enabled && !ok) {
@@ -47,6 +70,11 @@ BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAdd
     connect(m_link, &BleLink::characteristicRead, this, [this](const QBluetoothUuid &uuid, const QByteArray &value) {
         if (uuid == uuid16(ftms::kFeatureUuid))
             DiagLog::write("TREAD", QStringLiteral("%1 features: %2").arg(m_name, ftms::describeFeatures(value)));
+        for (quint16 c : kDisChars)
+            if (uuid == uuid16(c))
+                DiagLog::write("TREAD", QStringLiteral("%1 device info 0x%2: \"%3\" [%4]")
+                                            .arg(m_name).arg(c, 4, 16, QLatin1Char('0'))
+                                            .arg(QString::fromUtf8(value).trimmed(), DiagLog::hex(value)));
     });
 }
 
@@ -95,6 +123,10 @@ void BleTreadmill::onServiceReady()
 
 void BleTreadmill::processNotification(const QBluetoothUuid &uuid, const QByteArray &value)
 {
+    if (uuid == kKettlerNotifyUuid) {
+        logRaw(QStringLiteral("vendor 04831524"), value, m_lastVendor);
+        return;
+    }
     if (uuid == uuid16(rsc::kMeasurementUuid)) {
         const auto m = rsc::parseMeasurement(value);
         if (!m) {
@@ -106,6 +138,7 @@ void BleTreadmill::processNotification(const QBluetoothUuid &uuid, const QByteAr
             DiagLog::write("TREAD", QStringLiteral("%1 first data: %2 [%3]").arg(m_name, rsc::describeMeasurement(*m),
                                                                                  DiagLog::hex(value)));
         }
+        logRaw(QStringLiteral("RSC %1").arg(rsc::describeMeasurement(*m)), value, m_lastRsc);
         applyMeasurement(m->speedKmh, 0.0, false, m->totalDistanceM ? *m->totalDistanceM : -1.0, 0);
         return;
     }
@@ -134,8 +167,23 @@ void BleTreadmill::processNotification(const QBluetoothUuid &uuid, const QByteAr
                      d->heartRateBpm ? *d->heartRateBpm : 0);
 }
 
+void BleTreadmill::logRaw(const QString &what, const QByteArray &value, QByteArray &last)
+{
+    // only changes (a standing treadmill repeats the same packet), bounded
+    if (value == last || m_rawLines >= kMaxRawLines)
+        return;
+    last = value;
+    if (++m_rawLines == kMaxRawLines)
+        DiagLog::write("TRAW", QStringLiteral("%1: raw logging stops here (%2 lines)").arg(m_name).arg(kMaxRawLines));
+    else
+        DiagLog::write("TRAW", QStringLiteral("%1 [%2] (%3 bytes)").arg(what, DiagLog::hex(value)).arg(value.size()));
+}
+
 void BleTreadmill::connectDevice()
 {
+    m_rawLines = 0;
+    m_lastVendor.clear();
+    m_lastRsc.clear();
     m_link->setAutoReconnect(m_autoReconnect);
     m_link->connectToDevice();
 }
