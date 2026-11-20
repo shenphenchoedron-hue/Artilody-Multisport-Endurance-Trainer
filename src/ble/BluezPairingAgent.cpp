@@ -134,7 +134,29 @@ void BluezPairingAgent::repair(const QString &address)
             waitForDeviceAndPair(address);
             return;
         }
+        // Not paired: nothing to forget - pair at once (removing the device
+        // would make BlueZ wait for it to be seen advertising again)
+        QDBusMessage get = QDBusMessage::createMethodCall(kService, path, kProps, QStringLiteral("Get"));
+        get << kDeviceIface << QStringLiteral("Paired");
+        auto *pw = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(get), this);
+        connect(pw, &QDBusPendingCallWatcher::finished, this, [this, pw, address, path] {
+            pw->deleteLater();
+            const QDBusPendingReply<QDBusVariant> pr = *pw;
+            if (!pr.isError() && !pr.value().variant().toBool()) {
+                DiagLog::write("PAIR", QStringLiteral("%1: not paired – pairing directly").arg(address));
+                waitForDeviceAndPair(address);
+                return;
+            }
+            removeAndPair(address, path);
+        });
+    });
+}
+
+void BluezPairingAgent::removeAndPair(const QString &address, const QString &path)
+{
+    {
         // remove what BlueZ remembers (keys, cached services, bearer) and pair fresh
+        emit scanPauseRequested(false);   // it must be seen advertising again
         const QString adapter = path.left(path.lastIndexOf(QLatin1Char('/')));
         QDBusMessage rm = QDBusMessage::createMethodCall(kService, adapter, QStringLiteral("org.bluez.Adapter1"),
                                                          QStringLiteral("RemoveDevice"));
@@ -147,7 +169,7 @@ void BluezPairingAgent::repair(const QString &address)
                                                : QStringLiteral("%1: BlueZ device removed, waiting for it to advertise again").arg(address));
             QTimer::singleShot(1000, this, [this, address] { waitForDeviceAndPair(address); });
         });
-    });
+    }
 }
 
 void BluezPairingAgent::waitForDeviceAndPair(const QString &address)
@@ -158,6 +180,7 @@ void BluezPairingAgent::waitForDeviceAndPair(const QString &address)
         if (m_repairAddress != address)
             return;
         if (path.isEmpty()) {
+            emit scanPauseRequested(false);
             if (++m_repairTries > 20) {
                 m_repairAddress.clear();
                 DiagLog::write("PAIR", QStringLiteral("%1: not seen advertising for 20 s").arg(address));
@@ -167,12 +190,16 @@ void BluezPairingAgent::waitForDeviceAndPair(const QString &address)
             QTimer::singleShot(1000, this, [this, address] { waitForDeviceAndPair(address); });
             return;
         }
+        // no scanning while connecting: some controllers (Broadcom/Cypress in
+        // the Raspberry Pi) fail LE connections during an active scan
+        emit scanPauseRequested(true);
         const QDBusMessage msg = QDBusMessage::createMethodCall(kService, path, kDeviceIface, QStringLiteral("Pair"));
-        DiagLog::write("PAIR", QStringLiteral("Device1.Pair %1 (fresh pairing)").arg(path));
+        DiagLog::write("PAIR", QStringLiteral("Device1.Pair %1 (fresh pairing, scan paused)").arg(path));
         auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(msg, 60000), this);
         connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, address, path] {
             w->deleteLater();
             m_repairAddress.clear();
+            emit scanPauseRequested(false);
             const QDBusPendingReply<> r = *w;
             if (!r.isError() || r.error().name() == QLatin1String("org.bluez.Error.AlreadyExists")) {
                 DiagLog::write("PAIR", QStringLiteral("%1 paired").arg(address));
@@ -188,7 +215,7 @@ void BluezPairingAgent::waitForDeviceAndPair(const QString &address)
                                            .arg(address, r.error().message()).arg(m_pairRetries));
                 m_repairAddress = address;
                 m_repairTries = 0;
-                QTimer::singleShot(3000, this, [this, address] { waitForDeviceAndPair(address); });
+                QTimer::singleShot(5000, this, [this, address] { waitForDeviceAndPair(address); });
                 return;
             } else {
                 DiagLog::write("PAIR", QStringLiteral("%1 pairing failed: %2 %3").arg(address, r.error().name(), r.error().message()));

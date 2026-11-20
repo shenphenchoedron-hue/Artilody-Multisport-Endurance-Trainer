@@ -1301,6 +1301,14 @@ void DeviceManager::startPairingAgent()
             });
         }
     });
+    connect(m_pairingAgent, &BluezPairingAgent::scanPauseRequested, this, [this](bool pause) {
+        if (pause) {
+            if (scanning())
+                stopScan();
+        } else {
+            ensureScanning();
+        }
+    });
     connect(m_pairingAgent, &BluezPairingAgent::deviceDisconnected, this,
             [this](const QString &address, const QString &reason, const QString &message) {
         addDiag(QStringLiteral("%1 disconnected: %2 %3").arg(address, reason, message));
@@ -1355,8 +1363,7 @@ void DeviceManager::onTreadmillConnectFailed(const QString &id)
                               "when the window opens").arg(m_treadmill->name()), true);
         m_treadmill->disconnectDevice();   // no reconnect attempts while pairing
         BleLink::setPairingInProgress(true);
-        ensureScanning();                  // BlueZ must see it advertise after the removal
-        m_pairingAgent->repair(id);
+        m_pairingAgent->repair(id);        // pauses / resumes the scan itself
     }
 #else
     Q_UNUSED(id)

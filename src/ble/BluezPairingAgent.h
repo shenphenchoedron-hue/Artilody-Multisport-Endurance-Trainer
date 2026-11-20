@@ -96,6 +96,8 @@ signals:
     void pairFinished(const QString &address, bool ok, bool alreadyPaired, const QString &error);
     void logMessage(const QString &text, bool ok);
     void repairFinished(const QString &address, bool ok, const QString &error);
+    // pause (true) / resume (false) the app's own scan around Device1.Pair
+    void scanPauseRequested(bool pause);
     // BlueZ's reason for a disconnection of a device the app uses (BlueZ >= 5.73)
     void deviceDisconnected(const QString &address, const QString &reason, const QString &message);
 
@@ -117,6 +119,7 @@ private slots:
 
 private:
     void waitForDeviceAndPair(const QString &address);
+    void removeAndPair(const QString &address, const QString &path);
     void beginRequest(RequestKind kind, const QDBusObjectPath &device);
     void clearRequest();
     // rejects the current D-Bus call unless the device is allowed; true = accepted
