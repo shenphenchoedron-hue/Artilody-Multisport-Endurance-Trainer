@@ -46,7 +46,13 @@ It is written in C++17 with Qt 6 / QML and runs on **Windows**, **macOS**, **Lin
 
 ---
 
-## What's new in 2.2.8
+## What's new in 2.2.9
+
+**Treadmill diagnostics off by default.** The raw treadmill logging from 2.2.6 (a *TRAW* line per second during a run, and the subscription to the KETTLER data channel) is switched off, so the diagnostic log stays small. Start the app with `WATT_TREADMILL_RAW=1` to switch it on again. The treadmill's model and firmware are still logged once when it connects.
+
+Install over 2.2.8 on the stations (the server can stay on 2.2.0) – see the [2.2.9 release notes](https://github.com/shenphenchoedron-hue/Artilody-Multisport-Endurance-Trainer/releases/tag/v2.2.9).
+
+## Also included from 2.2.8
 
 **KETTLER Track: no scanning while pairing.** The Raspberry Pi's Bluetooth chip can fail to open a connection while it is scanning at the same time. The app now pauses its scan while it pairs the treadmill, pairs at once when the treadmill is not paired yet (instead of first making the Pi forget it), and waits 5 s between pairing attempts.
 
@@ -561,7 +567,7 @@ All releases: [GitHub Releases](https://github.com/shenphenchoedron-hue/Artilody
 
 ## Contents
 
-- [What's new in 2.2.8](#whats-new-in-228)
+- [What's new in 2.2.9](#whats-new-in-229)
 - [Training together (network server)](#training-together-network-server)
 - [Features](#features)
   - [Ride](#ride) · [Free Ride & virtual shifting](#free-ride--virtual-shifting) · [Real Life Video](#real-life-video) · [GPX Ride](#gpx-ride) · [Treadmill Run](#treadmill-run) · [Plan](#plan) · [Row](#row-concept2-pm5) · [Train](#train) · [Analyse](#analyse) · [Devices & profiles](#devices--profiles) · [Extras](#extras)

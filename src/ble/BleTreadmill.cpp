@@ -14,6 +14,15 @@ QBluetoothUuid uuid16(quint16 v) { return QBluetoothUuid(v); }
 // has no field for. Only logged (raw), never written to.
 const QBluetoothUuid kKettlerNotifyUuid(QStringLiteral("{04831524-6C9D-6CA9-5D41-03AD4FFF4ABB}"));
 constexpr int kMaxRawLines = 3000;   // per connection, diagnostic log size
+// The raw diagnostics (vendor channel subscription + TRAW lines for every
+// changed packet) are off by default - they write a line per second during a
+// run. Start the app with WATT_TREADMILL_RAW=1 to switch them on again, e.g.
+//   WATT_TREADMILL_RAW=1 artilody-watts-trainer
+bool rawDiagnostics()
+{
+    static const bool on = qEnvironmentVariableIntValue("WATT_TREADMILL_RAW") != 0;
+    return on;
+}
 // Device Information: manufacturer, model, firmware, software
 constexpr quint16 kDisChars[] = { 0x2A29, 0x2A24, 0x2A26, 0x2A28 };
 } // namespace
@@ -41,7 +50,7 @@ BleTreadmill::BleTreadmill(const QBluetoothDeviceInfo &info, const QBluetoothAdd
             if (m_link->hasCharacteristic(uuid16(c)))
                 m_link->read(uuid16(c));
         // diagnostics: the vendor data, to find the incline in it
-        if (m_link->hasCharacteristic(kKettlerNotifyUuid)) {
+        if (rawDiagnostics() && m_link->hasCharacteristic(kKettlerNotifyUuid)) {
             if (m_link->enableNotifications(kKettlerNotifyUuid))
                 DiagLog::write("TREAD", QStringLiteral("%1: vendor data 04831524 subscribed (raw values are logged as "
                                                        "TRAW lines - change the incline to find it)").arg(m_name));
@@ -170,7 +179,7 @@ void BleTreadmill::processNotification(const QBluetoothUuid &uuid, const QByteAr
 void BleTreadmill::logRaw(const QString &what, const QByteArray &value, QByteArray &last)
 {
     // only changes (a standing treadmill repeats the same packet), bounded
-    if (value == last || m_rawLines >= kMaxRawLines)
+    if (!rawDiagnostics() || value == last || m_rawLines >= kMaxRawLines)
         return;
     last = value;
     if (++m_rawLines == kMaxRawLines)
